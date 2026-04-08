@@ -1,0 +1,6 @@
+__pycache__/
+app/__pycache__/
+app/integrations/__pycache__/
+*.pyc
+.claude/
+data/

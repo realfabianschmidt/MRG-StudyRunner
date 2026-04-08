@@ -1,0 +1,31 @@
+{
+  "study_id": "User Studi 1",
+  "questions": [
+    {
+      "type": "semantic",
+      "prompt": "How are ya",
+      "pairs": [
+        [
+          "alive",
+          "mechanical"
+        ]
+      ]
+    },
+    {
+      "type": "likert",
+      "prompt": "I love that!",
+      "scale": 8,
+      "label_min": "not at all",
+      "label_max": "very strongly"
+    },
+    {
+      "type": "ranking",
+      "prompt": "Whats best",
+      "options": [
+        "Item Ab",
+        "Item B",
+        "Item C"
+      ]
+    }
+  ]
+}

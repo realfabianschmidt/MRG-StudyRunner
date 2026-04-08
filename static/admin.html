@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Study Admin</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/iconoir/css/iconoir.css">
+<link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body class="admin">
+
+<div class="admin-layout">
+
+  <!-- ── SIDEBAR ─────────────────────────────────────────── -->
+  <aside class="admin-sidebar" id="admin-sidebar">
+
+    <!-- Clipping container for the slide animation.
+         The save bar sits outside so it is never covered. -->
+    <div class="sidebar-content">
+
+    <!-- Scrollable main content (slides away when overlay opens) -->
+    <div class="sidebar-main" id="sidebar-main">
+
+      <div class="sidebar-header">
+        <span class="sidebar-logo"><i class="iconoir-brain"></i> Study Admin</span>
+        <a href="/" target="_blank" class="sidebar-link" title="Open study">
+          <i class="iconoir-open-new-window"></i>
+        </a>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-title"><i class="iconoir-settings"></i> Settings</div>
+        <div class="field">
+          <label>Study-ID</label>
+          <input type="text" id="cfg-id" placeholder="e.g. US1">
+        </div>
+      </div>
+
+      <div class="sidebar-section sidebar-section--grow">
+        <div class="sidebar-section-title">
+          <i class="iconoir-list"></i> Questions
+          <span id="q-count" class="section-count"></span>
+        </div>
+        <div id="admin-q-list"></div>
+
+        <div class="add-area">
+          <button class="btn-add" id="btn-add-main" type="button">
+            <i class="iconoir-plus"></i> Add question
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /sidebar-main -->
+
+    <!-- Editor overlay: slides in from the right over sidebar-main -->
+    <div class="sidebar-overlay" id="sidebar-overlay">
+      <div class="overlay-header">
+        <div class="overlay-type-tag" id="overlay-type-tag"></div>
+        <button class="overlay-close" id="overlay-close" type="button" aria-label="Close editor">
+          <i class="iconoir-xmark"></i>
+        </button>
+      </div>
+      <div class="overlay-body" id="editor-fields"></div>
+    </div><!-- /sidebar-overlay -->
+    </div><!-- /sidebar-content -->
+
+    <!-- Save bar: always visible at the bottom, never covered by the overlay -->
+    <div class="sidebar-save">
+      <button class="btn-primary" id="btn-save-config" type="button">
+        <i class="iconoir-save-floppy-disk"></i> Save
+      </button>
+      <span class="save-status" id="save-status"></span>
+    </div>
+
+  </aside>
+
+  <!-- ── MAIN PREVIEW ─────────────────────────────────────── -->
+  <main class="admin-main">
+    <div id="study-preview"></div>
+    <div class="preview-empty" id="preview-empty">
+      <i class="iconoir-list-plus"></i>
+      <p>Add a question to see the preview</p>
+    </div>
+  </main>
+
+</div>
+
+<div class="toast" id="toast"><i class="iconoir-check"></i> Saved</div>
+
+<script type="module" src="/static/js/admin-controller.js"></script>
+</body>
+</html>

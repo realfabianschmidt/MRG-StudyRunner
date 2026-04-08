@@ -1,0 +1,15 @@
+{
+  "_comment": "Set enabled to true and fill in the values to activate each integration. Restart the server after any change.",
+  "lsl": {
+    "enabled": false,
+    "stream_name": "StudyRunner",
+    "stream_type": "Markers"
+  },
+  "osc": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 9000,
+    "address_start": "/study/start",
+    "address_stop": "/study/stop"
+  }
+}

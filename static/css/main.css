@@ -1,0 +1,860 @@
+/* ============================================================
+   FONTS
+   ============================================================ */
+@font-face {
+  font-family: 'Materiability';
+  src: url('../fonts/Materiability-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Materiability';
+  src: url('../fonts/Materiability-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Materiability';
+  src: url('../fonts/Materiability-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ============================================================
+   DESIGN TOKENS
+   ============================================================ */
+:root {
+  /* Colours */
+  --bg:           #F0F2F5;
+  --bg-elevated:  #FFFFFF;
+  --bg-sunken:    #E6E8EC;
+  --ink:          #08080A;
+  --ink-60:       rgba(8,8,10,.6);
+  --ink-25:       rgba(8,8,10,.25);
+  --ink-12:       rgba(8,8,10,.12);
+  --ink-06:       rgba(8,8,10,.06);
+  --accent:       #0055FF;
+  --accent-25:    rgba(0,85,255,.25);
+  --accent-12:    rgba(0,85,255,.12);
+  --accent-06:    rgba(0,85,255,.06);
+  --pos:          #00C853;
+
+  /* Shadows */
+  --shadow-sm:     0 1px 3px rgba(0,0,0,.04);
+  --shadow-md:     0 6px 20px rgba(0,0,0,.08);
+  --shadow-accent: 0 6px 20px rgba(0,85,255,.25);
+
+  /* Radii */
+  --r-pill:      100px;
+  --r-surface:   16px;
+  --r-technical: 4px;
+
+  /* Easing */
+  --fluid: cubic-bezier(.16,.85,.20,1);
+  --snap:  cubic-bezier(.34,1.56,.64,1);
+  --drift: cubic-bezier(.4,0,.2,1);
+
+  /* Timing */
+  --t-fast: .18s;
+  --t-med:  .4s;
+
+  /* Typography */
+  --font-body: 'Materiability', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* ============================================================
+   RESET
+   ============================================================ */
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ============================================================
+   STUDY PAGE — base body
+   ============================================================ */
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  position: relative;
+  overflow-x: hidden;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: radial-gradient(circle, rgba(8,8,10,.07) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* ============================================================
+   STUDY PAGE — ambient orbs
+   ============================================================ */
+.ambient { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.ambient .orb { position: absolute; border-radius: 50%; filter: blur(100px); will-change: transform; }
+.ambient .orb:nth-child(1) {
+  width: 50vmax; height: 50vmax; top: -15%; right: -10%;
+  background: rgba(0,85,255,.06);
+  animation: orbit 30s var(--drift) infinite alternate;
+}
+.ambient .orb:nth-child(2) {
+  width: 35vmax; height: 35vmax; bottom: -10%; left: 5%;
+  background: rgba(0,200,83,.03);
+  animation: orbit 40s var(--drift) infinite alternate-reverse;
+}
+@keyframes orbit {
+  0%   { transform: translate(0,0) scale(1); }
+  50%  { transform: translate(-30px,20px) scale(1.05); }
+  100% { transform: translate(15px,-25px) scale(.97); }
+}
+
+/* ============================================================
+   STUDY PAGE — screen cards
+   ============================================================ */
+.screen {
+  display: none; position: relative; z-index: 1;
+  width: 100%; max-width: 600px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--ink-06);
+  border-radius: var(--r-surface);
+  padding: 40px 36px;
+  box-shadow: var(--shadow-md);
+  animation: slideUp var(--t-med) var(--fluid) both;
+}
+.screen.active  { display: block; }
+.screen--center { text-align: center; }
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.screen-title {
+  font-size: 1.6rem; font-weight: 700; color: var(--ink);
+  letter-spacing: -.02em; margin-bottom: 8px;
+}
+.screen-sub {
+  font-size: .938rem; color: var(--ink-60); line-height: 1.6; margin-bottom: 32px;
+}
+
+/* ============================================================
+   STUDY PAGE — labels & tags
+   ============================================================ */
+.mono-label {
+  font-family: var(--font-mono); font-size: .688rem;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-25); margin-bottom: 6px; display: block;
+}
+.q-type-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: .625rem;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-25); margin-bottom: 10px;
+}
+.q-type-tag i { font-size: 12px; }
+
+/* ============================================================
+   STUDY PAGE — inputs
+   ============================================================ */
+.fi-input {
+  width: 100%; padding: 12px 14px;
+  font-family: var(--font-body); font-size: 1rem; color: var(--ink);
+  background: var(--bg-elevated); border: 1.5px solid var(--ink-12);
+  border-radius: var(--r-surface); outline: none; margin-bottom: 20px;
+  transition: border-color var(--t-fast) var(--fluid),
+              border-radius  var(--t-fast) var(--fluid),
+              box-shadow     var(--t-fast) var(--fluid);
+}
+.fi-input:focus {
+  border-color: var(--accent);
+  border-radius: var(--r-technical);
+  box-shadow: 0 0 0 3px var(--accent-12);
+}
+.fi-textarea {
+  width: 100%; padding: 12px 14px;
+  font-family: var(--font-body); font-size: .938rem; color: var(--ink);
+  background: var(--bg-elevated); border: 1.5px solid var(--ink-12);
+  border-radius: var(--r-surface); resize: vertical; min-height: 100px; outline: none;
+  transition: border-color var(--t-fast) var(--fluid),
+              border-radius  var(--t-fast) var(--fluid),
+              box-shadow     var(--t-fast) var(--fluid);
+}
+.fi-textarea:focus {
+  border-color: var(--accent);
+  border-radius: var(--r-technical);
+  box-shadow: 0 0 0 3px var(--accent-12);
+}
+
+/* ============================================================
+   STUDY PAGE — consent row
+   ============================================================ */
+.consent-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px; background: var(--ink-06);
+  border-radius: var(--r-surface); margin-bottom: 28px; cursor: pointer;
+  transition: background var(--t-fast) var(--fluid);
+}
+.consent-row:hover { background: var(--accent-06); }
+.consent-row input {
+  width: 18px; height: 18px; margin-top: 2px; flex-shrink: 0;
+  accent-color: var(--accent); cursor: pointer;
+}
+.consent-row span { font-size: .875rem; color: var(--ink-60); line-height: 1.5; }
+
+/* ============================================================
+   SHARED — buttons
+   ============================================================ */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 14px 28px; width: 100%;
+  font-family: var(--font-body); font-size: 1rem; font-weight: 600;
+  border: none; border-radius: var(--r-pill); cursor: pointer;
+  transition: all var(--t-fast) var(--fluid);
+}
+.btn--fill { background: var(--ink); color: #fff; }
+.btn--fill:hover:not(:disabled) {
+  background: var(--accent);
+  border-radius: var(--r-technical);
+  box-shadow: var(--shadow-accent);
+  transform: translateY(-2px);
+}
+.btn--fill:disabled { background: var(--ink-25); cursor: not-allowed; }
+.btn i { font-size: 18px; }
+
+/* ============================================================
+   STIMULUS CARD — body centering and countdown elements
+   ============================================================ */
+/* .stimulus-body centers everything inside the card tile so the ring
+   and labels sit symmetrically regardless of card width. */
+.stimulus-body { text-align: center; }
+/* Override the full-screen margin-bottom (32px) to fit inside a card */
+.stimulus-body .screen-sub { margin-bottom: 16px; }
+/* display:block makes margin:auto work inside a flex container */
+.cd-ring  { width: 160px; height: 160px; margin: 8px auto 4px; display: block; }
+.cd-num   { font-size: 3.5rem; font-weight: 300; color: var(--ink); letter-spacing: -.03em; }
+.cd-lbl   {
+  font-family: var(--font-mono); font-size: .688rem;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-25); margin: 4px 0 16px;
+}
+
+/* ============================================================
+   STUDY PAGE — question blocks
+   ============================================================ */
+.q-block {
+  margin-bottom: 32px;
+  animation: fadeIn var(--t-med) var(--fluid) both;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.q-prompt  { font-size: 1.05rem; font-weight: 600; color: var(--ink); line-height: 1.55; margin-bottom: 16px; }
+.divider   { width: 100%; height: 1px; background: var(--ink-06); margin: 0 0 32px; }
+
+/* Likert */
+.likert-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.likert-row input { display: none; }
+.likert-row label {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 1.5px solid var(--ink-12);
+  display: flex; align-items: center; justify-content: center;
+  font-size: .875rem; font-weight: 500; color: var(--ink-60); cursor: pointer;
+  transition: all var(--t-fast) var(--fluid); flex-shrink: 0;
+}
+.likert-row label:hover {
+  border-color: var(--accent-25); background: var(--accent-06);
+  color: var(--accent); border-radius: var(--r-technical); transform: scale(1.08);
+}
+.likert-row input:checked + label {
+  background: var(--ink); border-color: var(--ink); color: #fff;
+  border-radius: var(--r-technical); transform: scale(1.1); box-shadow: var(--shadow-md);
+}
+.polar-labels {
+  display: flex; justify-content: space-between;
+  font-family: var(--font-mono); font-size: .625rem;
+  letter-spacing: .06em; color: var(--ink-25); text-transform: uppercase; padding: 0 2px;
+}
+
+/* Semantic differential */
+.sem-pair  { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.sem-pole  { font-size: .875rem; font-weight: 500; color: var(--ink-60); flex: 0 0 90px; white-space: nowrap; }
+.sem-pole:last-child { text-align: right; }
+.sem-track { flex: 1; display: flex; gap: 4px; }
+.sem-track input { display: none; }
+.sem-track label {
+  flex: 1; height: 34px; border-radius: var(--r-pill);
+  border: 1.5px solid var(--ink-12); cursor: pointer;
+  transition: all var(--t-fast) var(--fluid);
+}
+.sem-track label:hover { background: var(--accent-06); border-color: var(--accent-25); }
+.sem-track input:checked + label { background: var(--ink); border-color: var(--ink); border-radius: var(--r-technical); }
+
+/* Chips (multiple choice) */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips input { display: none; }
+.chips label {
+  padding: 9px 16px; border-radius: var(--r-pill);
+  border: 1.5px solid var(--ink-12);
+  font-size: .875rem; color: var(--ink-60); cursor: pointer;
+  transition: all var(--t-fast) var(--fluid); user-select: none;
+}
+.chips label:hover {
+  border-color: var(--accent-25); background: var(--accent-06);
+  color: var(--accent); border-radius: var(--r-technical);
+}
+.chips input:checked + label {
+  background: var(--ink); border-color: var(--ink); color: #fff;
+  border-radius: var(--r-technical); box-shadow: var(--shadow-sm);
+}
+
+/* VAS slider */
+.vas-wrap    { display: flex; flex-direction: column; gap: 10px; }
+.vas-track   { display: flex; align-items: center; gap: 12px; }
+.vas-pole    { font-size: .813rem; color: var(--ink-60); flex: 0 0 76px; }
+.vas-pole:last-child { text-align: right; }
+input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: pointer; }
+.vas-val     { font-family: var(--font-mono); font-size: .75rem; color: var(--accent); text-align: center; letter-spacing: .06em; }
+
+/* Ranking */
+.rank-list { display: flex; flex-direction: column; gap: 6px; }
+.rank-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; background: var(--bg-sunken);
+  border: 1px solid var(--ink-06); border-radius: var(--r-surface);
+  transition: all var(--t-fast) var(--fluid);
+}
+.rank-item:hover { border-color: var(--ink-12); background: var(--bg-elevated); }
+.rank-num  { font-family: var(--font-mono); font-size: .75rem; color: var(--ink-25); letter-spacing: .06em; flex: 0 0 20px; }
+.rank-text { flex: 1; font-size: .938rem; color: var(--ink); }
+.rank-btns { display: flex; flex-direction: column; gap: 2px; }
+.rank-btn  {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid var(--ink-12); border-radius: var(--r-surface);
+  cursor: pointer; color: var(--ink-60); transition: all var(--t-fast) var(--fluid); font-size: 14px;
+}
+.rank-btn:hover {
+  background: var(--accent-06); border-color: var(--accent-25);
+  color: var(--accent); border-radius: var(--r-technical);
+}
+.rank-btn:disabled { opacity: .25; cursor: not-allowed; }
+
+/* Done screen */
+.done-icon {
+  width: 64px; height: 64px; background: var(--pos); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 24px; color: #fff; font-size: 28px;
+  animation: popIn .5s var(--snap) both;
+}
+@keyframes popIn {
+  from { transform: scale(0); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+/* ============================================================
+   STUDY — question cards
+   ============================================================ */
+
+/* Base card style — used in both study and admin preview */
+.q-card-study {
+  background: var(--bg-elevated);
+  border: 1px solid var(--ink-06);
+  border-radius: var(--r-surface);
+  padding: 28px 28px 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* In the study, only the .active card is visible — one at a time.
+   Admin preview cards (.preview-card-wrap .q-card-study) are unaffected. */
+#q-container .q-card-study {
+  display: none;
+  margin-bottom: 0;
+}
+#q-container .q-card-study.active {
+  display: block;
+  animation: cardReveal var(--t-med) var(--fluid) both;
+}
+
+/* Directional transitions — forward slides left, back slides right */
+#q-container .q-card-study.exit-left  { animation: exitLeft  var(--t-fast) var(--fluid) both; }
+#q-container .q-card-study.exit-right { animation: exitRight var(--t-fast) var(--fluid) both; }
+#q-container .q-card-study.enter-right { animation: enterRight var(--t-med) var(--fluid) both; }
+#q-container .q-card-study.enter-left  { animation: enterLeft  var(--t-med) var(--fluid) both; }
+
+@keyframes cardReveal  { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+@keyframes exitLeft    { from { opacity:1; transform:translateX(0); }     to { opacity:0; transform:translateX(-28px); } }
+@keyframes exitRight   { from { opacity:1; transform:translateX(0); }     to { opacity:0; transform:translateX(28px); } }
+@keyframes enterRight  { from { opacity:0; transform:translateX(36px); }  to { opacity:1; transform:translateX(0); } }
+@keyframes enterLeft   { from { opacity:0; transform:translateX(-36px); } to { opacity:1; transform:translateX(0); } }
+
+/* Questions screen: transparent shell, the cards float inside */
+#screen-questions {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 20px 0 24px;
+  max-width: 640px;
+}
+
+/* ── Q-NAV: navigation bar below the active question card ── */
+.q-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 20px;
+}
+
+/* Counter "01 / 07" — FI data-label style: mono, muted, wide tracking */
+.q-counter {
+  font-family: var(--font-mono);
+  font-size: .688rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-25);
+  flex: 1;
+  text-align: center;
+}
+
+/* Nav buttons — FI morphing: organic pill (rest) → technical block (active) */
+.q-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-size: .938rem;
+  font-weight: 600;
+  border-radius: var(--r-pill);
+  border: 1.5px solid var(--ink-12);
+  background: transparent;
+  color: var(--ink-60);
+  cursor: pointer;
+  transition: all var(--t-med) var(--fluid);
+  white-space: nowrap;
+}
+.q-nav-btn--back {
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  flex-shrink: 0;
+}
+.q-nav-btn--next {
+  padding: 13px 24px;
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+/* Hover: ghost back-button becomes ink block; next becomes accent */
+.q-nav-btn--back:hover:not(:disabled) {
+  border-radius: var(--r-technical);
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--ink-06);
+}
+.q-nav-btn--next:hover:not(:disabled) {
+  border-radius: var(--r-technical);
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-accent);
+  transform: translateY(-2px);
+}
+.q-nav-btn:disabled {
+  opacity: .3;
+  cursor: not-allowed;
+}
+
+/* ============================================================
+   SHARED FIELDS (used inside cards in both study & admin)
+   ============================================================ */
+.field { margin-bottom: 14px; }
+.field:last-child { margin-bottom: 0; }
+.field label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: .688rem; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--ink-25); margin-bottom: 5px;
+}
+.field input, .field select, .field textarea {
+  width: 100%; padding: 9px 11px;
+  font-family: var(--font-body); font-size: .938rem; color: var(--ink);
+  background: var(--bg-elevated); border: 1.5px solid var(--ink-12);
+  border-radius: 8px; outline: none;
+  transition: border-color var(--t-fast);
+}
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); }
+.field textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+/* Toggle */
+.toggle-label {
+  display: flex; align-items: center; gap: 10px;
+  cursor: pointer; font-size: .875rem; color: var(--ink-60); padding: 6px 0;
+}
+input[type=checkbox].toggle {
+  width: 36px; height: 20px; appearance: none;
+  background: var(--ink-25); border-radius: 20px;
+  position: relative; cursor: pointer;
+  transition: background var(--t-fast); flex-shrink: 0;
+}
+input[type=checkbox].toggle:checked { background: var(--accent); }
+input[type=checkbox].toggle::after {
+  content: ''; position: absolute;
+  top: 2px; left: 2px; width: 16px; height: 16px;
+  background: #fff; border-radius: 50%;
+  transition: transform var(--t-fast);
+  box-shadow: 0 1px 3px rgba(0,0,0,.15);
+}
+input[type=checkbox].toggle:checked::after { transform: translateX(16px); }
+
+/* ============================================================
+   ADMIN PAGE — two-column layout
+   ============================================================ */
+body.admin {
+  display: block;
+  align-items: unset;
+  justify-content: unset;
+  padding: 0;
+  background: var(--bg);
+  background-image: radial-gradient(circle, rgba(8,8,10,.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+body.admin::before { display: none; }
+
+.admin-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  min-height: 100vh;
+}
+
+/* ── Sidebar ── */
+.admin-sidebar {
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--ink-12);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden; /* clips the sliding overlay — do not change */
+}
+
+/* Wrapper that contains both the list and the overlay.
+   It fills the available space above the always-visible save bar. */
+.sidebar-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The scrollable list view (header, settings, question list, add button) */
+.sidebar-main {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  transition: transform var(--t-med) var(--fluid), opacity var(--t-med) var(--fluid);
+}
+
+/* Editor overlay — slides in from the right over the list content */
+.sidebar-overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-elevated);
+  transform: translateX(105%); /* slightly past edge so shadow doesn't peek */
+  transition: transform var(--t-med) var(--fluid);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+
+/* has-overlay state: list slides away, overlay slides in */
+.admin-sidebar.has-overlay .sidebar-main {
+  transform: translateX(-10%);
+  opacity: 0;
+  pointer-events: none;
+}
+.admin-sidebar.has-overlay .sidebar-overlay {
+  transform: translateX(0);
+}
+
+/* Overlay header */
+.overlay-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--ink-06);
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+}
+.overlay-type-tag {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: .688rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-25);
+  flex: 1;
+}
+.overlay-type-tag i { font-size: 14px; }
+.overlay-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--ink-12);
+  border-radius: var(--r-pill);
+  color: var(--ink-25);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all var(--t-fast) var(--fluid);
+  flex-shrink: 0;
+}
+.overlay-close:hover {
+  border-radius: var(--r-technical);
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+/* Editor fields inside the overlay */
+.overlay-body {
+  padding: 20px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.sidebar-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--ink-06);
+  flex-shrink: 0;
+}
+.sidebar-logo {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 1rem; font-weight: 700; color: var(--ink); flex: 1;
+}
+.sidebar-logo i { font-size: 18px; color: var(--accent); }
+.sidebar-link {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--ink-12); border-radius: 8px;
+  color: var(--ink-60); text-decoration: none; font-size: 16px;
+  transition: border-color var(--t-fast), color var(--t-fast);
+}
+.sidebar-link:hover { border-color: var(--ink-25); color: var(--ink); }
+
+.sidebar-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--ink-06);
+  flex-shrink: 0;
+}
+.sidebar-section--grow { flex: 1; overflow-y: auto; }
+.sidebar-section-title {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--font-mono); font-size: .688rem;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-25); margin-bottom: 14px;
+}
+.sidebar-section-title i { font-size: 14px; }
+
+.section-count { font-weight: 400; color: var(--ink-25); font-size: .813rem; margin-left: 4px; }
+
+/* Question number tag inside the overlay header */
+.editor-index { margin-left: auto; color: var(--ink-25); font-size: .75rem; }
+
+/* Question list in sidebar */
+#admin-q-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.admin-q-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast);
+  user-select: none;
+}
+.admin-q-item:hover { background: var(--bg-sunken); border-color: var(--ink-06); }
+.admin-q-item.selected { background: var(--accent-06); border-color: var(--accent-25); }
+.admin-q-num { font-family: var(--font-mono); font-size: .625rem; color: var(--ink-25); flex: 0 0 16px; }
+.admin-q-type-icon { font-size: 14px; color: var(--ink-25); flex-shrink: 0; }
+.admin-q-item.selected .admin-q-type-icon { color: var(--accent); }
+.admin-q-label { flex: 1; font-size: .813rem; color: var(--ink-60); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-q-label em { color: var(--ink-25); font-style: italic; }
+.admin-q-item.selected .admin-q-label { color: var(--ink); }
+.admin-q-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.admin-q-actions button {
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid transparent; border-radius: 6px;
+  cursor: pointer; color: var(--ink-25); font-size: 12px;
+  transition: all .12s;
+}
+.admin-q-actions button:hover { border-color: var(--ink-12); color: var(--ink); background: var(--bg-elevated); }
+.admin-q-actions button.del:hover { border-color: #ffaaaa; color: #cc2200; background: #fff8f8; }
+.admin-q-actions button:disabled { opacity: .3; cursor: not-allowed; }
+
+/* Add area */
+.btn-add {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; padding: 10px;
+  background: transparent; border: 1.5px dashed var(--ink-12); border-radius: 8px;
+  font-family: var(--font-body); font-size: .875rem; font-weight: 500;
+  color: var(--ink-60); cursor: pointer;
+  transition: border-color var(--t-fast), color var(--t-fast), background var(--t-fast);
+}
+.btn-add:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-06); }
+
+/* Type picker — rendered inside the overlay body */
+.type-picker-title {
+  font-family: var(--font-mono); font-size: .625rem;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-25); padding: 0 0 12px;
+}
+.type-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 6px; }
+.type-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 12px 8px; border-radius: 8px;
+  border: 1.5px solid var(--ink-12); background: var(--bg);
+  cursor: pointer; font-family: var(--font-body); font-size: .75rem;
+  color: var(--ink-60); font-weight: 500;
+  transition: all .12s; text-align: center;
+}
+.type-btn:hover { background: var(--bg-elevated); border-color: var(--accent); color: var(--accent); }
+.type-btn i { font-size: 20px; color: var(--ink-25); }
+.type-btn:hover i { color: var(--accent); }
+.type-btn small { font-size: .625rem; color: var(--ink-25); font-weight: 400; margin-top: -2px; }
+
+/* Save bar inside sidebar */
+.sidebar-save {
+  padding: 14px 20px;
+  border-top: 1px solid var(--ink-12);
+  background: var(--bg-elevated);
+  display: flex; align-items: center; gap: 10px;
+  flex-shrink: 0;
+  margin-top: auto;
+}
+.save-status { font-size: .75rem; color: var(--ink-25); flex: 1; }
+.save-status.saved { color: var(--pos); }
+
+/* Primary button */
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 10px 16px;
+  font-family: var(--font-body); font-size: .875rem; font-weight: 600;
+  background: var(--ink); color: #fff;
+  border-radius: 8px; border: none; cursor: pointer;
+  transition: background var(--t-fast);
+  white-space: nowrap;
+}
+.btn-primary:hover { background: var(--accent); }
+.btn-primary i { font-size: 16px; }
+
+/* ── Main preview area ── */
+.admin-main {
+  padding: 32px 40px 60px;
+  overflow-y: auto;
+}
+
+/* Preview card wrapper (adds hover edit overlay).
+   max-width and margin-inline match the study view (max-width 640px) so the
+   admin preview tiles look the same as what the participant sees. */
+.preview-card-wrap {
+  position: relative;
+  margin-bottom: 16px;
+  max-width: 600px;
+  margin-inline: auto;
+}
+.preview-card-wrap .q-card-study {
+  margin-bottom: 0;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+  pointer-events: none; /* cards are display-only in admin */
+}
+.preview-card-wrap.selected .q-card-study {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-12), var(--shadow-md);
+}
+.preview-card-overlay {
+  position: absolute;
+  top: 12px; right: 12px;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.preview-card-wrap:hover .preview-card-overlay,
+.preview-card-wrap.selected .preview-card-overlay { opacity: 1; }
+.preview-card-overlay button {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 12px; font-size: .75rem; font-weight: 500;
+  background: var(--bg-elevated); color: var(--accent);
+  border: 1px solid var(--accent-25); border-radius: var(--r-pill);
+  cursor: pointer; transition: all var(--t-fast);
+  font-family: var(--font-body);
+}
+.preview-card-overlay button:hover { background: var(--accent); color: #fff; }
+.preview-card-overlay button i { font-size: 14px; }
+
+/* Empty preview state */
+.preview-empty {
+  text-align: center; padding: 80px 20px;
+  color: var(--ink-25); font-size: .938rem;
+}
+.preview-empty i { font-size: 48px; display: block; margin-bottom: 16px; }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--ink); color: #fff; padding: 10px 20px; border-radius: 8px;
+  font-size: .875rem; opacity: 0; pointer-events: none;
+  transition: opacity .2s, transform .2s; z-index: 999;
+  display: flex; align-items: center; gap: 8px;
+  transform: translateY(8px);
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+
+/* ============================================================
+   STIMULUS CARD — trigger type pills (admin editor)
+   ============================================================ */
+.trigger-type-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.trigger-pill {
+  padding: 5px 12px; border-radius: var(--r-pill);
+  border: 1.5px solid var(--ink-12); background: var(--bg);
+  font-family: var(--font-body); font-size: .813rem; font-weight: 500;
+  color: var(--ink-60); cursor: pointer;
+  transition: all var(--t-fast) var(--fluid);
+}
+.trigger-pill:hover { border-color: var(--accent-25); background: var(--accent-06); color: var(--accent); }
+.trigger-pill.active { background: var(--ink); border-color: var(--ink); color: #fff; border-radius: var(--r-technical); }
+.se-trigger-content--code { font-family: var(--font-mono); font-size: .813rem; }
+
+/* ============================================================
+   STIMULUS CARD — inline content area (study page)
+   ============================================================ */
+.stimulus-content { margin: 16px 0 8px; border-radius: var(--r-surface); overflow: hidden; }
+.stimulus-image {
+  display: block; max-width: 100%; max-height: 240px;
+  object-fit: contain; border-radius: var(--r-surface); margin: 0 auto;
+}
+.stimulus-video {
+  display: block; width: 100%; max-height: 240px;
+  object-fit: cover; border-radius: var(--r-surface);
+}
+
+/* ============================================================
+   ADMIN EDITOR — checkbox row (used by stimulus send_signal field)
+   ============================================================ */
+.checkbox-row {
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer; font-size: .875rem; color: var(--ink-60);
+}

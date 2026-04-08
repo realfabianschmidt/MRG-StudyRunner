@@ -1,0 +1,6 @@
+flask>=3.0
+python-osc>=1.8
+
+# Optional hardware integrations — uncomment and install to enable:
+# pylsl>=1.16   -- Lab Streaming Layer event markers for EEG synchronization
+# pyxdf>=1.16   -- Read .xdf files written by LabRecorder (for offline analysis scripts)
