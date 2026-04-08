@@ -1,4 +1,4 @@
-﻿# Project Rules
+# Project Rules
 
 This document replaces the imported engineering standards from the other software project.
 
@@ -60,8 +60,11 @@ It keeps only the rules that are useful for this small Study Runner project. The
 
 - Required: Anything that comes from forms, JSON files, or browser requests must be validated before it is saved.
 - Required: Broken or incomplete data must not silently count as success.
+- Required: Validation errors must return a clear message to the browser.
 - Required: Saved results must not contain direct personal information.
-- Required: Project-controlled text must not be inserted into the browser through unsafe HTML paths such as `innerHTML`.
+- Required: Participant input must never be inserted into the browser through unsafe HTML paths such as `innerHTML`.
+- Required: Card templates may use HTML string rendering only when dynamic text is escaped first.
+- Required: Researcher-authored stimulus `html` and `js` trigger content is the only trusted exception and must stay clearly documented as trusted lab content.
 
 ## 6. Keep frontend and backend handlers thin
 
@@ -91,7 +94,7 @@ It keeps only the rules that are useful for this small Study Runner project. The
 
 ## 9. Check before calling work done
 
-- Required: After changes, do a short check that startup, configuration, study flow, and result saving still work.
+- Required: After changes, do a short check that startup, configuration, stimulus flow, question flow, and result saving still work.
 - Required: If something could not be tested, say so clearly.
 - Recommended: Repeated manual checks should later become small automated tests where useful.
 

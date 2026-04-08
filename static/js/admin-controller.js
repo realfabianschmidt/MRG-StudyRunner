@@ -2,29 +2,33 @@ import { getJson, postJson } from './api-client.js';
 import { CARDS, CARD_TYPES, defaultFor } from './cards/index.js';
 
 function escapeHtml(v) {
-  return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 const state = {
-  config:        {},
+  config: {},
   selectedIndex: null,
-  loaded:        false,
+  loaded: false,
+  draggedElement: null,
+  suppressListClick: false,
 };
 
-const $ = id => document.getElementById(id);
-
-// ── Init ─────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
 
 async function init() {
   bindEvents();
-  state.config = await getJson('/api/config');
-  $('cfg-id').value = state.config.study_id || '';
-  rebuildAll();
-  state.loaded = true;
-  setSavedStatus('Loaded');
-}
 
-// ── Type picker overlay ──────────────────────────────────────
+  try {
+    state.config = await getJson('/api/config');
+    $('cfg-id').value = state.config.study_id || '';
+    rebuildAll();
+    state.loaded = true;
+    setSavedStatus('Loaded');
+  } catch (error) {
+    console.error('[admin] Could not load configuration:', error);
+    alert(`Could not load the study configuration: ${error.message}`);
+  }
+}
 
 function openTypePicker() {
   $('overlay-type-tag').innerHTML = `<i class="iconoir-plus"></i> Add question`;
@@ -43,57 +47,203 @@ function openTypePicker() {
   $('admin-sidebar').classList.add('has-overlay');
 }
 
-// ── Events ───────────────────────────────────────────────────
-
 function bindEvents() {
   $('btn-add-main').addEventListener('click', openTypePicker);
-  $('btn-save-config').addEventListener('click', saveConfig);
+  $('btn-save-config').addEventListener('click', () => void saveConfig());
   $('overlay-close').addEventListener('click', closeOverlay);
 
-  // Handles type-picker buttons and trigger-type pills inside the overlay
-  $('sidebar-overlay').addEventListener('click', e => {
-    const typeBtn     = e.target.closest('[data-add-type]');
-    const triggerPill = e.target.closest('[data-trigger-type]');
-    if (typeBtn)     { addQuestion(typeBtn.dataset.addType); return; }
-    if (triggerPill) { handleTriggerTypePill(triggerPill);  return; }
+  $('sidebar-overlay').addEventListener('click', (event) => {
+    const typeButton = event.target.closest('[data-add-type]');
+    const triggerPill = event.target.closest('[data-trigger-type]');
+    if (typeButton) {
+      addQuestion(typeButton.dataset.addType);
+      return;
+    }
+    if (triggerPill) {
+      handleTriggerTypePill(triggerPill);
+    }
   });
 
-  $('admin-q-list').addEventListener('click', handleListClick);
+  const questionList = $('admin-q-list');
+  questionList.addEventListener('click', handleListClick);
+  questionList.addEventListener('dragstart', handleListDragStart);
+  questionList.addEventListener('dragover', handleListDragOver);
+  questionList.addEventListener('drop', handleListDrop);
+  questionList.addEventListener('dragend', handleListDragEnd);
 
-  $('study-preview').addEventListener('click', e => {
-    const btn = e.target.closest('[data-role="select-card"]');
-    if (btn) selectQuestion(Number(btn.dataset.index));
+  $('study-preview').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-role="select-card"]');
+    if (button) {
+      selectQuestion(Number(button.dataset.index));
+    }
   });
 
-  // Live preview: any change inside the overlay editor updates the preview card
   $('sidebar-overlay').addEventListener('input', () => {
-    if (state.selectedIndex !== null) liveUpdate(state.selectedIndex);
+    if (state.selectedIndex !== null) {
+      liveUpdate(state.selectedIndex);
+    }
     markUnsaved();
   });
 
   $('cfg-id').addEventListener('input', markUnsaved);
 }
 
-function handleListClick(e) {
-  const moveBtn   = e.target.closest('[data-role="move-question"]');
-  const removeBtn = e.target.closest('[data-role="remove-question"]');
-  const item      = e.target.closest('.admin-q-item');
+function handleListClick(event) {
+  if (state.suppressListClick) {
+    return;
+  }
 
-  if (moveBtn) {
-    moveQuestion(Number(moveBtn.dataset.index), Number(moveBtn.dataset.direction));
+  const removeButton = event.target.closest('[data-role="remove-question"]');
+  const item = event.target.closest('.admin-q-item');
+
+  if (removeButton) {
+    removeQuestion(Number(removeButton.dataset.index));
     return;
   }
-  if (removeBtn) {
-    removeQuestion(Number(removeBtn.dataset.index));
-    return;
-  }
-  // Clicking the item row (not its action buttons) opens the editor
-  if (item && !e.target.closest('.admin-q-actions')) {
+  if (item && !event.target.closest('.admin-q-actions')) {
     selectQuestion(Number(item.dataset.index));
   }
 }
 
-// ── Rebuild ──────────────────────────────────────────────────
+function handleListDragStart(event) {
+  const handle = event.target.closest('[data-role="drag-question"]');
+  if (!handle) {
+    event.preventDefault();
+    return;
+  }
+
+  const item = handle.closest('.admin-q-item');
+  if (!item) {
+    event.preventDefault();
+    return;
+  }
+
+  state.draggedElement = item;
+  $('admin-q-list').classList.add('admin-q-list--dragging');
+
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.dropEffect = 'move';
+    event.dataTransfer.setData('text/plain', item.dataset.index || '');
+  }
+
+  window.requestAnimationFrame(() => {
+    item.classList.add('admin-q-item--dragging');
+  });
+}
+
+function handleListDragOver(event) {
+  if (!state.draggedElement) {
+    return;
+  }
+
+  event.preventDefault();
+
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move';
+  }
+
+  const list = $('admin-q-list');
+  const placement = getDragPlacement(list, event.clientY);
+  clearDragIndicators();
+
+  if (!placement.targetItem) {
+    list.appendChild(state.draggedElement);
+    return;
+  }
+
+  if (placement.targetItem !== state.draggedElement) {
+    placement.targetItem.classList.add(
+      placement.insertAfter ? 'admin-q-item--drop-after' : 'admin-q-item--drop-before',
+    );
+  }
+
+  const referenceNode = placement.insertAfter
+    ? placement.targetItem.nextElementSibling
+    : placement.targetItem;
+
+  if (referenceNode !== state.draggedElement) {
+    list.insertBefore(state.draggedElement, referenceNode);
+  }
+}
+
+function handleListDrop(event) {
+  if (!state.draggedElement) {
+    return;
+  }
+  event.preventDefault();
+}
+
+function handleListDragEnd() {
+  finishListDrag();
+}
+
+function getDragPlacement(list, clientY) {
+  const items = [...list.querySelectorAll('.admin-q-item:not(.admin-q-item--dragging)')];
+
+  for (const item of items) {
+    const rect = item.getBoundingClientRect();
+    const midpoint = rect.top + (rect.height / 2);
+
+    if (clientY < midpoint) {
+      return { targetItem: item, insertAfter: false };
+    }
+    if (clientY < rect.bottom) {
+      return { targetItem: item, insertAfter: true };
+    }
+  }
+
+  return { targetItem: null, insertAfter: false };
+}
+
+function finishListDrag() {
+  const list = $('admin-q-list');
+  const draggedElement = state.draggedElement;
+  if (!draggedElement) {
+    return;
+  }
+
+  const previousSelection = state.selectedIndex;
+  const shouldKeepOverlayOpen = $('admin-sidebar').classList.contains('has-overlay');
+  const previousQuestions = [...(state.config.questions || [])];
+  const orderedIndexes = [...list.querySelectorAll('.admin-q-item')].map((item) => Number(item.dataset.index));
+  const orderChanged = orderedIndexes.some((originalIndex, newIndex) => originalIndex !== newIndex);
+
+  clearDragIndicators();
+  list.classList.remove('admin-q-list--dragging');
+  draggedElement.classList.remove('admin-q-item--dragging');
+  state.draggedElement = null;
+  suppressListClickOnce();
+
+  if (!orderChanged) {
+    return;
+  }
+
+  state.config.questions = orderedIndexes.map((index) => previousQuestions[index]);
+  state.selectedIndex = previousSelection === null ? null : orderedIndexes.indexOf(previousSelection);
+
+  rebuildAll();
+
+  if (shouldKeepOverlayOpen && state.selectedIndex !== null) {
+    openOverlay(state.selectedIndex);
+    $(`pc-${state.selectedIndex}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  markUnsaved();
+}
+
+function clearDragIndicators() {
+  document.querySelectorAll('.admin-q-item--drop-before, .admin-q-item--drop-after').forEach((element) => {
+    element.classList.remove('admin-q-item--drop-before', 'admin-q-item--drop-after');
+  });
+}
+
+function suppressListClickOnce() {
+  state.suppressListClick = true;
+  window.setTimeout(() => {
+    state.suppressListClick = false;
+  }, 0);
+}
 
 function rebuildAll() {
   rebuildList();
@@ -102,53 +252,55 @@ function rebuildAll() {
 }
 
 function rebuildList() {
-  const list      = $('admin-q-list');
+  const list = $('admin-q-list');
   list.replaceChildren();
   const questions = state.config.questions || [];
 
-  questions.forEach((q, i) => {
-    const meta = getMeta(q.type);
+  questions.forEach((question, questionIndex) => {
+    const meta = getMeta(question.type);
     const item = document.createElement('div');
-    item.className = 'admin-q-item' + (i === state.selectedIndex ? ' selected' : '');
-    item.dataset.index = i;
-    item.innerHTML = `
-      <span class="admin-q-num">${i + 1}</span>
-      <i class="iconoir-${meta.icon} admin-q-type-icon"></i>
-      <span class="admin-q-label">${q.prompt ? escapeHtml(q.prompt) : '<em>no text</em>'}</span>
-      <div class="admin-q-actions">
-        <button type="button" data-role="move-question" data-index="${i}" data-direction="-1" ${i===0?'disabled':''} title="Move up">
-          <i class="iconoir-nav-arrow-up"></i>
-        </button>
-        <button type="button" data-role="move-question" data-index="${i}" data-direction="1" ${i===questions.length-1?'disabled':''} title="Move down">
-          <i class="iconoir-nav-arrow-down"></i>
-        </button>
-        <button type="button" class="del" data-role="remove-question" data-index="${i}" title="Remove">
-          <i class="iconoir-trash"></i>
-        </button>
-      </div>`;
+    item.className = `admin-q-item${questionIndex === state.selectedIndex ? ' selected' : ''}`;
+    item.dataset.index = questionIndex;
+    item.innerHTML = renderListItemMarkup(question, questionIndex, meta);
     list.appendChild(item);
   });
 
   $('q-count').textContent = questions.length ? `(${questions.length})` : '';
 }
 
+function renderListItemMarkup(question, questionIndex, meta) {
+  return `
+    <span class="admin-q-num">${questionIndex + 1}</span>
+    <i class="iconoir-${meta.icon} admin-q-type-icon"></i>
+    <span class="admin-q-label">${renderCardLabel(question)}</span>
+    <div class="admin-q-actions">
+      <button type="button" class="admin-q-drag" data-role="drag-question" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">
+        <i class="iconoir-menu-scale"></i>
+      </button>
+      <button type="button" class="del" data-role="remove-question" data-index="${questionIndex}" title="Remove">
+        <i class="iconoir-trash"></i>
+      </button>
+    </div>`;
+}
+
 function rebuildPreview() {
-  const preview   = $('study-preview');
+  const preview = $('study-preview');
   preview.replaceChildren();
   const questions = state.config.questions || [];
 
-  questions.forEach((q, i) => {
-    const cardModule = CARDS[q.type];
-    if (!cardModule) return;
+  questions.forEach((question, questionIndex) => {
+    const cardModule = CARDS[question.type];
+    if (!cardModule) {
+      return;
+    }
 
     const wrap = document.createElement('div');
-    wrap.className = 'preview-card-wrap' + (i === state.selectedIndex ? ' selected' : '');
-    wrap.id = `pc-${i}`;
-    // Cards in the preview are display-only — pointer-events are disabled via CSS
+    wrap.className = `preview-card-wrap${questionIndex === state.selectedIndex ? ' selected' : ''}`;
+    wrap.id = `pc-${questionIndex}`;
     wrap.innerHTML = `
-      <div class="q-card-study">${cardModule.renderStudy(q, i)}</div>
+      <div class="q-card-study">${cardModule.renderStudy(question, questionIndex)}</div>
       <div class="preview-card-overlay">
-        <button type="button" data-role="select-card" data-index="${i}">
+        <button type="button" data-role="select-card" data-index="${questionIndex}">
           <i class="iconoir-edit-pencil"></i> Edit
         </button>
       </div>`;
@@ -157,70 +309,66 @@ function rebuildPreview() {
 }
 
 function syncEmptyState() {
-  const has = (state.config.questions || []).length > 0;
-  $('preview-empty').hidden = has;
+  $('preview-empty').hidden = (state.config.questions || []).length > 0;
 }
-
-// ── Selection & Overlay editor ───────────────────────────────
 
 function selectQuestion(index) {
   state.selectedIndex = index;
 
-  document.querySelectorAll('.admin-q-item').forEach((el, i) => el.classList.toggle('selected', i === index));
-  document.querySelectorAll('.preview-card-wrap').forEach((el, i) => el.classList.toggle('selected', i === index));
+  document.querySelectorAll('.admin-q-item').forEach((element, elementIndex) => {
+    element.classList.toggle('selected', elementIndex === index);
+  });
+  document.querySelectorAll('.preview-card-wrap').forEach((element, elementIndex) => {
+    element.classList.toggle('selected', elementIndex === index);
+  });
 
   openOverlay(index);
-
-  // Scroll the preview to bring the selected card into view
   $(`pc-${index}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-// Slide the editor overlay open and populate it with the question's editor fields
 function openOverlay(index) {
-  const q          = state.config.questions[index];
-  const cardModule = CARDS[q.type];
-  if (!cardModule) return;
+  const question = state.config.questions[index];
+  const cardModule = CARDS[question.type];
+  if (!cardModule) {
+    return;
+  }
 
-  const meta = getMeta(q.type);
-
+  const meta = getMeta(question.type);
   $('overlay-type-tag').innerHTML =
     `<i class="iconoir-${meta.icon}"></i> ${meta.label} <span class="editor-index">#${index + 1}</span>`;
 
-  $('editor-fields').innerHTML = cardModule.renderEditor(q, index);
-
-  // Adding the class triggers the CSS slide-in transition
+  $('editor-fields').innerHTML = cardModule.renderEditor(question, index);
   $('admin-sidebar').classList.add('has-overlay');
 }
 
-// Slide the editor overlay closed and return to the list view
 function closeOverlay() {
   $('admin-sidebar').classList.remove('has-overlay');
 }
 
 function liveUpdate(index) {
-  const q          = state.config.questions[index];
-  const cardModule = CARDS[q.type];
-  if (!cardModule) return;
+  const question = state.config.questions[index];
+  const cardModule = CARDS[question.type];
+  if (!cardModule) {
+    return;
+  }
 
   const updated = cardModule.collectConfig($('editor-fields'));
-  if (!updated) return;
+  if (!updated) {
+    return;
+  }
 
   state.config.questions[index] = updated;
 
-  // Refresh the preview card in real time so the study lead sees the effect immediately
-  const wrap = $(`pc-${index}`);
-  if (wrap) {
-    wrap.querySelector('.q-card-study').innerHTML = cardModule.renderStudy(updated, index);
+  const previewWrap = $(`pc-${index}`);
+  if (previewWrap) {
+    previewWrap.querySelector('.q-card-study').innerHTML = cardModule.renderStudy(updated, index);
   }
 
-  // Keep the question label in the sidebar list in sync with the prompt text
   const label = $('admin-q-list').querySelector(`.admin-q-item[data-index="${index}"] .admin-q-label`);
   if (label) {
-    label.innerHTML = updated.prompt ? escapeHtml(updated.prompt) : '<em>no text</em>';
+    label.innerHTML = renderCardLabel(updated);
   }
 }
-
-// ── Question management ──────────────────────────────────────
 
 function addQuestion(type) {
   state.config.questions = state.config.questions || [];
@@ -233,7 +381,10 @@ function addQuestion(type) {
 }
 
 function removeQuestion(index) {
-  if (!confirm(`Remove question ${index + 1}?`)) return;
+  if (!confirm(`Remove question ${index + 1}?`)) {
+    return;
+  }
+
   state.config.questions.splice(index, 1);
 
   if (state.selectedIndex === index) {
@@ -244,110 +395,117 @@ function removeQuestion(index) {
   }
 
   rebuildAll();
-  if (state.selectedIndex !== null) selectQuestion(state.selectedIndex);
+  if (state.selectedIndex !== null) {
+    selectQuestion(state.selectedIndex);
+  }
   markUnsaved();
 }
-
-function moveQuestion(index, direction) {
-  const target = index + direction;
-  if (target < 0 || target >= state.config.questions.length) return;
-
-  [state.config.questions[index], state.config.questions[target]] = [
-    state.config.questions[target], state.config.questions[index],
-  ];
-
-  if (state.selectedIndex === index) state.selectedIndex = target;
-  else if (state.selectedIndex === target) state.selectedIndex = index;
-
-  rebuildAll();
-  if (state.selectedIndex !== null) selectQuestion(state.selectedIndex);
-  markUnsaved();
-}
-
-
-// ── Save ─────────────────────────────────────────────────────
 
 function handleTriggerTypePill(pillElement) {
-  const triggerType  = pillElement.dataset.triggerType;
+  const triggerType = pillElement.dataset.triggerType;
   const editorFields = $('editor-fields');
 
-  editorFields.querySelectorAll('.trigger-pill').forEach(pill => {
+  editorFields.querySelectorAll('.trigger-pill').forEach((pill) => {
     pill.classList.toggle('active', pill.dataset.triggerType === triggerType);
   });
 
   const hiddenInput = editorFields.querySelector('.se-trigger-type');
-  if (hiddenInput) hiddenInput.value = triggerType;
+  if (hiddenInput) {
+    hiddenInput.value = triggerType;
+  }
 
   const contentField = editorFields.querySelector('.se-trigger-content-field');
   if (contentField) {
-    contentField.hidden = (triggerType === 'timer');
+    contentField.hidden = triggerType === 'timer';
 
-    // 'html' and 'js' need a code textarea; all other types need a URL input.
-    // When switching between these two categories, replace the DOM element so the
-    // field type matches the selected trigger — preserving any value already typed.
-    const isCode        = triggerType === 'html' || triggerType === 'js';
-    const currentInput  = contentField.querySelector('.se-trigger-content');
+    const isCode = triggerType === 'html' || triggerType === 'js';
+    const currentInput = contentField.querySelector('.se-trigger-content');
     const currentIsCode = currentInput?.tagName === 'TEXTAREA';
 
     if (currentInput && isCode !== currentIsCode) {
       const savedValue = currentInput.value;
-      const labelEl    = contentField.querySelector('label');
-      if (labelEl) labelEl.textContent = isCode ? 'Code' : 'URL';
+      const label = contentField.querySelector('label');
+      if (label) {
+        label.textContent = isCode ? 'Code' : 'URL';
+      }
 
       let replacement;
       if (isCode) {
-        replacement             = document.createElement('textarea');
-        replacement.className   = 'se-trigger-content se-trigger-content--code';
-        replacement.rows        = 6;
+        replacement = document.createElement('textarea');
+        replacement.className = 'se-trigger-content se-trigger-content--code';
+        replacement.rows = 6;
         replacement.placeholder = `Paste ${triggerType} code here...`;
-        replacement.value       = savedValue;
+        replacement.value = savedValue;
       } else {
-        replacement             = document.createElement('input');
-        replacement.type        = 'url';
-        replacement.className   = 'se-trigger-content';
+        replacement = document.createElement('input');
+        replacement.type = 'url';
+        replacement.className = 'se-trigger-content';
         replacement.placeholder = 'https://...';
-        replacement.value       = savedValue;
+        replacement.value = savedValue;
       }
       currentInput.replaceWith(replacement);
     }
   }
 
-  // Dispatch input event so liveUpdate and markUnsaved fire via the existing listener
   editorFields.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 async function saveConfig() {
   const fullConfig = {
-    study_id:  $('cfg-id').value.trim(),
+    study_id: $('cfg-id').value.trim(),
     questions: state.config.questions || [],
   };
-  await postJson('/api/config', fullConfig);
-  state.config = fullConfig;
 
-  const toast = $('toast');
-  toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 2000);
-  setSavedStatus('Saved ✓');
+  try {
+    await postJson('/api/config', fullConfig);
+    state.config = fullConfig;
+
+    const toast = $('toast');
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2000);
+    setSavedStatus('Saved');
+  } catch (error) {
+    console.error('[admin] Could not save configuration:', error);
+    setErrorStatus('Save failed');
+    alert(`Could not save the study configuration: ${error.message}`);
+  }
 }
 
 function markUnsaved() {
-  if (!state.loaded) return;
+  if (!state.loaded) {
+    return;
+  }
   $('save-status').textContent = 'Unsaved changes';
-  $('save-status').className   = 'save-status';
+  $('save-status').className = 'save-status';
 }
 
 function setSavedStatus(label) {
   $('save-status').textContent = label;
-  $('save-status').className   = 'save-status saved';
+  $('save-status').className = 'save-status saved';
 }
 
-// ── Helpers ──────────────────────────────────────────────────
+function setErrorStatus(label) {
+  $('save-status').textContent = label;
+  $('save-status').className = 'save-status save-status--error';
+}
+
+function renderCardLabel(question) {
+  const label = getCardLabel(question);
+  return label ? escapeHtml(label) : '<em>no text</em>';
+}
+
+function getCardLabel(question) {
+  if (question.type === 'stimulus') {
+    return (question.title || '').trim();
+  }
+  return (question.prompt || '').trim();
+}
 
 function getMeta(type) {
-  const entry = CARD_TYPES.find(t => t.type === type);
+  const entry = CARD_TYPES.find((cardType) => cardType.type === type);
   return entry
     ? (entry.overrideMeta || entry.module.meta)
     : { icon: 'question-mark', label: type };
 }
 
-init();
+void init();

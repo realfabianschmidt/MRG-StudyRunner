@@ -9,13 +9,6 @@ This file describes how a study is set up.
 - `study_id`: A short label for the study, for example `US1`.
 - `questions`: The list of all cards in the study. This includes both question cards and stimulus cards.
 
-Stimulus cards are entries in the `questions` list with `type: stimulus`. They have their own duration, title, subtitle, trigger type, and content fields. The old `stimulus_duration_ms` root key is no longer used.
-
-## Milliseconds explained quickly
-
-- `1000 ms` = `1 second`
-- `30000 ms` = `30 seconds`
-
 ## Question types in the configuration
 
 Each question type has its own file in `static/js/cards/`. The type string in
@@ -27,10 +20,10 @@ Each question type has its own file in `static/js/cards/`. The type string in
 - `semantic`: Opposing word pairs such as `alive | mechanical`.
   Fields: `prompt`, `pairs` (list of two-word arrays).
 
-- `choice`: Multiple choice. The participant can select more than one option.
-  Fields: `prompt`, `options` (list of strings), `multiple` (true).
+- `choice`: Multiple choice.
+  Fields: `prompt`, `options` (list of strings).
 
-- `single`: Single choice. The participant selects exactly one option.
+- `single`: Single choice.
   Fields: `prompt`, `options` (list of strings).
 
 - `slider`: A slider from 0 to 100.
@@ -42,12 +35,18 @@ Each question type has its own file in `static/js/cards/`. The type string in
 - `text`: A free-text answer field.
   Fields: `prompt`.
 
-- `stimulus`: A timed waiting phase. The participant sees a countdown. The card auto-advances when the countdown ends. No participant answer is collected.
-  Fields: `title`, `subtitle`, `duration_ms` (in milliseconds), `trigger_type` (`timer` / `image` / `video` / `audio` / `html` / `js`), `trigger_content` (a URL or code string depending on the trigger type), `send_signal` (true or false — whether to send `/api/start` and `/api/stop` signals).
+- `stimulus`: A timed card with an optional warm-up phase before the active phase begins.
+  Fields: `title`, `subtitle`, `warmup_duration_ms`, `duration_ms`, `trigger_type`,
+  `trigger_content`, `send_signal`.
+
+## Milliseconds explained quickly
+
+- `1000 ms` = `1 second`
+- `30000 ms` = `30 seconds`
 
 ## How card modules work
 
-Each question type lives in its own file in `static/js/cards/`. Every card file
+Each card type lives in its own file in `static/js/cards/`. Every card file
 exports the same set of named functions:
 
 - `renderStudy`: Returns the HTML shown to the participant.
@@ -57,6 +56,34 @@ exports the same set of named functions:
 
 The `cards/index.js` file is the central registry. It imports all card modules
 and makes them available to the admin and study controllers.
+
+## Stimulus card phases
+
+A stimulus card can have two phases:
+
+- `Warm-up phase`: Optional preparation time before the actual timed task starts.
+  During warm-up, the participant sees the instruction view.
+- `Active phase`: The real timed phase. Signals, media triggers, and custom JS start here.
+
+Stimulus cards are intentionally replayable if the participant navigates back to them.
+Each replay starts the warm-up and active phase again from the beginning.
+
+## Trigger types in stimulus cards
+
+- `timer`: Countdown only.
+- `image`: Shows an image during the active phase.
+- `video`: Shows a video during the active phase.
+- `audio`: Plays audio during the active phase.
+- `html`: Shows researcher-provided inline HTML during the active phase.
+- `js`: Runs researcher-provided JavaScript during the active phase.
+
+The JS trigger receives a `study` helper with:
+
+- `study.call(path, data)`: Sends a POST request to a local Flask route.
+- `study.onCleanup(callback)`: Registers cleanup work when the card ends or is left early.
+
+Important: `html` and `js` trigger content is treated as trusted researcher-authored lab content.
+It should never come from participant input.
 
 ## What a saved result file contains
 
@@ -79,7 +106,7 @@ One JSON file is saved in the `data/` folder for each study run.
   The study runner sends event markers; BrainBit or similar devices send EEG data; LabRecorder
   captures both into one `.xdf` file.
 - `OSC`: Open Sound Control. Short network messages used to control tools like TouchDesigner.
-  The study runner sends `/study/start` and `/study/stop` messages at each stimulus card.
+  The study runner sends `/study/start` and `/study/stop` messages at each active stimulus phase.
 - `XDF`: Extensible Data Format. A container file written by LabRecorder. It holds EEG data,
   event markers, and timestamps in one place. Use `pyxdf` to read it; use `MNE-Python` to
   process the EEG stream inside.
@@ -94,14 +121,13 @@ One JSON file is saved in the `data/` folder for each study run.
 - `Handler`: A small function that reacts to a click or browser request.
 - `Service`: Clear business logic such as "save the config" or "write a result file".
 - `Adapter`: A small bridge to external hardware or software.
-- `Card`: One self-contained question unit. Handles display, editing, and answer collection.
+- `Card`: One self-contained study unit. Handles display, editing, and answer collection.
 - `Live preview`: The right side of the admin page shows the study exactly as the participant
   will see it. It updates immediately when the editor fields change.
 - `Registry`: The `cards/index.js` file. It collects all card modules in one place so that
   the rest of the code does not need to know which files exist.
 - `Materiability`: The custom font used throughout the project. Files are in `static/fonts/`.
-- `Stimulus card`: A card type that shows a timed countdown with optional content. It fires start/stop signals to the server and auto-advances when done.
-- `Trigger type`: The kind of content or action that accompanies a stimulus countdown. Options are `timer` (countdown only), `image`, `video`, `audio`, `html` (inline HTML), or `js` (custom JavaScript snippet). The JS trigger receives a `study` helper for calling Flask API endpoints.
+- `Stimulus card`: A card type with an optional warm-up phase and an active timed phase.
 - `LabRecorder`: A free standalone tool that listens on the LSL network and saves all active streams into a single `.xdf` file with aligned timestamps.
 - `Hardware adapter`: A small Python file in `app/integrations/` that connects one external tool (LSL, OSC). It initializes once at startup and does nothing if the required library is not installed.
 

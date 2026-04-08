@@ -1,16 +1,17 @@
 function escapeHtml(v) {
-  return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// Handles both 'choice' (multiple) and 'single'
-export const meta = { type:'choice', icon:'multi-bubble', label:'Multiple choice', pill:'pill-choice' };
-export const metaSingle = { type:'single', icon:'circle', label:'Single choice', pill:'pill-single' };
+// Handles both 'choice' (multiple) and 'single'.
+// The current schema uses separate card types, so there is no extra toggle.
+export const meta = { type: 'choice', icon: 'multi-bubble', label: 'Multiple choice', pill: 'pill-choice' };
+export const metaSingle = { type: 'single', icon: 'circle', label: 'Single choice', pill: 'pill-single' };
 
 export const defaultQuestion = {
-  type:'choice', prompt:'', options:['Option A','Option B','Option C'], multiple:true,
+  type: 'choice', prompt: '', options: ['Option A', 'Option B', 'Option C'],
 };
 export const defaultQuestionSingle = {
-  type:'single', prompt:'', options:['Option A','Option B','Option C'],
+  type: 'single', prompt: '', options: ['Option A', 'Option B', 'Option C'],
 };
 
 export function renderStudy(q, i) {
@@ -30,9 +31,10 @@ export function renderStudy(q, i) {
 }
 
 export function renderEditor(q) {
-  const isMultiple = q.type === 'choice';
   const options = (q.options || []).join('\n');
+  const choiceType = q.type === 'single' ? 'single' : 'choice';
   return `
+    <input type="hidden" class="qe-choice-type" value="${choiceType}">
     <div class="field">
       <label>Question text</label>
       <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="Enter question...">
@@ -40,20 +42,16 @@ export function renderEditor(q) {
     <div class="field">
       <label>Options (one per line)</label>
       <textarea class="qe-options">${escapeHtml(options)}</textarea>
-    </div>
-    ${isMultiple ? `<label class="toggle-label">
-      <input type="checkbox" class="toggle qe-multi" ${q.multiple ? 'checked' : ''}> Multiple selection allowed
-    </label>` : ''}`;
+    </div>`;
 }
 
 export function collectConfig(el) {
-  const isMultiple = el.querySelector('.qe-multi') !== null;
+  const choiceType = el.querySelector('.qe-choice-type')?.value === 'single' ? 'single' : 'choice';
   const options = (el.querySelector('.qe-options')?.value || '').split('\n').map(l => l.trim()).filter(Boolean);
   return {
-    type: isMultiple ? 'choice' : 'single',
+    type: choiceType,
     prompt: el.querySelector('.qe-prompt')?.value.trim() || '',
     options,
-    ...(isMultiple ? { multiple: el.querySelector('.qe-multi')?.checked || false } : {}),
   };
 }
 

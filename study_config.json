@@ -26,6 +26,19 @@
         "Item B",
         "Item C"
       ]
+    },
+    {
+      "type": "slider",
+      "prompt": "You like it?",
+      "label_min": "Yes",
+      "label_max": "No"
+    },
+    {
+      "type": "likert",
+      "prompt": "yes!",
+      "scale": 7,
+      "label_min": "not at all",
+      "label_max": "very strongly"
     }
   ]
 }

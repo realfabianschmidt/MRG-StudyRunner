@@ -1,4 +1,4 @@
-﻿import json
+import json
 from pathlib import Path
 
 from flask import Flask
@@ -14,8 +14,12 @@ def _load_hardware_config() -> dict:
     config_path = BASE_DIR / "hardware_config.json"
     if not config_path.exists():
         return {}
-    with config_path.open(encoding="utf-8") as file_handle:
-        return json.load(file_handle)
+    try:
+        with config_path.open(encoding="utf-8") as file_handle:
+            return json.load(file_handle)
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"[HARDWARE] Could not read hardware_config.json: {error}")
+        return {}
 
 
 def _initialize_integrations(hardware_config: dict) -> None:

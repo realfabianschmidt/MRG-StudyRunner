@@ -1,16 +1,19 @@
-﻿export async function requestJson(url, options = {}) {
+export async function requestJson(url, options = {}) {
   const response = await fetch(url, options);
+  const contentType = response.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+  const body = isJson ? await response.json() : null;
 
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
+    const message = body?.error || `Request failed with status ${response.status}`;
+    throw new Error(message);
   }
 
-  const contentType = response.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
+  if (!isJson) {
     return null;
   }
 
-  return response.json();
+  return body;
 }
 
 export function getJson(url) {

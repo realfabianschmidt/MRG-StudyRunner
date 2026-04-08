@@ -376,20 +376,24 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
 }
 #q-container .q-card-study.active {
   display: block;
+}
+#q-container .q-card-study.card-enter-initial {
   animation: cardReveal var(--t-med) var(--fluid) both;
 }
 
-/* Directional transitions — forward slides left, back slides right */
-#q-container .q-card-study.exit-left  { animation: exitLeft  var(--t-fast) var(--fluid) both; }
-#q-container .q-card-study.exit-right { animation: exitRight var(--t-fast) var(--fluid) both; }
-#q-container .q-card-study.enter-right { animation: enterRight var(--t-med) var(--fluid) both; }
-#q-container .q-card-study.enter-left  { animation: enterLeft  var(--t-med) var(--fluid) both; }
+/* Directional transitions — the target card slides in once without a second reveal animation */
+#q-container .q-card-study.enter-right {
+  display: block;
+  animation: enterRight var(--t-med) var(--fluid) both;
+}
+#q-container .q-card-study.enter-left {
+  display: block;
+  animation: enterLeft var(--t-med) var(--fluid) both;
+}
 
-@keyframes cardReveal  { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
-@keyframes exitLeft    { from { opacity:1; transform:translateX(0); }     to { opacity:0; transform:translateX(-28px); } }
-@keyframes exitRight   { from { opacity:1; transform:translateX(0); }     to { opacity:0; transform:translateX(28px); } }
-@keyframes enterRight  { from { opacity:0; transform:translateX(36px); }  to { opacity:1; transform:translateX(0); } }
-@keyframes enterLeft   { from { opacity:0; transform:translateX(-36px); } to { opacity:1; transform:translateX(0); } }
+@keyframes cardReveal { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+@keyframes enterRight { from { opacity:0; transform:translateX(36px); } to { opacity:1; transform:translateX(0); } }
+@keyframes enterLeft  { from { opacity:0; transform:translateX(-36px); } to { opacity:1; transform:translateX(0); } }
 
 /* Questions screen: transparent shell, the cards float inside */
 #screen-questions {
@@ -679,15 +683,36 @@ body.admin::before { display: none; }
 /* Question list in sidebar */
 #admin-q-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 .admin-q-item {
+  position: relative;
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; border-radius: 8px;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: background var(--t-fast), border-color var(--t-fast);
+  transition: background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast) var(--snap);
   user-select: none;
 }
 .admin-q-item:hover { background: var(--bg-sunken); border-color: var(--ink-06); }
 .admin-q-item.selected { background: var(--accent-06); border-color: var(--accent-25); }
+.admin-q-item--dragging {
+  background: var(--accent-06);
+  border-color: var(--accent-25);
+  box-shadow: var(--shadow-md);
+  opacity: .96;
+  cursor: grabbing;
+}
+.admin-q-item--drop-before::before,
+.admin-q-item--drop-after::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-12);
+}
+.admin-q-item--drop-before::before { top: -3px; }
+.admin-q-item--drop-after::after { bottom: -3px; }
 .admin-q-num { font-family: var(--font-mono); font-size: .625rem; color: var(--ink-25); flex: 0 0 16px; }
 .admin-q-type-icon { font-size: 14px; color: var(--ink-25); flex-shrink: 0; }
 .admin-q-item.selected .admin-q-type-icon { color: var(--accent); }
@@ -705,6 +730,12 @@ body.admin::before { display: none; }
 .admin-q-actions button:hover { border-color: var(--ink-12); color: var(--ink); background: var(--bg-elevated); }
 .admin-q-actions button.del:hover { border-color: #ffaaaa; color: #cc2200; background: #fff8f8; }
 .admin-q-actions button:disabled { opacity: .3; cursor: not-allowed; }
+.admin-q-drag { cursor: grab; }
+.admin-q-drag:active,
+.admin-q-item--dragging .admin-q-drag { cursor: grabbing; }
+#admin-q-list.admin-q-list--dragging .admin-q-item:not(.admin-q-item--dragging) {
+  transition: transform var(--t-fast) var(--snap), background var(--t-fast), border-color var(--t-fast);
+}
 
 /* Add area */
 .btn-add {
@@ -858,3 +889,117 @@ body.admin::before { display: none; }
   display: flex; align-items: center; gap: 8px;
   cursor: pointer; font-size: .875rem; color: var(--ink-60);
 }
+
+/* ============================================================
+   STIMULUS CARD - warm-up phase and active phase overrides
+   ============================================================ */
+.cd-ring-progress {
+  transition: stroke-dashoffset 1s linear;
+}
+
+.stimulus-body {
+  position: relative;
+  min-height: 440px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.stimulus-body--warmup {
+  align-items: stretch;
+}
+
+.stimulus-stage {
+  width: 100%;
+}
+
+.stimulus-stage[hidden] {
+  display: none;
+}
+
+.stimulus-copy-wrap {
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.stimulus-hero-title {
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1.05;
+  letter-spacing: -.04em;
+  color: var(--ink);
+}
+
+.stimulus-hero-sub {
+  max-width: 36ch;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--ink-60);
+}
+
+.stimulus-mini-timer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--ink-06);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.stimulus-mini-label {
+  font-family: var(--font-mono);
+  font-size: .625rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-25);
+}
+
+.stimulus-mini-value {
+  font-family: var(--font-mono);
+  font-size: .938rem;
+  color: var(--ink);
+}
+
+.stimulus-active-copy {
+  margin-bottom: 8px;
+}
+
+.stimulus-body--active .stimulus-active-copy .screen-sub {
+  margin-bottom: 20px;
+}
+
+.stimulus-editor-note {
+  font-size: .813rem;
+  line-height: 1.5;
+  color: var(--ink-60);
+}
+
+.save-status--error {
+  color: #c03b16;
+}
+
+@media (max-width: 700px) {
+  .stimulus-body {
+    min-height: 380px;
+  }
+
+  .stimulus-copy-wrap {
+    min-height: 280px;
+  }
+
+  .stimulus-mini-timer {
+    right: 8px;
+    bottom: 8px;
+  }
+}
+
+

@@ -1,8 +1,13 @@
-﻿from flask import Flask, current_app, jsonify, request, send_from_directory
+from flask import Flask, current_app, jsonify, request, send_from_directory
 
 from .config_service import load_config, save_config
 from .results_service import save_results_payload
 from .trial_service import start_trial_session, stop_trial_session
+from .validation import (
+    ValidationError,
+    validate_and_normalize_config,
+    validate_and_normalize_results,
+)
 
 
 def register_routes(app: Flask) -> None:
@@ -16,13 +21,16 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/api/config")
     def get_config():
-        config_data = load_config(current_app.config["CONFIG_FILE"])
+        config_data = validate_and_normalize_config(
+            load_config(current_app.config["CONFIG_FILE"])
+        )
         return jsonify(config_data)
 
     @app.route("/api/config", methods=["POST"])
     def update_config():
         config_data = request.get_json() or {}
-        save_config(current_app.config["CONFIG_FILE"], config_data)
+        validated_config = validate_and_normalize_config(config_data)
+        save_config(current_app.config["CONFIG_FILE"], validated_config)
         print("[CONFIG] Saved.")
         return jsonify({"ok": True})
 
@@ -39,11 +47,18 @@ def register_routes(app: Flask) -> None:
     @app.route("/api/results", methods=["POST"])
     def save_results():
         result_payload = request.get_json() or {}
-        config_data = load_config(current_app.config["CONFIG_FILE"])
+        config_data = validate_and_normalize_config(
+            load_config(current_app.config["CONFIG_FILE"])
+        )
+        validated_results = validate_and_normalize_results(result_payload, config_data)
         filename = save_results_payload(
             current_app.config["DATA_DIR"],
             config_data["study_id"],
-            result_payload,
+            validated_results,
         )
         print(f"[DATA] Saved: {filename}")
         return jsonify({"ok": True, "file": filename})
+
+    @app.errorhandler(ValidationError)
+    def handle_validation_error(error: ValidationError):
+        return jsonify({"ok": False, "error": str(error)}), 400

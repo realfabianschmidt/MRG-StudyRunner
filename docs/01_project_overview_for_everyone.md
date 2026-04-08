@@ -9,7 +9,8 @@ Study Runner is a small local web app for user studies.
 - One person on the team sets up the study.
 - A participant answers the questions on an iPad.
 - The server saves the answers as local files.
-- The server can later trigger external tools such as BrainBit or TouchDesigner.
+- The server can trigger optional external tools such as LSL marker streams or TouchDesigner.
+- Stimulus cards can include an optional warm-up phase before the active phase begins.
 
 ## Who uses which page
 
@@ -24,11 +25,12 @@ Study Runner is a small local web app for user studies.
 
 1. The computer starts `server.py`.
 2. The study lead opens `/admin` and checks the configuration in the left sidebar.
-3. The study lead edits or adds questions. Changes appear instantly in the right preview.
+3. The study lead edits or adds cards. Changes appear instantly in the right preview.
 4. The participant opens the study page on the iPad.
-5. Stimulus cards in the question list run their countdown automatically and advance to the next card.
-6. The questionnaire appears as individual question cards.
-7. The answers are saved in the `data/` folder.
+5. A stimulus card can first show a warm-up instruction phase.
+6. Then the active stimulus phase begins and optional signals or trigger actions are fired.
+7. The remaining question cards are answered one by one.
+8. The answers are validated and saved in the `data/` folder.
 
 ## What each file group is for
 
@@ -36,6 +38,7 @@ Study Runner is a small local web app for user studies.
 - `app/`: Backend logic split by responsibility.
 - `app/integrations/`: One file per hardware integration (LSL, OSC). Each file is
   self-contained and does nothing if the required library is not installed.
+- `app/validation.py`: Checks whether incoming config and result data can be saved safely.
 - `hardware_config.json`: Researcher-editable settings for hardware integrations.
   Set `enabled: true` to activate LSL markers or OSC messages. Restart the server after changes.
 - `study_config.json`: Stores the current study configuration.
@@ -43,8 +46,8 @@ Study Runner is a small local web app for user studies.
 - `static/css/main.css`: All visual styles in one central file, including the Materiability font.
 - `static/fonts/`: The Materiability font files.
 - `static/js/`: Browser logic split into small modules.
-- `static/js/cards/`: One file per question type. Each file is self-contained and handles
-  rendering, editing, and answer collection for its type.
+- `static/js/cards/`: One file per card type. Each file handles rendering, editing,
+  and answer collection for its type.
 - `data/`: Stores saved result files.
 - `docs/`: Stores simple explanations, plans, and project rules.
 
@@ -53,32 +56,7 @@ Study Runner is a small local web app for user studies.
 ```text
 Admin page  ->  Browser JavaScript  ->  Flask routes  ->  config and result services
 Study page  ->  Browser JavaScript  ->  Flask routes  ->  config and result services
-Flask app   ->  trial_service.py    ->  optional tools such as BrainBit or TouchDesigner
-```
-
-## The admin page layout
-
-```text
-┌──────────────────────┬────────────────────────────────┐
-│  LEFT SIDEBAR        │  RIGHT PREVIEW                 │
-│                      │                                │
-│  Settings            │  [Question 1 — as participant  │
-│  Study ID: US1       │   will see it]                 │
-│                      │                                │
-│                      │  [Question 2]                  │
-│  Question list       │                                │
-│  > 1. How rough...   │  [Question 3]                  │
-│    2. Rate the...    │                                │
-│    3. Free notes     │  Hover a card to see           │
-│                      │  the Edit button.              │
-│  [ + Add question ]  │  Click it to open the editor   │
-│                      │  in the left sidebar.          │
-│  Editor              │                                │
-│  (appears when a     │                                │
-│   card is selected)  │                                │
-│                      │                                │
-│  [ Save ]            │                                │
-└──────────────────────┴────────────────────────────────┘
+Flask app   ->  trial_service.py    ->  optional tools such as LSL or TouchDesigner
 ```
 
 ## Common questions from non-coders
@@ -89,23 +67,23 @@ Flask app   ->  trial_service.py    ->  optional tools such as BrainBit or Touch
 - "Where can I find the saved answers?"
   In the `data/` folder.
 
+- "Where do I change the visual design?"
+  All styles are in `static/css/main.css`.
+
 - "Where would a new hardware integration be added?"
   Create a new file in `app/integrations/` following the pattern in `lsl_adapter.py` or
   `osc_adapter.py`. Then call it from `app/trial_service.py`.
-  Enable it via `hardware_config.json` — no other code changes needed.
-
-- "Where do I change the visual design?"
-  All styles are in `static/css/main.css`.
 
 - "How do I add a new question type?"
   Create a new file in `static/js/cards/`, then register it in `cards/index.js`.
   The README explains the full step-by-step process.
 
-## What the refactor improved
+## What the recent cleanup improved
 
-- All styles now live in one central CSS file (`main.css`) with the custom Materiability font.
-- The admin page now shows a live preview of the study alongside the editor.
-- Each question type is a self-contained module in `static/js/cards/`.
+- All styles live in one central CSS file (`main.css`) with the custom Materiability font.
+- Each card type is a self-contained module in `static/js/cards/`.
+- Stimulus cards support an optional warm-up phase before the active phase starts.
+- Config and result payloads are validated before they are saved.
 - Clearer separation between startup, routes, config logic, result logic, and trial control.
 - Better orientation for people who are not familiar with large all-in-one files.
 

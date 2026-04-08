@@ -11,11 +11,11 @@ Status as of April 2026:
 - Step 1 is done. Names, structure, and docs are clean and up to date.
 - Step 2 is done. Backend is split into small focused modules.
 - Step 3 is done. The frontend is fully separated into HTML, CSS, and JavaScript.
-  Each question type is a self-contained card module. All styles are in one central
+  Each card type is a self-contained card module. All styles are in one central
   CSS file with the Materiability font. The admin page has a live preview layout.
-  A Stimulus card type was added, enabling timed waiting phases with optional media
-  and code triggers anywhere in the study flow.
-- Step 4 is partially done. Hardware adapters are in place. Validation is still open.
+  Stimulus cards now support an optional warm-up phase before the active phase starts.
+- Step 4 is mostly done. Hardware adapters and server-side validation are in place.
+  Remaining work is mainly future integrations and deeper automated testing.
 
 ## Target picture
 
@@ -39,7 +39,7 @@ Everyone on the team should understand more quickly where things live.
 Work done:
 
 - clear document names throughout
-- README updated with a glossary, file explanations, and a step-by-step guide for new types
+- README updated with a glossary, file explanations, and workflow instructions
 - one simple project rules document for day-to-day work
 - all three overview documents in `docs/` kept up to date
 
@@ -57,6 +57,7 @@ app/
   routes.py          Web pages and API routes
   config_service.py  Loads and saves the study configuration
   results_service.py Builds file names and writes result files
+  validation.py      Validates incoming config and result payloads
   trial_service.py   Keeps study start/stop logic in one place
 ```
 
@@ -70,78 +71,36 @@ The frontend should be easy to navigate, extend, and read.
 Work done:
 
 - all styles in one central file `static/css/main.css`, including the Materiability font
-- old `admin.css` and `study.css` removed
-- each question type is a self-contained module in `static/js/cards/`
-- `cards/index.js` is the central registry for all question types
+- each card type is a self-contained module in `static/js/cards/`
+- `cards/index.js` is the central registry for all card types
 - admin page has a two-column layout: left sidebar for editing, right area for live preview
 - study page shows questions as individual cards
-- old renderer and template files removed
-
-Current file structure:
-
-```text
-static/
-  css/
-    main.css          All styles in one place
-  fonts/
-    Materiability-Regular.ttf
-    Materiability-SemiBold.ttf
-    Materiability-Bold.ttf
-  js/
-    api-client.js     Shared browser helper for API requests
-    study-controller.js  Study page: flow, timer, answer submission
-    admin-controller.js  Admin page: sidebar, preview, save
-    cards/
-      index.js        Central registry for all card types
-      card-likert.js
-      card-semantic.js
-      card-choice.js
-      card-slider.js
-      card-ranking.js
-      card-text.js
-      card-stimulus.js
-```
+- stimulus cards support a separate warm-up phase before the active timer and trigger phase
+- stimulus media is cleaned up when a card ends or is left early
 
 ## Step 4: Improve validation and hardware integration
 
-**Status: Partially done**
+**Status: Mostly done**
 
 Goal:
 Errors should be caught earlier, and external tools should be connected more cleanly.
 
 Work done:
 
-- Hardware integrations moved into small adapter files in `app/integrations/`
+- hardware integrations moved into small adapter files in `app/integrations/`
 - LSL event markers via `lsl_adapter.py` (requires pylsl, optional)
 - OSC messages to TouchDesigner via `osc_adapter.py` (python-osc, already installed)
-- Hardware settings are in `hardware_config.json` — researchers enable integrations
-  without touching code
-- JS trigger type in stimulus cards lets snippets call Flask API endpoints directly
-  via the `study` helper
+- hardware settings are in `hardware_config.json`
+- config payloads are validated before saving
+- result payloads are validated before writing
+- validation errors now return clear messages to the browser pages
+- safe result filenames prevent accidental path traversal through `study_id`
 
 Work still to do:
 
-- validate config data on the server before saving it
-- validate result data on the server before writing it
-- return clearer error messages to the browser pages
-- BrainBit SDK adapter (add `app/integrations/brainbit_adapter.py` when SDK is available)
-
-Current integration structure:
-
-```text
-app/
-  integrations/
-    __init__.py             Package with usage notes for adding new adapters
-    lsl_adapter.py          LSL event markers (optional: pip install pylsl)
-    osc_adapter.py          OSC messages to TouchDesigner
-hardware_config.json        Researcher-editable settings, read at server startup
-```
-
-Benefit:
-
-- each integration is one small, focused file
-- adding a new adapter follows the same clear pattern
-- the server always starts cleanly even if a library is not installed
+- dedicated BrainBit SDK adapter when the SDK is available
+- broader automated tests instead of only syntax and manual checks
+- optional stricter answer-shape validation per card type in the backend
 
 ## What this plan does not include
 
@@ -153,5 +112,5 @@ Benefit:
 
 - files are small and clearly named
 - important terms are explained in the README and docs
-- broken input paths produce clearer errors
+- broken input paths produce clearer errors instead of silent success
 - new question types can be added by following the step-by-step guide in the README

@@ -1,12 +1,14 @@
 # Study Runner
 
+## What is this?
+
 Study Runner is a small local web app for user studies.
 
 The project is intentionally simple:
 
 - one admin page for setting up the study
 - one study page for the participant
-- one Python server that keeps everything together locally
+- one small Python server app that keeps everything together locally
 - local result files in the `data/` folder
 
 This README is intentionally written so that people without a coding background can still use it.
@@ -25,25 +27,28 @@ Start the server:
 python server.py
 ```
 
-The terminal will then show the local address.
+The terminal will then show the local addresses.
 
 - Admin page: `http://localhost:3000/admin`
 - Study page on the iPad: `http://<ip>:3000`
 
 `<ip>` means the IP address of the computer in the local network.
 
+No internet connection is required during a study run. The computer and the iPad only need to be in the same local WiFi network.
+
 ## Typical workflow
 
 1. The study lead opens the admin page.
-2. The left sidebar shows the settings: study ID and question list.
-3. The right side of the admin page shows a live preview of each question card, exactly as the participant will see it.
-4. The study lead clicks a card or a list item to open its editor in the sidebar.
+2. The left sidebar shows the settings and question list.
+3. The right side of the admin page shows a live preview of each card, exactly as the participant will see it.
+4. The study lead clicks a card or a list item to open its editor in the sidebar overlay.
 5. Changes in the editor update the preview immediately.
-6. The participant opens the study page on the iPad.
-7. Stimulus cards run their countdown automatically and advance to the next card.
-   Any number of stimulus cards can appear anywhere in the study flow.
-8. The questionnaire appears as individual question cards.
-9. The answers are saved as a local file.
+6. The question list in the sidebar can be reordered with the drag handle.
+7. The participant opens the study page on the iPad.
+8. Stimulus cards can appear anywhere in the study flow.
+9. A stimulus card may begin with an optional warm-up phase. When the warm-up ends, the active timer begins automatically.
+10. Question cards appear one at a time.
+11. At the end, the answers are validated and saved as a local JSON file.
 
 ## What each file is for
 
@@ -59,9 +64,11 @@ study-runner/
 |   |-- config_service.py
 |   |   Loads and saves the study configuration.
 |   |-- results_service.py
-|   |   Builds result file names and writes result files.
+|   |   Builds safe result file names and writes result files.
+|   |-- validation.py
+|   |   Validates incoming config and result payloads before saving.
 |   |-- trial_service.py
-|   |   Sends start/stop signals to all active hardware integrations.
+|   |   Sends start and stop signals to all active hardware integrations.
 |   `-- integrations/
 |       One file per hardware integration. Each file is self-contained.
 |       |-- __init__.py
@@ -89,18 +96,19 @@ study-runner/
 |       |-- api-client.js
 |       |   Shared browser helper for API requests.
 |       |-- study-controller.js
-|       |   Participant page: manages the study flow, timer, and answer submission.
+|       |   Participant page: manages study flow, timers, triggers, and answer submission.
 |       |-- admin-controller.js
-|       |   Admin page: manages the sidebar, question list, live preview, and saving.
+|       |   Admin page: manages the sidebar, question list, drag-and-drop sorting,
+|       |   live preview, and saving.
 |       `-- cards/
-|           One file per question type. Each file is fully self-contained.
+|           One file per card type. Each file is self-contained.
 |           |-- index.js
 |           |   The central registry. Lists all card types and their defaults.
-|           |-- card-likert.js       Likert scale (1 to 7)
-|           |-- card-semantic.js     Semantic differential (opposing word pairs)
+|           |-- card-likert.js       Likert scale
+|           |-- card-semantic.js     Semantic differential
 |           |-- card-choice.js       Multiple choice and single choice
-|           |-- card-slider.js       Visual analog slider (0 to 100)
-|           |-- card-ranking.js      Ranking (put items in order)
+|           |-- card-slider.js       Slider from 0 to 100
+|           |-- card-ranking.js      Ranking with up/down controls inside the card
 |           |-- card-text.js         Free-text answer
 |           `-- card-stimulus.js     Stimulus / countdown card
 |-- data/
@@ -109,29 +117,155 @@ study-runner/
     Stores simple explanations, rules, and plans for the project.
 ```
 
-## How question card files work
+## How the app is split
 
-Each file in `static/js/cards/` handles one question type. To add a new question type, follow this order:
+### Server side
 
-1. Create a new file `card-yourtype.js` in `static/js/cards/`
-2. Define the default question data (`defaultQuestion`)
-3. Write the study-side rendering (`renderStudy`) — how the participant sees it
-4. Write the admin editor rendering (`renderEditor`) — how the study lead edits it
-5. Write config collection (`collectConfig`) — reads the editor fields back into a question object
-6. Write answer collection (`collectAnswer`) — reads the participant's answer from the DOM
-7. Register the new type in `cards/index.js`
-8. Update this README and `docs/02_data_and_terms_explained.md`
+The server runs on macOS or Windows and handles all backend work.
+
+- `Flask` hosts the pages and API routes.
+- `config_service.py` reads and writes `study_config.json`.
+- `validation.py` checks whether config and result payloads are complete enough to save.
+- `results_service.py` writes result files into `data/` using safe file names.
+- `trial_service.py` triggers active hardware integrations.
+- `lsl_adapter.py` can send LSL markers when enabled.
+- `osc_adapter.py` can send OSC messages to TouchDesigner or another OSC host.
+
+Important: the current repo does not include a direct BrainBit SDK adapter yet.
+The current built-in hardware path is:
+
+- optional LSL event markers from this server
+- optional OSC start and stop messages
+- optional LabRecorder workflow for synchronized `.xdf` files
+
+If a direct BrainBit SDK integration is needed later, it should be added as a new adapter in `app/integrations/`.
+
+### Browser side
+
+The browser side runs in Safari on the iPad and in the admin browser on the lab computer.
+
+- The participant sees one card at a time.
+- The admin sees a two-column page: left for settings and editing, right for live preview.
+- Browser code sends and receives data through the local API.
+- All styling comes from `static/css/main.css`.
+- Each card type has its own JavaScript file in `static/js/cards/`.
+
+Important: `jsPsych` is not part of the current version. The current flow is handled by the project's own JavaScript modules.
+
+## Current card types
+
+The study flow is card-based. A study can contain any mix of these card types:
+
+- `stimulus`
+  Countdown card with an optional warm-up phase before the active phase.
+
+- `likert`
+  Rating scale, for example 1 to 7.
+
+- `semantic`
+  Opposing word pairs such as `alive | mechanical`.
+
+- `choice`
+  Multiple choice.
+
+- `single`
+  Single choice.
+
+- `slider`
+  Slider from 0 to 100.
+
+- `ranking`
+  Reorder items with up and down buttons inside the question card.
+
+- `text`
+  Free-text answer.
+
+## Stimulus cards and triggers
+
+Stimulus cards can appear anywhere in the study flow and are intentionally replayable if the participant navigates back to them.
+
+Each stimulus card has its own:
+
+- title
+- subtitle
+- warm-up duration
+- active duration
+- trigger type
+- trigger content
+- signal on/off setting
+
+A stimulus card can have two phases:
+
+- Warm-up phase
+  Optional preparation time. This phase only shows the instruction view.
+
+- Active phase
+  The real stimulus phase. The active timer begins here. Signals, media triggers, and custom JavaScript begin here.
+
+The current trigger types are:
+
+- `timer`
+  Countdown only.
+
+- `image`
+  Show an image during the active phase.
+
+- `video`
+  Show a video during the active phase.
+
+- `audio`
+  Play audio during the active phase.
+
+- `html`
+  Show researcher-provided inline HTML during the active phase.
+
+- `js`
+  Run researcher-provided JavaScript in the browser during the active phase.
+
+If `send_signal` is enabled for that stimulus card, the server sends `/api/start` at the beginning of the active phase and `/api/stop` at the end.
+
+The JS trigger receives a small `study` helper with two functions:
+
+- `study.call(path, data)`
+  Sends a POST request to a local Flask route.
+
+- `study.onCleanup(callback)`
+  Registers cleanup logic that runs when the participant leaves that stimulus card or when the active phase ends.
+
+Important: custom `html` and `js` trigger content is treated as trusted researcher-authored content. It should never come from participant input.
 
 ## Set up a new study
 
 1. Open `/admin`
-2. Change the study ID in the left sidebar, for example to `US2`
-3. Use the type picker to add a Stimulus card wherever you need a timed waiting phase.
-   Set its duration, title, subtitle, and trigger type in the editor overlay.
-4. Add or edit question cards using the left sidebar
+2. Change the study ID, for example to `US2`
+3. Add, remove, or reorder cards with the drag handle in the admin list
+4. Edit the card content in the sidebar overlay
 5. Save
 
-No code changes are needed for this step.
+No code changes are needed for a normal study setup.
+
+## What gets saved
+
+One JSON file is saved in `data/` for each study run.
+
+Each saved result file contains:
+
+- `participant_id`
+  Anonymous participant label entered at the start.
+
+- `study_id`
+  Study label from `study_config.json`.
+
+- `timestamp_start`
+  Start time of the run.
+
+- `timestamp_end`
+  End time of the run.
+
+- `answers`
+  The recorded answers for all non-stimulus cards.
+
+The server validates the payload before saving it. Saved filenames also use a safe version of the study ID so that broken or unsafe names do not escape the `data/` folder.
 
 ## Privacy note
 
@@ -140,55 +274,73 @@ No code changes are needed for this step.
 - Only an anonymous `Participant-ID` is saved.
 - If data is exported later, it should still be checked for anonymity first.
 
-## Hardware integrations: LSL, OSC, and .xdf
+## Hardware integrations: LSL, OSC, BrainBit, and `.xdf`
 
-Hardware support is configured in `hardware_config.json` at the project root.
-Set `"enabled": true` for each integration you want to use, then restart the server.
+### Current state
+
+- OSC support is already built in through `app/integrations/osc_adapter.py`.
+- LSL marker support is already built in through `app/integrations/lsl_adapter.py`.
+- Direct BrainBit SDK control is not yet built in as a dedicated adapter.
+- The recommended current EEG sync path is LSL markers plus LabRecorder.
+
+### Enable hardware integrations
+
+Hardware support is configured in `hardware_config.json` at the project root. Set `"enabled": true` for each integration you want to use, then restart the server.
 
 ```json
 {
-  "lsl": { "enabled": true, "stream_name": "StudyRunner", "stream_type": "Markers" },
-  "osc": { "enabled": true, "host": "127.0.0.1", "port": 9000,
-           "address_start": "/study/start", "address_stop": "/study/stop" }
+  "lsl": {
+    "enabled": true,
+    "stream_name": "StudyRunner",
+    "stream_type": "Markers"
+  },
+  "osc": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 9000,
+    "address_start": "/study/start",
+    "address_stop": "/study/stop"
+  }
 }
 ```
 
-### LSL markers and .xdf recording (BrainBit / EEG)
+### LSL markers and `.xdf` recording
 
-When `lsl` is enabled, the server sends a `"start"` marker over LSL at the beginning
-of each stimulus card and a `"stop"` marker at the end.
+LSL stands for Lab Streaming Layer.
 
-**LabRecorder** (a free standalone tool) listens on the LSL network and records
-all active streams — EEG data from BrainBit and the markers from this server — into
-a single `.xdf` file with aligned timestamps.
+When `lsl` is enabled, the server can send a `start` marker at the beginning of an active stimulus phase and a `stop` marker at the end, if `send_signal` is enabled for that stimulus card.
 
-After the study, you can analyse the recording:
-1. `pyxdf` reads the `.xdf` container and separates the streams.
-2. `MNE-Python` processes the EEG stream (transpose the data, convert units µV → V).
-3. The `participant_id` and `timestamp_start` in the JSON result file link the answers
-   to the EEG recording.
+`LabRecorder` is a free standalone tool that listens on the LSL network and records all active streams into a single `.xdf` file with aligned timestamps. In a BrainBit or EEG workflow, this usually means the EEG stream from the device software plus the marker stream from Study Runner.
 
-Install pylsl to enable this:
+Typical workflow:
+
+1. Enable `lsl` in `hardware_config.json`
+2. Install `pylsl`
+3. Start the Study Runner server
+4. Start LabRecorder
+5. Record the EEG stream and the Study Runner marker stream together
+6. Use `pyxdf` and later `MNE-Python` for analysis
+
+Install `pylsl` only if you want to use LSL:
 
 ```bash
 pip install pylsl
 ```
 
-### OSC messages (TouchDesigner)
+### OSC messages for TouchDesigner
 
-When `osc` is enabled, the server sends a `/study/start` message at the beginning
-of each stimulus and `/study/stop` at the end. The host, port, and message addresses
-are all configurable in `hardware_config.json`.
+When `osc` is enabled, the server can send `/study/start` at the beginning of an active stimulus phase and `/study/stop` at the end, again only when `send_signal` is enabled for that stimulus card.
+
+The host, port, and message addresses all come from `hardware_config.json`.
 
 `python-osc` is already included in `requirements.txt`.
 
 ### Custom JavaScript trigger
 
-Stimulus cards support a JS trigger type. The snippet receives a `study` helper that
-can POST to any Flask endpoint:
+Stimulus cards support a JS trigger type. The snippet runs in the browser during the active phase. It can call a route that already exists, or a custom route that you add yourself later.
 
 ```js
-// Example snippet — calls a custom route you add to routes.py:
+// Example snippet. These routes are examples you would add yourself in routes.py.
 study.call('/api/osc/send', { address: '/td/record', value: 1 });
 study.call('/api/lsl/marker', { value: 'custom_event' });
 ```
@@ -197,25 +349,70 @@ All hardware logic stays on the server side. The snippet only sends a request.
 
 ### Adding a new integration
 
-1. Create a new file in `app/integrations/`, for example `brainbit_adapter.py`.
-2. Add an `initialize()` function and the action functions you need.
-3. Call `initialize()` from `app/__init__.py` (following the pattern for lsl and osc).
-4. Call the action functions from `app/trial_service.py`.
+1. Create a new file in `app/integrations/`, for example `brainbit_adapter.py`
+2. Add an `initialize()` function and the action functions you need
+3. Call `initialize()` from `app/__init__.py` following the pattern for LSL and OSC
+4. Call the action functions from `app/trial_service.py`
+
+## How question card files work
+
+Each file in `static/js/cards/` handles one question type. To add a new question type, follow this order:
+
+1. Create a new file `card-yourtype.js` in `static/js/cards/`
+2. Define the default question data (`defaultQuestion`)
+3. Write the study-side rendering (`renderStudy`) so the participant can see it
+4. Write the admin editor rendering (`renderEditor`) so the study lead can edit it
+5. Write config collection (`collectConfig`) to read the editor fields back into a question object
+6. Write answer collection (`collectAnswer`) to read the participant's answer from the DOM
+7. Register the new type in `cards/index.js`
+8. Update this README and `docs/02_data_and_terms_explained.md`
 
 ## Terms and abbreviations
 
-- `API`: Application Programming Interface. In this project, this means fixed web addresses such as `/api/config`.
-- `HTML`: The structure of a web page.
-- `CSS`: The visual styling of a web page. All styles are in `static/css/main.css`.
-- `JavaScript` or `JS`: The logic that runs in the browser.
-- `JSON`: A simple text format used for settings and saved data.
-- `Card`: One self-contained question unit. It includes how the question looks, how the answer is collected, and how the study lead edits it.
-- `Live preview`: The right side of the admin page shows exactly how each question card will look to the participant. Changes in the editor update this view immediately.
-- `SDK`: Software Development Kit. An extra package provided by a hardware or software vendor, for example BrainBit.
-- `PII`: Personally Identifiable Information. Data that can directly identify a person, such as a full name or email address.
-- `Participant-ID`: The anonymous ID entered for the study participant.
-- `Materiability`: The custom font used throughout the project, loaded from `static/fonts/`.
-- `Stimulus card`: A card that shows a countdown and optional content (image, video, audio, HTML, or custom JavaScript). It auto-advances when the countdown ends. No participant input is collected.
+- `API`
+  Application Programming Interface. In this project, this means fixed web addresses such as `/api/config`.
+
+- `HTML`
+  The structure of a web page.
+
+- `CSS`
+  The visual styling of a web page. All styles are in `static/css/main.css`.
+
+- `JavaScript` or `JS`
+  The logic that runs in the browser.
+
+- `JSON`
+  A simple text format used for settings and saved data.
+
+- `Flask`
+  The Python web framework used by this project.
+
+- `LSL`
+  Lab Streaming Layer. A system for time-synchronized data streams and markers.
+
+- `OSC`
+  Open Sound Control. Lightweight network messages used by tools such as TouchDesigner.
+
+- `XDF`
+  A recording file format often used with LabRecorder for synchronized streams.
+
+- `SDK`
+  Software Development Kit. An extra package provided by a hardware or software vendor, for example BrainBit.
+
+- `PII`
+  Personally Identifiable Information. Data that can directly identify a person, such as a full name or email address.
+
+- `Participant-ID`
+  The anonymous ID entered for the study participant.
+
+- `Card`
+  One self-contained unit in the study flow, for example a stimulus card or a question card.
+
+- `Live preview`
+  The right side of the admin page shows exactly how each card will look to the participant.
+
+- `Materiability`
+  The custom font used throughout the project, loaded from `static/fonts/`.
 
 ## Additional documents
 
