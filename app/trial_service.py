@@ -1,24 +1,35 @@
-"""
-Trial service — coordinates start and stop signals across all active hardware integrations.
+from __future__ import annotations
 
-Each integration is handled by a small adapter in app/integrations/. If the required
-library is not installed the adapter does nothing, so the study always runs normally
-regardless of which hardware is connected.
+from typing import Any
 
-To add a new integration: create a new adapter in app/integrations/ and call it here.
-"""
-from .integrations import lsl_adapter, osc_adapter
+from .integrations import brainbit_adapter, lsl_adapter, osc_adapter
 
 
-def start_trial_session() -> None:
+def start_trial_session(options: dict[str, Any] | None = None) -> None:
     """Send start signals to all active hardware integrations."""
-    lsl_adapter.send_marker("start")
-    osc_adapter.send_start()
+    options = options or {}
+
+    if options.get("send_signal", True):
+        lsl_adapter.send_marker("start")
+        osc_adapter.send_start()
+
+    brainbit_adapter.set_routing(
+        forward_to_lsl=options.get("brainbit_to_lsl", False),
+        forward_to_touchdesigner=options.get("brainbit_to_touchdesigner", False),
+    )
     print("[SERVER] Trial started")
 
 
-def stop_trial_session() -> None:
+def stop_trial_session(options: dict[str, Any] | None = None) -> None:
     """Send stop signals to all active hardware integrations."""
-    lsl_adapter.send_marker("stop")
-    osc_adapter.send_stop()
+    options = options or {}
+
+    if options.get("send_signal", True):
+        lsl_adapter.send_marker("stop")
+        osc_adapter.send_stop()
+
+    brainbit_adapter.set_routing(
+        forward_to_lsl=False,
+        forward_to_touchdesigner=False,
+    )
     print("[SERVER] Trial stopped")

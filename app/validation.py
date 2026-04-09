@@ -101,6 +101,15 @@ def _validate_question(question_data: Any, question_index: int) -> dict[str, Any
             ),
             "trigger_content": _normalize_text(question_data.get("trigger_content")),
             "send_signal": _normalize_boolean(question_data.get("send_signal", True)),
+            "brainbit_to_lsl": _normalize_boolean(
+                question_data.get("brainbit_to_lsl", question_data.get("send_signal", True))
+            ),
+            "brainbit_to_touchdesigner": _normalize_boolean(
+                question_data.get(
+                    "brainbit_to_touchdesigner",
+                    question_data.get("send_signal", True),
+                )
+            ),
         }
 
     if question_type == "likert":

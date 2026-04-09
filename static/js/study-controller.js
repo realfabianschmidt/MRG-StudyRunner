@@ -229,9 +229,13 @@ async function startActiveStimulusPhase(stimulusRun) {
 
   setStimulusPhase(index, 'active');
 
-  if (question.send_signal !== false) {
+  if (shouldActivateHardware(question)) {
     try {
-      await postJson('/api/start', {});
+      await postJson('/api/start', {
+        send_signal: question.send_signal !== false,
+        brainbit_to_lsl: question.brainbit_to_lsl !== false,
+        brainbit_to_touchdesigner: question.brainbit_to_touchdesigner !== false,
+      });
       stimulusRun.signalStarted = true;
     } catch (error) {
       console.error('[study] Could not send /api/start:', error);
@@ -300,9 +304,13 @@ async function stopActiveStimulus({ shouldSendStop }) {
 
   clearStimulusContent(stimulusRun.index);
 
-  if (shouldSendStop && stimulusRun.signalStarted && stimulusRun.question.send_signal !== false) {
+  if (shouldSendStop && stimulusRun.signalStarted && shouldActivateHardware(stimulusRun.question)) {
     try {
-      await postJson('/api/stop', {});
+      await postJson('/api/stop', {
+        send_signal: stimulusRun.question.send_signal !== false,
+        brainbit_to_lsl: stimulusRun.question.brainbit_to_lsl !== false,
+        brainbit_to_touchdesigner: stimulusRun.question.brainbit_to_touchdesigner !== false,
+      });
     } catch (error) {
       console.error('[study] Could not send /api/stop:', error);
     }
@@ -453,6 +461,14 @@ function getWarmupSeconds(question) {
 
 function getActiveSeconds(question) {
   return Math.max(1, Math.round((question.duration_ms || 30000) / 1000));
+}
+
+function shouldActivateHardware(question) {
+  return (
+    question.send_signal !== false
+    || question.brainbit_to_lsl !== false
+    || question.brainbit_to_touchdesigner !== false
+  );
 }
 
 function isAnswered(questionIndex) {

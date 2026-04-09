@@ -9,19 +9,27 @@ How it fits into the recording workflow:
   4. The participant_id and timestamp_start in the JSON result file link the answers
      to the EEG recording by time.
 
-Requires: pylsl  (pip install pylsl)
+Requires: pylsl  (auto-install optional)
 Enable:   set "lsl": { "enabled": true } in hardware_config.json
 """
 from __future__ import annotations
 from typing import Any
 
+from .dependency_utils import ensure_requirements
+
 # Module-level outlet reference. None means LSL is not active.
 _outlet: Any = None
 
 
-def initialize(stream_name: str, stream_type: str) -> None:
+def initialize(stream_name: str, stream_type: str, auto_install: bool = True) -> None:
     """Create the LSL outlet. Called once at server startup when LSL is enabled."""
     global _outlet
+    if not ensure_requirements(
+        [("pylsl", "pylsl")],
+        auto_install=auto_install,
+        label="LSL",
+    ):
+        return
     try:
         from pylsl import StreamInfo, StreamOutlet
         info    = StreamInfo(
@@ -34,7 +42,7 @@ def initialize(stream_name: str, stream_type: str) -> None:
         _outlet = StreamOutlet(info)
         print(f"[LSL] Outlet ready: {stream_name} ({stream_type})")
     except ImportError:
-        print("[LSL] pylsl not installed — install with: pip install pylsl")
+        print("[LSL] pylsl import failed after dependency check.")
 
 
 def send_marker(value: str) -> None:

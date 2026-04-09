@@ -12,6 +12,18 @@
       ]
     },
     {
+      "type": "stimulus",
+      "title": "Observe the material",
+      "subtitle": "Pay attention to all sensory impressions. The questionnaire will appear automatically.",
+      "warmup_duration_ms": 5000,
+      "duration_ms": 30000,
+      "trigger_type": "timer",
+      "trigger_content": "",
+      "send_signal": true,
+      "brainbit_to_lsl": true,
+      "brainbit_to_touchdesigner": true
+    },
+    {
       "type": "likert",
       "prompt": "I love that!",
       "scale": 8,

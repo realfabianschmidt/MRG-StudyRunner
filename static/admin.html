@@ -66,10 +66,8 @@
 
     <!-- Save bar: always visible at the bottom, never covered by the overlay -->
     <div class="sidebar-save">
-      <button class="btn-primary" id="btn-save-config" type="button">
-        <i class="iconoir-save-floppy-disk"></i> Save
-      </button>
-      <span class="save-status" id="save-status"></span>
+      <button class="btn-secondary" id="btn-load-config" type="button">Load Study</button>
+      <button class="btn-primary" id="btn-save-config" type="button">Save</button>
     </div>
 
   </aside>
@@ -85,7 +83,7 @@
 
 </div>
 
-<div class="toast" id="toast"><i class="iconoir-check"></i> Saved</div>
+<div class="toast" id="toast"><i id="toast-icon"></i><span id="toast-msg"></span></div>
 
 <script type="module" src="/static/js/admin-controller.js"></script>
 </body>

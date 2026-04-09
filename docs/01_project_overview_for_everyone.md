@@ -9,7 +9,8 @@ Study Runner is a small local web app for user studies.
 - One person on the team sets up the study.
 - A participant answers the questions on an iPad.
 - The server saves the answers as local files.
-- The server can trigger optional external tools such as LSL marker streams or TouchDesigner.
+- The server can trigger optional external tools such as LSL marker streams, TouchDesigner,
+  or an external BrainBit process.
 - Stimulus cards can include an optional warm-up phase before the active phase begins.
 
 ## Who uses which page
@@ -36,11 +37,12 @@ Study Runner is a small local web app for user studies.
 
 - `server.py`: Small startup file for the Flask app.
 - `app/`: Backend logic split by responsibility.
-- `app/integrations/`: One file per hardware integration (LSL, OSC). Each file is
+- `app/integrations/`: One file per hardware integration (LSL, OSC, BrainBit). Each file is
   self-contained and does nothing if the required library is not installed.
 - `app/validation.py`: Checks whether incoming config and result data can be saved safely.
 - `hardware_config.json`: Researcher-editable settings for hardware integrations.
-  Set `enabled: true` to activate LSL markers or OSC messages. Restart the server after changes.
+  Set `enabled: true` to activate LSL markers, OSC messages, or the BrainBit integration.
+  Restart the server after changes.
 - `study_config.json`: Stores the current study configuration.
 - `static/admin.html` and `static/study.html`: The page structure.
 - `static/css/main.css`: All visual styles in one central file, including the Materiability font.
@@ -48,7 +50,7 @@ Study Runner is a small local web app for user studies.
 - `static/js/`: Browser logic split into small modules.
 - `static/js/cards/`: One file per card type. Each file handles rendering, editing,
   and answer collection for its type.
-- `data/`: Stores saved result files.
+- `data/`: Stores one folder per participant with JSON results and optional XDF files.
 - `docs/`: Stores simple explanations, plans, and project rules.
 
 ## How the parts talk to each other
@@ -57,6 +59,7 @@ Study Runner is a small local web app for user studies.
 Admin page  ->  Browser JavaScript  ->  Flask routes  ->  config and result services
 Study page  ->  Browser JavaScript  ->  Flask routes  ->  config and result services
 Flask app   ->  trial_service.py    ->  optional tools such as LSL or TouchDesigner
+Flask app   ->  brainbit_adapter.py ->  external BrainBit CLI -> TouchDesigner / optional LSL
 ```
 
 ## Common questions from non-coders
@@ -72,7 +75,7 @@ Flask app   ->  trial_service.py    ->  optional tools such as LSL or TouchDesig
 
 - "Where would a new hardware integration be added?"
   Create a new file in `app/integrations/` following the pattern in `lsl_adapter.py` or
-  `osc_adapter.py`. Then call it from `app/trial_service.py`.
+  `osc_adapter.py`. For a background process like BrainBit, follow `brainbit_adapter.py`.
 
 - "How do I add a new question type?"
   Create a new file in `static/js/cards/`, then register it in `cards/index.js`.

@@ -17,6 +17,8 @@ export const defaultQuestion = {
   trigger_type: 'timer',
   trigger_content: '',
   send_signal: true,
+  brainbit_to_lsl: true,
+  brainbit_to_touchdesigner: true,
 };
 
 export function renderStudy(q, i) {
@@ -119,11 +121,23 @@ export function renderEditor(q) {
     <div class="field">
       <label class="checkbox-row">
         <input type="checkbox" class="se-send-signal"${q.send_signal !== false ? ' checked' : ''}>
-        <span>Send /api/start and /api/stop when the active phase begins and ends</span>
+        <span>Send Study Runner start/stop signals when the active phase begins and ends</span>
+      </label>
+    </div>
+    <div class="field">
+      <label class="checkbox-row">
+        <input type="checkbox" class="se-brainbit-lsl"${q.brainbit_to_lsl !== false ? ' checked' : ''}>
+        <span>Forward BrainBit data to LSL during this active phase</span>
+      </label>
+    </div>
+    <div class="field">
+      <label class="checkbox-row">
+        <input type="checkbox" class="se-brainbit-touchdesigner"${q.brainbit_to_touchdesigner !== false ? ' checked' : ''}>
+        <span>Forward BrainBit data to TouchDesigner during this active phase</span>
       </label>
     </div>
     <p class="stimulus-editor-note">
-      Warm-up only shows the instruction view. Signals, media triggers, and custom JS start when the active timer begins.
+      Warm-up only shows the instruction view. Study signals, BrainBit routing, media triggers, and custom JS start when the active timer begins.
     </p>`;
 }
 
@@ -137,6 +151,8 @@ export function collectConfig(el) {
     trigger_type: el.querySelector('.se-trigger-type')?.value || 'timer',
     trigger_content: el.querySelector('.se-trigger-content')?.value.trim() || '',
     send_signal: el.querySelector('.se-send-signal')?.checked ?? true,
+    brainbit_to_lsl: el.querySelector('.se-brainbit-lsl')?.checked ?? true,
+    brainbit_to_touchdesigner: el.querySelector('.se-brainbit-touchdesigner')?.checked ?? true,
   };
 }
 

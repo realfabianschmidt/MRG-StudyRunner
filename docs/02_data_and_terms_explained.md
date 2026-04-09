@@ -37,7 +37,7 @@ Each question type has its own file in `static/js/cards/`. The type string in
 
 - `stimulus`: A timed card with an optional warm-up phase before the active phase begins.
   Fields: `title`, `subtitle`, `warmup_duration_ms`, `duration_ms`, `trigger_type`,
-  `trigger_content`, `send_signal`.
+  `trigger_content`, `send_signal`, `brainbit_to_lsl`, `brainbit_to_touchdesigner`.
 
 ## Milliseconds explained quickly
 
@@ -87,7 +87,12 @@ It should never come from participant input.
 
 ## What a saved result file contains
 
-One JSON file is saved in the `data/` folder for each study run.
+One participant folder is saved in the `data/` folder for each study run.
+
+- `<participant_id>/<participant_id>.json`: The study answers for that participant.
+- `<participant_id>/<participant_id>.xdf`: Optional copied or moved LabRecorder file when configured.
+
+The JSON file contains:
 
 - `participant_id`: The anonymous ID of the participant.
 - `study_id`: The label of the study.
@@ -103,10 +108,11 @@ One JSON file is saved in the `data/` folder for each study run.
 - `JavaScript` or `JS`: The logic that runs in the browser.
 - `JSON`: A simple text format for settings and data.
 - `LSL`: Lab Streaming Layer. A network protocol for synchronizing time-stamped data streams.
-  The study runner sends event markers; BrainBit or similar devices send EEG data; LabRecorder
-  captures both into one `.xdf` file.
+  The study runner sends event markers; the BrainBit adapter can mirror BrainBit values into LSL;
+  LabRecorder captures both into one `.xdf` file.
 - `OSC`: Open Sound Control. Short network messages used to control tools like TouchDesigner.
   The study runner sends `/study/start` and `/study/stop` messages at each active stimulus phase.
+  The external BrainBit CLI sends continuous `/BrainBit/...` messages to TouchDesigner.
 - `XDF`: Extensible Data Format. A container file written by LabRecorder. It holds EEG data,
   event markers, and timestamps in one place. Use `pyxdf` to read it; use `MNE-Python` to
   process the EEG stream inside.
@@ -129,7 +135,9 @@ One JSON file is saved in the `data/` folder for each study run.
 - `Materiability`: The custom font used throughout the project. Files are in `static/fonts/`.
 - `Stimulus card`: A card type with an optional warm-up phase and an active timed phase.
 - `LabRecorder`: A free standalone tool that listens on the LSL network and saves all active streams into a single `.xdf` file with aligned timestamps.
-- `Hardware adapter`: A small Python file in `app/integrations/` that connects one external tool (LSL, OSC). It initializes once at startup and does nothing if the required library is not installed.
+- `Hardware adapter`: A small Python file in `app/integrations/` that connects one external tool
+  such as LSL, OSC, or BrainBit. It initializes once at startup and does nothing if the required
+  library or external script is not available.
 
 ## Why these explanations matter
 

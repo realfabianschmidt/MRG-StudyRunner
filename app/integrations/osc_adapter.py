@@ -16,11 +16,13 @@ Configure the target host, port, and message addresses in hardware_config.json:
     }
   }
 
-Requires: python-osc  (already in requirements.txt)
+Requires: python-osc  (auto-install optional)
 Enable:   set "osc": { "enabled": true } in hardware_config.json
 """
 from __future__ import annotations
 from typing import Any
+
+from .dependency_utils import ensure_requirements
 
 # Module-level state. None means OSC is not active.
 _client:        Any = None
@@ -33,17 +35,24 @@ def initialize(
     port:          int = 9000,
     address_start: str = "/study/start",
     address_stop:  str = "/study/stop",
+    auto_install:  bool = True,
 ) -> None:
     """Create the OSC UDP client. Called once at server startup when OSC is enabled."""
     global _client, _address_start, _address_stop
     _address_start = address_start
     _address_stop  = address_stop
+    if not ensure_requirements(
+        [("pythonosc", "python-osc")],
+        auto_install=auto_install,
+        label="OSC",
+    ):
+        return
     try:
         from pythonosc.udp_client import SimpleUDPClient
         _client = SimpleUDPClient(host, port)
         print(f"[OSC] Client ready: {host}:{port}  (start={address_start}, stop={address_stop})")
     except ImportError:
-        print("[OSC] python-osc not installed — install with: pip install python-osc")
+        print("[OSC] python-osc import failed after dependency check.")
 
 
 def send_start() -> None:

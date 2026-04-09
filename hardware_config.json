@@ -1,15 +1,62 @@
 {
-  "_comment": "Set enabled to true and fill in the values to activate each integration. Restart the server after any change.",
+  "_comment": "Set enabled to true and fill in the values to activate each integration. Restart the server after any change. BrainBit starts once with the server and can mirror data to LSL.",
   "lsl": {
-    "enabled": false,
+    "enabled": true,
+    "auto_install": true,
     "stream_name": "StudyRunner",
     "stream_type": "Markers"
   },
   "osc": {
-    "enabled": false,
+    "enabled": true,
+    "auto_install": true,
     "host": "127.0.0.1",
-    "port": 9000,
+    "port": 8000,
     "address_start": "/study/start",
     "address_stop": "/study/stop"
+  },
+  "brainbit": {
+    "enabled": true,
+    "script_path": {
+      "windows": "C:\\CodingProjects\\BrainBit\\brainbit_realtime_cli_OSC_15.py",
+      "macos": "~/CodingProjects/BrainBit/brainbit_realtime_cli_OSC_15.py"
+    },
+    "working_dir": {
+      "windows": "C:\\CodingProjects\\BrainBit",
+      "macos": "~/CodingProjects/BrainBit"
+    },
+    "log_dir": {
+      "windows": "C:\\CodingProjects\\BrainBit\\logs",
+      "macos": "~/CodingProjects/BrainBit/logs"
+    },
+    "python_executable": {
+      "windows": "",
+      "macos": ""
+    },
+    "osc_host": "127.0.0.1",
+    "osc_port": 8000,
+    "scan_seconds": 5,
+    "resist_seconds": 6,
+    "signal_seconds": 0,
+    "pretty": false,
+    "debug": false,
+    "quiet_output": true,
+    "open_monitor_terminal": true,
+    "monitor_refresh_ms": 1000,
+    "disconnect_timeout_ms": 5000,
+    "lsl": {
+      "enabled": true,
+      "auto_install": true,
+      "stream_prefix": "BrainBit"
+    }
+  },
+  "labrecorder": {
+    "enabled": false,
+    "xdf_source_dir": {
+      "windows": "C:\\CodingProjects\\BrainBit\\recordings",
+      "macos": "~/CodingProjects/BrainBit/recordings"
+    },
+    "move_xdf": false,
+    "lookback_minutes": 120,
+    "lookahead_minutes": 120
   }
 }

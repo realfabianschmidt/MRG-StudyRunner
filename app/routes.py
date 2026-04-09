@@ -36,12 +36,12 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/api/start", methods=["POST"])
     def start_trial():
-        start_trial_session()
+        start_trial_session(request.get_json() or {})
         return jsonify({"ok": True})
 
     @app.route("/api/stop", methods=["POST"])
     def stop_trial():
-        stop_trial_session()
+        stop_trial_session(request.get_json() or {})
         return jsonify({"ok": True})
 
     @app.route("/api/results", methods=["POST"])
@@ -51,13 +51,16 @@ def register_routes(app: Flask) -> None:
             load_config(current_app.config["CONFIG_FILE"])
         )
         validated_results = validate_and_normalize_results(result_payload, config_data)
-        filename = save_results_payload(
+        saved_output = save_results_payload(
             current_app.config["DATA_DIR"],
             config_data["study_id"],
             validated_results,
+            current_app.config.get("HARDWARE_CONFIG"),
         )
-        print(f"[DATA] Saved: {filename}")
-        return jsonify({"ok": True, "file": filename})
+        print(f"[DATA] Saved: {saved_output['json_file']}")
+        if saved_output.get("xdf_file"):
+            print(f"[DATA] XDF: {saved_output['xdf_file']}")
+        return jsonify({"ok": True, **saved_output})
 
     @app.errorhandler(ValidationError)
     def handle_validation_error(error: ValidationError):

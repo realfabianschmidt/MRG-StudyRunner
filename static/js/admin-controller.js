@@ -23,10 +23,10 @@ async function init() {
     $('cfg-id').value = state.config.study_id || '';
     rebuildAll();
     state.loaded = true;
-    setSavedStatus('Loaded');
+    showToast('Loaded', 'info');
   } catch (error) {
     console.error('[admin] Could not load configuration:', error);
-    alert(`Could not load the study configuration: ${error.message}`);
+    showToast('Could not load config', 'error');
   }
 }
 
@@ -50,6 +50,7 @@ function openTypePicker() {
 function bindEvents() {
   $('btn-add-main').addEventListener('click', openTypePicker);
   $('btn-save-config').addEventListener('click', () => void saveConfig());
+  $('btn-load-config').addEventListener('click', loadFromFile);
   $('overlay-close').addEventListener('click', closeOverlay);
 
   $('sidebar-overlay').addEventListener('click', (event) => {
@@ -460,33 +461,50 @@ async function saveConfig() {
     await postJson('/api/config', fullConfig);
     state.config = fullConfig;
 
-    const toast = $('toast');
-    toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), 2000);
-    setSavedStatus('Saved');
+    $('btn-save-config').classList.remove('btn-primary--dirty');
+    showToast('Saved', 'success');
   } catch (error) {
     console.error('[admin] Could not save configuration:', error);
-    setErrorStatus('Save failed');
-    alert(`Could not save the study configuration: ${error.message}`);
+    showToast('Save failed', 'error');
   }
 }
 
 function markUnsaved() {
-  if (!state.loaded) {
-    return;
-  }
-  $('save-status').textContent = 'Unsaved changes';
-  $('save-status').className = 'save-status';
+  if (!state.loaded) return;
+  $('btn-save-config').classList.add('btn-primary--dirty');
 }
 
-function setSavedStatus(label) {
-  $('save-status').textContent = label;
-  $('save-status').className = 'save-status saved';
+let _toastTimer = null;
+function showToast(message, type = 'info') {
+  const icons = { success: 'iconoir-check', error: 'iconoir-xmark-circle', info: 'iconoir-info-circle' };
+  $('toast-icon').className = icons[type] || icons.info;
+  $('toast-msg').textContent = message;
+  const toast = $('toast');
+  toast.className = `toast toast--${type} show`;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
 }
 
-function setErrorStatus(label) {
-  $('save-status').textContent = label;
-  $('save-status').className = 'save-status save-status--error';
+function loadFromFile() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const config = JSON.parse(await file.text());
+      state.config = config;
+      $('cfg-id').value = config.study_id || '';
+      rebuildAll();
+      state.loaded = true;
+      markUnsaved();
+      showToast(`Loaded: ${file.name}`, 'info');
+    } catch {
+      showToast('Invalid JSON file', 'error');
+    }
+  };
+  input.click();
 }
 
 function renderCardLabel(question) {

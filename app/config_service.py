@@ -12,6 +12,8 @@ DEFAULT_STIMULUS_CARD: dict[str, Any] = {
     "trigger_type": "timer",
     "trigger_content": "",
     "send_signal": True,
+    "brainbit_to_lsl": True,
+    "brainbit_to_touchdesigner": True,
 }
 
 
@@ -33,6 +35,11 @@ def normalize_config(config_data: dict[str, Any]) -> dict[str, Any]:
         ):
             question_data["type"] = "single"
             question_data.pop("multiple", None)
+
+        if isinstance(question_data, dict) and question_data.get("type") == "stimulus":
+            default_signal = bool(question_data.get("send_signal", True))
+            question_data.setdefault("brainbit_to_lsl", default_signal)
+            question_data.setdefault("brainbit_to_touchdesigner", default_signal)
 
     return config_data
 

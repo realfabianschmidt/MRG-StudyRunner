@@ -21,6 +21,9 @@ Install once:
 pip install -r requirements.txt
 ```
 
+Optional hardware packages can now auto-install themselves when the related integration
+is enabled in `hardware_config.json`.
+
 Start the server:
 
 ```bash
@@ -72,10 +75,12 @@ study-runner/
 |   `-- integrations/
 |       One file per hardware integration. Each file is self-contained.
 |       |-- __init__.py
-|       |-- lsl_adapter.py      Sends LSL event markers (requires pylsl)
-|       `-- osc_adapter.py      Sends OSC messages to TouchDesigner
+|       |-- dependency_utils.py Optional dependency checks and auto-install helper
+|       |-- lsl_adapter.py      Sends LSL event markers
+|       |-- osc_adapter.py      Sends OSC messages to TouchDesigner
+|       `-- brainbit_adapter.py Starts the external BrainBit CLI and optional LSL mirroring
 |-- hardware_config.json
-|   Researcher-editable settings for hardware integrations (LSL, OSC).
+|   Researcher-editable settings for hardware integrations (LSL, OSC, BrainBit).
 |-- study_config.json
 |   Stores the current study configuration.
 |-- requirements.txt
@@ -112,7 +117,7 @@ study-runner/
 |           |-- card-text.js         Free-text answer
 |           `-- card-stimulus.js     Stimulus / countdown card
 |-- data/
-|   Stores saved answer files as JSON.
+|   Stores participant output folders with JSON results and optional XDF files.
 `-- docs/
     Stores simple explanations, rules, and plans for the project.
 ```
@@ -130,15 +135,16 @@ The server runs on macOS or Windows and handles all backend work.
 - `trial_service.py` triggers active hardware integrations.
 - `lsl_adapter.py` can send LSL markers when enabled.
 - `osc_adapter.py` can send OSC messages to TouchDesigner or another OSC host.
+- `brainbit_adapter.py` can start the external BrainBit CLI from `C:\CodingProjects\BrainBit`,
+  keep it running in the background, and optionally mirror selected BrainBit values into LSL.
 
-Important: the current repo does not include a direct BrainBit SDK adapter yet.
 The current built-in hardware path is:
 
 - optional LSL event markers from this server
-- optional OSC start and stop messages
+- optional OSC start and stop messages from this server
+- optional BrainBit EEG / bands / mental-state OSC data from the external BrainBit CLI
+- optional BrainBit-to-LSL mirroring for LabRecorder
 - optional LabRecorder workflow for synchronized `.xdf` files
-
-If a direct BrainBit SDK integration is needed later, it should be added as a new adapter in `app/integrations/`.
 
 ### Browser side
 
@@ -192,7 +198,9 @@ Each stimulus card has its own:
 - active duration
 - trigger type
 - trigger content
-- signal on/off setting
+- Study Runner signal on/off setting
+- BrainBit -> LSL on/off setting
+- BrainBit -> TouchDesigner on/off setting
 
 A stimulus card can have two phases:
 
@@ -222,7 +230,17 @@ The current trigger types are:
 - `js`
   Run researcher-provided JavaScript in the browser during the active phase.
 
-If `send_signal` is enabled for that stimulus card, the server sends `/api/start` at the beginning of the active phase and `/api/stop` at the end.
+If `send_signal` is enabled for that stimulus card, the server sends the Study Runner
+start/stop actions at the beginning and end of the active phase:
+
+- LSL `start` / `stop` markers from Study Runner
+- OSC `/study/start` / `/study/stop` from Study Runner
+
+If `brainbit_to_lsl` is enabled for that stimulus card, BrainBit EEG-related values are mirrored
+into the BrainBit LSL streams only during that active phase.
+
+If `brainbit_to_touchdesigner` is enabled for that stimulus card, BrainBit values are forwarded
+to TouchDesigner only during that active phase.
 
 The JS trigger receives a small `study` helper with two functions:
 
@@ -246,9 +264,17 @@ No code changes are needed for a normal study setup.
 
 ## What gets saved
 
-One JSON file is saved in `data/` for each study run.
+One participant folder is saved in `data/` for each study run.
 
-Each saved result file contains:
+Inside that folder, Study Runner saves:
+
+- `<participant_id>/<participant_id>.json`
+- optionally `<participant_id>/<participant_id>.xdf` if `labrecorder` pickup is configured
+
+If files with that exact name already exist for the same participant, Study Runner keeps the
+folder and adds a numeric suffix such as `_2` instead of overwriting older runs.
+
+Each saved JSON result file contains:
 
 - `participant_id`
   Anonymous participant label entered at the start.
@@ -265,7 +291,8 @@ Each saved result file contains:
 - `answers`
   The recorded answers for all non-stimulus cards.
 
-The server validates the payload before saving it. Saved filenames also use a safe version of the study ID so that broken or unsafe names do not escape the `data/` folder.
+The server validates the payload before saving it. Folder and file names use a safe version of the
+participant ID so that broken or unsafe names do not escape the `data/` folder.
 
 ## Privacy note
 
@@ -280,8 +307,9 @@ The server validates the payload before saving it. Saved filenames also use a sa
 
 - OSC support is already built in through `app/integrations/osc_adapter.py`.
 - LSL marker support is already built in through `app/integrations/lsl_adapter.py`.
-- Direct BrainBit SDK control is not yet built in as a dedicated adapter.
-- The recommended current EEG sync path is LSL markers plus LabRecorder.
+- BrainBit support is built in through `app/integrations/brainbit_adapter.py`.
+- The BrainBit adapter launches the external script `C:\CodingProjects\BrainBit\brainbit_realtime_cli_OSC_15.py`.
+- The recommended current EEG sync path is BrainBit LSL mirroring plus Study Runner markers in LabRecorder.
 
 ### Enable hardware integrations
 
@@ -291,37 +319,106 @@ Hardware support is configured in `hardware_config.json` at the project root. Se
 {
   "lsl": {
     "enabled": true,
+    "auto_install": true,
     "stream_name": "StudyRunner",
     "stream_type": "Markers"
   },
   "osc": {
     "enabled": true,
+    "auto_install": true,
     "host": "127.0.0.1",
-    "port": 9000,
+    "port": 8000,
     "address_start": "/study/start",
     "address_stop": "/study/stop"
+  },
+  "brainbit": {
+    "enabled": true,
+    "script_path": {
+      "windows": "C:\\CodingProjects\\BrainBit\\brainbit_realtime_cli_OSC_15.py",
+      "macos": "~/CodingProjects/BrainBit/brainbit_realtime_cli_OSC_15.py"
+    },
+    "working_dir": {
+      "windows": "C:\\CodingProjects\\BrainBit",
+      "macos": "~/CodingProjects/BrainBit"
+    },
+    "log_dir": {
+      "windows": "C:\\CodingProjects\\BrainBit\\logs",
+      "macos": "~/CodingProjects/BrainBit/logs"
+    },
+    "python_executable": {
+      "windows": "",
+      "macos": ""
+    },
+    "osc_host": "127.0.0.1",
+    "osc_port": 8000,
+    "scan_seconds": 5,
+    "resist_seconds": 6,
+    "signal_seconds": 0,
+    "pretty": false,
+    "debug": false,
+    "quiet_output": true,
+    "open_monitor_terminal": true,
+    "monitor_refresh_ms": 1000,
+    "disconnect_timeout_ms": 5000,
+    "lsl": {
+      "enabled": true,
+      "auto_install": true,
+      "stream_prefix": "BrainBit"
+    }
+  },
+  "labrecorder": {
+    "enabled": false,
+    "xdf_source_dir": {
+      "windows": "C:\\CodingProjects\\BrainBit\\recordings",
+      "macos": "~/CodingProjects/BrainBit/recordings"
+    },
+    "move_xdf": false,
+    "lookback_minutes": 120,
+    "lookahead_minutes": 120
   }
 }
 ```
+
+For path-like BrainBit fields you can use either:
+
+- one plain string for all systems
+- or an object with OS-specific values such as `windows` and `macos`
+
+Study Runner resolves the correct value automatically at startup.
+
+If `labrecorder.enabled` is true, Study Runner also looks for a matching `.xdf` file in
+`xdf_source_dir` and copies or moves it into the participant folder under the participant ID.
 
 ### LSL markers and `.xdf` recording
 
 LSL stands for Lab Streaming Layer.
 
-When `lsl` is enabled, the server can send a `start` marker at the beginning of an active stimulus phase and a `stop` marker at the end, if `send_signal` is enabled for that stimulus card.
+When `lsl` is enabled, the server sends a `start` marker at the beginning of an active stimulus
+phase and a `stop` marker at the end, if `send_signal` is enabled for that stimulus card.
 
-`LabRecorder` is a free standalone tool that listens on the LSL network and records all active streams into a single `.xdf` file with aligned timestamps. In a BrainBit or EEG workflow, this usually means the EEG stream from the device software plus the marker stream from Study Runner.
+If `brainbit.lsl.enabled` is also true, the BrainBit adapter mirrors selected BrainBit data into
+additional LSL streams:
+
+- `BrainBit_EEG`
+- `BrainBit_BANDS`
+- `BrainBit_MENTAL`
+- `BrainBit_QUALITY`
+- `BrainBit_BATTERY`
+
+`LabRecorder` is a free standalone tool that listens on the LSL network and records all active
+streams into a single `.xdf` file with aligned timestamps.
 
 Typical workflow:
 
 1. Enable `lsl` in `hardware_config.json`
-2. Install `pylsl`
+2. Enable `brainbit` and `brainbit.lsl` if you want BrainBit mirrored into LSL
 3. Start the Study Runner server
-4. Start LabRecorder
-5. Record the EEG stream and the Study Runner marker stream together
-6. Use `pyxdf` and later `MNE-Python` for analysis
+4. Let the server auto-install `pylsl` if needed, or install it manually
+5. Start LabRecorder
+6. Record the BrainBit streams and the Study Runner marker stream together
+7. Use `pyxdf` and later `MNE-Python` for analysis
 
-Install `pylsl` only if you want to use LSL:
+Install `pylsl` manually only if you do not want to rely on auto-install:
 
 ```bash
 pip install pylsl
@@ -329,11 +426,46 @@ pip install pylsl
 
 ### OSC messages for TouchDesigner
 
-When `osc` is enabled, the server can send `/study/start` at the beginning of an active stimulus phase and `/study/stop` at the end, again only when `send_signal` is enabled for that stimulus card.
+Two OSC paths now exist:
 
-The host, port, and message addresses all come from `hardware_config.json`.
+- Study Runner can send `/study/start` and `/study/stop` during stimulus cards through
+  `app/integrations/osc_adapter.py`.
+- The external BrainBit CLI sends continuous `/BrainBit/...` messages to TouchDesigner while the
+  BrainBit device is running.
 
-`python-osc` is already included in `requirements.txt`.
+The host, port, and message addresses all come from `hardware_config.json`. If your TouchDesigner
+patch listens on a single OSC port, both Study Runner and BrainBit can target that same port.
+
+The provided TouchDesigner project from `C:\CodingProjects\BrainBit\HelloEEG_HelloMYO_01.3.toe`
+is expected to listen for the BrainBit OSC namespace on port `8000`.
+
+`python-osc` is included in `requirements.txt`, and Study Runner can auto-install it if the OSC
+integration is enabled and the package is missing.
+
+### BrainBit integration
+
+When `brainbit.enabled` is true, Study Runner starts the external BrainBit CLI at server startup.
+
+What the adapter does:
+
+- launches `brainbit_realtime_cli_OSC_15.py`
+- keeps reading its console output in the background
+- forwards BrainBit OSC data directly to TouchDesigner through the configured OSC port
+- optionally mirrors selected BrainBit values into LSL for LabRecorder
+- writes the full BrainBit output to `brainbit_runtime.log`
+- writes the latest parsed values to `brainbit_state.json`
+- can open a second terminal window with a stable live monitor instead of spamming the server console
+  on both Windows and macOS
+- stops the BrainBit process automatically when the server exits
+
+Important notes:
+
+- BrainBit is not started and stopped per stimulus card. It is managed once at server startup.
+- Study Runner still controls the stimulus markers (`/study/start`, `/study/stop`) separately.
+- The external BrainBit script already auto-installs its own SDK-related packages:
+  `pyneurosdk2`, `python-osc`, and `pyem-st-artifacts`.
+- Recommended console setup:
+  `pretty: false`, `quiet_output: true`, `open_monitor_terminal: true`
 
 ### Custom JavaScript trigger
 

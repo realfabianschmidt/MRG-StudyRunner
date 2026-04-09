@@ -15,7 +15,7 @@ Status as of April 2026:
   CSS file with the Materiability font. The admin page has a live preview layout.
   Stimulus cards now support an optional warm-up phase before the active phase starts.
 - Step 4 is mostly done. Hardware adapters and server-side validation are in place.
-  Remaining work is mainly future integrations and deeper automated testing.
+  Remaining work is mainly deeper automated testing and future refinement.
 
 ## Target picture
 
@@ -88,8 +88,10 @@ Errors should be caught earlier, and external tools should be connected more cle
 Work done:
 
 - hardware integrations moved into small adapter files in `app/integrations/`
-- LSL event markers via `lsl_adapter.py` (requires pylsl, optional)
-- OSC messages to TouchDesigner via `osc_adapter.py` (python-osc, already installed)
+- LSL event markers via `lsl_adapter.py` (optional auto-install of `pylsl`)
+- OSC messages to TouchDesigner via `osc_adapter.py` (optional auto-install of `python-osc`)
+- BrainBit process integration via `brainbit_adapter.py`
+- optional BrainBit-to-LSL mirroring for LabRecorder
 - hardware settings are in `hardware_config.json`
 - config payloads are validated before saving
 - result payloads are validated before writing
@@ -98,9 +100,9 @@ Work done:
 
 Work still to do:
 
-- dedicated BrainBit SDK adapter when the SDK is available
 - broader automated tests instead of only syntax and manual checks
 - optional stricter answer-shape validation per card type in the backend
+- optional finer-grained BrainBit lifecycle control if studies later need per-session start/stop
 
 ## What this plan does not include
 

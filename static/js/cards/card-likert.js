@@ -17,8 +17,11 @@ export function renderStudy(q, i) {
   return `
     <div class="q-type-tag"><i class="iconoir-list-select"></i> Likert scale</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
-    <div class="likert-row">${opts}</div>
-    <div class="polar-labels"><span>${escapeHtml(q.label_min||'')}</span><span>${escapeHtml(q.label_max||'')}</span></div>`;
+    <div class="likert-scale-row">
+      <span class="likert-pole">${escapeHtml(q.label_min||'')}</span>
+      <div class="likert-row">${opts}</div>
+      <span class="likert-pole likert-pole--right">${escapeHtml(q.label_max||'')}</span>
+    </div>`;
 }
 
 export function renderEditor(q) {
