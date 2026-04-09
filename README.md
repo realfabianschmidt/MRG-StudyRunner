@@ -78,13 +78,15 @@ study-runner/
 |       |-- dependency_utils.py Optional dependency checks and auto-install helper
 |       |-- lsl_adapter.py      Sends LSL event markers
 |       |-- osc_adapter.py      Sends OSC messages to TouchDesigner
-|       `-- brainbit_adapter.py Starts the external BrainBit CLI and optional LSL mirroring
+|       `-- brainbit_adapter.py Starts the repo-local BrainBit CLI and optional LSL mirroring
 |-- hardware_config.json
 |   Researcher-editable settings for hardware integrations (LSL, OSC, BrainBit).
 |-- study_config.json
 |   Stores the current study configuration.
 |-- requirements.txt
 |   Lists the required Python packages.
+|-- brainbit/
+|   Repo-local BrainBit helper files, docs, and the TouchDesigner example project.
 |-- static/
 |   |-- admin.html
 |   |   The admin page structure. Uses a two-column layout:
@@ -135,14 +137,14 @@ The server runs on macOS or Windows and handles all backend work.
 - `trial_service.py` triggers active hardware integrations.
 - `lsl_adapter.py` can send LSL markers when enabled.
 - `osc_adapter.py` can send OSC messages to TouchDesigner or another OSC host.
-- `brainbit_adapter.py` can start the external BrainBit CLI from `C:\CodingProjects\BrainBit`,
+- `brainbit_adapter.py` can start the repo-local BrainBit CLI from `brainbit/`,
   keep it running in the background, and optionally mirror selected BrainBit values into LSL.
 
 The current built-in hardware path is:
 
 - optional LSL event markers from this server
 - optional OSC start and stop messages from this server
-- optional BrainBit EEG / bands / mental-state OSC data from the external BrainBit CLI
+- optional BrainBit EEG / bands / mental-state OSC data from the repo-local BrainBit CLI
 - optional BrainBit-to-LSL mirroring for LabRecorder
 - optional LabRecorder workflow for synchronized `.xdf` files
 
@@ -308,7 +310,7 @@ participant ID so that broken or unsafe names do not escape the `data/` folder.
 - OSC support is already built in through `app/integrations/osc_adapter.py`.
 - LSL marker support is already built in through `app/integrations/lsl_adapter.py`.
 - BrainBit support is built in through `app/integrations/brainbit_adapter.py`.
-- The BrainBit adapter launches the external script `C:\CodingProjects\BrainBit\brainbit_realtime_cli_OSC_15.py`.
+- The BrainBit adapter launches the repo-local script `brainbit/brainbit_realtime_cli_OSC_15.py`.
 - The recommended current EEG sync path is BrainBit LSL mirroring plus Study Runner markers in LabRecorder.
 
 ### Enable hardware integrations
@@ -333,18 +335,9 @@ Hardware support is configured in `hardware_config.json` at the project root. Se
   },
   "brainbit": {
     "enabled": true,
-    "script_path": {
-      "windows": "C:\\CodingProjects\\BrainBit\\brainbit_realtime_cli_OSC_15.py",
-      "macos": "~/CodingProjects/BrainBit/brainbit_realtime_cli_OSC_15.py"
-    },
-    "working_dir": {
-      "windows": "C:\\CodingProjects\\BrainBit",
-      "macos": "~/CodingProjects/BrainBit"
-    },
-    "log_dir": {
-      "windows": "C:\\CodingProjects\\BrainBit\\logs",
-      "macos": "~/CodingProjects/BrainBit/logs"
-    },
+    "script_path": "brainbit/brainbit_realtime_cli_OSC_15.py",
+    "working_dir": "brainbit",
+    "log_dir": "brainbit/logs",
     "python_executable": {
       "windows": "",
       "macos": ""
@@ -368,10 +361,7 @@ Hardware support is configured in `hardware_config.json` at the project root. Se
   },
   "labrecorder": {
     "enabled": false,
-    "xdf_source_dir": {
-      "windows": "C:\\CodingProjects\\BrainBit\\recordings",
-      "macos": "~/CodingProjects/BrainBit/recordings"
-    },
+    "xdf_source_dir": "brainbit/recordings",
     "move_xdf": false,
     "lookback_minutes": 120,
     "lookahead_minutes": 120
@@ -384,10 +374,13 @@ For path-like BrainBit fields you can use either:
 - one plain string for all systems
 - or an object with OS-specific values such as `windows` and `macos`
 
-Study Runner resolves the correct value automatically at startup.
+Study Runner resolves the correct value automatically at startup. Relative paths are resolved
+from the project root, so `brainbit/brainbit_realtime_cli_OSC_15.py` works on both Windows
+and macOS inside the same repository checkout.
 
 If `labrecorder.enabled` is true, Study Runner also looks for a matching `.xdf` file in
 `xdf_source_dir` and copies or moves it into the participant folder under the participant ID.
+This path may also be relative to the project root, for example `brainbit/recordings`.
 
 ### LSL markers and `.xdf` recording
 
@@ -430,13 +423,13 @@ Two OSC paths now exist:
 
 - Study Runner can send `/study/start` and `/study/stop` during stimulus cards through
   `app/integrations/osc_adapter.py`.
-- The external BrainBit CLI sends continuous `/BrainBit/...` messages to TouchDesigner while the
+- The BrainBit adapter forwards continuous `/BrainBit/...` messages to TouchDesigner while the
   BrainBit device is running.
 
 The host, port, and message addresses all come from `hardware_config.json`. If your TouchDesigner
 patch listens on a single OSC port, both Study Runner and BrainBit can target that same port.
 
-The provided TouchDesigner project from `C:\CodingProjects\BrainBit\HelloEEG_HelloMYO_01.3.toe`
+The provided TouchDesigner project from `brainbit/HelloEEG_HelloMYO_01.3.toe`
 is expected to listen for the BrainBit OSC namespace on port `8000`.
 
 `python-osc` is included in `requirements.txt`, and Study Runner can auto-install it if the OSC
@@ -444,13 +437,13 @@ integration is enabled and the package is missing.
 
 ### BrainBit integration
 
-When `brainbit.enabled` is true, Study Runner starts the external BrainBit CLI at server startup.
+When `brainbit.enabled` is true, Study Runner starts the repo-local BrainBit CLI at server startup.
 
 What the adapter does:
 
-- launches `brainbit_realtime_cli_OSC_15.py`
+- launches `brainbit/brainbit_realtime_cli_OSC_15.py`
 - keeps reading its console output in the background
-- forwards BrainBit OSC data directly to TouchDesigner through the configured OSC port
+- forwards parsed BrainBit values to TouchDesigner through the configured OSC port
 - optionally mirrors selected BrainBit values into LSL for LabRecorder
 - writes the full BrainBit output to `brainbit_runtime.log`
 - writes the latest parsed values to `brainbit_state.json`
@@ -462,7 +455,7 @@ Important notes:
 
 - BrainBit is not started and stopped per stimulus card. It is managed once at server startup.
 - Study Runner still controls the stimulus markers (`/study/start`, `/study/stop`) separately.
-- The external BrainBit script already auto-installs its own SDK-related packages:
+- The repo-local BrainBit script already auto-installs its own SDK-related packages:
   `pyneurosdk2`, `python-osc`, and `pyem-st-artifacts`.
 - Recommended console setup:
   `pretty: false`, `quiet_output: true`, `open_monitor_terminal: true`

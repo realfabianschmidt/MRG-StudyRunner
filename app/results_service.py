@@ -71,7 +71,7 @@ def _maybe_collect_xdf(
     if not source_dir_value:
         return None
 
-    source_dir = Path(source_dir_value).expanduser()
+    source_dir = _resolve_project_path(source_dir_value, participant_dir.parent.parent)
     if not source_dir.exists() or not source_dir.is_dir():
         return None
 
@@ -159,6 +159,13 @@ def _resolve_platform_value(value: Any) -> Any:
             return value.get(key)
 
     return None
+
+
+def _resolve_project_path(value: Any, base_dir: Path) -> Path:
+    path = Path(str(value)).expanduser()
+    if not path.is_absolute():
+        path = base_dir / path
+    return path.resolve()
 
 
 def _build_unique_output_path(participant_dir: Path, safe_participant_id: str, suffix: str) -> Path:

@@ -1,17 +1,18 @@
 """
-BrainBit adapter - launches an external BrainBit CLI and optionally mirrors its output to LSL.
+BrainBit adapter - launches a repo-local BrainBit CLI process and optionally mirrors its output to LSL.
 
-Expected external setup:
-  - BrainBit Python CLI script, for example:
-      C:\\CodingProjects\\BrainBit\\brainbit_realtime_cli_OSC_15.py
+Expected setup inside this repository:
+  - BrainBit Python CLI script in the project folder, for example:
+      brainbit/brainbit_realtime_cli_OSC_15.py
   - TouchDesigner project listening for OSC on the configured port, for example:
-      C:\\CodingProjects\\BrainBit\\HelloEEG_HelloMYO_01.3.toe
+      brainbit/HelloEEG_HelloMYO_01.3.toe
 
-The BrainBit CLI itself is responsible for Bluetooth scanning, SDK usage, and BrainBit-to-OSC
-streaming. This adapter keeps Study Runner in charge of:
+The BrainBit CLI itself is responsible for Bluetooth scanning and SDK usage. This adapter keeps
+Study Runner in charge of:
   - starting the external process at server startup
   - stopping it cleanly on server shutdown
   - relaying selected numeric outputs into optional LSL streams for LabRecorder
+  - forwarding selected BrainBit values to TouchDesigner based on the active stimulus card
   - keeping the main server terminal quiet by writing details to log/state files
 """
 from __future__ import annotations
@@ -134,7 +135,7 @@ def initialize(
 
 
 def start() -> None:
-    """Start the external BrainBit process if it is not already running."""
+    """Start the repo-local BrainBit process if it is not already running."""
     global _process, _reader_thread, _log_handle, _watchdog_thread, _last_activity_at
 
     if not _config:
@@ -209,7 +210,7 @@ def start() -> None:
 
 
 def stop() -> None:
-    """Stop the external BrainBit process if it is running."""
+    """Stop the repo-local BrainBit process if it is running."""
     global _process
 
     with _lock:

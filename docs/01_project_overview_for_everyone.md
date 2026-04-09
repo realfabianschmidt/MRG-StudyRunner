@@ -10,7 +10,7 @@ Study Runner is a small local web app for user studies.
 - A participant answers the questions on an iPad.
 - The server saves the answers as local files.
 - The server can trigger optional external tools such as LSL marker streams, TouchDesigner,
-  or an external BrainBit process.
+  or a repo-local BrainBit process.
 - Stimulus cards can include an optional warm-up phase before the active phase begins.
 
 ## Who uses which page
@@ -44,6 +44,7 @@ Study Runner is a small local web app for user studies.
   Set `enabled: true` to activate LSL markers, OSC messages, or the BrainBit integration.
   Restart the server after changes.
 - `study_config.json`: Stores the current study configuration.
+- `brainbit/`: Stores the repo-local BrainBit script, BrainBit notes, and the TouchDesigner example file.
 - `static/admin.html` and `static/study.html`: The page structure.
 - `static/css/main.css`: All visual styles in one central file, including the Materiability font.
 - `static/fonts/`: The Materiability font files.
@@ -59,7 +60,7 @@ Study Runner is a small local web app for user studies.
 Admin page  ->  Browser JavaScript  ->  Flask routes  ->  config and result services
 Study page  ->  Browser JavaScript  ->  Flask routes  ->  config and result services
 Flask app   ->  trial_service.py    ->  optional tools such as LSL or TouchDesigner
-Flask app   ->  brainbit_adapter.py ->  external BrainBit CLI -> TouchDesigner / optional LSL
+Flask app   ->  brainbit_adapter.py ->  repo-local BrainBit CLI -> TouchDesigner / optional LSL
 ```
 
 ## Common questions from non-coders

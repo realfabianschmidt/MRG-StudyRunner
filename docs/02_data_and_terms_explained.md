@@ -112,7 +112,7 @@ The JSON file contains:
   LabRecorder captures both into one `.xdf` file.
 - `OSC`: Open Sound Control. Short network messages used to control tools like TouchDesigner.
   The study runner sends `/study/start` and `/study/stop` messages at each active stimulus phase.
-  The external BrainBit CLI sends continuous `/BrainBit/...` messages to TouchDesigner.
+  The BrainBit adapter forwards continuous `/BrainBit/...` messages to TouchDesigner.
 - `XDF`: Extensible Data Format. A container file written by LabRecorder. It holds EEG data,
   event markers, and timestamps in one place. Use `pyxdf` to read it; use `MNE-Python` to
   process the EEG stream inside.

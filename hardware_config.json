@@ -16,18 +16,9 @@
   },
   "brainbit": {
     "enabled": true,
-    "script_path": {
-      "windows": "C:\\CodingProjects\\BrainBit\\brainbit_realtime_cli_OSC_15.py",
-      "macos": "~/CodingProjects/BrainBit/brainbit_realtime_cli_OSC_15.py"
-    },
-    "working_dir": {
-      "windows": "C:\\CodingProjects\\BrainBit",
-      "macos": "~/CodingProjects/BrainBit"
-    },
-    "log_dir": {
-      "windows": "C:\\CodingProjects\\BrainBit\\logs",
-      "macos": "~/CodingProjects/BrainBit/logs"
-    },
+    "script_path": "brainbit/brainbit_realtime_cli_OSC_15.py",
+    "working_dir": "brainbit",
+    "log_dir": "brainbit/logs",
     "python_executable": {
       "windows": "",
       "macos": ""
@@ -51,10 +42,7 @@
   },
   "labrecorder": {
     "enabled": false,
-    "xdf_source_dir": {
-      "windows": "C:\\CodingProjects\\BrainBit\\recordings",
-      "macos": "~/CodingProjects/BrainBit/recordings"
-    },
+    "xdf_source_dir": "brainbit/recordings",
     "move_xdf": false,
     "lookback_minutes": 120,
     "lookahead_minutes": 120

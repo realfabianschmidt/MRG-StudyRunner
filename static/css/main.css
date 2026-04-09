@@ -72,7 +72,7 @@
 *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ============================================================
-   STUDY PAGE â€” base body
+   STUDY PAGE - base body
    ============================================================ */
 body {
   font-family: var(--font-body);
@@ -93,7 +93,7 @@ body::before {
 }
 
 /* ============================================================
-   STUDY PAGE â€” ambient orbs
+   STUDY PAGE - ambient orbs
    ============================================================ */
 .ambient { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
 .ambient .orb { position: absolute; border-radius: 50%; filter: blur(100px); will-change: transform; }
@@ -114,7 +114,7 @@ body::before {
 }
 
 /* ============================================================
-   STUDY PAGE â€” screen cards
+   STUDY PAGE - screen cards
    ============================================================ */
 .screen {
   display: none; position: relative; z-index: 1;
@@ -141,7 +141,7 @@ body::before {
 }
 
 /* ============================================================
-   STUDY PAGE â€” labels & tags
+   STUDY PAGE - labels and tags
    ============================================================ */
 .mono-label {
   font-family: var(--font-mono); font-size: .688rem;
@@ -158,7 +158,7 @@ body::before {
 #q-container .q-type-tag { display: none; }
 
 /* ============================================================
-   STUDY PAGE â€” inputs
+   STUDY PAGE - inputs
    ============================================================ */
 .fi-input {
   width: 100%; padding: 12px 14px;
@@ -190,7 +190,7 @@ body::before {
 }
 
 /* ============================================================
-   STUDY PAGE â€” consent row
+   STUDY PAGE - consent row
    ============================================================ */
 .consent-row {
   display: flex; align-items: flex-start; gap: 12px;
@@ -206,7 +206,7 @@ body::before {
 .consent-row span { font-size: .875rem; color: var(--ink-60); line-height: 1.5; }
 
 /* ============================================================
-   SHARED â€” buttons
+   SHARED - buttons
    ============================================================ */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -226,7 +226,7 @@ body::before {
 .btn i { font-size: 18px; }
 
 /* ============================================================
-   STIMULUS CARD â€” body centering and countdown elements
+   STIMULUS CARD - body centering and countdown elements
    ============================================================ */
 /* .stimulus-body centers everything inside the card tile so the ring
    and labels sit symmetrically regardless of card width. */
@@ -243,7 +243,7 @@ body::before {
 }
 
 /* ============================================================
-   STUDY PAGE â€” question blocks
+   STUDY PAGE - question blocks
    ============================================================ */
 .q-block {
   margin-bottom: 32px;
@@ -366,10 +366,10 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
 }
 
 /* ============================================================
-   STUDY â€” question cards
+   STUDY - question cards
    ============================================================ */
 
-/* Base card style â€” used in both study and admin preview */
+/* Base card style - used in both study and admin preview */
 .q-card-study {
   background: var(--bg-elevated);
   border: 1px solid var(--ink-06);
@@ -378,7 +378,7 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
   box-shadow: var(--shadow-sm);
 }
 
-/* In the study, only the .active card is visible â€” one at a time.
+/* In the study, only the .active card is visible - one at a time.
    Admin preview cards (.preview-card-wrap .q-card-study) are unaffected. */
 #q-container .q-card-study {
   display: none;
@@ -391,7 +391,7 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
   animation: cardReveal var(--t-med) var(--fluid) both;
 }
 
-/* Directional transitions â€” the target card slides in once without a second reveal animation */
+/* Directional transitions - the target card slides in once without a second reveal animation */
 #q-container .q-card-study.enter-right {
   display: block;
   animation: enterRight var(--t-med) var(--fluid) both;
@@ -414,7 +414,7 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
   max-width: 640px;
 }
 
-/* â”€â”€ Q-NAV: navigation bar below the active question card â”€â”€ */
+/* -- Q-NAV: navigation bar below the active question card -- */
 .q-nav {
   display: flex;
   align-items: center;
@@ -423,7 +423,7 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
   padding-top: 20px;
 }
 
-/* Counter "01 / 07" â€” FI data-label style: mono, muted, wide tracking */
+/* Counter "01 / 07" - FI data-label style: mono, muted, wide tracking */
 .q-counter {
   font-family: var(--font-mono);
   font-size: .688rem;
@@ -434,7 +434,7 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
   text-align: center;
 }
 
-/* Nav buttons â€” FI morphing: organic pill (rest) â†’ technical block (active) */
+/* Nav buttons - FI morphing: organic pill (rest) -> technical block (active) */
 .q-nav-btn {
   display: inline-flex;
   align-items: center;
@@ -539,7 +539,7 @@ input[type=checkbox].toggle::after {
 input[type=checkbox].toggle:checked::after { transform: translateX(16px); }
 
 /* ============================================================
-   ADMIN PAGE â€” two-column layout
+   ADMIN PAGE - two-column layout
    ============================================================ */
 body.admin {
   display: block;
@@ -558,7 +558,7 @@ body.admin::before { display: none; }
   min-height: 100vh;
 }
 
-/* â”€â”€ Sidebar â”€â”€ */
+/* -- Sidebar -- */
 .admin-sidebar {
   background: var(--bg-elevated);
   border-right: 1px solid var(--ink-12);
@@ -567,7 +567,7 @@ body.admin::before { display: none; }
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow: hidden; /* clips the sliding overlay â€” do not change */
+  overflow: hidden; /* clips the sliding overlay - do not change */
 }
 
 /* Wrapper that contains both the list and the overlay.
@@ -589,7 +589,7 @@ body.admin::before { display: none; }
   transition: transform var(--t-med) var(--fluid), opacity var(--t-med) var(--fluid);
 }
 
-/* Editor overlay â€” slides in from the right over the list content */
+/* Editor overlay - slides in from the right over the list content */
 .sidebar-overlay {
   position: absolute;
   inset: 0;
@@ -770,7 +770,7 @@ body.admin::before { display: none; }
 }
 .btn-add:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-06); }
 
-/* Type picker â€” rendered inside the overlay body */
+/* Type picker - rendered inside the overlay body */
 .type-picker-title {
   font-family: var(--font-mono); font-size: .625rem;
   letter-spacing: .08em; text-transform: uppercase;
@@ -828,7 +828,7 @@ body.admin::before { display: none; }
 }
 .btn-secondary:hover { border-color: var(--ink); color: var(--ink); background: var(--ink-06); }
 
-/* â”€â”€ Main preview area â”€â”€ */
+/* -- Main preview area -- */
 .admin-main {
   padding: 32px 40px 60px;
   overflow-y: auto;
@@ -893,7 +893,7 @@ body.admin::before { display: none; }
 .toast--info    { background: var(--ink); }
 
 /* ============================================================
-   STIMULUS CARD â€” trigger type pills (admin editor)
+   STIMULUS CARD - trigger type pills (admin editor)
    ============================================================ */
 .trigger-type-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
 .trigger-pill {
@@ -908,7 +908,7 @@ body.admin::before { display: none; }
 .se-trigger-content--code { font-family: var(--font-mono); font-size: .813rem; }
 
 /* ============================================================
-   STIMULUS CARD â€” inline content area (study page)
+   STIMULUS CARD - inline content area (study page)
    ============================================================ */
 .stimulus-content { margin: 16px 0 8px; border-radius: var(--r-surface); overflow: hidden; }
 .stimulus-image {
@@ -921,7 +921,7 @@ body.admin::before { display: none; }
 }
 
 /* ============================================================
-   ADMIN EDITOR â€” checkbox row (used by stimulus send_signal field)
+   ADMIN EDITOR - checkbox row for stimulus and other toggle fields
    ============================================================ */
 .checkbox-row {
   display: flex; align-items: flex-start; gap: 8px;

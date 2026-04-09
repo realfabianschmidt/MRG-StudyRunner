@@ -40,18 +40,22 @@ def _resolve_platform_value(value):
 
 
 def _default_brainbit_value(kind: str):
-    windows_defaults = {
-        "script_path": r"C:\CodingProjects\BrainBit\brainbit_realtime_cli_OSC_15.py",
-        "working_dir": r"C:\CodingProjects\BrainBit",
-        "log_dir": r"C:\CodingProjects\BrainBit\logs",
+    defaults = {
+        "script_path": "brainbit/brainbit_realtime_cli_OSC_15.py",
+        "working_dir": "brainbit",
+        "log_dir": "brainbit/logs",
     }
-    macos_defaults = {
-        "script_path": "~/CodingProjects/BrainBit/brainbit_realtime_cli_OSC_15.py",
-        "working_dir": "~/CodingProjects/BrainBit",
-        "log_dir": "~/CodingProjects/BrainBit/logs",
-    }
-    defaults = macos_defaults if sys.platform == "darwin" else windows_defaults
     return defaults[kind]
+
+
+def _resolve_project_path(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = BASE_DIR / path
+    return str(path.resolve())
 
 
 def _load_hardware_config() -> dict:
@@ -95,11 +99,17 @@ def _initialize_integrations(hardware_config: dict) -> None:
 
         brainbit_lsl_config = brainbit_config.get("lsl", {})
         brainbit_adapter.initialize(
-            script_path=_resolve_platform_value(brainbit_config.get("script_path"))
-            or _default_brainbit_value("script_path"),
-            working_dir=_resolve_platform_value(brainbit_config.get("working_dir"))
-            or _default_brainbit_value("working_dir"),
-            python_executable=_resolve_platform_value(brainbit_config.get("python_executable")),
+            script_path=_resolve_project_path(
+                _resolve_platform_value(brainbit_config.get("script_path"))
+                or _default_brainbit_value("script_path")
+            ),
+            working_dir=_resolve_project_path(
+                _resolve_platform_value(brainbit_config.get("working_dir"))
+                or _default_brainbit_value("working_dir")
+            ),
+            python_executable=_resolve_project_path(
+                _resolve_platform_value(brainbit_config.get("python_executable"))
+            ),
             osc_host=brainbit_config.get("osc_host", "127.0.0.1"),
             osc_port=brainbit_config.get("osc_port", 8000),
             scan_seconds=brainbit_config.get("scan_seconds", 5),
@@ -114,8 +124,10 @@ def _initialize_integrations(hardware_config: dict) -> None:
             open_monitor_terminal=brainbit_config.get("open_monitor_terminal", True),
             monitor_refresh_ms=brainbit_config.get("monitor_refresh_ms", 1000),
             disconnect_timeout_ms=brainbit_config.get("disconnect_timeout_ms", 5000),
-            log_dir=_resolve_platform_value(brainbit_config.get("log_dir"))
-            or _default_brainbit_value("log_dir"),
+            log_dir=_resolve_project_path(
+                _resolve_platform_value(brainbit_config.get("log_dir"))
+                or _default_brainbit_value("log_dir")
+            ),
         )
 
 
