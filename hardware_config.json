@@ -1,50 +1,140 @@
 {
   "_comment": "Set enabled to true and fill in the values to activate each integration. Restart the server after any change. BrainBit starts once with the server and can mirror data to LSL.",
-  "lsl": {
-    "enabled": true,
-    "auto_install": true,
-    "stream_name": "StudyRunner",
-    "stream_type": "Markers"
-  },
-  "osc": {
-    "enabled": true,
-    "auto_install": true,
-    "host": "127.0.0.1",
-    "port": 8000,
-    "address_start": "/study/start",
-    "address_stop": "/study/stop"
-  },
   "brainbit": {
+    "debug": false,
+    "disconnect_timeout_ms": 5000,
     "enabled": true,
-    "script_path": "brainbit/brainbit_realtime_cli_OSC_15.py",
-    "working_dir": "brainbit",
     "log_dir": "brainbit/logs",
-    "python_executable": {
-      "windows": "",
-      "macos": ""
+    "lsl": {
+      "auto_install": true,
+      "enabled": true,
+      "stream_prefix": "BrainBit"
     },
+    "monitor_refresh_ms": 1000,
+    "open_monitor_terminal": true,
     "osc_host": "127.0.0.1",
     "osc_port": 8000,
-    "scan_seconds": 5,
-    "resist_seconds": 6,
-    "signal_seconds": 0,
     "pretty": false,
-    "debug": false,
+    "python_executable": {
+      "macos": "",
+      "windows": ""
+    },
     "quiet_output": true,
-    "open_monitor_terminal": true,
-    "monitor_refresh_ms": 1000,
-    "disconnect_timeout_ms": 5000,
+    "resist_seconds": 6,
+    "scan_seconds": 5,
+    "script_path": "brainbit/brainbit_realtime_cli_OSC_15.py",
+    "signal_seconds": 0,
+    "working_dir": "brainbit"
+  },
+  "camera_emotion": {
+    "auto_install": true,
+    "emotion_worker_timeout_ms": 5000,
+    "emotion_worker_url": "http://192.168.1.101:3001",
+    "enabled": false,
     "lsl": {
-      "enabled": true,
       "auto_install": true,
-      "stream_prefix": "BrainBit"
-    }
+      "enabled": true,
+      "stream_name": "CameraEmotion"
+    },
+    "overlay_enabled": true,
+    "snapshot_interval_ms": 1000,
+    "store_raw_frames": false,
+    "worker_mode": "remote_worker"
   },
   "labrecorder": {
     "enabled": false,
-    "xdf_source_dir": "brainbit/recordings",
-    "move_xdf": false,
+    "lookahead_minutes": 120,
     "lookback_minutes": 120,
-    "lookahead_minutes": 120
+    "move_xdf": false,
+    "xdf_source_dir": "brainbit/recordings"
+  },
+  "lsl": {
+    "auto_install": true,
+    "enabled": true,
+    "stream_name": "StudyRunner",
+    "stream_type": "Markers"
+  },
+  "mini_radar": {
+    "auto_install": true,
+    "auto_reconnect": true,
+    "baudrate": 115200,
+    "data_timeout_seconds": 5,
+    "enabled": false,
+    "log_dir": "data",
+    "lsl": {
+      "auto_install": true,
+      "enabled": true,
+      "stream_prefix": "MiniRadar"
+    },
+    "port": {
+      "linux": "/dev/ttyUSB0",
+      "macos": "",
+      "windows": ""
+    },
+    "reconnect_delay": 5
+  },
+  "notion": {
+    "enabled": true,
+    "api_key": "",
+    "parent_page_id": "34f720d2b401800c8152f50b363cd4f2",
+    "database_id": "36563fb103ab47d69ace793393c76d84",
+    "auto_create_database": true,
+    "auto_retry_failed": true,
+    "timeout_seconds": 10
+  },
+  "osc": {
+    "address_start": "/study/start",
+    "address_stop": "/study/stop",
+    "auto_install": true,
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8000
+  },
+  "raspi": {
+    "enabled": false,
+    "host": "192.168.1.100",
+    "mac_host": "",
+    "mac_port": 3000,
+    "port": 3001,
+    "push_config_on_save": true,
+    "sensors": {
+      "brainbit": {
+        "enabled": false,
+        "lsl_stream_prefix": "BrainBit",
+        "resist_seconds": 6,
+        "scan_seconds": 5
+      },
+      "camera": {
+        "enabled": false,
+        "fps": 10,
+        "height": 480,
+        "interface": "picamera2",
+        "ir_led_duty_cycle": 0.8,
+        "ir_led_max_temp_c": 70,
+        "ir_led_pin": 17,
+        "ir_thermal_check_interval": 30,
+        "jpeg_quality": 85,
+        "server_host": "127.0.0.1",
+        "server_port": 3000,
+        "width": 640
+      },
+      "emg": {
+        "baudrate": 115200,
+        "channel_count": 2,
+        "enabled": false,
+        "lsl_stream_name": "EMG",
+        "port": "/dev/ttyUSB1",
+        "sample_rate": 500
+      },
+      "radar": {
+        "auto_reconnect": true,
+        "baudrate": 115200,
+        "data_timeout_seconds": 5,
+        "enabled": false,
+        "lsl_stream_name": "MiniRadar",
+        "port": "/dev/ttyUSB0",
+        "reconnect_delay": 5
+      }
+    }
   }
 }

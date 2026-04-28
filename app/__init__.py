@@ -130,12 +130,71 @@ def _initialize_integrations(hardware_config: dict) -> None:
             ),
         )
 
+    mini_radar_config = hardware_config.get("mini_radar") or hardware_config.get("radar") or {}
+    if mini_radar_config:
+        from .integrations import mini_radar_adapter
+
+        mini_radar_lsl_config = mini_radar_config.get("lsl", {})
+        mini_radar_adapter.initialize(
+            enabled=mini_radar_config.get("enabled", False),
+            port=_resolve_platform_value(mini_radar_config.get("port")) or "",
+            baudrate=mini_radar_config.get("baudrate", 115200),
+            auto_install=mini_radar_config.get("auto_install", True),
+            auto_reconnect=mini_radar_config.get("auto_reconnect", True),
+            reconnect_delay=mini_radar_config.get("reconnect_delay", 5),
+            data_timeout_seconds=mini_radar_config.get("data_timeout_seconds", 5),
+            lsl_enabled=mini_radar_lsl_config.get("enabled", False),
+            lsl_auto_install=mini_radar_lsl_config.get("auto_install", True),
+            lsl_stream_prefix=mini_radar_lsl_config.get("stream_prefix", "MiniRadar"),
+            log_dir=_resolve_project_path(
+                _resolve_platform_value(mini_radar_config.get("log_dir")) or "data"
+            ),
+        )
+
+    camera_config = hardware_config.get("camera_emotion") or hardware_config.get("camera") or {}
+    if camera_config:
+        from .integrations import camera_affect_adapter
+
+        camera_lsl_config = camera_config.get("lsl", {})
+        camera_affect_adapter.initialize(
+            enabled=camera_config.get("enabled", False),
+            snapshot_interval_ms=camera_config.get("snapshot_interval_ms", 1000),
+            store_raw_frames=camera_config.get("store_raw_frames", False),
+            overlay_enabled=camera_config.get("overlay_enabled", True),
+            worker_mode=camera_config.get("worker_mode", "mock"),
+            emotion_worker_url=camera_config.get("emotion_worker_url", ""),
+            emotion_worker_timeout_ms=camera_config.get("emotion_worker_timeout_ms", 5000),
+            auto_install=camera_config.get("auto_install", True),
+            lsl_enabled=camera_lsl_config.get("enabled", False),
+            lsl_auto_install=camera_lsl_config.get("auto_install", True),
+            lsl_stream_name=camera_lsl_config.get("stream_name", "CameraEmotion"),
+        )
+
+    notion_config = hardware_config.get("notion", {})
+    if notion_config.get("enabled"):
+        from .integrations import notion_adapter
+        notion_adapter.initialize(
+            enabled=True,
+            api_key=notion_config.get("api_key", ""),
+            parent_page_id=notion_config.get("parent_page_id", ""),
+            database_id=notion_config.get("database_id", ""),
+            auto_create_database=notion_config.get("auto_create_database", True),
+            auto_retry_failed=notion_config.get("auto_retry_failed", True),
+            timeout_seconds=notion_config.get("timeout_seconds", 10),
+            data_dir=BASE_DIR / "data",
+        )
+
+
 
 def create_app() -> Flask:
     app = Flask(__name__, static_folder=str(BASE_DIR / "static"))
     app.config["BASE_DIR"] = BASE_DIR
     app.config["CONFIG_FILE"] = BASE_DIR / "study_config.json"
     app.config["DATA_DIR"] = BASE_DIR / "data"
+    app.config["ALLOW_UNSAFE_STIMULUS_CODE"] = (
+        os.getenv("STUDY_RUNNER_ALLOW_UNSAFE_STIMULUS_CODE", "").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
     app.config["DATA_DIR"].mkdir(exist_ok=True)
 
     hardware_config = _load_hardware_config()

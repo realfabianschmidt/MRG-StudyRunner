@@ -1,10 +1,10 @@
 """
-LSL adapter — sends event markers via the Lab Streaming Layer protocol.
+LSL adapter - sends event markers via the Lab Streaming Layer protocol.
 
 How it fits into the recording workflow:
   1. This adapter creates an LSL outlet that broadcasts string markers on the network.
   2. LabRecorder (a separate, standalone tool) listens on the LSL network and records
-     all active streams — EEG from BrainBit, markers from this adapter — into one .xdf file.
+     all active streams - EEG from BrainBit, markers from this adapter - into one .xdf file.
   3. After the study, use pyxdf to load the .xdf file, then MNE-Python to process the EEG.
   4. The participant_id and timestamp_start in the JSON result file link the answers
      to the EEG recording by time.
@@ -36,7 +36,7 @@ def initialize(stream_name: str, stream_type: str, auto_install: bool = True) ->
             name=stream_name,
             type=stream_type,
             channel_count=1,
-            nominal_srate=0,        # irregular rate — markers are event-driven
+            nominal_srate=0,        # irregular rate - markers are event-driven
             channel_format='string',
         )
         _outlet = StreamOutlet(info)

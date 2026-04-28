@@ -45,6 +45,7 @@ _lsl_outlets: dict[str, Any] = {}
 _td_client: Any = None
 _latest_state: dict[str, Any] = {}
 _last_state_write = 0.0
+_last_state_write_error_at = 0.0
 _last_activity_at = 0.0
 _log_handle: Any = None
 _routing_state = {
@@ -335,7 +336,7 @@ def _update_state_from_line(line: str) -> bool:
 
 
 def _set_state(values: dict[str, Any], *, force: bool = False) -> None:
-    global _latest_state, _last_state_write
+    global _latest_state, _last_state_write, _last_state_write_error_at
 
     with _state_lock:
         _latest_state.update(values)
@@ -350,13 +351,23 @@ def _set_state(values: dict[str, Any], *, force: bool = False) -> None:
             return
 
         path = Path(state_path)
-        temp_path = path.with_suffix(path.suffix + ".tmp")
-        temp_path.write_text(
-            json.dumps(_latest_state, ensure_ascii=True, indent=2),
-            encoding="utf-8",
-        )
-        temp_path.replace(path)
-        _last_state_write = now
+        temp_path = path.with_suffix(f"{path.suffix}.{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            temp_path.write_text(
+                json.dumps(_latest_state, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+            temp_path.replace(path)
+            _last_state_write = now
+        except OSError as error:
+            _last_state_write = now
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            if (now - _last_state_write_error_at) >= 10.0:
+                _last_state_write_error_at = now
+                print(f"[BrainBit] State file write skipped because the file is locked: {error}")
 
 
 def _append_raw_log(line: str) -> None:

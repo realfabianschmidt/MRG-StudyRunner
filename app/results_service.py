@@ -168,6 +168,33 @@ def _resolve_project_path(value: Any, base_dir: Path) -> Path:
     return path.resolve()
 
 
+def build_biosignal_summary(hardware_config: dict[str, Any], saved_output: dict[str, Any]) -> dict[str, Any]:
+    """Build a lightweight biosignal metadata summary for Notion upload."""
+    summary: dict[str, Any] = {}
+
+    if hardware_config.get("brainbit", {}).get("enabled"):
+        summary["brainbit"] = {
+            "active": True,
+            "xdf_path": saved_output.get("xdf_file"),
+        }
+
+    if hardware_config.get("mini_radar", {}).get("enabled"):
+        try:
+            from .integrations import mini_radar_adapter
+            summary["mini_radar"] = {"active": True, **mini_radar_adapter.get_status()}
+        except Exception:
+            summary["mini_radar"] = {"active": True}
+
+    if hardware_config.get("camera_emotion", {}).get("enabled"):
+        try:
+            from .integrations import camera_affect_adapter
+            summary["camera_emotion"] = {"active": True, **camera_affect_adapter.get_status()}
+        except Exception:
+            summary["camera_emotion"] = {"active": True}
+
+    return summary
+
+
 def _build_unique_output_path(participant_dir: Path, safe_participant_id: str, suffix: str) -> Path:
     base_path = participant_dir / f"{safe_participant_id}{suffix}"
     if not base_path.exists():

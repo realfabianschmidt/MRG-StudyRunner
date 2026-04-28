@@ -19,6 +19,9 @@ export const defaultQuestion = {
   send_signal: true,
   brainbit_to_lsl: true,
   brainbit_to_touchdesigner: true,
+  camera_capture_enabled: false,
+  camera_snapshot_interval_ms: 1000,
+  mini_radar_recording_enabled: true,
 };
 
 export function renderStudy(q, i) {
@@ -136,8 +139,25 @@ export function renderEditor(q) {
         <span>Forward BrainBit data to TouchDesigner during this active phase</span>
       </label>
     </div>
+    <div class="field">
+      <label class="checkbox-row">
+        <input type="checkbox" class="se-mini-radar-recording"${q.mini_radar_recording_enabled !== false ? ' checked' : ''}>
+        <span>Record Mini-radar pulse and breathing during this active phase</span>
+      </label>
+    </div>
+    <div class="field">
+      <label class="checkbox-row">
+        <input type="checkbox" class="se-camera-capture"${q.camera_capture_enabled === true ? ' checked' : ''}>
+        <span>Capture iPad camera snapshots for camera emotion analysis during this active phase</span>
+      </label>
+    </div>
+    <div class="field">
+      <label>Camera snapshot interval (ms)</label>
+      <input type="number" class="se-camera-interval" min="250" max="60000" step="250" value="${Number(q.camera_snapshot_interval_ms || 1000)}">
+    </div>
     <p class="stimulus-editor-note">
-      Warm-up only shows the instruction view. Study signals, BrainBit routing, media triggers, and custom JS start when the active timer begins.
+      Warm-up only shows the instruction view. Study signals, BrainBit routing, Mini-radar recording, camera snapshots, media triggers, and custom JS start when the active timer begins.
+      HTML and JS trigger types stay blocked unless the server explicitly enables <code>STUDY_RUNNER_ALLOW_UNSAFE_STIMULUS_CODE=1</code>.
     </p>`;
 }
 
@@ -153,6 +173,9 @@ export function collectConfig(el) {
     send_signal: el.querySelector('.se-send-signal')?.checked ?? true,
     brainbit_to_lsl: el.querySelector('.se-brainbit-lsl')?.checked ?? true,
     brainbit_to_touchdesigner: el.querySelector('.se-brainbit-touchdesigner')?.checked ?? true,
+    mini_radar_recording_enabled: el.querySelector('.se-mini-radar-recording')?.checked ?? true,
+    camera_capture_enabled: el.querySelector('.se-camera-capture')?.checked ?? false,
+    camera_snapshot_interval_ms: Number.parseInt(el.querySelector('.se-camera-interval')?.value || '1000', 10),
   };
 }
 

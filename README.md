@@ -30,6 +30,20 @@ Start the server:
 python server.py
 ```
 
+For iPad camera access, browsers usually require HTTPS. For local testing you can start the
+server with a temporary self-signed certificate:
+
+```powershell
+$env:STUDY_RUNNER_HTTPS='1'
+python server.py
+```
+
+On macOS or Linux:
+
+```bash
+STUDY_RUNNER_HTTPS=1 python server.py
+```
+
 The terminal will then show the local addresses.
 
 - Admin page: `http://localhost:3000/admin`
@@ -48,10 +62,11 @@ No internet connection is required during a study run. The computer and the iPad
 5. Changes in the editor update the preview immediately.
 6. The question list in the sidebar can be reordered with the drag handle.
 7. The participant opens the study page on the iPad.
-8. Stimulus cards can appear anywhere in the study flow.
-9. A stimulus card may begin with an optional warm-up phase. When the warm-up ends, the active timer begins automatically.
-10. Question cards appear one at a time.
-11. At the end, the answers are validated and saved as a local JSON file.
+8. The admin page can detect the connected study page and show a live dashboard button.
+9. Stimulus cards can appear anywhere in the study flow.
+10. A stimulus card may begin with an optional warm-up phase. When the warm-up ends, the active timer begins automatically.
+11. Question cards appear one at a time.
+12. At the end, the answers are validated and saved as a local JSON file.
 
 ## What each file is for
 
@@ -68,6 +83,10 @@ study-runner/
 |   |   Loads and saves the study configuration.
 |   |-- results_service.py
 |   |   Builds safe result file names and writes result files.
+|   |-- admin_status_service.py
+|   |   Builds the live admin dashboard status payload.
+|   |-- study_client_service.py
+|   |   Tracks connected study pages through lightweight browser heartbeats.
 |   |-- validation.py
 |   |   Validates incoming config and result payloads before saving.
 |   |-- trial_service.py
@@ -78,15 +97,25 @@ study-runner/
 |       |-- dependency_utils.py Optional dependency checks and auto-install helper
 |       |-- lsl_adapter.py      Sends LSL event markers
 |       |-- osc_adapter.py      Sends OSC messages to TouchDesigner
-|       `-- brainbit_adapter.py Starts the repo-local BrainBit CLI and optional LSL mirroring
+|       |-- brainbit_adapter.py Starts the repo-local BrainBit CLI and optional LSL mirroring
+|       |-- mini_radar_adapter.py Prepares pulse and breathing values for LSL / XDF
+|       |-- camera_affect_adapter.py Accepts iPad snapshots for camera emotion analysis
+|       |-- notion_adapter.py Uploads completed study runs to Notion or queues them offline
+|       `-- raspi_adapter.py Talks to the optional Raspberry Pi sensor gateway
 |-- hardware_config.json
-|   Researcher-editable settings for hardware integrations (LSL, OSC, BrainBit).
+|   Researcher-editable settings for hardware integrations and uploads.
 |-- study_config.json
 |   Stores the current study configuration.
 |-- requirements.txt
 |   Lists the required Python packages.
 |-- brainbit/
 |   Repo-local BrainBit helper files, docs, and the TouchDesigner example project.
+|-- emotion_worker/
+|   Optional Python worker for heavier camera emotion analysis.
+|-- raspi/
+|   Raspberry Pi-side sensor scripts for the optional gateway setup.
+|-- knomi_firmware/
+|   Optional KNOMI 2 display firmware for study status and rescue actions.
 |-- static/
 |   |-- admin.html
 |   |   The admin page structure. Uses a two-column layout:
@@ -107,6 +136,12 @@ study-runner/
 |       |-- admin-controller.js
 |       |   Admin page: manages the sidebar, question list, drag-and-drop sorting,
 |       |   live preview, and saving.
+|       |-- admin-dashboard-controller.js
+|       |   Admin page: polls live hardware and study-client status for the dashboard.
+|       |-- study-client-heartbeat.js
+|       |   Participant page: tells the server that a study device is connected.
+|       |-- camera-capture.js
+|       |   Participant page: captures optional iPad selfie snapshots during stimulus phases.
 |       `-- cards/
 |           One file per card type. Each file is self-contained.
 |           |-- index.js
@@ -114,12 +149,19 @@ study-runner/
 |           |-- card-likert.js       Likert scale
 |           |-- card-semantic.js     Semantic differential
 |           |-- card-choice.js       Multiple choice and single choice
+|           |-- card-participant-id.js Participant pseudonym card
 |           |-- card-slider.js       Slider from 0 to 100
+|           |-- card-multi-slider.js Multi-axis slider rating
 |           |-- card-ranking.js      Ranking with up/down controls inside the card
+|           |-- card-word-cloud.js   Word cloud style word selection
+|           |-- card-mood-meter.js   Quadrant-based mood selection
 |           |-- card-text.js         Free-text answer
-|           `-- card-stimulus.js     Stimulus / countdown card
+|           |-- card-stimulus.js     Stimulus / countdown card
+|           `-- card-finish.js       Final thank-you screen
 |-- data/
 |   Stores participant output folders with JSON results and optional XDF files.
+|-- studies/
+|   Stores saved study presets / archive copies by study ID.
 `-- docs/
     Stores simple explanations, rules, and plans for the project.
 ```
@@ -146,6 +188,10 @@ The current built-in hardware path is:
 - optional OSC start and stop messages from this server
 - optional BrainBit EEG / bands / mental-state OSC data from the repo-local BrainBit CLI
 - optional BrainBit-to-LSL mirroring for LabRecorder
+- prepared Mini-radar LSL streams for pulse and breathing
+- prepared camera emotion LSL streams for iPad snapshot analysis
+- optional Notion upload with offline retry queue
+- optional Raspberry Pi gateway control for remote sensor devices
 - optional LabRecorder workflow for synchronized `.xdf` files
 
 ### Browser side
@@ -154,6 +200,12 @@ The browser side runs in Safari on the iPad and in the admin browser on the lab 
 
 - The participant sees one card at a time.
 - The admin sees a two-column page: left for settings and editing, right for live preview.
+- The admin page has a first biosignal dashboard shell that appears when a study page is connected.
+- The study page sends lightweight heartbeats so the admin page can detect connected devices.
+- The admin Settings modal can load and save `hardware_config.json` before a session.
+- The admin page can load older study presets from the local `studies/` folder.
+- The admin page also offers a Notion settings modal for automatic result uploads.
+- Stimulus cards can optionally start iPad camera snapshots for camera emotion analysis.
 - Browser code sends and receives data through the local API.
 - All styling comes from `static/css/main.css`.
 - Each card type has its own JavaScript file in `static/js/cards/`.
@@ -163,6 +215,9 @@ Important: `jsPsych` is not part of the current version. The current flow is han
 ## Current card types
 
 The study flow is card-based. A study can contain any mix of these card types:
+
+- `participant-id`
+  First card. Builds an anonymous participant code locally from name, birth date, and birth place.
 
 - `stimulus`
   Countdown card with an optional warm-up phase before the active phase.
@@ -185,8 +240,22 @@ The study flow is card-based. A study can contain any mix of these card types:
 - `ranking`
   Reorder items with up and down buttons inside the question card.
 
+- `multi-slider`
+  Rate several dimensions on parallel sliders from `-100` to `100`.
+
 - `text`
   Free-text answer.
+
+- `word-cloud`
+  Select one or more feeling words from a chip cloud.
+
+- `mood-meter`
+  Pick words from a quadrant-based mood map.
+
+- `finish`
+  Final thank-you screen shown automatically after a successful save.
+
+`participant-id` and `finish` are treated as fixed bookend cards by the admin UI.
 
 ## Stimulus cards and triggers
 
@@ -359,6 +428,27 @@ Hardware support is configured in `hardware_config.json` at the project root. Se
       "stream_prefix": "BrainBit"
     }
   },
+  "mini_radar": {
+    "enabled": false,
+    "port": {
+      "windows": "",
+      "macos": ""
+    },
+    "baudrate": 115200,
+    "lsl": {
+      "enabled": true,
+      "stream_prefix": "MiniRadar"
+    }
+  },
+  "camera_emotion": {
+    "enabled": false,
+    "snapshot_interval_ms": 1000,
+    "worker_mode": "opencv_haar",
+    "lsl": {
+      "enabled": true,
+      "stream_name": "CameraEmotion"
+    }
+  },
   "labrecorder": {
     "enabled": false,
     "xdf_source_dir": "brainbit/recordings",
@@ -397,6 +487,13 @@ additional LSL streams:
 - `BrainBit_MENTAL`
 - `BrainBit_QUALITY`
 - `BrainBit_BATTERY`
+- `MiniRadar_VITALS`
+- `MiniRadar_PHASES`
+- `CameraEmotion`
+- `CameraFaceQuality`
+
+`CameraEmotion` starts with an OpenCV face-detection path. Without a trained emotion model it
+keeps the emotion label as `unknown` instead of pretending to know a participant's emotion.
 
 `LabRecorder` is a free standalone tool that listens on the LSL network and records all active
 streams into a single `.xdf` file with aligned timestamps.
@@ -434,6 +531,15 @@ is expected to listen for the BrainBit OSC namespace on port `8000`.
 
 `python-osc` is included in `requirements.txt`, and Study Runner can auto-install it if the OSC
 integration is enabled and the package is missing.
+
+### Admin hardware settings
+
+The admin page has a `Settings` button in the left sidebar. The first implementation opens a
+JSON editor for `hardware_config.json`, so all BrainBit, Mini-radar, camera emotion, LSL,
+TouchDesigner, and LabRecorder settings can be changed from the browser.
+
+After saving hardware settings, restart `server.py`. Some integrations, especially BrainBit and
+LSL outlets, are initialized at server startup so a restart keeps the runtime state predictable.
 
 ### BrainBit integration
 

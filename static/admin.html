@@ -9,7 +9,62 @@
 </head>
 <body class="admin">
 
-<div class="admin-layout">
+<!-- ── HUB VIEW ──────────────────────────────────────────── -->
+<div id="view-hub" class="admin-view active">
+  <div class="hub-container">
+    <header class="hub-header">
+      <h1>Willkommen im Study Runner</h1>
+      <p>Wähle eine Studie aus oder erstelle eine neue.</p>
+    </header>
+
+    <div class="hub-grid">
+      <div class="hub-section">
+        <h2>Schnellzugriff</h2>
+        <div class="hub-cards">
+          <button class="hub-card" id="btn-hub-new">
+            <i class="iconoir-add-folder"></i>
+            <span>Neue Studie</span>
+          </button>
+          <button class="hub-card" id="btn-load-config">
+            <i class="iconoir-import"></i>
+            <span>Studie importieren</span>
+          </button>
+        </div>
+        
+        <h2 style="margin-top: 40px;">Zuletzt verwendet</h2>
+        <div class="hub-recent-list" id="hub-recent-list">
+          <div class="hub-recent-item empty">
+            <i class="iconoir-clock"></i>
+            <div>Gespeicherte Studien werden geladen ...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hub-section">
+        <h2>Aktive Studie</h2>
+        <div class="hub-active-card">
+          <div class="hub-active-header">
+            <div class="hub-active-icon"><i class="iconoir-journal-page"></i></div>
+            <div>
+              <div class="hub-active-label">GELADEN</div>
+              <div class="hub-active-title" id="hub-active-title">Lade...</div>
+            </div>
+          </div>
+          <div class="hub-active-actions">
+            <button class="btn-secondary" id="btn-hub-editor" type="button"><i class="iconoir-edit-pencil"></i> Editor öffnen</button>
+            <button class="btn-secondary" id="btn-admin-dashboard" type="button" hidden><i class="iconoir-pulse"></i> Live Dashboard</button>
+            <button class="btn-secondary" id="btn-hub-settings" type="button"><i class="iconoir-settings"></i> Hardware Settings</button>
+            <button class="btn-secondary" id="btn-notion-settings" type="button"><i class="iconoir-database"></i> Notion Settings</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── WORKSPACE VIEW (Editor & Dashboard) ───────────────── -->
+<div id="view-workspace" class="admin-view" hidden>
+  <div class="admin-layout">
 
   <!-- ── SIDEBAR ─────────────────────────────────────────── -->
   <aside class="admin-sidebar" id="admin-sidebar">
@@ -22,6 +77,7 @@
     <div class="sidebar-main" id="sidebar-main">
 
       <div class="sidebar-header">
+        <button class="btn-icon-only" id="btn-workspace-home" title="Zurück zum Hub"><i class="iconoir-home"></i></button>
         <span class="sidebar-logo"><i class="iconoir-brain"></i> Study Admin</span>
         <a href="/" target="_blank" class="sidebar-link" title="Open study">
           <i class="iconoir-open-new-window"></i>
@@ -66,21 +122,261 @@
 
     <!-- Save bar: always visible at the bottom, never covered by the overlay -->
     <div class="sidebar-save">
-      <button class="btn-secondary" id="btn-load-config" type="button">Load Study</button>
-      <button class="btn-primary" id="btn-save-config" type="button">Save</button>
+      <button class="btn-primary" id="btn-save-config" type="button" style="width: 100%;">Studie speichern</button>
     </div>
 
   </aside>
 
-  <!-- ── MAIN PREVIEW ─────────────────────────────────────── -->
+  <!-- MAIN PREVIEW -->
   <main class="admin-main">
-    <div id="study-preview"></div>
-    <div class="preview-empty" id="preview-empty">
-      <i class="iconoir-list-plus"></i>
-      <p>Add a question to see the preview</p>
+    <div id="admin-edit-view">
+      <div id="study-preview"></div>
+      <div class="preview-empty" id="preview-empty">
+        <i class="iconoir-list-plus"></i>
+        <p>Add a question to see the preview</p>
+      </div>
+    </div>
+
+    <section class="admin-dashboard" id="admin-dashboard" hidden>
+      <div class="dashboard-hero">
+        <div>
+          <span class="dashboard-kicker">Live Control</span>
+          <h1>Biosignal Dashboard</h1>
+          <p>Monitor connected study clients, BrainBit, Mini-radar, camera emotion, and XDF readiness.</p>
+        </div>
+        <button class="btn-secondary" id="btn-admin-edit-view" type="button">
+          <i class="iconoir-home"></i> Zurück zum Hub
+        </button>
+      </div>
+
+      <div class="dashboard-grid">
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-tablet"></i> Study client</div>
+          <div id="dashboard-clients" class="dashboard-card-body">Waiting for study page heartbeat.</div>
+        </article>
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-brain"></i> BrainBit</div>
+          <div id="dashboard-brainbit" class="dashboard-card-body">Waiting for status.</div>
+        </article>
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-activity"></i> Mini-radar</div>
+          <div id="dashboard-radar" class="dashboard-card-body">Planned.</div>
+        </article>
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-camera"></i> Camera emotion</div>
+          <div id="dashboard-camera" class="dashboard-card-body">Planned.</div>
+        </article>
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-git-fork"></i> Raspberry Pi Gateway</div>
+          <div id="dashboard-raspi" class="dashboard-card-body">Waiting for status.</div>
+        </article>
+        <article class="dashboard-card dashboard-card--wide">
+          <div class="dashboard-card-title"><i class="iconoir-timer"></i> XDF and timestamps</div>
+          <div id="dashboard-xdf" class="dashboard-card-body">Use LSL timestamps as primary sync layer.</div>
+        </article>
+      </div>
     </div>
   </main>
 
+  </div>
+</div>
+
+<div class="modal-backdrop" id="admin-settings-modal" hidden>
+  <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+    <div class="settings-modal-header">
+      <div>
+        <span class="dashboard-kicker">Pre-run setup</span>
+        <h2 id="settings-modal-title">Biosignal settings</h2>
+      </div>
+      <button class="overlay-close" id="btn-close-settings" type="button" aria-label="Close settings">
+        <i class="iconoir-xmark"></i>
+      </button>
+    </div>
+    <div class="settings-modal-body">
+      <p>Edit the hardware setup before a session. Saving writes <code>hardware_config.json</code>; restart the server afterward so startup integrations are rebuilt cleanly.</p>
+      <div class="settings-toolbar">
+        <button class="btn-secondary" id="btn-reload-hardware-config" type="button">Reload config</button>
+        <button class="btn-primary" id="btn-save-hardware-config" type="button">Save hardware config</button>
+      </div>
+      <p class="settings-status" id="hardware-config-status">Hardware config has not been loaded yet.</p>
+      <textarea
+        class="settings-json-editor"
+        id="hardware-config-editor"
+        spellcheck="false"
+        aria-label="hardware_config.json editor"
+      ></textarea>
+      <div class="settings-section-list">
+        <span>BrainBit</span>
+        <span>Mini-radar</span>
+        <span>iPad camera emotion</span>
+        <span>LSL and LabRecorder</span>
+        <span>TouchDesigner</span>
+        <span>Storage and privacy</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="notion-settings-modal" hidden>
+  <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="notion-modal-title">
+    <div class="settings-modal-header">
+      <div>
+        <span class="dashboard-kicker">Upload-Integration</span>
+        <h2 id="notion-modal-title">Notion Upload</h2>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn-secondary" id="btn-notion-help" type="button" aria-label="Setup-Hilfe" title="Setup-Anleitung">
+          <i class="iconoir-help-circle"></i> Anleitung
+        </button>
+        <button class="overlay-close" id="btn-close-notion-settings" type="button" aria-label="Close">
+          <i class="iconoir-xmark"></i>
+        </button>
+      </div>
+    </div>
+    <div class="settings-modal-body">
+      <p>Studiendaten werden nach jeder abgeschlossenen Studie automatisch in Notion hochgeladen.
+         Speichern schreibt den <code>notion</code>-Block in <code>hardware_config.json</code> —
+         danach Server neu starten.</p>
+      <div class="field">
+        <label class="consent-row" for="notion-enabled">
+          <input type="checkbox" id="notion-enabled">
+          <span>Notion-Upload aktivieren</span>
+        </label>
+      </div>
+      <div class="field">
+        <label>API Key (Integration Token)</label>
+        <input class="fi-input" type="password" id="notion-api-key" autocomplete="off"
+          placeholder="secret_…">
+      </div>
+      <div class="field">
+        <label>Parent Page ID
+          <span class="settings-hint">Notion-Seite, unter der die Datenbank erstellt wird</span>
+        </label>
+        <input class="fi-input" type="text" id="notion-parent-page-id" autocomplete="off"
+          placeholder="32-stellige Seiten-ID aus der Notion-URL">
+      </div>
+      <div class="field">
+        <label>Database ID
+          <span class="settings-hint">Leer lassen → wird beim ersten Upload automatisch erstellt</span>
+        </label>
+        <input class="fi-input" type="text" id="notion-database-id" autocomplete="off"
+          placeholder="leer lassen für Auto-Create">
+      </div>
+      <div class="field">
+        <label class="consent-row" for="notion-auto-retry">
+          <input type="checkbox" id="notion-auto-retry">
+          <span>Fehlgeschlagene Uploads beim Serverstart automatisch wiederholen</span>
+        </label>
+      </div>
+
+      <!-- Test-Bereich -->
+      <div class="settings-toolbar" style="margin-top:0.5rem;">
+        <button class="btn-secondary" id="btn-notion-test" type="button">
+          <i class="iconoir-plug-xmark" id="notion-test-icon"></i> Verbindung testen
+        </button>
+      </div>
+      <div id="notion-test-result" hidden></div>
+
+      <!-- Queue-Status + Aktionen -->
+      <div class="settings-toolbar" style="margin-top:0.75rem; border-top: 1px solid var(--ink-08, #eee); padding-top:0.75rem;">
+        <span class="settings-status" id="notion-queue-status"></span>
+        <button class="btn-secondary" id="btn-notion-flush" type="button">Queue hochladen</button>
+      </div>
+      <div class="settings-toolbar">
+        <button class="btn-secondary" id="btn-notion-cancel" type="button">Abbrechen</button>
+        <button class="btn-primary" id="btn-notion-save" type="button">Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Notion Setup-Anleitung Modal -->
+<div class="modal-backdrop" id="notion-help-modal" hidden>
+  <div class="settings-modal settings-modal--help" role="dialog" aria-modal="true" aria-labelledby="notion-help-title">
+    <div class="settings-modal-header">
+      <div>
+        <span class="dashboard-kicker">Schritt-für-Schritt</span>
+        <h2 id="notion-help-title">Notion Setup</h2>
+      </div>
+      <button class="overlay-close" id="btn-close-notion-help" type="button" aria-label="Close">
+        <i class="iconoir-xmark"></i>
+      </button>
+    </div>
+    <div class="settings-modal-body notion-help-body">
+
+      <div class="notion-help-step">
+        <div class="notion-help-step-num">1</div>
+        <div>
+          <strong>Integration erstellen</strong>
+          <p>Öffne <code>notion.so/profile/integrations</code> → <em>New integration</em>.<br>
+          Name: z.B. „StudyRunner". Typ: <em>Internal</em>.<br>
+          Capabilities: <em>Read content</em>, <em>Update content</em>, <em>Insert content</em>.</p>
+        </div>
+      </div>
+
+      <div class="notion-help-step">
+        <div class="notion-help-step-num">2</div>
+        <div>
+          <strong>API Key kopieren</strong>
+          <p>Auf der Integration-Seite unter <em>Secrets</em> → Token kopieren.<br>
+          Sieht aus wie: <code>secret_abc123…</code><br>
+          → In das Feld <em>API Key</em> eintragen.</p>
+        </div>
+      </div>
+
+      <div class="notion-help-step">
+        <div class="notion-help-step-num">3</div>
+        <div>
+          <strong>Notion-Seite erstellen &amp; Integration einladen</strong>
+          <p>Erstelle eine neue leere Seite in Notion (z.B. „StudyRunner Data").<br>
+          Oben rechts: <em>Share</em> → <em>Invite</em> → Integration auswählen → <em>Full access</em>.</p>
+        </div>
+      </div>
+
+      <div class="notion-help-step">
+        <div class="notion-help-step-num">4</div>
+        <div>
+          <strong>Parent Page ID herausfinden</strong>
+          <p>Die Seite in Notion öffnen → URL ansehen:<br>
+          <code>notion.so/<strong>MeinWorkspace/AbcDef1234567890abcdef1234567890</strong></code><br>
+          Die letzten 32 Zeichen (ohne Bindestriche) sind die Page ID.<br>
+          Alternativ: <em>Share → Copy link</em> → die ID steht am Ende der URL.</p>
+        </div>
+      </div>
+
+      <div class="notion-help-step">
+        <div class="notion-help-step-num">5</div>
+        <div>
+          <strong>Database ID (optional)</strong>
+          <p>Leer lassen → beim ersten Upload wird automatisch eine Datenbank<br>
+          „<em>StudyRunner Participants</em>" mit dem richtigen Schema erstellt.<br>
+          Falls du eine bestehende DB verwenden willst: DB in Notion öffnen →<br>
+          URL: <code>notion.so/<strong>database-id</strong>?v=…</code> — die 32 Zeichen vor <code>?v=</code>.</p>
+        </div>
+      </div>
+
+      <div class="notion-help-step notion-help-step--schema">
+        <div class="notion-help-step-num"><i class="iconoir-table-2-columns"></i></div>
+        <div>
+          <strong>Datenbankschema (falls manuell erstellt)</strong>
+          <p>Die Datenbank braucht genau diese Spalten:</p>
+          <table class="notion-help-table">
+            <thead><tr><th>Spaltenname</th><th>Typ</th></tr></thead>
+            <tbody>
+              <tr><td>Participant ID</td><td>Title</td></tr>
+              <tr><td>Study Count</td><td>Number</td></tr>
+              <tr><td>First Session</td><td>Date</td></tr>
+              <tr><td>Last Session</td><td>Date</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="settings-toolbar" style="margin-top:1.5rem;">
+        <button class="btn-primary" id="btn-close-notion-help-ok" type="button">Verstanden</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"><i id="toast-icon"></i><span id="toast-msg"></span></div>

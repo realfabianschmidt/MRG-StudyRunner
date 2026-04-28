@@ -2,8 +2,18 @@ flask>=3.0
 python-osc>=1.8
 pylsl>=1.16
 pyxdf>=1.16
+pyserial>=3.5
+numpy>=1.26,<2.0
+opencv-python-headless>=4.9
+cryptography>=42
+requests>=2.31
+notion-client>=2.2.1
 pyneurosdk2
 pyem-st-artifacts
+
+# Raspberry Pi 5 only (install via apt on Pi OS, not pip):
+#   sudo apt install python3-picamera2
+#   pip install gpiozero>=1.6
 
 # Everything except TouchDesigner itself can now be installed with:
 #   pip install -r requirements.txt

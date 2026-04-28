@@ -17,6 +17,9 @@ Each question type has its own file in `static/js/cards/`. The type string in
 - `likert`: A rating scale, for example from 1 to 7.
   Fields: `prompt`, `scale` (number of steps), `label_min`, `label_max`.
 
+- `participant-id`: First card that creates the anonymous participant code locally.
+  Fields: `prompt`.
+
 - `semantic`: Opposing word pairs such as `alive | mechanical`.
   Fields: `prompt`, `pairs` (list of two-word arrays).
 
@@ -35,9 +38,22 @@ Each question type has its own file in `static/js/cards/`. The type string in
 - `text`: A free-text answer field.
   Fields: `prompt`.
 
+- `multi-slider`: Several dimensions on parallel sliders from `-100` to `100`.
+  Fields: `prompt`, `dimensions` with `label`, `min_label`, `max_label`.
+
+- `word-cloud`: Select one or more words from a chip cloud.
+  Fields: `prompt`, `words`, `allow_multiple`.
+
+- `mood-meter`: Select one or more feeling words from a mood quadrant view.
+  Fields: `prompt`, `allow_multiple`, optional `word_lists`.
+
 - `stimulus`: A timed card with an optional warm-up phase before the active phase begins.
   Fields: `title`, `subtitle`, `warmup_duration_ms`, `duration_ms`, `trigger_type`,
-  `trigger_content`, `send_signal`, `brainbit_to_lsl`, `brainbit_to_touchdesigner`.
+  `trigger_content`, `send_signal`, `brainbit_to_lsl`, `brainbit_to_touchdesigner`,
+  `mini_radar_recording_enabled`, `camera_capture_enabled`, `camera_snapshot_interval_ms`.
+
+- `finish`: Final thank-you screen shown after a successful save.
+  Fields: `title`, `prompt`.
 
 ## Milliseconds explained quickly
 
@@ -100,6 +116,11 @@ The JSON file contains:
 - `timestamp_end`: The end time of the run.
 - `answers`: The actual answers. Each answer is stored under a key like `q0`, `q1`, and so on.
 
+Important:
+
+- `participant-id`, `stimulus`, and `finish` cards do not produce answer entries.
+- The admin UI keeps `participant-id` as the first card and `finish` as the last card.
+
 ## Important abbreviations
 
 - `API`: Application Programming Interface. Here this means fixed web addresses such as `/api/config`.
@@ -138,6 +159,9 @@ The JSON file contains:
 - `Hardware adapter`: A small Python file in `app/integrations/` that connects one external tool
   such as LSL, OSC, or BrainBit. It initializes once at startup and does nothing if the required
   library or external script is not available.
+- `Notion queue`: A local retry file used when Notion uploads are enabled but temporarily offline.
+- `Raspberry Pi gateway`: An optional sidecar service that can host sensor hardware near the participant
+  and forward status or data back to Study Runner.
 
 ## Why these explanations matter
 

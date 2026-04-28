@@ -10,23 +10,8 @@
 <body>
 <div class="ambient"><div class="orb"></div><div class="orb"></div></div>
 
-<div id="screen-welcome" class="screen active">
-  <div class="q-type-tag"><i class="iconoir-brain"></i> Study Runner</div>
-  <h1 class="screen-title">Welcome</h1>
-  <p class="screen-sub">Enter your anonymous Participant-ID and confirm your consent.</p>
-  <label class="mono-label">Participant-ID</label>
-  <input class="fi-input" type="text" id="pid-input" placeholder="e.g. US1_P04" autocomplete="off">
-  <label class="consent-row" for="consent-check">
-    <input type="checkbox" id="consent-check">
-    <span>I agree to the anonymized recording of my responses as part of this study.</span>
-  </label>
-  <button class="btn btn--fill" id="btn-start" disabled type="button">
-    <i class="iconoir-play-solid"></i> Start study
-  </button>
-</div>
-
 <!-- One card is visible at a time. Navigation controls appear below. -->
-<div id="screen-questions" class="screen">
+<div id="screen-questions" class="screen active">
   <div id="q-container"></div>
   <div class="q-nav">
     <button class="q-nav-btn q-nav-btn--back" id="btn-prev" type="button" aria-label="Previous question">

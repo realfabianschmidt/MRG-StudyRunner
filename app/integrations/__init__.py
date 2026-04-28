@@ -8,6 +8,8 @@ Available adapters:
   lsl_adapter      - sends event markers via Lab Streaming Layer (requires pylsl)
   osc_adapter      - sends OSC messages to TouchDesigner or similar (requires python-osc)
   brainbit_adapter - starts the repo-local BrainBit CLI and can mirror data to LSL
+  mini_radar_adapter - prepares pulse and breathing values for LSL / XDF
+  camera_affect_adapter - accepts iPad snapshots for camera emotion analysis
 
 To add a new integration: create a new file in this folder following the same pattern.
 Call its initialize() function from app/__init__.py and its action functions from

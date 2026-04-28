@@ -1,4 +1,5 @@
 import { getJson, postJson } from './api-client.js';
+import { initializeAdminDashboard } from './admin-dashboard-controller.js';
 import { CARDS, CARD_TYPES, defaultFor } from './cards/index.js';
 
 function escapeHtml(v) {
@@ -17,11 +18,15 @@ const $ = (id) => document.getElementById(id);
 
 async function init() {
   bindEvents();
+  initializeAdminDashboard({ showToast });
 
   try {
     state.config = await getJson('/api/config');
+    ensureBookends(state.config.questions);
     $('cfg-id').value = state.config.study_id || '';
+    updateHubTitle();
     rebuildAll();
+    await loadRecentStudies();
     state.loaded = true;
     showToast('Loaded', 'info');
   } catch (error) {
@@ -30,13 +35,40 @@ async function init() {
   }
 }
 
+function updateHubTitle() {
+  const studyId = $('cfg-id').value.trim() || 'Unbenannte Studie';
+  const hubTitle = $('hub-active-title');
+  if (hubTitle) hubTitle.textContent = studyId;
+}
+
+function switchView(viewId) {
+  document.querySelectorAll('.admin-view').forEach(el => {
+    el.hidden = el.id !== viewId;
+    el.classList.toggle('active', el.id === viewId);
+  });
+}
+
+function startNewStudy() {
+  state.config = { study_id: "Neue Studie", questions: [defaultFor('participant-id'), defaultFor('finish')] };
+  $('cfg-id').value = "Neue Studie";
+  updateHubTitle();
+  rebuildAll();
+  markUnsaved();
+  showToast('Neue Studie erstellt. Bitte speichern!', 'info');
+  
+  // Direkt in den Editor springen
+  $('admin-edit-view').hidden = false;
+  $('admin-dashboard').hidden = true;
+  switchView('view-workspace');
+}
+
 function openTypePicker() {
   $('overlay-type-tag').innerHTML = `<i class="iconoir-plus"></i> Add question`;
 
   $('editor-fields').innerHTML = `
     <div class="type-picker-title">Choose question type</div>
     <div class="type-grid">
-      ${CARD_TYPES.map(({ type, module, overrideMeta }) => {
+      ${CARD_TYPES.filter(ct => ct.type !== 'participant-id' && ct.type !== 'finish').map(({ type, module, overrideMeta }) => {
         const meta = overrideMeta || module.meta;
         return `<button type="button" class="type-btn" data-add-type="${escapeHtml(type)}">
           <i class="iconoir-${escapeHtml(meta.icon)}"></i>${escapeHtml(meta.label)}<small>${escapeHtml(type)}</small>
@@ -52,6 +84,15 @@ function bindEvents() {
   $('btn-save-config').addEventListener('click', () => void saveConfig());
   $('btn-load-config').addEventListener('click', loadFromFile);
   $('overlay-close').addEventListener('click', closeOverlay);
+
+  $('btn-hub-new').addEventListener('click', startNewStudy);
+  $('btn-hub-editor').addEventListener('click', () => { $('admin-edit-view').hidden = false; $('admin-dashboard').hidden = true; switchView('view-workspace'); });
+  $('btn-admin-dashboard').addEventListener('click', () => switchView('view-workspace'));
+  $('btn-workspace-home').addEventListener('click', () => switchView('view-hub'));
+  $('btn-admin-edit-view').addEventListener('click', () => switchView('view-hub'));
+  $('btn-hub-settings').addEventListener('click', () => { $('admin-settings-modal').hidden = false; });
+
+  $('cfg-id').addEventListener('input', () => { markUnsaved(); updateHubTitle(); });
 
   $('sidebar-overlay').addEventListener('click', (event) => {
     const typeButton = event.target.closest('[data-add-type]');
@@ -86,7 +127,22 @@ function bindEvents() {
     markUnsaved();
   });
 
-  $('cfg-id').addEventListener('input', markUnsaved);
+  $('btn-close-notion-settings').addEventListener('click', closeNotionSettings);
+  $('btn-notion-cancel').addEventListener('click', closeNotionSettings);
+  $('btn-notion-save').addEventListener('click', () => void saveNotionSettings());
+  $('btn-notion-flush').addEventListener('click', () => void flushNotionQueue());
+  $('btn-notion-test').addEventListener('click', () => void testNotionConnection());
+  $('btn-notion-help').addEventListener('click', openNotionHelp);
+  $('btn-close-notion-help').addEventListener('click', closeNotionHelp);
+  $('btn-close-notion-help-ok').addEventListener('click', closeNotionHelp);
+  
+  $('btn-notion-settings').addEventListener('click', () => void openNotionSettings());
+  $('notion-settings-modal').addEventListener('click', (event) => {
+    if (event.target === $('notion-settings-modal')) closeNotionSettings();
+  });
+  $('notion-help-modal').addEventListener('click', (event) => {
+    if (event.target === $('notion-help-modal')) closeNotionHelp();
+  });
 }
 
 function handleListClick(event) {
@@ -98,7 +154,13 @@ function handleListClick(event) {
   const item = event.target.closest('.admin-q-item');
 
   if (removeButton) {
-    removeQuestion(Number(removeButton.dataset.index));
+    const index = Number(removeButton.dataset.index);
+    const qType = state.config.questions[index]?.type;
+    if (qType === 'participant-id' || qType === 'finish') {
+      showToast('Start- und End-Karten können nicht entfernt werden.', 'error');
+      return;
+    }
+    removeQuestion(index);
     return;
   }
   if (item && !event.target.closest('.admin-q-actions')) {
@@ -108,7 +170,7 @@ function handleListClick(event) {
 
 function handleListDragStart(event) {
   const handle = event.target.closest('[data-role="drag-question"]');
-  if (!handle) {
+  if (!handle || handle.disabled) {
     event.preventDefault();
     return;
   }
@@ -140,16 +202,21 @@ function handleListDragOver(event) {
 
   event.preventDefault();
 
-  if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = 'move';
-  }
-
   const list = $('admin-q-list');
   const placement = getDragPlacement(list, event.clientY);
   clearDragIndicators();
 
-  if (!placement.targetItem) {
-    list.appendChild(state.draggedElement);
+  // Boundary checks to keep items between the first and last card
+  const questions = state.config.questions || [];
+  const firstItem = list.querySelector('.admin-q-item[data-index="0"]');
+  const lastItem = list.querySelector(`.admin-q-item[data-index="${questions.length - 1}"]`);
+
+  // Block dropping before the first item
+  if (placement.targetItem === firstItem && !placement.insertAfter) {
+    return;
+  }
+  // Block dropping after the last item
+  if ((placement.targetItem === lastItem && placement.insertAfter) || !placement.targetItem) {
     return;
   }
 
@@ -158,7 +225,6 @@ function handleListDragOver(event) {
       placement.insertAfter ? 'admin-q-item--drop-after' : 'admin-q-item--drop-before',
     );
   }
-
   const referenceNode = placement.insertAfter
     ? placement.targetItem.nextElementSibling
     : placement.targetItem;
@@ -270,15 +336,16 @@ function rebuildList() {
 }
 
 function renderListItemMarkup(question, questionIndex, meta) {
+  const isFixed = question.type === 'participant-id' || question.type === 'finish';
   return `
     <span class="admin-q-num">${questionIndex + 1}</span>
     <i class="iconoir-${meta.icon} admin-q-type-icon"></i>
     <span class="admin-q-label">${renderCardLabel(question)}</span>
     <div class="admin-q-actions">
-      <button type="button" class="admin-q-drag" data-role="drag-question" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">
+      <button type="button" class="admin-q-drag" data-role="drag-question" draggable="${!isFixed}" ${isFixed ? 'disabled' : ''} title="Drag to reorder" aria-label="Drag to reorder">
         <i class="iconoir-menu-scale"></i>
       </button>
-      <button type="button" class="del" data-role="remove-question" data-index="${questionIndex}" title="Remove">
+      <button type="button" class="del" data-role="remove-question" data-index="${questionIndex}" title="Remove" ${isFixed ? 'disabled' : ''}>
         <i class="iconoir-trash"></i>
       </button>
     </div>`;
@@ -338,7 +405,11 @@ function openOverlay(index) {
   $('overlay-type-tag').innerHTML =
     `<i class="iconoir-${meta.icon}"></i> ${meta.label} <span class="editor-index">#${index + 1}</span>`;
 
-  $('editor-fields').innerHTML = cardModule.renderEditor(question, index);
+  const editorEl = $('editor-fields');
+  editorEl.innerHTML = cardModule.renderEditor(question, index);
+  if (typeof cardModule.bindEditorEvents === 'function') {
+    cardModule.bindEditorEvents(editorEl);
+  }
   $('admin-sidebar').classList.add('has-overlay');
 }
 
@@ -373,11 +444,14 @@ function liveUpdate(index) {
 
 function addQuestion(type) {
   state.config.questions = state.config.questions || [];
-  state.config.questions.push(defaultFor(type));
-  const newIndex = state.config.questions.length - 1;
+  const questions = state.config.questions;
+  const finishCardIndex = questions.findIndex(q => q.type === 'finish');
+  const insertIndex = finishCardIndex !== -1 ? finishCardIndex : questions.length;
+
+  questions.splice(insertIndex, 0, defaultFor(type));
   rebuildAll();
-  selectQuestion(newIndex);
-  requestAnimationFrame(() => $(`pc-${newIndex}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+  selectQuestion(insertIndex);
+  requestAnimationFrame(() => $(`pc-${insertIndex}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
   markUnsaved();
 }
 
@@ -451,10 +525,23 @@ function handleTriggerTypePill(pillElement) {
   editorFields.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+function ensureBookends(questions) {
+  if (!Array.isArray(questions)) return;
+  const pidIndex = questions.findIndex(q => q.type === 'participant-id');
+  const pidCard = pidIndex !== -1 ? questions.splice(pidIndex, 1)[0] : defaultFor('participant-id');
+  const finIndex = questions.findIndex(q => q.type === 'finish');
+  const finCard = finIndex !== -1 ? questions.splice(finIndex, 1)[0] : defaultFor('finish');
+  questions.unshift(pidCard);
+  questions.push(finCard);
+}
+
 async function saveConfig() {
+  let questions = state.config.questions || [];
+  ensureBookends(questions);
+
   const fullConfig = {
     study_id: $('cfg-id').value.trim(),
-    questions: state.config.questions || [],
+    questions: questions,
   };
 
   try {
@@ -462,6 +549,8 @@ async function saveConfig() {
     state.config = fullConfig;
 
     $('btn-save-config').classList.remove('btn-primary--dirty');
+    await loadRecentStudies();
+    rebuildAll();
     showToast('Saved', 'success');
   } catch (error) {
     console.error('[admin] Could not save configuration:', error);
@@ -494,8 +583,10 @@ function loadFromFile() {
     if (!file) return;
     try {
       const config = JSON.parse(await file.text());
+      ensureBookends(config.questions);
       state.config = config;
       $('cfg-id').value = config.study_id || '';
+      updateHubTitle();
       rebuildAll();
       state.loaded = true;
       markUnsaved();
@@ -505,6 +596,54 @@ function loadFromFile() {
     }
   };
   input.click();
+}
+
+async function loadRecentStudies() {
+  try {
+    const studies = await getJson('/api/admin/studies');
+    const listEl = $('hub-recent-list');
+    if (!studies || studies.length === 0) {
+      listEl.innerHTML = `
+        <div class="hub-recent-item empty">
+          <i class="iconoir-clock"></i>
+          <div>Noch keine Studien gespeichert.</div>
+        </div>`;
+      return;
+    }
+
+    listEl.innerHTML = studies.map(s => `
+      <div class="hub-recent-item" data-study-id="${escapeHtml(s.id)}" style="cursor:pointer; justify-content: flex-start;">
+        <i class="iconoir-journal-page" style="font-size: 20px; color: var(--accent);"></i>
+        <div style="flex: 1; text-align: left;">
+          <div style="font-weight: 600; color: var(--ink);">${escapeHtml(s.id)}</div>
+          <div style="font-size: 0.75rem; color: var(--ink-40);">Zuletzt bearbeitet: ${new Date(s.modified * 1000).toLocaleString()}</div>
+        </div>
+        <i class="iconoir-nav-arrow-right"></i>
+      </div>
+    `).join('');
+
+    listEl.querySelectorAll('.hub-recent-item:not(.empty)').forEach(item => {
+      item.addEventListener('click', async () => {
+        try {
+          const config = await postJson('/api/admin/studies/active', { id: item.dataset.studyId });
+          ensureBookends(config.questions);
+          state.config = config;
+          $('cfg-id').value = config.study_id || '';
+          updateHubTitle();
+          rebuildAll();
+          state.loaded = true;
+          showToast('Studie geladen', 'success');
+          $('admin-edit-view').hidden = false;
+          $('admin-dashboard').hidden = true;
+          switchView('view-workspace');
+        } catch (e) {
+          showToast('Fehler beim Laden', 'error');
+        }
+      });
+    });
+  } catch (error) {
+    console.error('[admin] Could not load recent studies:', error);
+  }
 }
 
 function renderCardLabel(question) {
@@ -524,6 +663,135 @@ function getMeta(type) {
   return entry
     ? (entry.overrideMeta || entry.module.meta)
     : { icon: 'question-mark', label: type };
+}
+
+// ── Notion Settings ───────────────────────────────────────────────────────────
+
+async function openNotionSettings() {
+  try {
+    const hw = await getJson('/api/hardware-config');
+    const cfg = hw.notion || {};
+    $('notion-enabled').checked = Boolean(cfg.enabled);
+    $('notion-api-key').value = cfg.api_key || '';
+    $('notion-parent-page-id').value = cfg.parent_page_id || '';
+    $('notion-database-id').value = cfg.database_id || '';
+    $('notion-auto-retry').checked = cfg.auto_retry_failed !== false;
+  } catch {
+    showToast('Could not load Notion config', 'error');
+  }
+  await _refreshNotionQueueStatus();
+  $('notion-settings-modal').hidden = false;
+}
+
+function closeNotionSettings() {
+  $('notion-settings-modal').hidden = true;
+}
+
+async function saveNotionSettings() {
+  try {
+    const hw = await getJson('/api/hardware-config');
+    hw.notion = {
+      enabled: $('notion-enabled').checked,
+      api_key: $('notion-api-key').value.trim(),
+      parent_page_id: $('notion-parent-page-id').value.trim(),
+      database_id: $('notion-database-id').value.trim(),
+      auto_create_database: true,
+      auto_retry_failed: $('notion-auto-retry').checked,
+      timeout_seconds: 10,
+    };
+    await postJson('/api/hardware-config', hw);
+    showToast('Notion config saved — restart server', 'success');
+    closeNotionSettings();
+  } catch (error) {
+    showToast('Save failed', 'error');
+    console.error('[admin] Notion save failed:', error);
+  }
+}
+
+async function flushNotionQueue() {
+  const btn = $('btn-notion-flush');
+  const originalText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="iconoir-refresh"></i> Uploading...';
+
+  try {
+    const result = await postJson('/api/notion/flush-queue', {});
+    await _refreshNotionQueueStatus();
+
+    const err = result.last_error || result.error;
+    if (result.remaining > 0 && err) {
+      alert(`Fehler beim Hochladen!\n\nEs konnten ${result.remaining} Einträge nicht hochgeladen werden.\n\nGrund:\n${err}`);
+      showToast(`${result.remaining} fehlgeschlagen`, 'error');
+    } else {
+      showToast(`${result.succeeded ?? 0} erfolgreich hochgeladen!`, 'success');
+    }
+  } catch {
+    showToast('Flush failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+  }
+}
+
+async function testNotionConnection() {
+  const btn = $('btn-notion-test');
+  const resultEl = $('notion-test-result');
+  const icon = $('notion-test-icon');
+
+  btn.disabled = true;
+  icon.className = 'iconoir-refresh';
+  resultEl.hidden = true;
+  resultEl.innerHTML = '';
+
+  try {
+    const result = await postJson('/api/notion/test', {
+      api_key: $('notion-api-key').value.trim(),
+      parent_page_id: $('notion-parent-page-id').value.trim(),
+      database_id: $('notion-database-id').value.trim(),
+    });
+
+    const checks = result.checks || [];
+    const rows = checks.map(c => {
+      const statusIcon = c.ok === true
+        ? '<i class="iconoir-check-circle" style="color:var(--accent-green,#22c55e)"></i>'
+        : c.ok === false
+          ? '<i class="iconoir-xmark-circle" style="color:var(--accent-red,#ef4444)"></i>'
+          : '<i class="iconoir-info-circle" style="color:var(--ink-40,#999)"></i>';
+      return `<div class="notion-test-row">${statusIcon}<span><strong>${c.name}</strong> — ${c.message}</span></div>`;
+    }).join('');
+
+    resultEl.innerHTML = `<div class="notion-test-result-box ${result.ok ? 'notion-test-result-box--ok' : 'notion-test-result-box--fail'}">${rows}</div>`;
+    resultEl.hidden = false;
+    icon.className = result.ok ? 'iconoir-plug' : 'iconoir-plug-xmark';
+  } catch (error) {
+    resultEl.innerHTML = `<div class="notion-test-result-box notion-test-result-box--fail"><div class="notion-test-row"><i class="iconoir-xmark-circle" style="color:var(--accent-red,#ef4444)"></i><span>Server-Fehler: ${error.message}</span></div></div>`;
+    resultEl.hidden = false;
+    icon.className = 'iconoir-plug-xmark';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function openNotionHelp() {
+  $('notion-help-modal').hidden = false;
+}
+
+function closeNotionHelp() {
+  $('notion-help-modal').hidden = true;
+}
+
+async function _refreshNotionQueueStatus() {
+  try {
+    const status = await getJson('/api/notion/status');
+    const el = $('notion-queue-status');
+    if (el) {
+      const qSize = status.queue_size ?? 0;
+      const connected = status.connected ? 'verbunden' : 'getrennt';
+      el.textContent = `Queue: ${qSize} ausstehend · API: ${connected}`;
+    }
+  } catch {
+    // status endpoint unavailable — ignore
+  }
 }
 
 void init();

@@ -1,0 +1,19 @@
+idf_component_register(
+    SRCS
+        "main.cpp"
+        "http_client.cpp"
+        "ui/ui.cpp"
+        "ui/screen_home.cpp"
+        "ui/screen_detail.cpp"
+        "ui/screen_network.cpp"
+        "ui/qr_lvgl.cpp"
+    INCLUDE_DIRS "."
+    REQUIRES
+        nvs_flash
+        esp_wifi
+        esp_http_client
+        esp_netif
+        freertos
+        lvgl
+        json
+)

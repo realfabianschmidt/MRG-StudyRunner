@@ -1,0 +1,23 @@
+{
+  "study_id": "Test Studie 2",
+  "questions": [
+    {
+      "type": "participant-id",
+      "prompt": "Bitte gib deine Daten zur anonymen Identifikation ein."
+    },
+    {
+      "type": "choice",
+      "prompt": "",
+      "options": [
+        "Option A",
+        "Option B",
+        "Option C"
+      ]
+    },
+    {
+      "type": "finish",
+      "title": "Vielen Dank!",
+      "prompt": "Deine Antworten wurden gespeichert.\nDu kannst das Gerät jetzt ablegen."
+    }
+  ]
+}

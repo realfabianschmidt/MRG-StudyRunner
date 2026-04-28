@@ -11,13 +11,16 @@ Study Runner is a small local web app for user studies.
 - The server saves the answers as local files.
 - The server can trigger optional external tools such as LSL marker streams, TouchDesigner,
   or a repo-local BrainBit process.
+- The server can also prepare optional camera emotion, Mini-radar, Notion upload,
+  and Raspberry Pi gateway integrations.
 - Stimulus cards can include an optional warm-up phase before the active phase begins.
 
 ## Who uses which page
 
 - `Admin page`: Used by the person who prepares the study. The left sidebar holds the settings,
   question list, and question editor. The right side shows a live preview of the study as the
-  participant will see it.
+  participant will see it. It also has a first live dashboard shell that appears when a study
+  page is connected.
 - `Study page`: Used by the participant on the iPad. Questions appear as individual cards,
   one after the other on a single screen.
 - `Server`: Runs on the lab computer and connects both pages.
@@ -28,23 +31,32 @@ Study Runner is a small local web app for user studies.
 2. The study lead opens `/admin` and checks the configuration in the left sidebar.
 3. The study lead edits or adds cards. Changes appear instantly in the right preview.
 4. The participant opens the study page on the iPad.
-5. A stimulus card can first show a warm-up instruction phase.
-6. Then the active stimulus phase begins and optional signals or trigger actions are fired.
-7. The remaining question cards are answered one by one.
-8. The answers are validated and saved in the `data/` folder.
+5. The study page sends a small heartbeat so the admin page knows a study device is connected.
+6. A stimulus card can first show a warm-up instruction phase.
+7. Then the active stimulus phase begins and optional signals or trigger actions are fired.
+8. The remaining question cards are answered one by one.
+9. The answers are validated and saved in the `data/` folder.
+10. The participant sees a final thank-you card after the save succeeds.
 
 ## What each file group is for
 
 - `server.py`: Small startup file for the Flask app.
 - `app/`: Backend logic split by responsibility.
 - `app/integrations/`: One file per hardware integration (LSL, OSC, BrainBit). Each file is
-  self-contained and does nothing if the required library is not installed.
+  self-contained and does nothing if the required library is not installed. Mini-radar,
+  camera emotion, Notion, and Raspberry Pi gateway support now also live here.
 - `app/validation.py`: Checks whether incoming config and result data can be saved safely.
+- `app/admin_status_service.py`: Builds the live admin dashboard status payload.
+- `app/study_client_service.py`: Tracks connected study pages through lightweight heartbeats.
 - `hardware_config.json`: Researcher-editable settings for hardware integrations.
-  Set `enabled: true` to activate LSL markers, OSC messages, or the BrainBit integration.
+  Set `enabled: true` to activate LSL markers, OSC messages, BrainBit, Mini-radar,
+  camera emotion, Notion upload, or the Raspberry Pi gateway.
   Restart the server after changes.
 - `study_config.json`: Stores the current study configuration.
+- `studies/`: Stores saved study presets / archive copies.
 - `brainbit/`: Stores the repo-local BrainBit script, BrainBit notes, and the TouchDesigner example file.
+- `emotion_worker/`: Optional heavier camera emotion worker.
+- `raspi/`: Optional Raspberry Pi-side sensor scripts.
 - `static/admin.html` and `static/study.html`: The page structure.
 - `static/css/main.css`: All visual styles in one central file, including the Materiability font.
 - `static/fonts/`: The Materiability font files.
@@ -59,8 +71,12 @@ Study Runner is a small local web app for user studies.
 ```text
 Admin page  ->  Browser JavaScript  ->  Flask routes  ->  config and result services
 Study page  ->  Browser JavaScript  ->  Flask routes  ->  config and result services
+Study page  ->  heartbeat endpoint   ->  admin status service
 Flask app   ->  trial_service.py    ->  optional tools such as LSL or TouchDesigner
 Flask app   ->  brainbit_adapter.py ->  repo-local BrainBit CLI -> TouchDesigner / optional LSL
+Flask app   ->  mini_radar_adapter.py / camera_affect_adapter.py -> LSL / XDF-ready streams
+Flask app   ->  notion_adapter.py   ->  optional Notion upload with retry queue
+Flask app   ->  raspi_adapter.py    ->  optional Raspberry Pi sensor gateway
 ```
 
 ## Common questions from non-coders
@@ -86,6 +102,7 @@ Flask app   ->  brainbit_adapter.py ->  repo-local BrainBit CLI -> TouchDesigner
 
 - All styles live in one central CSS file (`main.css`) with the custom Materiability font.
 - Each card type is a self-contained module in `static/js/cards/`.
+- The study now uses fixed `participant-id` and `finish` bookend cards.
 - Stimulus cards support an optional warm-up phase before the active phase starts.
 - Config and result payloads are validated before they are saved.
 - Clearer separation between startup, routes, config logic, result logic, and trial control.

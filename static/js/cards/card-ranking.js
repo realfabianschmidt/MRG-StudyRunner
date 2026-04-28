@@ -1,6 +1,3 @@
-// Renders a drag-free ranking question where participants move items up or down.
-// Each item carries its current position as a data attribute so the onClick
-// handler can work without any external state.
 function escapeHtml(v) {
   return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
@@ -14,24 +11,9 @@ export const defaultQuestion = {
 export function renderStudy(q, i) {
   const itemsHtml = (q.options || []).map((opt, optionIndex) => `
     <div class="rank-item">
+      <span class="rank-handle" aria-hidden="true"><i class="iconoir-menu-scale"></i></span>
       <span class="rank-num">#${optionIndex + 1}</span>
       <span class="rank-text">${escapeHtml(opt)}</span>
-      <div class="rank-btns">
-        <button class="rank-btn" type="button"
-          data-role="move-rank"
-          data-question-index="${i}"
-          data-item-index="${optionIndex}"
-          data-direction="-1">
-          <i class="iconoir-nav-arrow-up"></i>
-        </button>
-        <button class="rank-btn" type="button"
-          data-role="move-rank"
-          data-question-index="${i}"
-          data-item-index="${optionIndex}"
-          data-direction="1">
-          <i class="iconoir-nav-arrow-down"></i>
-        </button>
-      </div>
     </div>`).join('');
 
   return `
@@ -67,34 +49,69 @@ export function collectAnswer(questionIndex) {
   return [...(list?.children || [])].map(el => el.querySelector('.rank-text').textContent);
 }
 
-// Called by study-controller to handle up/down button clicks.
-// Returns true when the event was handled, false when it was not a ranking click.
-export function onClick(event) {
-  const btn = event.target.closest('[data-role="move-rank"]');
-  if (!btn) return false;
+function renumberItems(list) {
+  [...list.querySelectorAll('.rank-item')].forEach((el, idx) => {
+    const num = el.querySelector('.rank-num');
+    if (num) num.textContent = `#${idx + 1}`;
+  });
+}
 
-  const questionIndex = Number(btn.dataset.questionIndex);
-  const itemIndex     = Number(btn.dataset.itemIndex);
-  const direction     = Number(btn.dataset.direction);
-  const list          = document.getElementById(`rl${questionIndex}`);
-  if (!list) return true;
+export function bindDrag(list) {
+  let dragEl = null;
+  let ghost  = null;
+  let offsetY = 0;
 
-  const items      = [...list.children];
-  const targetIndex = itemIndex + direction;
-  if (targetIndex < 0 || targetIndex >= items.length) return true;
+  list.addEventListener('pointerdown', e => {
+    const handle = e.target.closest('.rank-handle');
+    if (!handle) return;
+    const item = handle.closest('.rank-item');
+    if (!item) return;
 
-  const [moved] = items.splice(itemIndex, 1);
-  items.splice(targetIndex, 0, moved);
-  list.replaceChildren();
+    e.preventDefault();
+    const rect = item.getBoundingClientRect();
+    offsetY = e.clientY - rect.top;
 
-  // Re-number items and update data attributes so future clicks stay accurate
-  items.forEach((el, currentIndex) => {
-    el.querySelector('.rank-num').textContent = `#${currentIndex + 1}`;
-    el.querySelectorAll('[data-role="move-rank"]').forEach(button => {
-      button.dataset.itemIndex = String(currentIndex);
-    });
-    list.appendChild(el);
+    // Floating visual clone
+    ghost = item.cloneNode(true);
+    ghost.classList.add('rank-item--ghost');
+    ghost.style.cssText =
+      `position:fixed;left:${rect.left}px;top:${rect.top}px;` +
+      `width:${rect.width}px;z-index:9999;pointer-events:none;margin:0;`;
+    document.body.appendChild(ghost);
+
+    dragEl = item;
+    item.classList.add('rank-item--dragging');
+    list.setPointerCapture(e.pointerId);
   });
 
-  return true;
+  list.addEventListener('pointermove', e => {
+    if (!ghost || !dragEl) return;
+    ghost.style.top = (e.clientY - offsetY) + 'px';
+
+    // Reorder: find the first non-dragging item whose midpoint is below the pointer
+    const siblings = [...list.querySelectorAll('.rank-item:not(.rank-item--dragging)')];
+    let insertBefore = null;
+    for (const sib of siblings) {
+      const r = sib.getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2) { insertBefore = sib; break; }
+    }
+    if (insertBefore) {
+      list.insertBefore(dragEl, insertBefore);
+    } else {
+      list.appendChild(dragEl);
+    }
+  });
+
+  const finish = () => {
+    if (!ghost) return;
+    ghost.remove();
+    ghost = null;
+    dragEl.classList.remove('rank-item--dragging');
+    dragEl = null;
+    renumberItems(list);
+    list.dispatchEvent(new CustomEvent('ranking:changed', { bubbles: true }));
+  };
+
+  list.addEventListener('pointerup',     finish);
+  list.addEventListener('pointercancel', finish);
 }
