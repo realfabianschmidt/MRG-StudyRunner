@@ -75,10 +75,6 @@
   },
   "notion": {
     "enabled": true,
-    "api_key": "",
-    "parent_page_id": "34f720d2b401800c8152f50b363cd4f2",
-    "database_id": "36563fb103ab47d69ace793393c76d84",
-    "auto_create_database": true,
     "auto_retry_failed": true,
     "timeout_seconds": 10
   },

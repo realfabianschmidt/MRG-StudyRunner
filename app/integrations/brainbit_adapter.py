@@ -18,6 +18,7 @@ Study Runner in charge of:
 from __future__ import annotations
 
 import atexit
+from collections import deque
 import json
 import os
 import shlex
@@ -52,6 +53,7 @@ _routing_state = {
     "forward_to_lsl": False,
     "forward_to_touchdesigner": False,
 }
+_history: deque[dict[str, Any]] = deque(maxlen=4096)
 
 
 def initialize(
@@ -296,6 +298,8 @@ def _update_state_from_line(line: str) -> bool:
                 _last_activity_at = time.time()
                 state_update["last_activity_at"] = _timestamp()
                 state_update["status"] = "connected"
+            if tag in {"BANDS", "MENTAL", "QUALITY", "BATTERY"}:
+                _history.append({"tag": tag, "payload": dict(payload), "_epoch": time.time()})
             if tag == "SCAN":
                 state_update["last_scan"] = payload
             elif tag == "DEVICE":
@@ -671,6 +675,54 @@ def _initialize_lsl_outlets() -> None:
 
 def _timestamp() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]:
+    samples = [
+        sample for sample in list(_history)
+        if start_epoch <= float(sample.get("_epoch", 0.0)) <= end_epoch
+    ]
+    if not samples:
+        return {
+            "available": False,
+            "sample_count": 0,
+            "avg_attention": None,
+            "avg_relaxation": None,
+            "avg_alpha": None,
+            "avg_beta": None,
+            "avg_theta": None,
+            "avg_delta": None,
+            "avg_gamma": None,
+        }
+
+    mental_payloads = [sample["payload"] for sample in samples if sample.get("tag") == "MENTAL"]
+    band_payloads = [sample["payload"] for sample in samples if sample.get("tag") == "BANDS"]
+
+    return {
+        "available": bool(mental_payloads or band_payloads),
+        "sample_count": len(samples),
+        "avg_attention": _mean_payload(mental_payloads, "Rel_Attention"),
+        "avg_relaxation": _mean_payload(mental_payloads, "Rel_Relaxation"),
+        "avg_alpha": _mean_payload(band_payloads, "alpha"),
+        "avg_beta": _mean_payload(band_payloads, "beta"),
+        "avg_theta": _mean_payload(band_payloads, "theta"),
+        "avg_delta": _mean_payload(band_payloads, "delta"),
+        "avg_gamma": _mean_payload(band_payloads, "gamma"),
+    }
+
+
+def _mean_payload(payloads: list[dict[str, Any]], key: str) -> float | None:
+    values = []
+    for payload in payloads:
+        value = payload.get(key)
+        try:
+            if value is not None:
+                values.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    if not values:
+        return None
+    return round(sum(values) / len(values), 4)
 
 
 def _escape_for_applescript(value: str) -> str:

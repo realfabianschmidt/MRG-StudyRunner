@@ -67,12 +67,18 @@ def validate_and_normalize_results(
     if not isinstance(answers, dict):
         raise ValidationError("Answers must be a JSON object.")
 
+    answer_events = _validate_answer_events(
+        result_payload.get("answer_events"),
+        study_config.get("questions", []),
+    )
+
     return {
         "participant_id": participant_id,
         "study_id": study_config["study_id"],
         "timestamp_start": timestamp_start,
         "timestamp_end": timestamp_end,
         "answers": _validate_answers(answers, study_config.get("questions", [])),
+        "answer_events": answer_events,
     }
 
 
@@ -136,6 +142,54 @@ def _validate_answers(
         raise ValidationError(f"Unexpected answer keys: {', '.join(extra_keys)}.")
 
     return normalized_answers
+
+
+def _validate_answer_events(
+    value: Any,
+    questions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValidationError("answer_events must be a list.")
+
+    normalized_events: list[dict[str, Any]] = []
+    seen_indexes: set[int] = set()
+
+    for raw_event in value:
+        if not isinstance(raw_event, dict):
+            raise ValidationError("Each answer_event must be an object.")
+
+        question_index = _normalize_integer(
+            raw_event.get("question_index"),
+            field_name="answer_event question_index",
+            minimum=0,
+            maximum=max(0, len(questions) - 1),
+        )
+        if question_index in seen_indexes:
+            raise ValidationError(f"Duplicate answer_event for question index {question_index}.")
+        seen_indexes.add(question_index)
+
+        question = questions[question_index] if question_index < len(questions) else {}
+        answer_key = raw_event.get("answer_key")
+        normalized_answer_key = _normalize_text(answer_key) if answer_key is not None else ""
+        expected_answer_key = "" if question.get("type") == "participant-id" else f"q{question_index}"
+        if normalized_answer_key != expected_answer_key:
+            raise ValidationError(
+                f"answer_event for question index {question_index} has an unexpected answer_key."
+            )
+
+        normalized_events.append(
+            {
+                "question_index": question_index,
+                "question_type": _normalize_text(raw_event.get("question_type")),
+                "answer_key": normalized_answer_key,
+                "shown_at": _require_iso_timestamp(raw_event.get("shown_at"), "answer_event shown_at"),
+                "answered_at": _require_iso_timestamp(raw_event.get("answered_at"), "answer_event answered_at"),
+            }
+        )
+
+    return normalized_events
 
 
 def _validate_answer_value(

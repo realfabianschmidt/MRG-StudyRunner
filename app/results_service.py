@@ -33,9 +33,11 @@ def save_results_payload(
     result_payload: dict[str, Any],
     hardware_config: dict[str, Any] | None = None,
 ) -> dict[str, str | None]:
+    safe_study_id = sanitize_identifier_for_filename(study_id)
     participant_id = str(result_payload.get("participant_id") or "participant")
     safe_participant_id = sanitize_identifier_for_filename(participant_id)
-    participant_dir = data_dir / safe_participant_id
+    study_dir = data_dir / safe_study_id
+    participant_dir = study_dir / safe_participant_id
     participant_dir.mkdir(parents=True, exist_ok=True)
 
     json_path = _build_unique_output_path(participant_dir, safe_participant_id, ".json")
@@ -50,6 +52,7 @@ def save_results_payload(
     )
 
     return {
+        "study_dir": str(study_dir.relative_to(data_dir.parent)),
         "participant_dir": str(participant_dir.relative_to(data_dir.parent)),
         "json_file": str(json_path.relative_to(data_dir.parent)),
         "xdf_file": str(xdf_path.relative_to(data_dir.parent)) if xdf_path else None,
@@ -193,6 +196,132 @@ def build_biosignal_summary(hardware_config: dict[str, Any], saved_output: dict[
             summary["camera_emotion"] = {"active": True}
 
     return summary
+
+
+def build_answer_details(
+    result_payload: dict[str, Any],
+    config_data: dict[str, Any],
+    hardware_config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    questions = config_data.get("questions", [])
+    answers = result_payload.get("answers", {})
+    participant_id = result_payload.get("participant_id")
+    answer_events = {
+        int(event.get("question_index")): event
+        for event in (result_payload.get("answer_events") or [])
+        if isinstance(event, dict) and str(event.get("question_index", "")).isdigit()
+    }
+
+    entries: list[dict[str, Any]] = []
+    for question_index, question in enumerate(questions):
+        question_type = question.get("type")
+        if question_type in {"stimulus", "finish"}:
+            continue
+
+        answer_key = None if question_type == "participant-id" else f"q{question_index}"
+        answer_value = participant_id if question_type == "participant-id" else answers.get(answer_key)
+        if answer_value is None and question_type != "participant-id":
+            continue
+
+        event = answer_events.get(question_index, {})
+        entries.append(
+            {
+                "question_index": question_index,
+                "question_number": question_index + 1,
+                "question_key": answer_key or "participant_id",
+                "question_type": question_type,
+                "question_prompt": _question_prompt(question),
+                "answer": answer_value,
+                "shown_at": event.get("shown_at") or result_payload.get("timestamp_start"),
+                "answered_at": event.get("answered_at") or result_payload.get("timestamp_end"),
+            }
+        )
+
+    entries.sort(key=lambda item: item.get("answered_at") or "")
+    previous_answered_at = result_payload.get("timestamp_start")
+    for entry in entries:
+        interval_start = previous_answered_at or result_payload.get("timestamp_start")
+        interval_end = entry.get("answered_at") or result_payload.get("timestamp_end")
+        delta_seconds = _seconds_between(interval_start, interval_end)
+        entry["previous_answered_at"] = previous_answered_at
+        entry["seconds_since_previous_answer"] = delta_seconds
+        entry["biosignal_interval"] = build_interval_biosignal_summary(
+            hardware_config,
+            interval_start,
+            interval_end,
+        )
+        previous_answered_at = interval_end
+
+    return entries
+
+
+def build_interval_biosignal_summary(
+    hardware_config: dict[str, Any],
+    interval_start: Any,
+    interval_end: Any,
+) -> dict[str, Any]:
+    start_dt = _parse_iso_timestamp(interval_start)
+    end_dt = _parse_iso_timestamp(interval_end)
+    if start_dt is None or end_dt is None:
+        return _empty_interval_biosignals()
+
+    start_epoch = start_dt.timestamp()
+    end_epoch = end_dt.timestamp()
+    if end_epoch < start_epoch:
+        start_epoch, end_epoch = end_epoch, start_epoch
+
+    summary = _empty_interval_biosignals()
+
+    if hardware_config.get("brainbit", {}).get("enabled"):
+        try:
+            from .integrations import brainbit_adapter
+
+            summary["brainbit"] = brainbit_adapter.get_interval_summary(start_epoch, end_epoch)
+        except Exception:
+            summary["brainbit"] = {"available": False}
+
+    if hardware_config.get("mini_radar", {}).get("enabled"):
+        try:
+            from .integrations import mini_radar_adapter
+
+            summary["mini_radar"] = mini_radar_adapter.get_interval_summary(start_epoch, end_epoch)
+        except Exception:
+            summary["mini_radar"] = {"available": False}
+
+    if hardware_config.get("camera_emotion", {}).get("enabled"):
+        try:
+            from .integrations import camera_affect_adapter
+
+            summary["camera_emotion"] = camera_affect_adapter.get_interval_summary(start_epoch, end_epoch)
+        except Exception:
+            summary["camera_emotion"] = {"available": False}
+
+    return summary
+
+
+def _empty_interval_biosignals() -> dict[str, Any]:
+    return {
+        "brainbit": {"available": False},
+        "mini_radar": {"available": False},
+        "camera_emotion": {"available": False},
+    }
+
+
+def _question_prompt(question: dict[str, Any]) -> str:
+    return str(
+        question.get("prompt")
+        or question.get("title")
+        or question.get("subtitle")
+        or ""
+    ).strip()
+
+
+def _seconds_between(start_value: Any, end_value: Any) -> float | None:
+    start_dt = _parse_iso_timestamp(start_value)
+    end_dt = _parse_iso_timestamp(end_value)
+    if start_dt is None or end_dt is None:
+        return None
+    return round((end_dt - start_dt).total_seconds(), 3)
 
 
 def _build_unique_output_path(participant_dir: Path, safe_participant_id: str, suffix: str) -> Path:

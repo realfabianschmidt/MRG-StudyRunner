@@ -242,52 +242,120 @@
       </div>
     </div>
     <div class="settings-modal-body">
-      <p>Studiendaten werden nach jeder abgeschlossenen Studie automatisch in Notion hochgeladen.
-         Der API-Key wird nur backend-lokal gespeichert oder per Umgebungsvariable gesetzt,
-         nicht im Repo. Speichern schreibt nur den öffentlichen <code>notion</code>-Block in
-         <code>hardware_config.json</code> — danach Server neu starten.</p>
-      <div class="field">
-        <label class="consent-row" for="notion-enabled">
-          <input type="checkbox" id="notion-enabled">
-          <span>Notion-Upload aktivieren</span>
-        </label>
-      </div>
-      <div class="field">
-        <label>API Key (Integration Token)</label>
-        <input class="fi-input" type="password" id="notion-api-key" autocomplete="off"
-          placeholder="secret_…">
-        <div class="settings-hint" id="notion-api-key-status"></div>
-      </div>
-      <div class="field">
-        <label class="consent-row" for="notion-auto-retry">
-          <input type="checkbox" id="notion-auto-retry">
-          <span>Fehlgeschlagene Uploads beim Serverstart automatisch wiederholen</span>
-        </label>
-      </div>
-      <div class="field">
-        <label class="consent-row" for="notion-clear-api-key">
-          <input type="checkbox" id="notion-clear-api-key">
-          <span>Gespeicherten backend-lokalen API Key löschen</span>
-        </label>
+      <div class="notion-status-grid">
+        <div class="notion-status-card">
+          <div class="notion-status-label">Globaler Status</div>
+          <div class="notion-status-value" id="notion-global-status">Lade ...</div>
+          <div class="settings-hint" id="notion-global-hint"></div>
+        </div>
+        <div class="notion-status-card">
+          <div class="notion-status-label">API Key</div>
+          <div class="notion-status-value" id="notion-storage-value">Lade ...</div>
+          <div class="settings-hint" id="notion-storage-hint"></div>
+        </div>
+        <div class="notion-status-card">
+          <div class="notion-status-label">Aktive Studie</div>
+          <div class="notion-status-value" id="notion-study-status">Lade ...</div>
+          <div class="settings-hint" id="notion-study-hint"></div>
+        </div>
+        <div class="notion-status-card">
+          <div class="notion-status-label">Queue</div>
+          <div class="notion-status-value" id="notion-queue-value">Lade ...</div>
+          <div class="settings-hint" id="notion-queue-detail"></div>
+        </div>
       </div>
 
-      <!-- Test-Bereich -->
-      <div class="settings-toolbar" style="margin-top:0.5rem;">
-        <button class="btn-secondary" id="btn-notion-test" type="button">
-          <i class="iconoir-plug-xmark" id="notion-test-icon"></i> Verbindung testen
-        </button>
+      <div class="notion-inline-note" id="notion-upload-explainer">
+        Ein Upload passiert nur, wenn die globale Notion-Integration aktiv ist und die aktuell geladene Studie in ihren Studien-Settings ebenfalls Notion aktiviert hat.
       </div>
-      <div id="notion-test-result" hidden></div>
 
-      <!-- Queue-Status + Aktionen -->
-      <div class="settings-toolbar" style="margin-top:0.75rem; border-top: 1px solid var(--ink-08, #eee); padding-top:0.75rem;">
-        <span class="settings-status" id="notion-queue-status"></span>
-        <button class="btn-secondary" id="btn-notion-flush" type="button">Queue hochladen</button>
+      <div class="settings-tabs" role="tablist" aria-label="Notion settings tabs">
+        <button class="settings-tab active" id="btn-notion-tab-global" type="button" data-notion-tab="global" role="tab" aria-selected="true">Globale Notion-Settings</button>
+        <button class="settings-tab" id="btn-notion-tab-study" type="button" data-notion-tab="study" role="tab" aria-selected="false">Studien-Notion-Settings</button>
       </div>
-      <div class="settings-toolbar">
-        <button class="btn-secondary" id="btn-notion-cancel" type="button">Abbrechen</button>
-        <button class="btn-primary" id="btn-notion-save" type="button">Speichern</button>
-      </div>
+
+      <section class="settings-tab-panel active" id="notion-tab-global" data-notion-panel="global" role="tabpanel">
+        <div class="notion-panel-header">
+          <div class="notion-panel-title">Dieser Rechner</div>
+          <div class="notion-panel-subtitle">API-Key, globale Aktivierung und Retry-Verhalten für den Server.</div>
+        </div>
+        <p>Diese Einstellungen gelten für diesen Rechner. Der API-Key bleibt backend-lokal und wird nicht an den Browser zurückgegeben.</p>
+        <div class="field">
+          <label class="consent-row" for="notion-enabled">
+            <input type="checkbox" id="notion-enabled">
+            <span>Globale Notion-Integration aktivieren</span>
+          </label>
+        </div>
+        <div class="field">
+          <label>API Key (Integration Token)</label>
+          <input class="fi-input" type="password" id="notion-api-key" autocomplete="off" placeholder="secret_...">
+          <div class="settings-hint" id="notion-api-key-status"></div>
+          <div class="settings-hint">Beim Speichern landet dieser Key backend-lokal auf diesem Rechner, typischerweise in <code>local_secrets.json</code>.</div>
+        </div>
+        <input type="hidden" id="notion-clear-api-key" value="0">
+        <div class="settings-toolbar notion-secret-actions">
+          <button class="btn-secondary" id="btn-notion-clear-key" type="button">
+            <i class="iconoir-trash"></i> Backend-Key löschen
+          </button>
+          <span class="settings-hint" id="notion-clear-key-state">Kein Löschvorgang vorgemerkt.</span>
+        </div>
+        <div class="field">
+          <label class="consent-row" for="notion-auto-retry">
+            <input type="checkbox" id="notion-auto-retry">
+            <span>Fehlgeschlagene Uploads beim Serverstart automatisch wiederholen</span>
+          </label>
+        </div>
+        <div class="settings-toolbar" style="margin-top:0.5rem;">
+          <button class="btn-secondary" id="btn-notion-test" type="button">
+            <i class="iconoir-plug-xmark" id="notion-test-icon"></i> Verbindung testen
+          </button>
+        </div>
+        <div id="notion-test-result" hidden></div>
+        <div class="settings-toolbar" style="margin-top:0.75rem; border-top: 1px solid var(--ink-08, #eee); padding-top:0.75rem;">
+          <span class="settings-status" id="notion-queue-status"></span>
+          <button class="btn-secondary" id="btn-notion-flush" type="button">Queue hochladen</button>
+        </div>
+        <div class="settings-toolbar">
+          <button class="btn-secondary" id="btn-notion-cancel" type="button">Abbrechen</button>
+          <button class="btn-primary" id="btn-notion-save" type="button">Globale Settings speichern</button>
+        </div>
+      </section>
+
+      <section class="settings-tab-panel" id="notion-tab-study" data-notion-panel="study" role="tabpanel" hidden>
+        <div class="notion-panel-header">
+          <div class="notion-panel-title">Diese geladene Studie</div>
+          <div class="notion-panel-subtitle">Hier wird festgelegt, ob genau diese Studie hochlädt und wohin.</div>
+        </div>
+        <div class="notion-study-header">
+          <div class="notion-study-label">Aktive Studie</div>
+          <div class="notion-study-name" id="notion-active-study-name">-</div>
+          <div class="settings-hint">Diese Werte gehören immer zur gerade geladenen Studie und werden beim Speichern direkt in der Studie mitgesichert.</div>
+        </div>
+        <div class="field">
+          <label class="consent-row" for="notion-study-enabled">
+            <input type="checkbox" id="notion-study-enabled">
+            <span>Ergebnisse dieser Studie in Notion hochladen</span>
+          </label>
+        </div>
+        <div id="notion-study-fields">
+          <div class="field">
+            <label>Notion Parent Page ID
+              <span class="settings-hint">Unter dieser Seite wird die Teilnehmer-Datenbank erstellt.</span>
+            </label>
+            <input class="fi-input" type="text" id="notion-study-parent-id" autocomplete="off" placeholder="z.B. 34f720d2b401800c8152f50b363cd4f2">
+          </div>
+          <div class="field">
+            <label>Notion Database ID
+              <span class="settings-hint">Optional. Leer lassen, dann wird sie beim ersten Upload automatisch erstellt.</span>
+            </label>
+            <input class="fi-input" type="text" id="notion-study-database-id" autocomplete="off" placeholder="Wird bei Bedarf automatisch gesetzt">
+          </div>
+        </div>
+        <div class="settings-toolbar">
+          <button class="btn-secondary" id="btn-notion-study-cancel" type="button">Abbrechen</button>
+          <button class="btn-primary" id="btn-notion-study-save" type="button">Studien-Settings speichern</button>
+        </div>
+      </section>
     </div>
   </div>
 </div>
@@ -394,6 +462,7 @@
       </button>
     </div>
     <div class="settings-modal-body">
+      <p class="settings-hint" style="margin-bottom: 16px;">Notion-spezifische Studienwerte liegen jetzt gesammelt im Notion-Modal unter <strong>Studien-Notion-Settings</strong>.</p>
       <div class="field" style="margin-bottom: 20px;">
         <label class="consent-row" for="study-sensors-enabled" style="margin-bottom: 0;">
           <input type="checkbox" id="study-sensors-enabled">
@@ -402,26 +471,6 @@
             <small style="color:var(--ink-40); line-height:1.4;">Wenn deaktiviert, werden in dieser Studie keine Trigger an externe Sensoren (BrainBit/Radar) gesendet, selbst wenn Karten dies anfordern.</small>
           </span>
         </label>
-      </div>
-      <div class="field">
-        <label class="consent-row" for="study-notion-enabled" style="margin-bottom: 0;">
-          <input type="checkbox" id="study-notion-enabled">
-          <span style="color:var(--ink);"><strong>Ergebnisse in Notion hochladen</strong></span>
-        </label>
-      </div>
-      <div id="study-notion-fields" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--ink-06);">
-        <div class="field">
-          <label>Notion Parent Page ID
-            <span class="settings-hint">Seite, unter der die Teilnehmer-Datenbank erstellt wird</span>
-          </label>
-          <input class="fi-input" type="text" id="study-notion-parent-id" autocomplete="off" placeholder="z.B. 34f720d2b401800c8152f50b363cd4f2">
-        </div>
-        <div class="field">
-          <label>Notion Database ID
-            <span class="settings-hint">Wird beim ersten Upload automatisch generiert und hier gespeichert</span>
-          </label>
-          <input class="fi-input" type="text" id="study-notion-database-id" autocomplete="off" placeholder="Wird automatisch befüllt...">
-        </div>
       </div>
       <div class="settings-toolbar" style="margin-top: 24px;">
         <button class="btn-primary" id="btn-save-study-settings" type="button" style="width: 100%; justify-content: center;">Übernehmen</button>

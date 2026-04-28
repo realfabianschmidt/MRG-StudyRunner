@@ -66,7 +66,7 @@ Study Runner is a small local web app for user studies.
 - `static/js/`: Browser logic split into small modules.
 - `static/js/cards/`: One file per card type. Each file handles rendering, editing,
   and answer collection for its type.
-- `data/`: Stores one folder per participant with JSON results and optional XDF files.
+- `data/`: Stores one folder per study, with participant folders inside for JSON results and optional XDF files.
 - `docs/`: Stores simple explanations, plans, and project rules.
 
 ## How the parts talk to each other

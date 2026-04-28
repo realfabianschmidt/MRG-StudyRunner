@@ -70,6 +70,21 @@ def describe_notion_api_key_source(
     return ""
 
 
+def describe_notion_api_key_storage(
+    hardware_config: dict[str, Any],
+    local_secrets: dict[str, Any],
+    local_secrets_path: Path,
+) -> str:
+    source = describe_notion_api_key_source(hardware_config, local_secrets)
+    if source == "env":
+        return f"Umgebungsvariable {NOTION_API_KEY_ENV}"
+    if source == "local_file":
+        return f"backend-lokal in {local_secrets_path.name}"
+    if source == "hardware_config":
+        return "legacy in hardware_config.json"
+    return "nicht gespeichert"
+
+
 def redact_hardware_config(
     hardware_config: dict[str, Any],
     local_secrets: dict[str, Any],

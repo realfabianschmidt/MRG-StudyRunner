@@ -605,7 +605,7 @@ Extend it carefully with:
 Suggested participant folder output:
 
 ```text
-data/<participant_id>/
+data/<study_id>/<participant_id>/
   <participant_id>.json
   <participant_id>.xdf
   <participant_id>_camera_analysis.json
@@ -637,7 +637,7 @@ Recommended LSL streams for `.xdf`:
 The participant folder should still copy or move the final `.xdf` into:
 
 ```text
-data/<participant_id>/<participant_id>.xdf
+data/<study_id>/<participant_id>/<participant_id>.xdf
 ```
 
 ## Timestamp strategy

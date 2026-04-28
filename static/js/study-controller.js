@@ -15,6 +15,7 @@ const state = {
   cameraPermission: 'not_requested',
   clockOffsetMs: null,  // estimated offset between iPad performance.now() and Pi server clock
   touchedFields: {},
+  questionMetrics: {},
 };
 
 function getElement(id) {
@@ -23,12 +24,14 @@ function getElement(id) {
 
 async function init() {
   bindEvents();
+  initFullscreenUi();
   startStudyClientHeartbeat(getStudyClientHeartbeatPayload);
 
   try {
     state.config = await getJson('/api/config');
     // Starte die Studie sofort, da der Welcome-Screen entfernt wurde
     void startTrial();
+    void requestStudyFullscreen();
   } catch (error) {
     console.error('[study] Could not load configuration:', error);
     alert(`Could not load the study configuration: ${error.message}`);
@@ -79,6 +82,7 @@ async function syncClock() {
 function bindEvents() {
   getElement('btn-prev').addEventListener('click', () => void goTo(state.currentIndex - 1));
   getElement('btn-next').addEventListener('click', () => void handleNext());
+  getElement('btn-study-fullscreen')?.addEventListener('click', () => void toggleStudyFullscreen());
 
   const questionContainer = getElement('q-container');
   questionContainer.addEventListener('input', handleQuestionInput);
@@ -88,6 +92,98 @@ function bindEvents() {
   questionContainer.addEventListener('wordcloud:changed', handleQuestionChange);
   questionContainer.addEventListener('moodmeter:changed', handleQuestionChange);
   questionContainer.addEventListener('participantid:changed', handleQuestionChange);
+}
+
+function initFullscreenUi() {
+  const fullscreenUi = getElement('study-fullscreen-ui');
+  if (!fullscreenUi || !isFullscreenSupported()) {
+    return;
+  }
+
+  fullscreenUi.hidden = false;
+  updateFullscreenUi();
+
+  document.addEventListener('fullscreenchange', updateFullscreenUi);
+  document.addEventListener('webkitfullscreenchange', updateFullscreenUi);
+
+  const tryEnterOnce = () => {
+    document.removeEventListener('pointerdown', tryEnterOnce);
+    void requestStudyFullscreen();
+  };
+  document.addEventListener('pointerdown', tryEnterOnce, { once: true });
+}
+
+function isFullscreenSupported() {
+  const root = document.documentElement;
+  return Boolean(
+    root.requestFullscreen
+    || root.webkitRequestFullscreen
+    || document.exitFullscreen
+    || document.webkitExitFullscreen
+  );
+}
+
+function isStudyFullscreenActive() {
+  return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+function updateFullscreenUi() {
+  const fullscreenUi = getElement('study-fullscreen-ui');
+  const fullscreenButton = getElement('btn-study-fullscreen');
+  const icon = fullscreenButton?.querySelector('i');
+  const isActive = isStudyFullscreenActive();
+
+  if (!fullscreenUi || !fullscreenButton || !icon) {
+    return;
+  }
+
+  fullscreenUi.hidden = false;
+  fullscreenUi.classList.toggle('study-fullscreen-ui--active', isActive);
+  fullscreenButton.setAttribute('aria-label', isActive ? 'Vollbild beenden' : 'Vollbild aktivieren');
+  fullscreenButton.title = isActive ? 'Vollbild beenden' : 'Vollbild';
+  icon.className = isActive ? 'iconoir-xmark' : 'iconoir-expand';
+}
+
+async function requestStudyFullscreen() {
+  if (!isFullscreenSupported() || isStudyFullscreenActive()) {
+    updateFullscreenUi();
+    return;
+  }
+
+  const root = document.documentElement;
+  try {
+    if (root.requestFullscreen) {
+      await root.requestFullscreen({ navigationUI: 'hide' });
+    } else if (root.webkitRequestFullscreen) {
+      root.webkitRequestFullscreen();
+    }
+  } catch {
+    // Browser blocked programmatic fullscreen without a direct gesture.
+  } finally {
+    updateFullscreenUi();
+  }
+}
+
+async function exitStudyFullscreen() {
+  try {
+    if (document.exitFullscreen) {
+      await document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    }
+  } catch {
+    // Ignore exit errors and keep the fallback button visible.
+  } finally {
+    updateFullscreenUi();
+  }
+}
+
+async function toggleStudyFullscreen() {
+  if (isStudyFullscreenActive()) {
+    await exitStudyFullscreen();
+    return;
+  }
+  await requestStudyFullscreen();
 }
 
 function handleQuestionInput(event) {
@@ -170,6 +266,7 @@ function buildQuestions() {
   container.replaceChildren();
   state.currentIndex = 0;
   state.touchedFields = {};
+  state.questionMetrics = {};
 
   (state.config.questions || []).forEach((question, questionIndex) => {
     const cardModule = CARDS[question.type];
@@ -195,6 +292,7 @@ function buildQuestions() {
   const firstCard = getElement('card-q-0');
   if (firstCard) {
     playCardEntrance(firstCard, 'card-enter-initial');
+    markQuestionShown(0);
   }
 
   updateNavigation();
@@ -250,6 +348,8 @@ async function goTo(targetIndex) {
     return;
   }
 
+  recordQuestionCompletion(state.currentIndex);
+
   const goingForward = targetIndex > state.currentIndex;
 
   currentCard.classList.remove('active');
@@ -257,6 +357,7 @@ async function goTo(targetIndex) {
   playCardEntrance(targetCard, goingForward ? 'enter-right' : 'enter-left');
 
   state.currentIndex = targetIndex;
+  markQuestionShown(targetIndex);
   updateNavigation();
 
   const targetQuestion = (state.config.questions || [])[targetIndex];
@@ -666,6 +767,29 @@ function markQuestionField(questionIndex, fieldKey) {
   state.touchedFields[questionIndex].add(normalizedKey);
 }
 
+function markQuestionShown(questionIndex) {
+  const nowIso = new Date().toISOString();
+  const current = state.questionMetrics[questionIndex] || {};
+  state.questionMetrics[questionIndex] = {
+    ...current,
+    shown_at: nowIso,
+  };
+}
+
+function recordQuestionCompletion(questionIndex) {
+  const questions = state.config.questions || [];
+  const question = questions[questionIndex];
+  if (!question || question.type === 'stimulus' || question.type === 'finish') {
+    return;
+  }
+
+  const current = state.questionMetrics[questionIndex] || {};
+  state.questionMetrics[questionIndex] = {
+    ...current,
+    answered_at: new Date().toISOString(),
+  };
+}
+
 function getTouchedFieldCount(questionIndex) {
   return state.touchedFields[questionIndex]?.size || 0;
 }
@@ -802,6 +926,29 @@ function collectAnswers() {
   return answers;
 }
 
+function collectAnswerEvents() {
+  const events = [];
+  const questions = state.config.questions || [];
+
+  questions.forEach((question, questionIndex) => {
+    if (!question || question.type === 'stimulus' || question.type === 'finish') {
+      return;
+    }
+
+    const metrics = state.questionMetrics[questionIndex] || {};
+    const answerKey = question.type === 'participant-id' ? null : `q${questionIndex}`;
+    events.push({
+      question_index: questionIndex,
+      question_type: question.type,
+      answer_key: answerKey,
+      shown_at: metrics.shown_at || new Date(state.startTime || Date.now()).toISOString(),
+      answered_at: metrics.answered_at || new Date().toISOString(),
+    });
+  });
+
+  return events;
+}
+
 async function submitResults() {
   const btn = getElement('btn-next');
   if (btn) {
@@ -810,12 +957,14 @@ async function submitResults() {
   }
 
   try {
+    recordQuestionCompletion(state.currentIndex);
     await postJson('/api/results', {
       participant_id: resolveParticipantId(),
       study_id: state.config.study_id,
       timestamp_start: new Date(state.startTime).toISOString(),
       timestamp_end: new Date().toISOString(),
       answers: collectAnswers(),
+      answer_events: collectAnswerEvents(),
     });
 
     const finishIndex = (state.config.questions || []).findIndex(q => q.type === 'finish');

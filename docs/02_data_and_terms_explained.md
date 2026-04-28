@@ -106,10 +106,10 @@ It should never come from participant input.
 
 ## What a saved result file contains
 
-One participant folder is saved in the `data/` folder for each study run.
+Each study gets its own folder in `data/`. Inside that folder, each participant run gets its own folder.
 
-- `<participant_id>/<participant_id>.json`: The study answers for that participant.
-- `<participant_id>/<participant_id>.xdf`: Optional copied or moved LabRecorder file when configured.
+- `<study_id>/<participant_id>/<participant_id>.json`: The study answers for that participant.
+- `<study_id>/<participant_id>/<participant_id>.xdf`: Optional copied or moved LabRecorder file when configured.
 
 The JSON file contains:
 

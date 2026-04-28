@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import time
+from collections import deque
 from threading import Lock
 from typing import Any
 
@@ -21,6 +22,7 @@ _lsl_outlets: dict[str, Any] = {}
 _cv2: Any = None
 _np: Any = None
 _face_cascade: Any = None
+_history: deque[dict[str, Any]] = deque(maxlen=2048)
 _latest_state: dict[str, Any] = {
     "status": "not_configured",
     "latest": {},
@@ -113,6 +115,8 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
         "frame": frame_info,
         "analysis": analysis,
     }
+    result["_epoch"] = time.time()
+    _history.append(dict(result))
 
     _set_state(
         {
@@ -135,6 +139,53 @@ def get_status() -> dict[str, Any]:
     status["snapshot_interval_ms"] = _config.get("snapshot_interval_ms", 1000)
     status["streams"] = list(_lsl_outlets.keys())
     return status
+
+
+def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]:
+    samples = [
+        sample for sample in list(_history)
+        if start_epoch <= float(sample.get("_epoch", 0.0)) <= end_epoch
+    ]
+    if not samples:
+        return {
+            "available": False,
+            "sample_count": 0,
+            "avg_face_confidence": None,
+            "avg_emotion_confidence": None,
+            "face_detected_rate": None,
+            "dominant_emotion": None,
+        }
+
+    emotion_totals: dict[str, float] = {}
+    face_detected = 0
+    face_conf_values: list[float] = []
+    emotion_conf_values: list[float] = []
+
+    for sample in samples:
+        analysis = sample.get("analysis") or {}
+        if analysis.get("face_detected"):
+            face_detected += 1
+        if analysis.get("face_confidence") is not None:
+            face_conf_values.append(float(analysis.get("face_confidence") or 0.0))
+        if analysis.get("confidence") is not None:
+            emotion_conf_values.append(float(analysis.get("confidence") or 0.0))
+        for emotion, score in (analysis.get("scores") or {}).items():
+            if score is None:
+                continue
+            emotion_totals[emotion] = emotion_totals.get(emotion, 0.0) + float(score)
+
+    dominant_emotion = None
+    if emotion_totals:
+        dominant_emotion = max(emotion_totals.items(), key=lambda item: item[1])[0]
+
+    return {
+        "available": True,
+        "sample_count": len(samples),
+        "avg_face_confidence": _mean(face_conf_values),
+        "avg_emotion_confidence": _mean(emotion_conf_values),
+        "face_detected_rate": round(face_detected / len(samples), 4),
+        "dominant_emotion": dominant_emotion,
+    }
 
 
 def _extract_frame_info(payload: dict[str, Any]) -> dict[str, Any]:
@@ -439,3 +490,9 @@ def _set_state(values: dict[str, Any]) -> None:
 
 def _timestamp() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _mean(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 4)

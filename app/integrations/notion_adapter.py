@@ -35,6 +35,7 @@ def initialize(
 ) -> None:
     global _client, _config, _queue_path
 
+    _client = None
     _config = {
         "enabled": bool(enabled),
         "api_key": api_key or "",
@@ -85,9 +86,19 @@ def upload_study_result(
     if config_data is None:
         config_data = {}
 
+    if is_retry:
+        config_data = _refresh_config_for_retry(result_payload, config_data)
+
     study_settings = config_data.get("study_settings", {})
-    if not study_settings.get("notion_enabled") or _client is None:
-        return {"ok": False, "error": "Notion not configured or disabled for this study."}
+    if not study_settings.get("notion_enabled"):
+        return {"ok": False, "skipped": True, "error": "Notion is disabled for this study."}
+
+    if _client is None:
+        error_message = "Notion client is not ready on the server."
+        if _config.get("enabled") and not is_retry:
+            _enqueue(result_payload, hardware_config, saved_output, config_data)
+            return {"ok": False, "queued": True, "error": error_message}
+        return {"ok": False, "skipped": True, "error": error_message}
 
     try:
         db_id = _ensure_database(study_settings, config_data)
@@ -157,6 +168,7 @@ def get_status() -> dict[str, Any]:
         except OSError:
             pass
     return {
+        "enabled": bool(_config.get("enabled")),
         "connected": _client is not None,
         "queue_size": queue_size,
     }
@@ -327,6 +339,10 @@ def _append_session_block(
 
 
 def _format_answers(result_payload: dict[str, Any]) -> list[str]:
+    answer_details = result_payload.get("answer_details") or []
+    if isinstance(answer_details, list) and answer_details:
+        return _format_answer_details(answer_details)
+
     answers = result_payload.get("answers") or {}
     lines = []
     for key, value in sorted(answers.items()):
@@ -337,6 +353,22 @@ def _format_answers(result_payload: dict[str, Any]) -> list[str]:
         else:
             formatted = str(value)
         lines.append(f"{key}: {formatted}")
+    return lines
+
+
+def _format_answer_details(answer_details: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for detail in answer_details:
+        question_number = detail.get("question_number")
+        question_type = detail.get("question_type") or "question"
+        prompt = str(detail.get("question_prompt") or "").replace("\n", " ").strip()
+        answer_text = _format_answer_value(detail.get("answer"))
+        delta = detail.get("seconds_since_previous_answer")
+        delta_text = f"{delta:.1f}s" if isinstance(delta, (int, float)) else "n/a"
+        biomarker_text = _format_interval_biomarkers(detail.get("biosignal_interval") or {})
+        lines.append(
+            f"Q{question_number} [{question_type}] {prompt or '(ohne Prompt)'} | Antwort: {answer_text} | Seit letzter Antwort: {delta_text} | Biomarker: {biomarker_text}"
+        )
     return lines
 
 
@@ -364,6 +396,64 @@ def _format_biosignals(hardware_config: dict[str, Any], saved_output: dict[str, 
         lines.append("Camera Emotion: konfiguriert")
 
     return lines
+
+
+def _format_interval_biomarkers(interval_summary: dict[str, Any]) -> str:
+    parts: list[str] = []
+
+    brainbit = interval_summary.get("brainbit") or {}
+    if brainbit.get("available"):
+        parts.append(
+            "BrainBit "
+            f"att={_fmt_metric(brainbit.get('avg_attention'))}, "
+            f"rel={_fmt_metric(brainbit.get('avg_relaxation'))}, "
+            f"alpha={_fmt_metric(brainbit.get('avg_alpha'))}, "
+            f"beta={_fmt_metric(brainbit.get('avg_beta'))}"
+        )
+    else:
+        parts.append("BrainBit n/a")
+
+    radar = interval_summary.get("mini_radar") or {}
+    if radar.get("available"):
+        parts.append(
+            "Radar "
+            f"hr={_fmt_metric(radar.get('avg_heart_rate'))}, "
+            f"br={_fmt_metric(radar.get('avg_breath_rate'))}, "
+            f"q={_fmt_metric(radar.get('avg_quality'))}"
+        )
+    else:
+        parts.append("Radar n/a")
+
+    camera = interval_summary.get("camera_emotion") or {}
+    if camera.get("available"):
+        parts.append(
+            "Camera "
+            f"emotion={camera.get('dominant_emotion') or 'n/a'}, "
+            f"face={_fmt_metric(camera.get('avg_face_confidence'))}, "
+            f"conf={_fmt_metric(camera.get('avg_emotion_confidence'))}"
+        )
+    else:
+        parts.append("Camera n/a")
+
+    return " | ".join(parts)
+
+
+def _format_answer_value(value: Any) -> str:
+    if isinstance(value, dict):
+        return ", ".join(f"{key}={val}" for key, val in value.items()) or "n/a"
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value) or "n/a"
+    if value in (None, ""):
+        return "n/a"
+    return str(value)
+
+
+def _fmt_metric(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, (int, float)):
+        return f"{value:.2f}"
+    return str(value)
 
 
 def _enqueue(
@@ -435,6 +525,51 @@ def _try_flush_queue() -> dict[str, Any]:
 
     print(f"[NOTION] Queue flush: {succeeded}/{len(entries)} succeeded, {len(remaining)} remaining.")
     return {"attempted": len(entries), "succeeded": succeeded, "remaining": len(remaining), "last_error": last_error}
+
+
+def _refresh_config_for_retry(
+    result_payload: dict[str, Any],
+    queued_config_data: dict[str, Any],
+) -> dict[str, Any]:
+    study_id = str(
+        result_payload.get("study_id")
+        or queued_config_data.get("study_id")
+        or ""
+    ).strip()
+    if not study_id:
+        return queued_config_data
+
+    try:
+        from flask import current_app
+        from ..config_service import load_config, load_study
+
+        if current_app:
+            config_file = current_app.config["CONFIG_FILE"]
+            studies_dir = current_app.config["BASE_DIR"] / "studies"
+        else:
+            raise RuntimeError("No active app context.")
+
+        current_config = load_config(config_file)
+        if str(current_config.get("study_id") or "").strip() == study_id:
+            return current_config
+
+        return load_study(studies_dir, study_id)
+    except Exception:
+        try:
+            from ..config_service import load_config, load_study
+
+            if not _queue_path:
+                return queued_config_data
+
+            base_dir = _queue_path.parent.parent
+            config_file = base_dir / "study_config.json"
+            studies_dir = base_dir / "studies"
+            current_config = load_config(config_file)
+            if str(current_config.get("study_id") or "").strip() == study_id:
+                return current_config
+            return load_study(studies_dir, study_id)
+        except Exception:
+            return queued_config_data
 
 
 def _persist_study_database_id(config_data: dict[str, Any]) -> None:

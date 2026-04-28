@@ -13,6 +13,7 @@ import atexit
 import json
 import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ _running = False
 _recording_enabled = False
 _registered_shutdown = False
 _lsl_outlets: dict[str, Any] = {}
+_history: deque[dict[str, Any]] = deque(maxlen=2048)
 _latest_state: dict[str, Any] = {
     "status": "not_configured",
     "latest": {},
@@ -134,6 +136,8 @@ def ingest_sample(payload: dict[str, Any], *, source: str = "manual") -> dict[st
     sample = _normalize_sample(payload)
     sample["source"] = source
     sample["server_received_at"] = _timestamp()
+    sample["_epoch"] = time.time()
+    _history.append(dict(sample))
 
     _set_state(
         {
@@ -174,6 +178,31 @@ def get_status() -> dict[str, Any]:
     if last_activity:
         status["last_activity_at"] = last_activity
     return status
+
+
+def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]:
+    samples = [
+        sample for sample in list(_history)
+        if start_epoch <= float(sample.get("_epoch", 0.0)) <= end_epoch
+    ]
+    if not samples:
+        return {
+            "available": False,
+            "sample_count": 0,
+            "avg_heart_rate": None,
+            "avg_breath_rate": None,
+            "avg_quality": None,
+            "avg_distance": None,
+        }
+
+    return {
+        "available": True,
+        "sample_count": len(samples),
+        "avg_heart_rate": _mean(samples, "heartRate"),
+        "avg_breath_rate": _mean(samples, "breathRate"),
+        "avg_quality": _mean(samples, "quality"),
+        "avg_distance": _mean(samples, "distance"),
+    }
 
 
 def _read_loop() -> None:
@@ -360,6 +389,13 @@ def _to_bool(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on", "present"}
     return bool(value)
+
+
+def _mean(samples: list[dict[str, Any]], key: str) -> float | None:
+    values = [float(sample[key]) for sample in samples if sample.get(key) is not None]
+    if not values:
+        return None
+    return round(sum(values) / len(values), 4)
 
 
 def _timestamp() -> str:

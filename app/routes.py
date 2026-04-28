@@ -1,4 +1,8 @@
 import json
+import os
+import subprocess
+import sys
+import threading
 import time
 
 from flask import Flask, current_app, jsonify, request, send_from_directory
@@ -13,8 +17,10 @@ from .config_service import (
     save_study,
 )
 from .integrations import raspi_adapter
-from .results_service import build_biosignal_summary, save_results_payload
+from .results_service import build_answer_details, build_biosignal_summary, save_results_payload
 from .secrets_service import (
+    describe_notion_api_key_source,
+    describe_notion_api_key_storage,
     load_local_secrets,
     redact_hardware_config,
     resolve_notion_api_key,
@@ -28,6 +34,33 @@ from .validation import (
     validate_and_normalize_results,
     validate_and_normalize_trial_options,
 )
+
+
+def _spawn_server_restart(base_dir) -> None:
+    server_path = str(base_dir / "server.py")
+    helper_code = (
+        "import os, subprocess, sys, time; "
+        "time.sleep(1.2); "
+        f"cmd={[sys.executable, server_path]!r}; "
+        f"cwd={str(base_dir)!r}; "
+        "kwargs={'cwd': cwd, 'env': os.environ.copy(), 'close_fds': True}; "
+        "if os.name == 'nt': "
+        " kwargs['creationflags'] = getattr(subprocess, 'DETACHED_PROCESS', 0) | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0); "
+        "else: "
+        " kwargs['start_new_session'] = True; "
+        "subprocess.Popen(cmd, **kwargs)"
+    )
+    subprocess.Popen(
+        [sys.executable, "-c", helper_code],
+        cwd=str(base_dir),
+        close_fds=True,
+        env=os.environ.copy(),
+    )
+
+
+def _delayed_shutdown(shutdown_func) -> None:
+    time.sleep(0.3)
+    shutdown_func()
 
 
 def register_routes(app: Flask) -> None:
@@ -73,6 +106,20 @@ def register_routes(app: Flask) -> None:
     def stop_trial():
         stop_trial_session(validate_and_normalize_trial_options(request.get_json()))
         return jsonify({"ok": True})
+
+    @app.route("/api/admin/restart", methods=["POST"])
+    def admin_restart():
+        shutdown_func = request.environ.get("werkzeug.server.shutdown")
+        if shutdown_func is None:
+            return jsonify({"ok": False, "error": "Server restart is only available on the built-in Study Runner server."}), 503
+
+        try:
+            _spawn_server_restart(current_app.config["BASE_DIR"])
+        except Exception as error:
+            return jsonify({"ok": False, "error": str(error)}), 500
+
+        threading.Thread(target=_delayed_shutdown, args=(shutdown_func,), daemon=True).start()
+        return jsonify({"ok": True, "message": "Server restart requested."})
 
     @app.route("/api/study-client/heartbeat", methods=["POST"])
     def study_client_heartbeat():
@@ -182,6 +229,23 @@ def register_routes(app: Flask) -> None:
                 current_app.config["LOCAL_SECRETS_FILE"]
             )
 
+        notion_runtime = None
+        notion_config_runtime = sanitized_config.get("notion", {})
+        if isinstance(notion_config_runtime, dict):
+            from .integrations import notion_adapter
+
+            notion_adapter.initialize(
+                enabled=bool(notion_config_runtime.get("enabled")),
+                api_key=resolve_notion_api_key(
+                    current_app.config["HARDWARE_CONFIG"],
+                    current_app.config.get("LOCAL_SECRETS", {}),
+                ),
+                auto_retry_failed=notion_config_runtime.get("auto_retry_failed", True),
+                timeout_seconds=notion_config_runtime.get("timeout_seconds", 10),
+                data_dir=current_app.config["DATA_DIR"],
+            )
+            notion_runtime = notion_adapter.get_status()
+
         raspi_result = None
         raspi_config = sanitized_config.get("raspi", {})
         if isinstance(raspi_config, dict) and raspi_config.get("enabled") and raspi_config.get("push_config_on_save"):
@@ -191,7 +255,8 @@ def register_routes(app: Flask) -> None:
             {
                 "ok": True,
                 "restart_required": True,
-                "message": "Hardware config saved. Secrets stay backend-local. Restart the server to reinitialize startup integrations.",
+                "message": "Hardware config saved. Secrets stay backend-local. Notion was refreshed immediately; restart is still recommended for other startup integrations.",
+                "notion_runtime": notion_runtime,
                 "raspi": raspi_result,
             }
         )
@@ -260,6 +325,11 @@ def register_routes(app: Flask) -> None:
             load_config(current_app.config["CONFIG_FILE"])
         )
         validated_results = validate_and_normalize_results(result_payload, config_data)
+        validated_results["answer_details"] = build_answer_details(
+            validated_results,
+            config_data,
+            current_app.config.get("HARDWARE_CONFIG", {}),
+        )
         saved_output = save_results_payload(
             current_app.config["DATA_DIR"],
             config_data["study_id"],
@@ -281,14 +351,63 @@ def register_routes(app: Flask) -> None:
                 saved_output={**saved_output, "biosignal_summary": biosignal_summary},
                 config_data=config_data,
             )
-            print(f"[NOTION] {'Uploaded' if notion_result.get('ok') else 'Queued (offline)'}")
+            if notion_result.get("ok"):
+                print("[NOTION] Uploaded")
+            elif notion_result.get("queued"):
+                print("[NOTION] Queued (offline)")
+            elif notion_result.get("skipped"):
+                print(f"[NOTION] Skipped: {notion_result.get('error', 'not configured')}")
 
         return jsonify({"ok": True, **saved_output})
 
     @app.route("/api/notion/status")
     def notion_status():
         from .integrations import notion_adapter
-        return jsonify(notion_adapter.get_status())
+
+        hardware_config = current_app.config.get("HARDWARE_CONFIG", {})
+        local_secrets = current_app.config.get("LOCAL_SECRETS", {})
+        config_data = validate_and_normalize_config(
+            load_config(current_app.config["CONFIG_FILE"])
+        )
+        study_settings = config_data.get("study_settings", {})
+
+        status = notion_adapter.get_status()
+        status.update(
+            {
+                "enabled_globally": bool(hardware_config.get("notion", {}).get("enabled")),
+                "auto_retry_failed": bool(
+                    hardware_config.get("notion", {}).get("auto_retry_failed", True)
+                ),
+                "api_key_configured": bool(
+                    resolve_notion_api_key(hardware_config, local_secrets)
+                ),
+                "api_key_source": describe_notion_api_key_source(
+                    hardware_config,
+                    local_secrets,
+                ),
+                "api_key_storage": describe_notion_api_key_storage(
+                    hardware_config,
+                    local_secrets,
+                    current_app.config["LOCAL_SECRETS_FILE"],
+                ),
+                "local_secrets_file": current_app.config["LOCAL_SECRETS_FILE"].name,
+                "current_study_id": config_data.get("study_id", ""),
+                "current_study_notion_enabled": bool(study_settings.get("notion_enabled")),
+                "current_study_parent_page_id": study_settings.get(
+                    "notion_parent_page_id",
+                    "",
+                ),
+                "current_study_database_id": study_settings.get(
+                    "notion_database_id",
+                    "",
+                ),
+                "current_study_target_ready": bool(
+                    study_settings.get("notion_parent_page_id")
+                    or study_settings.get("notion_database_id")
+                ),
+            }
+        )
+        return jsonify(status)
 
     @app.route("/api/notion/flush-queue", methods=["POST"])
     def notion_flush_queue():

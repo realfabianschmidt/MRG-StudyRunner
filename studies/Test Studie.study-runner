@@ -1,5 +1,5 @@
 {
-  "study_id": "Neue Studie",
+  "study_id": "Test Studie",
   "questions": [
     {
       "type": "participant-id",
@@ -49,8 +49,38 @@
       "label_max": "very strongly"
     },
     {
+      "type": "multi-slider",
+      "prompt": "Rate how you feel on each dimension:",
+      "dimensions": [
+        {
+          "label": "Valence",
+          "min_label": "Very negative",
+          "max_label": "Very positive"
+        },
+        {
+          "label": "Arousal",
+          "min_label": "Very calm",
+          "max_label": "Very excited"
+        }
+      ]
+    },
+    {
+      "type": "semantic",
+      "prompt": "",
+      "pairs": [
+        [
+          "alive",
+          "mechanical"
+        ],
+        [
+          "familiar",
+          "unfamiliar"
+        ]
+      ]
+    },
+    {
       "type": "finish",
-      "title": "Vielen Dank!",
+      "title": "Vielen Dank!!!",
       "prompt": "Deine Antworten wurden gespeichert.\nDu kannst das Gerät jetzt ablegen."
     }
   ],

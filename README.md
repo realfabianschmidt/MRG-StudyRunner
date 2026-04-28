@@ -183,7 +183,7 @@ The server runs on macOS or Windows and handles all backend work.
 - `Flask` hosts the pages and API routes.
 - `config_service.py` reads and writes `study_config.json`.
 - `validation.py` checks whether config and result payloads are complete enough to save.
-- `results_service.py` writes result files into `data/` using safe file names.
+- `results_service.py` writes result files into `data/<study_id>/<participant_id>/` using safe file names.
 - `trial_service.py` triggers active hardware integrations.
 - `lsl_adapter.py` can send LSL markers when enabled.
 - `osc_adapter.py` can send OSC messages to TouchDesigner or another OSC host.
@@ -368,7 +368,7 @@ No code changes are needed for a normal study setup.
 
 ## What gets saved
 
-One participant folder is saved in `data/` for each study run.
+Each study gets its own folder in `data/`, and each participant run is stored inside that study folder.
 
 Inside that folder, Study Runner saves:
 
@@ -396,7 +396,7 @@ Each saved JSON result file contains:
   The recorded answers for all non-stimulus cards.
 
 The server validates the payload before saving it. Folder and file names use a safe version of the
-participant ID so that broken or unsafe names do not escape the `data/` folder.
+study ID and participant ID so that broken or unsafe names do not escape the `data/` folder.
 
 ## Privacy note
 

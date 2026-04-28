@@ -14,6 +14,8 @@ const state = {
   suppressListClick: false,
 };
 
+let notionClearKeyRequested = false;
+
 const $ = (id) => document.getElementById(id);
 
 function defaultStudySettings() {
@@ -105,6 +107,8 @@ function openTypePicker() {
 }
 
 function bindEvents() {
+  ensureNotionModalUtilityControls();
+
   $('btn-add-main').addEventListener('click', openTypePicker);
   $('btn-save-config').addEventListener('click', () => void saveConfig());
   $('btn-load-config').addEventListener('click', loadFromFile);
@@ -160,6 +164,12 @@ function bindEvents() {
   $('btn-notion-help').addEventListener('click', openNotionHelp);
   $('btn-close-notion-help').addEventListener('click', closeNotionHelp);
   $('btn-close-notion-help-ok').addEventListener('click', closeNotionHelp);
+  $('btn-notion-clear-key')?.addEventListener('click', toggleNotionClearKeyRequested);
+  $('btn-notion-tab-global')?.addEventListener('click', () => switchNotionTab('global'));
+  $('btn-notion-tab-study')?.addEventListener('click', () => switchNotionTab('study'));
+  $('btn-notion-study-cancel')?.addEventListener('click', closeNotionSettings);
+  $('btn-notion-study-save')?.addEventListener('click', () => void saveStudyNotionSettings());
+  $('notion-study-enabled')?.addEventListener('change', toggleNotionStudyFields);
   
   $('btn-notion-settings').addEventListener('click', () => void openNotionSettings());
   $('notion-settings-modal').addEventListener('click', (event) => {
@@ -169,13 +179,53 @@ function bindEvents() {
     if (event.target === $('notion-help-modal')) closeNotionHelp();
   });
 
-  $('study-notion-enabled').addEventListener('change', toggleStudyNotionFields);
   $('btn-study-settings').addEventListener('click', openStudySettings);
   $('btn-close-study-settings').addEventListener('click', closeStudySettings);
   $('btn-save-study-settings').addEventListener('click', saveStudySettings);
   $('study-settings-modal').addEventListener('click', (event) => {
     if (event.target === $('study-settings-modal')) closeStudySettings();
   });
+}
+
+function ensureNotionModalUtilityControls() {
+  const clearInput = $('notion-clear-api-key');
+  if (!clearInput) {
+    return;
+  }
+
+  if (clearInput.type !== 'hidden') {
+    clearInput.type = 'hidden';
+  }
+  clearInput.value = '0';
+
+  setNotionClearKeyRequested(false);
+}
+
+function setNotionClearKeyRequested(isRequested) {
+  notionClearKeyRequested = Boolean(isRequested);
+
+  const clearInput = $('notion-clear-api-key');
+  if (clearInput) {
+    clearInput.value = notionClearKeyRequested ? '1' : '0';
+  }
+
+  const clearButton = $('btn-notion-clear-key');
+  if (clearButton) {
+    clearButton.innerHTML = notionClearKeyRequested
+      ? '<i class="iconoir-check"></i> Löschung vorgemerkt'
+      : '<i class="iconoir-trash"></i> Backend-Key löschen';
+  }
+
+  const hint = $('notion-clear-key-state');
+  if (hint) {
+    hint.textContent = notionClearKeyRequested
+      ? 'Der gespeicherte backend-lokale Key wird beim nächsten Speichern entfernt.'
+      : 'Kein Löschvorgang vorgemerkt.';
+  }
+}
+
+function toggleNotionClearKeyRequested() {
+  setNotionClearKeyRequested(!notionClearKeyRequested);
 }
 
 function handleListClick(event) {
@@ -568,7 +618,8 @@ function ensureBookends(questions) {
   questions.push(finCard);
 }
 
-async function saveConfig() {
+async function saveConfig(options = {}) {
+  const { successMessage = 'Saved', skipToast = false } = options;
   let questions = state.config.questions || [];
   ensureBookends(questions);
 
@@ -585,10 +636,14 @@ async function saveConfig() {
     $('btn-save-config').classList.remove('btn-primary--dirty');
     await loadRecentStudies();
     rebuildAll();
-    showToast('Saved', 'success');
+    if (!skipToast) {
+      showToast(successMessage, 'success');
+    }
+    return true;
   } catch (error) {
     console.error('[admin] Could not save configuration:', error);
     showToast('Save failed', 'error');
+    return false;
   }
 }
 
@@ -746,12 +801,8 @@ function getMeta(type) {
 // ── Study Settings ────────────────────────────────────────────────────────────
 
 function openStudySettings() {
-  const s = state.config.study_settings || {};
+  const s = normalizeStudySettings(state.config.study_settings);
   $('study-sensors-enabled').checked = s.sensors_enabled !== false;
-  $('study-notion-enabled').checked = Boolean(s.notion_enabled);
-  $('study-notion-parent-id').value = s.notion_parent_page_id || '';
-  $('study-notion-database-id').value = s.notion_database_id || '';
-  toggleStudyNotionFields();
   $('study-settings-modal').hidden = false;
 }
 
@@ -763,9 +814,9 @@ function saveStudySettings() {
   const currentSettings = normalizeStudySettings(state.config.study_settings);
   state.config.study_settings = {
     sensors_enabled: $('study-sensors-enabled').checked,
-    notion_enabled: $('study-notion-enabled').checked,
-    notion_parent_page_id: $('study-notion-parent-id').value.trim(),
-    notion_database_id: $('study-notion-database-id').value.trim(),
+    notion_enabled: currentSettings.notion_enabled,
+    notion_parent_page_id: currentSettings.notion_parent_page_id,
+    notion_database_id: currentSettings.notion_database_id,
     notion_data_source_id: currentSettings.notion_data_source_id,
   };
   $('study-settings-modal').hidden = true;
@@ -774,7 +825,7 @@ function saveStudySettings() {
 }
 
 function toggleStudyNotionFields() {
-  $('study-notion-fields').hidden = !$('study-notion-enabled').checked;
+  return;
 }
 
 async function checkHardwareForStudy() {
@@ -798,14 +849,11 @@ async function openNotionSettings() {
     $('notion-enabled').checked = Boolean(cfg.enabled);
     $('notion-api-key').value = '';
     $('notion-auto-retry').checked = cfg.auto_retry_failed !== false;
-    $('notion-clear-api-key').checked = false;
-    const sourceLabels = {
-      env: 'per Umgebungsvariable',
-      local_file: 'backend-lokal gespeichert',
-      hardware_config: 'legacy in hardware_config.json',
-    };
+    setNotionClearKeyRequested(false);
+    populateNotionStudyFormFromState();
+    switchNotionTab('global');
     $('notion-api-key-status').textContent = cfg.api_key_configured
-      ? `API Key ist bereits ${sourceLabels[cfg.api_key_source] || 'konfiguriert'}. Feld leer lassen, um ihn unverändert zu behalten.`
+      ? 'API Key ist bereits im Backend hinterlegt. Feld leer lassen, um ihn unverändert zu behalten.'
       : 'Noch kein API Key im Backend konfiguriert.';
   } catch {
     showToast('Could not load Notion config', 'error');
@@ -826,15 +874,33 @@ async function saveNotionSettings() {
       api_key: $('notion-api-key').value.trim(),
       auto_retry_failed: $('notion-auto-retry').checked,
       timeout_seconds: 10,
-      clear_api_key: $('notion-clear-api-key').checked,
+      clear_api_key: notionClearKeyRequested,
     };
     await postJson('/api/hardware-config', hw);
-    showToast('Notion config saved — restart server', 'success');
+    await _refreshNotionQueueStatus();
+    setNotionClearKeyRequested(false);
+    const shouldRestart = window.confirm('Die globalen Notion-Settings wurden gespeichert. Damit alle Integrationen sauber neu starten, wird der Server jetzt neu gestartet.\n\nJetzt neu starten?');
+    if (shouldRestart) {
+      showToast('Server wird neu gestartet ...', 'info');
+      await requestServerRestart();
+      return;
+    }
+    showToast('Globale Notion-Settings gespeichert.', 'success');
     closeNotionSettings();
   } catch (error) {
     showToast('Save failed', 'error');
     console.error('[admin] Notion save failed:', error);
   }
+}
+
+async function saveStudyNotionSettings() {
+  applyNotionStudyFormToState();
+  const saved = await saveConfig({ successMessage: 'Studie inklusive Notion-Settings gespeichert.' });
+  if (!saved) {
+    return;
+  }
+  await _refreshNotionQueueStatus();
+  closeNotionSettings();
 }
 
 async function flushNotionQueue() {
@@ -916,9 +982,174 @@ async function _refreshNotionQueueStatus() {
       const connected = status.connected ? 'verbunden' : 'getrennt';
       el.textContent = `Queue: ${qSize} ausstehend · API: ${connected}`;
     }
+    renderNotionStatus(status);
+    return status;
   } catch {
-    // status endpoint unavailable — ignore
+    return null;
   }
+}
+
+function renderNotionStatus(status) {
+  if (!status) {
+    return;
+  }
+
+  if ($('notion-active-study-name')) {
+    $('notion-active-study-name').textContent = status.current_study_id || getCurrentStudyName();
+  }
+
+  if ($('notion-global-status')) {
+    if (!status.enabled_globally) {
+      $('notion-global-status').textContent = 'deaktiviert';
+    } else if (status.connected) {
+      $('notion-global-status').textContent = 'aktiv verbunden';
+    } else if (status.api_key_configured) {
+      $('notion-global-status').textContent = 'konfiguriert';
+    } else {
+      $('notion-global-status').textContent = 'wartet auf API Key';
+    }
+  }
+
+  if ($('notion-global-hint')) {
+    if (!status.enabled_globally) {
+      $('notion-global-hint').textContent = 'Global ausgeschaltet: kein Upload und keine Queue.';
+    } else if (!status.api_key_configured) {
+      $('notion-global-hint').textContent = 'Kein wirksamer API Key im Backend gefunden.';
+    } else if (!status.connected) {
+      $('notion-global-hint').textContent = 'Key liegt vor, der Adapter ist gerade aber nicht verbunden.';
+    } else {
+      $('notion-global-hint').textContent = 'Der Notion-Adapter ist auf diesem Host einsatzbereit.';
+    }
+  }
+
+  if ($('notion-storage-value')) {
+    $('notion-storage-value').textContent = status.api_key_configured
+      ? (status.api_key_storage || 'konfiguriert')
+      : 'nicht gespeichert';
+  }
+
+  if ($('notion-storage-hint')) {
+    $('notion-storage-hint').textContent = status.api_key_configured
+      ? 'Neue Eingaben werden backend-lokal auf diesem Rechner gespeichert.'
+      : `Beim Speichern wird der Key in ${status.local_secrets_file || 'local_secrets.json'} abgelegt.`;
+  }
+
+  if ($('notion-api-key-status')) {
+    $('notion-api-key-status').textContent = status.api_key_configured
+      ? `Aktiv genutzt: ${status.api_key_storage || 'konfiguriert'}. Feld leer lassen, um den bestehenden Key zu behalten.`
+      : 'Noch kein API Key im Backend gespeichert.';
+  }
+
+  if ($('notion-study-status')) {
+    $('notion-study-status').textContent = status.current_study_notion_enabled
+      ? `${status.current_study_id || 'Studie'} lädt hoch`
+      : `${status.current_study_id || 'Studie'} lädt nicht hoch`;
+  }
+
+  if ($('notion-study-hint')) {
+    if (!status.current_study_notion_enabled) {
+      $('notion-study-hint').textContent = 'Darum bleibt die Queue nach Studienabschlüssen leer.';
+    } else if (status.current_study_database_id) {
+      $('notion-study-hint').textContent = 'Notion-Datenbank ist für diese Studie bereits hinterlegt.';
+    } else if (status.current_study_parent_page_id) {
+      $('notion-study-hint').textContent = 'Parent Page ist gesetzt; die Datenbank wird bei Bedarf automatisch angelegt.';
+    } else {
+      $('notion-study-hint').textContent = 'Für diese Studie fehlt noch Parent Page ID oder Database ID.';
+    }
+  }
+
+  if ($('notion-queue-value')) {
+    const qSize = status.queue_size ?? 0;
+    $('notion-queue-value').textContent = qSize > 0 ? `${qSize} wartend` : 'leer';
+  }
+
+  if ($('notion-queue-detail')) {
+    $('notion-queue-detail').textContent = buildNotionQueueExplanation(status);
+  }
+}
+
+function buildNotionQueueExplanation(status) {
+  const qSize = status.queue_size ?? 0;
+  if (qSize > 0) {
+    return 'Es liegen fehlgeschlagene Uploads zur späteren Wiederholung bereit.';
+  }
+  if (!status.current_study_notion_enabled) {
+    return 'Queue leer, weil die aktive Studie ihren Notion-Upload aktuell ausgeschaltet hat.';
+  }
+  if (!status.enabled_globally) {
+    return 'Queue leer, weil die globale Notion-Integration deaktiviert ist.';
+  }
+  if (!status.api_key_configured) {
+    return 'Queue leer, weil noch kein API Key im Backend gespeichert ist.';
+  }
+  if (!status.current_study_target_ready) {
+    return 'Queue leer. Für die aktive Studie fehlt noch ein Notion-Ziel in den Studien-Settings.';
+  }
+  if (!status.connected) {
+    return 'Queue leer. Der Adapter ist noch nicht verbunden; neue fehlgeschlagene Uploads werden jetzt aber sauber gepuffert.';
+  }
+  return 'Queue leer. Bisher wurde direkt hochgeladen oder es gab noch keinen fehlgeschlagenen Upload.';
+}
+
+function switchNotionTab(tabName) {
+  document.querySelectorAll('[data-notion-tab]').forEach((button) => {
+    const isActive = button.dataset.notionTab === tabName;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+
+  document.querySelectorAll('[data-notion-panel]').forEach((panel) => {
+    const isActive = panel.dataset.notionPanel === tabName;
+    panel.classList.toggle('active', isActive);
+    panel.hidden = !isActive;
+  });
+}
+
+function getCurrentStudyName() {
+  return $('cfg-id').value.trim() || state.config.study_id || 'Unbenannte Studie';
+}
+
+function populateNotionStudyFormFromState() {
+  const settings = normalizeStudySettings(state.config.study_settings);
+  $('notion-active-study-name').textContent = getCurrentStudyName();
+  $('notion-study-enabled').checked = Boolean(settings.notion_enabled);
+  $('notion-study-parent-id').value = settings.notion_parent_page_id || '';
+  $('notion-study-database-id').value = settings.notion_database_id || '';
+  toggleNotionStudyFields();
+}
+
+function applyNotionStudyFormToState() {
+  const currentSettings = normalizeStudySettings(state.config.study_settings);
+  state.config.study_settings = {
+    sensors_enabled: currentSettings.sensors_enabled,
+    notion_enabled: $('notion-study-enabled').checked,
+    notion_parent_page_id: $('notion-study-parent-id').value.trim(),
+    notion_database_id: $('notion-study-database-id').value.trim(),
+    notion_data_source_id: currentSettings.notion_data_source_id,
+  };
+}
+
+function toggleNotionStudyFields() {
+  const fields = $('notion-study-fields');
+  if (fields) {
+    fields.hidden = !$('notion-study-enabled').checked;
+  }
+}
+
+async function requestServerRestart() {
+  const response = await fetch('/api/admin/restart', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || 'Restart failed');
+  }
+  closeNotionSettings();
+  window.setTimeout(() => {
+    window.location.reload();
+  }, 2500);
 }
 
 void init();
