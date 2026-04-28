@@ -52,6 +52,8 @@ Study Runner is a small local web app for user studies.
   Set `enabled: true` to activate LSL markers, OSC messages, BrainBit, Mini-radar,
   camera emotion, Notion upload, or the Raspberry Pi gateway.
   Restart the server after changes.
+- `local_secrets.json`: Optional backend-local secret file, for example for the Notion API key.
+  This file is not tracked by Git and works the same on Windows, macOS, and Raspberry Pi.
 - `study_config.json`: Stores the current study configuration.
 - `studies/`: Stores saved study presets / archive copies.
 - `brainbit/`: Stores the repo-local BrainBit script, BrainBit notes, and the TouchDesigner example file.

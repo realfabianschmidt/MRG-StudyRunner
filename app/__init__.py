@@ -6,6 +6,7 @@ from pathlib import Path
 from flask import Flask
 
 from .routes import register_routes
+from .secrets_service import load_local_secrets, resolve_notion_api_key
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -71,7 +72,7 @@ def _load_hardware_config() -> dict:
         return {}
 
 
-def _initialize_integrations(hardware_config: dict) -> None:
+def _initialize_integrations(hardware_config: dict, local_secrets: dict) -> None:
     """Start each hardware integration that is enabled in hardware_config.json."""
     lsl_config = hardware_config.get("lsl", {})
     if lsl_config.get("enabled"):
@@ -175,7 +176,7 @@ def _initialize_integrations(hardware_config: dict) -> None:
         from .integrations import notion_adapter
         notion_adapter.initialize(
             enabled=True,
-            api_key=notion_config.get("api_key", ""),
+            api_key=resolve_notion_api_key(hardware_config, local_secrets),
             parent_page_id=notion_config.get("parent_page_id", ""),
             database_id=notion_config.get("database_id", ""),
             auto_create_database=notion_config.get("auto_create_database", True),
@@ -191,6 +192,7 @@ def create_app() -> Flask:
     app.config["BASE_DIR"] = BASE_DIR
     app.config["CONFIG_FILE"] = BASE_DIR / "study_config.json"
     app.config["DATA_DIR"] = BASE_DIR / "data"
+    app.config["LOCAL_SECRETS_FILE"] = BASE_DIR / "local_secrets.json"
     app.config["ALLOW_UNSAFE_STIMULUS_CODE"] = (
         os.getenv("STUDY_RUNNER_ALLOW_UNSAFE_STIMULUS_CODE", "").strip().lower()
         in {"1", "true", "yes", "on"}
@@ -198,9 +200,11 @@ def create_app() -> Flask:
     app.config["DATA_DIR"].mkdir(exist_ok=True)
 
     hardware_config = _load_hardware_config()
+    local_secrets = load_local_secrets(app.config["LOCAL_SECRETS_FILE"])
     app.config["HARDWARE_CONFIG"] = hardware_config
+    app.config["LOCAL_SECRETS"] = local_secrets
     if os.getenv("STUDY_RUNNER_DISABLE_HARDWARE", "").strip().lower() not in {"1", "true", "yes", "on"}:
-        _initialize_integrations(hardware_config)
+        _initialize_integrations(hardware_config, local_secrets)
 
     register_routes(app)
     return app

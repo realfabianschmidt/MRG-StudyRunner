@@ -160,6 +160,8 @@ Important:
   such as LSL, OSC, or BrainBit. It initializes once at startup and does nothing if the required
   library or external script is not available.
 - `Notion queue`: A local retry file used when Notion uploads are enabled but temporarily offline.
+- `Local secrets file`: A backend-only JSON file such as `local_secrets.json` for tokens that
+  must not be committed to Git or sent back to the admin browser.
 - `Raspberry Pi gateway`: An optional sidecar service that can host sensor hardware near the participant
   and forward status or data back to Study Runner.
 

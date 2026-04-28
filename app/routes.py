@@ -7,6 +7,12 @@ from .admin_status_service import build_admin_status
 from .config_service import load_config, save_config, list_studies, save_study, load_study
 from .integrations import raspi_adapter
 from .results_service import build_biosignal_summary, save_results_payload
+from .secrets_service import (
+    load_local_secrets,
+    redact_hardware_config,
+    resolve_notion_api_key,
+    save_local_secrets,
+)
 from .study_client_service import register_heartbeat
 from .trial_service import start_trial_session, stop_trial_session
 from .validation import (
@@ -104,7 +110,12 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/api/hardware-config")
     def get_hardware_config():
-        return jsonify(current_app.config.get("HARDWARE_CONFIG", {}))
+        return jsonify(
+            redact_hardware_config(
+                current_app.config.get("HARDWARE_CONFIG", {}),
+                current_app.config.get("LOCAL_SECRETS", {}),
+            )
+        )
 
     @app.route("/api/hardware-config", methods=["POST"])
     def update_hardware_config():
@@ -112,17 +123,45 @@ def register_routes(app: Flask) -> None:
         if not isinstance(config_data, dict):
             return jsonify({"ok": False, "error": "hardware_config payload must be a JSON object."}), 400
 
+        sanitized_config = json.loads(json.dumps(config_data))
+        notion_config = sanitized_config.get("notion")
+        local_secrets = dict(current_app.config.get("LOCAL_SECRETS", {}))
+        secret_updated = False
+
+        if isinstance(notion_config, dict):
+            provided_api_key = str(notion_config.get("api_key") or "").strip()
+            if provided_api_key:
+                local_secrets.setdefault("notion", {})["api_key"] = provided_api_key
+                secret_updated = True
+
+            if notion_config.get("clear_api_key"):
+                local_secrets.setdefault("notion", {}).pop("api_key", None)
+                if not local_secrets.get("notion"):
+                    local_secrets.pop("notion", None)
+                secret_updated = True
+
+            notion_config.pop("api_key", None)
+            notion_config.pop("api_key_configured", None)
+            notion_config.pop("api_key_source", None)
+            notion_config.pop("clear_api_key", None)
+
         config_path = current_app.config["BASE_DIR"] / "hardware_config.json"
         temp_path = config_path.with_suffix(".json.tmp")
         temp_path.write_text(
-            json.dumps(config_data, ensure_ascii=True, indent=2) + "\n",
+            json.dumps(sanitized_config, ensure_ascii=True, indent=2) + "\n",
             encoding="utf-8",
         )
         temp_path.replace(config_path)
-        current_app.config["HARDWARE_CONFIG"] = config_data
+        current_app.config["HARDWARE_CONFIG"] = sanitized_config
+
+        if secret_updated:
+            save_local_secrets(current_app.config["LOCAL_SECRETS_FILE"], local_secrets)
+            current_app.config["LOCAL_SECRETS"] = load_local_secrets(
+                current_app.config["LOCAL_SECRETS_FILE"]
+            )
 
         raspi_result = None
-        raspi_config = config_data.get("raspi", {})
+        raspi_config = sanitized_config.get("raspi", {})
         if isinstance(raspi_config, dict) and raspi_config.get("enabled") and raspi_config.get("push_config_on_save"):
             raspi_result = raspi_adapter.push_config(raspi_config)
 
@@ -130,7 +169,7 @@ def register_routes(app: Flask) -> None:
             {
                 "ok": True,
                 "restart_required": True,
-                "message": "Hardware config saved. Restart the server to reinitialize startup integrations.",
+                "message": "Hardware config saved. Secrets stay backend-local. Restart the server to reinitialize startup integrations.",
                 "raspi": raspi_result,
             }
         )
@@ -237,7 +276,13 @@ def register_routes(app: Flask) -> None:
         from .integrations import notion_adapter
         payload = request.get_json() or {}
         result = notion_adapter.test_connection(
-            api_key=str(payload.get("api_key") or ""),
+            api_key=(
+                str(payload.get("api_key") or "").strip()
+                or resolve_notion_api_key(
+                    current_app.config.get("HARDWARE_CONFIG", {}),
+                    current_app.config.get("LOCAL_SECRETS", {}),
+                )
+            ),
             parent_page_id=str(payload.get("parent_page_id") or ""),
             database_id=str(payload.get("database_id") or ""),
             timeout_seconds=int(payload.get("timeout_seconds") or 10),

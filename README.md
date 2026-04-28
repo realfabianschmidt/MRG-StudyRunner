@@ -24,6 +24,13 @@ pip install -r requirements.txt
 Optional hardware packages can now auto-install themselves when the related integration
 is enabled in `hardware_config.json`.
 
+Important for secrets:
+
+- Keep access tokens out of Git-tracked JSON files.
+- Use backend-local `local_secrets.json` or environment variables such as
+  `STUDY_RUNNER_NOTION_API_KEY` for Notion.
+- `local_secrets.json` is ignored by Git and works on Windows, macOS, and Raspberry Pi.
+
 Start the server:
 
 ```bash
@@ -205,6 +212,7 @@ The browser side runs in Safari on the iPad and in the admin browser on the lab 
 - The admin Settings modal can load and save `hardware_config.json` before a session.
 - The admin page can load older study presets from the local `studies/` folder.
 - The admin page also offers a Notion settings modal for automatic result uploads.
+- The real Notion API key stays on the backend and is no longer returned to the browser.
 - Stimulus cards can optionally start iPad camera snapshots for camera emotion analysis.
 - Browser code sends and receives data through the local API.
 - All styling comes from `static/css/main.css`.

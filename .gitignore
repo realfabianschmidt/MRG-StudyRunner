@@ -7,3 +7,6 @@ data/
 brainbit/logs/
 brainbit/recordings/
 brainbit/__pycache__/
+local_secrets.json
+.env
+.env.*
