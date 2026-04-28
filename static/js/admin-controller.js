@@ -16,12 +16,35 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+function defaultStudySettings() {
+  return {
+    sensors_enabled: true,
+    notion_enabled: false,
+    notion_parent_page_id: '',
+    notion_database_id: '',
+    notion_data_source_id: '',
+  };
+}
+
+function normalizeStudySettings(settings) {
+  return {
+    ...defaultStudySettings(),
+    ...(settings && typeof settings === 'object' ? settings : {}),
+    sensors_enabled: settings?.sensors_enabled !== false,
+    notion_enabled: Boolean(settings?.notion_enabled),
+    notion_parent_page_id: String(settings?.notion_parent_page_id || '').trim(),
+    notion_database_id: String(settings?.notion_database_id || '').trim(),
+    notion_data_source_id: String(settings?.notion_data_source_id || '').trim(),
+  };
+}
+
 async function init() {
   bindEvents();
   initializeAdminDashboard({ showToast });
 
   try {
     state.config = await getJson('/api/config');
+    state.config.study_settings = normalizeStudySettings(state.config.study_settings);
     ensureBookends(state.config.questions);
     $('cfg-id').value = state.config.study_id || '';
     updateHubTitle();
@@ -49,7 +72,11 @@ function switchView(viewId) {
 }
 
 function startNewStudy() {
-  state.config = { study_id: "Neue Studie", questions: [defaultFor('participant-id'), defaultFor('finish')] };
+  state.config = {
+    study_id: "Neue Studie",
+    questions: [defaultFor('participant-id'), defaultFor('finish')],
+    study_settings: defaultStudySettings(),
+  };
   $('cfg-id').value = "Neue Studie";
   updateHubTitle();
   rebuildAll();
@@ -57,8 +84,6 @@ function startNewStudy() {
   showToast('Neue Studie erstellt. Bitte speichern!', 'info');
   
   // Direkt in den Editor springen
-  $('admin-edit-view').hidden = false;
-  $('admin-dashboard').hidden = true;
   switchView('view-workspace');
 }
 
@@ -86,8 +111,8 @@ function bindEvents() {
   $('overlay-close').addEventListener('click', closeOverlay);
 
   $('btn-hub-new').addEventListener('click', startNewStudy);
-  $('btn-hub-editor').addEventListener('click', () => { $('admin-edit-view').hidden = false; $('admin-dashboard').hidden = true; switchView('view-workspace'); });
-  $('btn-admin-dashboard').addEventListener('click', () => switchView('view-workspace'));
+  $('btn-hub-editor').addEventListener('click', () => switchView('view-workspace'));
+  $('btn-admin-dashboard').addEventListener('click', () => switchView('view-dashboard'));
   $('btn-workspace-home').addEventListener('click', () => switchView('view-hub'));
   $('btn-admin-edit-view').addEventListener('click', () => switchView('view-hub'));
   $('btn-hub-settings').addEventListener('click', () => { $('admin-settings-modal').hidden = false; });
@@ -142,6 +167,14 @@ function bindEvents() {
   });
   $('notion-help-modal').addEventListener('click', (event) => {
     if (event.target === $('notion-help-modal')) closeNotionHelp();
+  });
+
+  $('study-notion-enabled').addEventListener('change', toggleStudyNotionFields);
+  $('btn-study-settings').addEventListener('click', openStudySettings);
+  $('btn-close-study-settings').addEventListener('click', closeStudySettings);
+  $('btn-save-study-settings').addEventListener('click', saveStudySettings);
+  $('study-settings-modal').addEventListener('click', (event) => {
+    if (event.target === $('study-settings-modal')) closeStudySettings();
   });
 }
 
@@ -542,6 +575,7 @@ async function saveConfig() {
   const fullConfig = {
     study_id: $('cfg-id').value.trim(),
     questions: questions,
+    study_settings: normalizeStudySettings(state.config.study_settings),
   };
 
   try {
@@ -577,12 +611,13 @@ function showToast(message, type = 'info') {
 function loadFromFile() {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.json,application/json';
+  input.accept = '.study-runner,.json,application/json';
   input.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     try {
       const config = JSON.parse(await file.text());
+      config.study_settings = normalizeStudySettings(config.study_settings);
       ensureBookends(config.questions);
       state.config = config;
       $('cfg-id').value = config.study_id || '';
@@ -591,11 +626,60 @@ function loadFromFile() {
       state.loaded = true;
       markUnsaved();
       showToast(`Loaded: ${file.name}`, 'info');
+      checkHardwareForStudy();
     } catch {
       showToast('Invalid JSON file', 'error');
     }
   };
   input.click();
+}
+
+async function _activateStudyFromHub(id) {
+  try {
+    const config = await postJson('/api/admin/studies/active', { id });
+    config.study_settings = normalizeStudySettings(config.study_settings);
+    ensureBookends(config.questions);
+    state.config = config;
+    $('cfg-id').value = config.study_id || '';
+    updateHubTitle();
+    rebuildAll();
+    state.loaded = true;
+    showToast('Studie geladen', 'success');
+    checkHardwareForStudy();
+    switchView('view-workspace');
+  } catch (e) {
+    showToast('Fehler beim Laden', 'error');
+  }
+}
+
+async function downloadStudy(id) {
+  try {
+    const config = await getJson(`/api/admin/studies/${encodeURIComponent(id)}`);
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${id}.study-runner`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    showToast('Download fehlgeschlagen', 'error');
+  }
+}
+
+async function deleteStudy(id) {
+  if (!confirm(`Möchtest du die Studie "${id}" wirklich unwiderruflich löschen?`)) return;
+  try {
+    const response = await fetch(`/api/admin/studies/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.error || 'Delete failed');
+    }
+    showToast('Studie gelöscht', 'success');
+    await loadRecentStudies();
+  } catch(e) {
+    showToast('Löschen fehlgeschlagen', 'error');
+  }
 }
 
 async function loadRecentStudies() {
@@ -612,34 +696,28 @@ async function loadRecentStudies() {
     }
 
     listEl.innerHTML = studies.map(s => `
-      <div class="hub-recent-item" data-study-id="${escapeHtml(s.id)}" style="cursor:pointer; justify-content: flex-start;">
-        <i class="iconoir-journal-page" style="font-size: 20px; color: var(--accent);"></i>
-        <div style="flex: 1; text-align: left;">
-          <div style="font-weight: 600; color: var(--ink);">${escapeHtml(s.id)}</div>
-          <div style="font-size: 0.75rem; color: var(--ink-40);">Zuletzt bearbeitet: ${new Date(s.modified * 1000).toLocaleString()}</div>
+      <div class="hub-recent-item" data-study-id="${escapeHtml(s.id)}" style="justify-content: flex-start; padding: 12px 16px;">
+        <div class="hub-recent-item-main" style="flex: 1; display: flex; align-items: center; gap: 10px; cursor: pointer;">
+          <i class="iconoir-journal-page" style="font-size: 20px; color: var(--accent);"></i>
+          <div style="text-align: left;">
+            <div style="font-weight: 600; color: var(--ink);">${escapeHtml(s.id)}</div>
+            <div style="font-size: 0.75rem; color: var(--ink-40);">Zuletzt bearbeitet: ${new Date(s.modified * 1000).toLocaleString()}</div>
+          </div>
         </div>
-        <i class="iconoir-nav-arrow-right"></i>
+        <div class="hub-recent-actions" style="display: flex; gap: 6px;">
+          <button class="btn-icon-only" data-action="load" title="Laden / Bearbeiten"><i class="iconoir-edit-pencil"></i></button>
+          <button class="btn-icon-only" data-action="download" title="Herunterladen"><i class="iconoir-download"></i></button>
+          <button class="btn-icon-only" data-action="delete" title="Löschen" style="color: #D32F2F; border-color: rgba(211,47,47,0.3);"><i class="iconoir-trash"></i></button>
+        </div>
       </div>
     `).join('');
 
     listEl.querySelectorAll('.hub-recent-item:not(.empty)').forEach(item => {
-      item.addEventListener('click', async () => {
-        try {
-          const config = await postJson('/api/admin/studies/active', { id: item.dataset.studyId });
-          ensureBookends(config.questions);
-          state.config = config;
-          $('cfg-id').value = config.study_id || '';
-          updateHubTitle();
-          rebuildAll();
-          state.loaded = true;
-          showToast('Studie geladen', 'success');
-          $('admin-edit-view').hidden = false;
-          $('admin-dashboard').hidden = true;
-          switchView('view-workspace');
-        } catch (e) {
-          showToast('Fehler beim Laden', 'error');
-        }
-      });
+      const id = item.dataset.studyId;
+      item.querySelector('.hub-recent-item-main').addEventListener('click', () => _activateStudyFromHub(id));
+      item.querySelector('[data-action="load"]').addEventListener('click', () => _activateStudyFromHub(id));
+      item.querySelector('[data-action="download"]').addEventListener('click', () => downloadStudy(id));
+      item.querySelector('[data-action="delete"]').addEventListener('click', () => deleteStudy(id));
     });
   } catch (error) {
     console.error('[admin] Could not load recent studies:', error);
@@ -665,6 +743,52 @@ function getMeta(type) {
     : { icon: 'question-mark', label: type };
 }
 
+// ── Study Settings ────────────────────────────────────────────────────────────
+
+function openStudySettings() {
+  const s = state.config.study_settings || {};
+  $('study-sensors-enabled').checked = s.sensors_enabled !== false;
+  $('study-notion-enabled').checked = Boolean(s.notion_enabled);
+  $('study-notion-parent-id').value = s.notion_parent_page_id || '';
+  $('study-notion-database-id').value = s.notion_database_id || '';
+  toggleStudyNotionFields();
+  $('study-settings-modal').hidden = false;
+}
+
+function closeStudySettings() {
+  $('study-settings-modal').hidden = true;
+}
+
+function saveStudySettings() {
+  const currentSettings = normalizeStudySettings(state.config.study_settings);
+  state.config.study_settings = {
+    sensors_enabled: $('study-sensors-enabled').checked,
+    notion_enabled: $('study-notion-enabled').checked,
+    notion_parent_page_id: $('study-notion-parent-id').value.trim(),
+    notion_database_id: $('study-notion-database-id').value.trim(),
+    notion_data_source_id: currentSettings.notion_data_source_id,
+  };
+  $('study-settings-modal').hidden = true;
+  markUnsaved();
+  showToast('Studien-Settings temporär übernommen. Bitte Studie speichern!', 'info');
+}
+
+function toggleStudyNotionFields() {
+  $('study-notion-fields').hidden = !$('study-notion-enabled').checked;
+}
+
+async function checkHardwareForStudy() {
+  const s = state.config.study_settings || {};
+  if (s.notion_enabled) {
+    try {
+      const status = await getJson('/api/notion/status');
+      if (!status.connected) {
+        alert("Achtung: Diese Studie nutzt den Notion-Upload, aber auf diesem Host-Rechner ist kein Notion API-Key konfiguriert.\n\nBitte hinterlege einen API-Key in den Hardware Settings (Hub), damit der Upload funktioniert.");
+      }
+    } catch(e) {}
+  }
+}
+
 // ── Notion Settings ───────────────────────────────────────────────────────────
 
 async function openNotionSettings() {
@@ -672,10 +796,17 @@ async function openNotionSettings() {
     const hw = await getJson('/api/hardware-config');
     const cfg = hw.notion || {};
     $('notion-enabled').checked = Boolean(cfg.enabled);
-    $('notion-api-key').value = cfg.api_key || '';
-    $('notion-parent-page-id').value = cfg.parent_page_id || '';
-    $('notion-database-id').value = cfg.database_id || '';
+    $('notion-api-key').value = '';
     $('notion-auto-retry').checked = cfg.auto_retry_failed !== false;
+    $('notion-clear-api-key').checked = false;
+    const sourceLabels = {
+      env: 'per Umgebungsvariable',
+      local_file: 'backend-lokal gespeichert',
+      hardware_config: 'legacy in hardware_config.json',
+    };
+    $('notion-api-key-status').textContent = cfg.api_key_configured
+      ? `API Key ist bereits ${sourceLabels[cfg.api_key_source] || 'konfiguriert'}. Feld leer lassen, um ihn unverändert zu behalten.`
+      : 'Noch kein API Key im Backend konfiguriert.';
   } catch {
     showToast('Could not load Notion config', 'error');
   }
@@ -693,11 +824,9 @@ async function saveNotionSettings() {
     hw.notion = {
       enabled: $('notion-enabled').checked,
       api_key: $('notion-api-key').value.trim(),
-      parent_page_id: $('notion-parent-page-id').value.trim(),
-      database_id: $('notion-database-id').value.trim(),
-      auto_create_database: true,
       auto_retry_failed: $('notion-auto-retry').checked,
       timeout_seconds: 10,
+      clear_api_key: $('notion-clear-api-key').checked,
     };
     await postJson('/api/hardware-config', hw);
     showToast('Notion config saved — restart server', 'success');
@@ -746,8 +875,6 @@ async function testNotionConnection() {
   try {
     const result = await postJson('/api/notion/test', {
       api_key: $('notion-api-key').value.trim(),
-      parent_page_id: $('notion-parent-page-id').value.trim(),
-      database_id: $('notion-database-id').value.trim(),
     });
 
     const checks = result.checks || [];

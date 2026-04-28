@@ -86,10 +86,13 @@
 
       <div class="sidebar-section">
         <div class="sidebar-section-title"><i class="iconoir-settings"></i> Settings</div>
-        <div class="field">
+        <div class="field" style="margin-bottom: 8px;">
           <label>Study-ID</label>
           <input type="text" id="cfg-id" placeholder="e.g. US1">
         </div>
+        <button class="btn-secondary" id="btn-study-settings" type="button" style="width: 100%; justify-content: center;">
+          <i class="iconoir-settings-cloud"></i> Studien-Settings
+        </button>
       </div>
 
       <div class="sidebar-section sidebar-section--grow">
@@ -136,8 +139,15 @@
         <p>Add a question to see the preview</p>
       </div>
     </div>
+  </main>
 
-    <section class="admin-dashboard" id="admin-dashboard" hidden>
+  </div>
+</div>
+
+<!-- ── DASHBOARD VIEW ────────────────────────────────────── -->
+<div id="view-dashboard" class="admin-view" hidden>
+  <div style="padding: 60px 40px;">
+    <section class="admin-dashboard" id="admin-dashboard">
       <div class="dashboard-hero">
         <div>
           <span class="dashboard-kicker">Live Control</span>
@@ -175,9 +185,7 @@
           <div id="dashboard-xdf" class="dashboard-card-body">Use LSL timestamps as primary sync layer.</div>
         </article>
       </div>
-    </div>
-  </main>
-
+    </section>
   </div>
 </div>
 
@@ -235,8 +243,9 @@
     </div>
     <div class="settings-modal-body">
       <p>Studiendaten werden nach jeder abgeschlossenen Studie automatisch in Notion hochgeladen.
-         Speichern schreibt den <code>notion</code>-Block in <code>hardware_config.json</code> —
-         danach Server neu starten.</p>
+         Der API-Key wird nur backend-lokal gespeichert oder per Umgebungsvariable gesetzt,
+         nicht im Repo. Speichern schreibt nur den öffentlichen <code>notion</code>-Block in
+         <code>hardware_config.json</code> — danach Server neu starten.</p>
       <div class="field">
         <label class="consent-row" for="notion-enabled">
           <input type="checkbox" id="notion-enabled">
@@ -247,25 +256,18 @@
         <label>API Key (Integration Token)</label>
         <input class="fi-input" type="password" id="notion-api-key" autocomplete="off"
           placeholder="secret_…">
-      </div>
-      <div class="field">
-        <label>Parent Page ID
-          <span class="settings-hint">Notion-Seite, unter der die Datenbank erstellt wird</span>
-        </label>
-        <input class="fi-input" type="text" id="notion-parent-page-id" autocomplete="off"
-          placeholder="32-stellige Seiten-ID aus der Notion-URL">
-      </div>
-      <div class="field">
-        <label>Database ID
-          <span class="settings-hint">Leer lassen → wird beim ersten Upload automatisch erstellt</span>
-        </label>
-        <input class="fi-input" type="text" id="notion-database-id" autocomplete="off"
-          placeholder="leer lassen für Auto-Create">
+        <div class="settings-hint" id="notion-api-key-status"></div>
       </div>
       <div class="field">
         <label class="consent-row" for="notion-auto-retry">
           <input type="checkbox" id="notion-auto-retry">
           <span>Fehlgeschlagene Uploads beim Serverstart automatisch wiederholen</span>
+        </label>
+      </div>
+      <div class="field">
+        <label class="consent-row" for="notion-clear-api-key">
+          <input type="checkbox" id="notion-clear-api-key">
+          <span>Gespeicherten backend-lokalen API Key löschen</span>
         </label>
       </div>
 
@@ -338,9 +340,9 @@
         <div>
           <strong>Parent Page ID herausfinden</strong>
           <p>Die Seite in Notion öffnen → URL ansehen:<br>
-          <code>notion.so/<strong>MeinWorkspace/AbcDef1234567890abcdef1234567890</strong></code><br>
+          <code>notion.so/MeinWorkspace/AbcDef...</code><br>
           Die letzten 32 Zeichen (ohne Bindestriche) sind die Page ID.<br>
-          Alternativ: <em>Share → Copy link</em> → die ID steht am Ende der URL.</p>
+          → <strong>In den "Studien-Settings" der jeweiligen Studie eintragen!</strong></p>
         </div>
       </div>
 
@@ -348,7 +350,7 @@
         <div class="notion-help-step-num">5</div>
         <div>
           <strong>Database ID (optional)</strong>
-          <p>Leer lassen → beim ersten Upload wird automatisch eine Datenbank<br>
+          <p>Ebenfalls in den Studien-Settings: Leer lassen → beim ersten Upload wird automatisch eine Datenbank<br>
           „<em>StudyRunner Participants</em>" mit dem richtigen Schema erstellt.<br>
           Falls du eine bestehende DB verwenden willst: DB in Notion öffnen →<br>
           URL: <code>notion.so/<strong>database-id</strong>?v=…</code> — die 32 Zeichen vor <code>?v=</code>.</p>
@@ -374,6 +376,55 @@
 
       <div class="settings-toolbar" style="margin-top:1.5rem;">
         <button class="btn-primary" id="btn-close-notion-help-ok" type="button">Verstanden</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Studien-Settings Modal -->
+<div class="modal-backdrop" id="study-settings-modal" hidden>
+  <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="study-settings-title" style="max-width: 500px;">
+    <div class="settings-modal-header">
+      <div>
+        <span class="dashboard-kicker">Lokale Einstellungen</span>
+        <h2 id="study-settings-title">Studien-Settings</h2>
+      </div>
+      <button class="overlay-close" id="btn-close-study-settings" type="button" aria-label="Close">
+        <i class="iconoir-xmark"></i>
+      </button>
+    </div>
+    <div class="settings-modal-body">
+      <div class="field" style="margin-bottom: 20px;">
+        <label class="consent-row" for="study-sensors-enabled" style="margin-bottom: 0;">
+          <input type="checkbox" id="study-sensors-enabled">
+          <span style="display:flex; flex-direction:column; gap:4px;">
+            <strong style="color:var(--ink);">Biosignale aufzeichnen</strong>
+            <small style="color:var(--ink-40); line-height:1.4;">Wenn deaktiviert, werden in dieser Studie keine Trigger an externe Sensoren (BrainBit/Radar) gesendet, selbst wenn Karten dies anfordern.</small>
+          </span>
+        </label>
+      </div>
+      <div class="field">
+        <label class="consent-row" for="study-notion-enabled" style="margin-bottom: 0;">
+          <input type="checkbox" id="study-notion-enabled">
+          <span style="color:var(--ink);"><strong>Ergebnisse in Notion hochladen</strong></span>
+        </label>
+      </div>
+      <div id="study-notion-fields" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--ink-06);">
+        <div class="field">
+          <label>Notion Parent Page ID
+            <span class="settings-hint">Seite, unter der die Teilnehmer-Datenbank erstellt wird</span>
+          </label>
+          <input class="fi-input" type="text" id="study-notion-parent-id" autocomplete="off" placeholder="z.B. 34f720d2b401800c8152f50b363cd4f2">
+        </div>
+        <div class="field">
+          <label>Notion Database ID
+            <span class="settings-hint">Wird beim ersten Upload automatisch generiert und hier gespeichert</span>
+          </label>
+          <input class="fi-input" type="text" id="study-notion-database-id" autocomplete="off" placeholder="Wird automatisch befüllt...">
+        </div>
+      </div>
+      <div class="settings-toolbar" style="margin-top: 24px;">
+        <button class="btn-primary" id="btn-save-study-settings" type="button" style="width: 100%; justify-content: center;">Übernehmen</button>
       </div>
     </div>
   </div>

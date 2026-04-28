@@ -15,6 +15,21 @@
       ]
     },
     {
+      "type": "choice",
+      "prompt": "",
+      "options": [
+        "Option A",
+        "Option B",
+        "Option C"
+      ]
+    },
+    {
+      "type": "mood-meter",
+      "prompt": "How do you feel right now?",
+      "allow_multiple": true,
+      "word_lists": null
+    },
+    {
       "type": "finish",
       "title": "Vielen Dank!",
       "prompt": "Deine Antworten wurden gespeichert.\nDu kannst das Gerät jetzt ablegen."

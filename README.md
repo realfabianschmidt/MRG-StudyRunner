@@ -169,6 +169,7 @@ study-runner/
 |   Stores participant output folders with JSON results and optional XDF files.
 |-- studies/
 |   Stores saved study presets / archive copies by study ID.
+|   New saves use `.study-runner`; older `.json` presets are still listed and can still be loaded.
 `-- docs/
     Stores simple explanations, rules, and plans for the project.
 ```
@@ -211,6 +212,9 @@ The browser side runs in Safari on the iPad and in the admin browser on the lab 
 - The study page sends lightweight heartbeats so the admin page can detect connected devices.
 - The admin Settings modal can load and save `hardware_config.json` before a session.
 - The admin page can load older study presets from the local `studies/` folder.
+- Study-specific settings are saved together with each study preset.
+- These study settings currently control whether participant-side sensors are used and
+  whether completed runs should be uploaded to Notion.
 - The admin page also offers a Notion settings modal for automatic result uploads.
 - The real Notion API key stays on the backend and is no longer returned to the browser.
 - Stimulus cards can optionally start iPad camera snapshots for camera emotion analysis.
@@ -264,6 +268,26 @@ The study flow is card-based. A study can contain any mix of these card types:
   Final thank-you screen shown automatically after a successful save.
 
 `participant-id` and `finish` are treated as fixed bookend cards by the admin UI.
+
+## Study settings per preset
+
+Each saved study preset also contains a small `study_settings` object.
+
+- `sensors_enabled`
+  Lets a study disable participant-side sensor capture even if hardware is available on the host.
+
+- `notion_enabled`
+  Turns per-study Notion upload on or off.
+
+- `notion_parent_page_id`
+  Optional Notion page used as the parent when the adapter auto-creates a database for that study.
+
+- `notion_database_id`
+  Optional existing Notion database for that study.
+
+- `notion_data_source_id`
+  Internal cache field used when Notion exposes data sources. It is persisted with the study so
+  follow-up uploads do not need to rediscover the target every time.
 
 ## Stimulus cards and triggers
 
@@ -337,7 +361,8 @@ Important: custom `html` and `js` trigger content is treated as trusted research
 2. Change the study ID, for example to `US2`
 3. Add, remove, or reorder cards with the drag handle in the admin list
 4. Edit the card content in the sidebar overlay
-5. Save
+5. Open `Study Settings` if this preset should disable sensors or upload runs to Notion
+6. Save
 
 No code changes are needed for a normal study setup.
 

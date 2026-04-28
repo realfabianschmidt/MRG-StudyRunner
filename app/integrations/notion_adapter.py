@@ -29,9 +29,6 @@ def initialize(
     *,
     enabled: bool,
     api_key: str,
-    parent_page_id: str,
-    database_id: str,
-    auto_create_database: bool,
     auto_retry_failed: bool,
     timeout_seconds: int,
     data_dir: Path,
@@ -41,10 +38,6 @@ def initialize(
     _config = {
         "enabled": bool(enabled),
         "api_key": api_key or "",
-        "parent_page_id": _strip_dashes(parent_page_id or ""),
-        "database_id": _strip_dashes(database_id or ""),
-        "data_source_id": "",
-        "auto_create_database": bool(auto_create_database),
         "auto_retry_failed": bool(auto_retry_failed),
         "timeout_seconds": max(1, int(timeout_seconds)),
     }
@@ -85,15 +78,20 @@ def upload_study_result(
     result_payload: dict[str, Any],
     hardware_config: dict[str, Any],
     saved_output: dict[str, Any],
+    config_data: dict[str, Any] = None,
     is_retry: bool = False,
 ) -> dict[str, Any]:
     """Upload one completed study session to Notion. Returns {ok, queued?, error?}."""
-    if not _config.get("enabled") or _client is None:
-        return {"ok": False, "error": "Notion not configured or disabled."}
+    if config_data is None:
+        config_data = {}
+
+    study_settings = config_data.get("study_settings", {})
+    if not study_settings.get("notion_enabled") or _client is None:
+        return {"ok": False, "error": "Notion not configured or disabled for this study."}
 
     try:
-        db_id = _ensure_database()
-        page_id = _find_or_create_participant(db_id, result_payload)
+        db_id = _ensure_database(study_settings, config_data)
+        page_id = _find_or_create_participant(db_id, result_payload, study_settings, config_data)
         session_num = _get_session_count(page_id) + 1
         _append_session_block(page_id, session_num, result_payload, hardware_config, saved_output)
         _update_participant_properties(page_id, session_num, result_payload)
@@ -103,7 +101,7 @@ def upload_study_result(
     except Exception as error:
         print(f"[NOTION] Upload failed{' (retry)' if is_retry else ', queuing'}: {error}")
         if not is_retry:
-            _enqueue(result_payload, hardware_config, saved_output)
+            _enqueue(result_payload, hardware_config, saved_output, config_data)
         return {"ok": False, "queued": True, "error": str(error)}
 
 
@@ -115,8 +113,6 @@ def flush_queue() -> dict[str, Any]:
 def test_connection(
     *,
     api_key: str,
-    parent_page_id: str,
-    database_id: str,
     timeout_seconds: int = 10,
 ) -> dict[str, Any]:
     """
@@ -148,63 +144,6 @@ def test_connection(
         checks.append({"name": "API Key", "ok": False, "message": f"Verbindung fehlgeschlagen: {error}"})
         return {"ok": False, "checks": checks}
 
-    # 2. Parent Page prüfen (falls angegeben)
-    clean_parent = _strip_dashes(parent_page_id or "")
-    if clean_parent:
-        try:
-            page = client.pages.retrieve(page_id=clean_parent)
-            title_prop = page.get("properties", {}).get("title", {})
-            title_parts = title_prop.get("title", [])
-            page_title = title_parts[0].get("plain_text", clean_parent[:8]) if title_parts else clean_parent[:8]
-            checks.append({"name": "Parent Page", "ok": True, "message": f'Seite „{page_title}" erreichbar'})
-        except APIResponseError as error:
-            if error.code == APIErrorCode.ObjectNotFound:
-                msg = "Seite nicht gefunden — Integration eingeladen? (Share → Add connections)"
-            elif error.code == APIErrorCode.Unauthorized:
-                msg = "Kein Zugriff auf diese Seite."
-            else:
-                msg = str(error)
-            checks.append({"name": "Parent Page", "ok": False, "message": msg})
-        except Exception as error:
-            checks.append({"name": "Parent Page", "ok": False, "message": str(error)})
-    else:
-        checks.append({"name": "Parent Page", "ok": None, "message": "Nicht angegeben — wird für Auto-Create benötigt"})  # type: ignore[dict-item]
-
-    # 3. Database ID prüfen (falls angegeben)
-    clean_db = _strip_dashes(database_id or "")
-    if clean_db:
-        try:
-            db = client.databases.retrieve(database_id=clean_db)
-            db_title_parts = db.get("title", [])
-            db_title = db_title_parts[0].get("plain_text", clean_db[:8]) if db_title_parts else clean_db[:8]
-            # Check required properties
-            if hasattr(client, "data_sources"):
-                data_sources = db.get("data_sources", [])
-                if data_sources:
-                    ds_id = data_sources[0]["id"]
-                    ds = client.data_sources.retrieve(data_source_id=ds_id)
-                    props = ds.get("properties", {})
-                else:
-                    props = db.get("properties", {})
-            else:
-                props = db.get("properties", {})
-            missing = [p for p in ("Participant ID", "Study Count", "First Session", "Last Session") if p not in props]
-            if missing:
-                checks.append({"name": "Datenbank", "ok": False,
-                               "message": f'„{db_title}" erreichbar, aber fehlende Spalten: {", ".join(missing)}'})
-            else:
-                checks.append({"name": "Datenbank", "ok": True, "message": f'„{db_title}" erreichbar, Schema korrekt'})
-        except APIResponseError as error:
-            if error.code == APIErrorCode.ObjectNotFound:
-                msg = "Datenbank nicht gefunden — Integration eingeladen?"
-            else:
-                msg = str(error)
-            checks.append({"name": "Datenbank", "ok": False, "message": msg})
-        except Exception as error:
-            checks.append({"name": "Datenbank", "ok": False, "message": str(error)})
-    else:
-        checks.append({"name": "Datenbank", "ok": None, "message": "Nicht angegeben — wird beim ersten Upload auto-erstellt"})  # type: ignore[dict-item]
-
     overall_ok = all(c["ok"] is not False for c in checks)
     return {"ok": overall_ok, "checks": checks}
 
@@ -218,26 +157,21 @@ def get_status() -> dict[str, Any]:
         except OSError:
             pass
     return {
-        "enabled": bool(_config.get("enabled")),
         "connected": _client is not None,
-        "database_id": _config.get("database_id", ""),
         "queue_size": queue_size,
     }
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
-def _ensure_database() -> str:
-    db_id = _config.get("database_id", "")
+def _ensure_database(study_settings: dict[str, Any], config_data: dict[str, Any]) -> str:
+    db_id = study_settings.get("notion_database_id", "")
     if db_id:
-        return db_id
+        return _strip_dashes(db_id)
 
-    if not _config.get("auto_create_database"):
-        raise RuntimeError("No database_id configured and auto_create_database is disabled.")
-
-    parent_page_id = _config.get("parent_page_id", "")
+    parent_page_id = _strip_dashes(study_settings.get("notion_parent_page_id", ""))
     if not parent_page_id:
-        raise RuntimeError("parent_page_id is required to auto-create a Notion database.")
+        raise RuntimeError("Notion parent_page_id is required in study_settings to auto-create a Notion database.")
 
     db_args = {
         "parent": {"type": "page_id", "page_id": parent_page_id},
@@ -259,22 +193,22 @@ def _ensure_database() -> str:
     db = _client.databases.create(**db_args)
 
     new_id = _strip_dashes(db["id"])
-    _config["database_id"] = new_id
+    study_settings["notion_database_id"] = new_id
     
     if hasattr(_client, "data_sources"):
         data_sources = db.get("data_sources", [])
         if data_sources:
-            _config["data_source_id"] = data_sources[0]["id"]
+            study_settings["notion_data_source_id"] = data_sources[0]["id"]
             
-    _persist_database_id(new_id)
+    _persist_study_database_id(config_data)
     print(f"[NOTION] Auto-created database: {new_id}")
     return new_id
 
-def _get_data_source_id(db_id: str) -> str:
+def _get_data_source_id(db_id: str, study_settings: dict[str, Any], config_data: dict[str, Any]) -> str:
     if not hasattr(_client, "data_sources"):
         return db_id
     
-    cached_ds = _config.get("data_source_id")
+    cached_ds = study_settings.get("notion_data_source_id")
     if cached_ds:
         return cached_ds
         
@@ -283,18 +217,19 @@ def _get_data_source_id(db_id: str) -> str:
         data_sources = db.get("data_sources", [])
         if data_sources:
             ds_id = data_sources[0]["id"]
-            _config["data_source_id"] = ds_id
+            study_settings["notion_data_source_id"] = ds_id
+            _persist_study_database_id(config_data)
             return ds_id
     except Exception as e:
         print(f"[NOTION] Could not retrieve data source: {e}")
         
     return db_id
 
-def _find_or_create_participant(db_id: str, result_payload: dict[str, Any]) -> str:
+def _find_or_create_participant(db_id: str, result_payload: dict[str, Any], study_settings: dict[str, Any], config_data: dict[str, Any]) -> str:
     participant_id = str(result_payload.get("participant_id") or "unknown")
     session_date = _session_date_iso(result_payload)
 
-    ds_id = _get_data_source_id(db_id)
+    ds_id = _get_data_source_id(db_id, study_settings, config_data)
 
     if hasattr(_client, "data_sources"):
         results = _client.data_sources.query(
@@ -435,6 +370,7 @@ def _enqueue(
     result_payload: dict[str, Any],
     hardware_config: dict[str, Any],
     saved_output: dict[str, Any],
+    config_data: dict[str, Any],
 ) -> None:
     if not _queue_path:
         return
@@ -442,6 +378,7 @@ def _enqueue(
         "result_payload": result_payload,
         "hardware_config": hardware_config,
         "saved_output": saved_output,
+        "config_data": config_data,
         "queued_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     try:
@@ -477,6 +414,7 @@ def _try_flush_queue() -> dict[str, Any]:
             entry["result_payload"],
             entry.get("hardware_config", {}),
             entry.get("saved_output", {}),
+            config_data=entry.get("config_data", {}),
             is_retry=True,
         )
         if result.get("ok"):
@@ -499,18 +437,16 @@ def _try_flush_queue() -> dict[str, Any]:
     return {"attempted": len(entries), "succeeded": succeeded, "remaining": len(remaining), "last_error": last_error}
 
 
-def _persist_database_id(db_id: str) -> None:
-    config_path = Path(__file__).resolve().parent.parent.parent / "hardware_config.json"
+def _persist_study_database_id(config_data: dict[str, Any]) -> None:
     try:
-        raw = config_path.read_text(encoding="utf-8")
-        config = json.loads(raw)
-        config.setdefault("notion", {})["database_id"] = db_id
-        tmp = config_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(config, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
-        tmp.replace(config_path)
-        print(f"[NOTION] Persisted database_id to hardware_config.json.")
+        from flask import current_app
+        from ..config_service import save_study, save_config
+        save_config(current_app.config["CONFIG_FILE"], config_data)
+        studies_dir = current_app.config["BASE_DIR"] / "studies"
+        save_study(studies_dir, config_data)
+        print(f"[NOTION] Persisted database_id to study config.")
     except Exception as error:
-        print(f"[NOTION] Could not persist database_id: {error}")
+        print(f"[NOTION] Could not persist database_id to study config: {error}")
 
 
 def _strip_dashes(value: str) -> str:

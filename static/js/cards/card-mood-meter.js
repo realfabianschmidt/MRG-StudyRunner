@@ -295,13 +295,19 @@ function setupPan(overlay, viewport, space, initPanX, initPanY, cardIndex, allow
   viewport.addEventListener('pointerup', e => {
     if (!isPanning) return;
     isPanning = false;
+
+    if (viewport.hasPointerCapture(e.pointerId)) {
+      viewport.releasePointerCapture(e.pointerId);
+    }
+
     const dx = e.clientX - downX;
     const dy = e.clientY - downY;
     const moved = Math.hypot(dx, dy);
 
     if (moved < 8) {
       // Tap: toggle word
-      const word = e.target.closest('.mm-word');
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      const word = target?.closest('.mm-word');
       if (word) toggleWord(cardIndex, word.dataset.word, allowMultiple, overlay);
     } else {
       // Momentum scroll

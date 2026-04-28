@@ -8,6 +8,9 @@ This file describes how a study is set up.
 
 - `study_id`: A short label for the study, for example `US1`.
 - `questions`: The list of all cards in the study. This includes both question cards and stimulus cards.
+- `study_settings`: Extra per-study runtime options that travel with the preset.
+  Fields: `sensors_enabled`, `notion_enabled`, `notion_parent_page_id`,
+  `notion_database_id`, `notion_data_source_id`.
 
 ## Question types in the configuration
 
@@ -120,6 +123,8 @@ Important:
 
 - `participant-id`, `stimulus`, and `finish` cards do not produce answer entries.
 - The admin UI keeps `participant-id` as the first card and `finish` as the last card.
+- Saved study presets in `studies/` may exist as older `.json` files or newer `.study-runner`
+  files. The app supports both and keeps the newer timestamp when both exist for the same study ID.
 
 ## Important abbreviations
 
@@ -160,6 +165,8 @@ Important:
   such as LSL, OSC, or BrainBit. It initializes once at startup and does nothing if the required
   library or external script is not available.
 - `Notion queue`: A local retry file used when Notion uploads are enabled but temporarily offline.
+- `Study settings`: A small per-preset object saved with the study. It controls runtime behavior
+  such as participant-side sensors and study-specific Notion upload targets.
 - `Local secrets file`: A backend-only JSON file such as `local_secrets.json` for tokens that
   must not be committed to Git or sent back to the admin browser.
 - `Raspberry Pi gateway`: An optional sidecar service that can host sensor hardware near the participant

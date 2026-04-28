@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+STUDY_FILE_SUFFIXES = (".study-runner", ".json")
+
 
 DEFAULT_STIMULUS_CARD: dict[str, Any] = {
     "type": "stimulus",
@@ -60,16 +62,43 @@ def save_config(config_file: Path, config_data: dict[str, Any]) -> None:
         json.dump(config_data, file_handle, indent=2, ensure_ascii=False)
 
 
+def _normalize_study_id(study_id: str) -> str:
+    return "".join(c for c in study_id if c.isalnum() or c in " _-") or "unnamed"
+
+
+def _study_paths_for_id(studies_dir: Path, study_id: str) -> list[Path]:
+    safe_id = _normalize_study_id(study_id)
+    return [studies_dir / f"{safe_id}{suffix}" for suffix in STUDY_FILE_SUFFIXES]
+
+
+def _resolve_study_file(studies_dir: Path, study_id: str) -> Path | None:
+    candidates = [path for path in _study_paths_for_id(studies_dir, study_id) if path.exists()]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
 def list_studies(studies_dir: Path) -> list[dict[str, Any]]:
     studies_dir.mkdir(parents=True, exist_ok=True)
-    results = []
-    for file_path in studies_dir.glob("*.json"):
-        if not file_path.is_file():
-            continue
-        results.append({
-            "id": file_path.stem,
-            "modified": file_path.stat().st_mtime
-        })
+    latest_by_id: dict[str, dict[str, Any]] = {}
+
+    for suffix in STUDY_FILE_SUFFIXES:
+        for file_path in studies_dir.glob(f"*{suffix}"):
+            if not file_path.is_file():
+                continue
+
+            study_id = file_path.stem
+            modified = file_path.stat().st_mtime
+            existing = latest_by_id.get(study_id)
+            if existing and existing["modified"] >= modified:
+                continue
+
+            latest_by_id[study_id] = {
+                "id": study_id,
+                "modified": modified,
+            }
+
+    results = list(latest_by_id.values())
     results.sort(key=lambda x: x["modified"], reverse=True)
     return results
 
@@ -77,14 +106,22 @@ def list_studies(studies_dir: Path) -> list[dict[str, Any]]:
 def save_study(studies_dir: Path, config_data: dict[str, Any]) -> None:
     studies_dir.mkdir(parents=True, exist_ok=True)
     study_id = config_data.get("study_id", "Unbenannte Studie").strip()
-    safe_id = "".join(c for c in study_id if c.isalnum() or c in " _-") or "unnamed"
-    file_path = studies_dir / f"{safe_id}.json"
+    safe_id = _normalize_study_id(study_id)
+    file_path = studies_dir / f"{safe_id}.study-runner"
     save_config(file_path, config_data)
 
 
 def load_study(studies_dir: Path, study_id: str) -> dict[str, Any]:
-    safe_id = "".join(c for c in study_id if c.isalnum() or c in " _-") or "unnamed"
-    file_path = studies_dir / f"{safe_id}.json"
-    if not file_path.exists():
+    file_path = _resolve_study_file(studies_dir, study_id)
+    if file_path is None:
         raise FileNotFoundError(f"Study {study_id} not found.")
     return load_config(file_path)
+
+
+def delete_study(studies_dir: Path, study_id: str) -> bool:
+    deleted = False
+    for file_path in _study_paths_for_id(studies_dir, study_id):
+        if file_path.exists():
+            file_path.unlink()
+            deleted = True
+    return deleted

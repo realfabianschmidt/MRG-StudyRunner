@@ -42,6 +42,7 @@ def validate_and_normalize_config(config_data: Any) -> dict[str, Any]:
             _validate_question(question_data, question_index)
             for question_index, question_data in enumerate(questions, start=1)
         ],
+        "study_settings": _validate_study_settings(config_data.get("study_settings")),
     }
 
 
@@ -447,6 +448,21 @@ def _validate_question(question_data: Any, question_index: int) -> dict[str, Any
         }
 
     raise ValidationError(f"Question {question_index} could not be validated.")
+
+
+def _validate_study_settings(value: Any) -> dict[str, Any]:
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise ValidationError("study_settings must be a JSON object.")
+
+    return {
+        "sensors_enabled": _normalize_boolean(value.get("sensors_enabled", True)),
+        "notion_enabled": _normalize_boolean(value.get("notion_enabled", False)),
+        "notion_parent_page_id": _normalize_text(value.get("notion_parent_page_id")),
+        "notion_database_id": _normalize_text(value.get("notion_database_id")),
+        "notion_data_source_id": _normalize_text(value.get("notion_data_source_id")),
+    }
 
 
 def _normalize_trigger_type(value: Any, question_index: int) -> str:

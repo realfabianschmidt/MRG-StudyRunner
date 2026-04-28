@@ -4,7 +4,14 @@ import time
 from flask import Flask, current_app, jsonify, request, send_from_directory
 
 from .admin_status_service import build_admin_status
-from .config_service import load_config, save_config, list_studies, save_study, load_study
+from .config_service import (
+    delete_study,
+    list_studies,
+    load_config,
+    load_study,
+    save_config,
+    save_study,
+)
 from .integrations import raspi_adapter
 from .results_service import build_biosignal_summary, save_results_payload
 from .secrets_service import (
@@ -98,6 +105,21 @@ def register_routes(app: Flask) -> None:
             return jsonify(validated_config)
         except Exception as error:
             return jsonify({"ok": False, "error": str(error)}), 404
+
+    @app.route("/api/admin/studies/<study_id>", methods=["GET"])
+    def admin_get_study(study_id):
+        studies_dir = current_app.config["BASE_DIR"] / "studies"
+        try:
+            return jsonify(load_study(studies_dir, study_id))
+        except Exception as error:
+            return jsonify({"ok": False, "error": str(error)}), 404
+
+    @app.route("/api/admin/studies/<study_id>", methods=["DELETE"])
+    def admin_delete_study(study_id):
+        studies_dir = current_app.config["BASE_DIR"] / "studies"
+        if delete_study(studies_dir, study_id):
+            return jsonify({"ok": True})
+        return jsonify({"ok": False, "error": "Not found"}), 404
 
     @app.route("/api/admin/status")
     def admin_status():
@@ -249,13 +271,15 @@ def register_routes(app: Flask) -> None:
             print(f"[DATA] XDF: {saved_output['xdf_file']}")
 
         hardware_config = current_app.config.get("HARDWARE_CONFIG", {})
-        if hardware_config.get("notion", {}).get("enabled"):
+        study_settings = config_data.get("study_settings", {})
+        if study_settings.get("notion_enabled"):
             from .integrations import notion_adapter
             biosignal_summary = build_biosignal_summary(hardware_config, saved_output)
             notion_result = notion_adapter.upload_study_result(
                 result_payload=validated_results,
                 hardware_config=hardware_config,
                 saved_output={**saved_output, "biosignal_summary": biosignal_summary},
+                config_data=config_data,
             )
             print(f"[NOTION] {'Uploaded' if notion_result.get('ok') else 'Queued (offline)'}")
 
@@ -283,8 +307,6 @@ def register_routes(app: Flask) -> None:
                     current_app.config.get("LOCAL_SECRETS", {}),
                 )
             ),
-            parent_page_id=str(payload.get("parent_page_id") or ""),
-            database_id=str(payload.get("database_id") or ""),
             timeout_seconds=int(payload.get("timeout_seconds") or 10),
         )
         return jsonify(result)

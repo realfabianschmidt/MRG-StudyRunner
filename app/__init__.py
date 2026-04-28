@@ -177,9 +177,6 @@ def _initialize_integrations(hardware_config: dict, local_secrets: dict) -> None
         notion_adapter.initialize(
             enabled=True,
             api_key=resolve_notion_api_key(hardware_config, local_secrets),
-            parent_page_id=notion_config.get("parent_page_id", ""),
-            database_id=notion_config.get("database_id", ""),
-            auto_create_database=notion_config.get("auto_create_database", True),
             auto_retry_failed=notion_config.get("auto_retry_failed", True),
             timeout_seconds=notion_config.get("timeout_seconds", 10),
             data_dir=BASE_DIR / "data",

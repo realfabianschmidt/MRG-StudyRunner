@@ -671,6 +671,9 @@ function getTouchedFieldCount(questionIndex) {
 }
 
 function shouldActivateHardware(question) {
+  if (state.config.study_settings && state.config.study_settings.sensors_enabled === false) {
+    return false;
+  }
   return (
     question.send_signal !== false
     || question.brainbit_to_lsl !== false

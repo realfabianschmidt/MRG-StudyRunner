@@ -54,8 +54,9 @@ Study Runner is a small local web app for user studies.
   Restart the server after changes.
 - `local_secrets.json`: Optional backend-local secret file, for example for the Notion API key.
   This file is not tracked by Git and works the same on Windows, macOS, and Raspberry Pi.
-- `study_config.json`: Stores the current study configuration.
+- `study_config.json`: Stores the current study configuration, including study-specific settings.
 - `studies/`: Stores saved study presets / archive copies.
+  New saves use `.study-runner`; older `.json` presets are still supported.
 - `brainbit/`: Stores the repo-local BrainBit script, BrainBit notes, and the TouchDesigner example file.
 - `emotion_worker/`: Optional heavier camera emotion worker.
 - `raspi/`: Optional Raspberry Pi-side sensor scripts.
@@ -106,6 +107,8 @@ Flask app   ->  raspi_adapter.py    ->  optional Raspberry Pi sensor gateway
 - Each card type is a self-contained module in `static/js/cards/`.
 - The study now uses fixed `participant-id` and `finish` bookend cards.
 - Stimulus cards support an optional warm-up phase before the active phase starts.
+- Study presets now carry their own `study_settings`, for example for participant-side sensors
+  and optional Notion upload targets.
 - Config and result payloads are validated before they are saved.
 - Clearer separation between startup, routes, config logic, result logic, and trial control.
 - Better orientation for people who are not familiar with large all-in-one files.

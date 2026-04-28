@@ -12,6 +12,8 @@ export const meta = {
 export const defaultQuestion = {
   type: 'participant-id',
   prompt: 'Bitte gib deine Daten zur anonymen Identifikation ein.',
+  code_label: 'Dein anonymer Code',
+  code_hint: 'Deine Eingaben werden lokal auf dem Gerät in eine unumkehrbare Zeichenfolge (SHA-256 Hash) umgewandelt und danach sofort verworfen. Deine echten Daten werden zu keinem Zeitpunkt gespeichert oder übertragen.',
 };
 
 // Module-level: the currently computed hash. Set async on input.
@@ -19,6 +21,9 @@ let _computedId = null;
 
 export function renderStudy(q, _i) {
   const prompt = q.prompt || defaultQuestion.prompt;
+  const codeLabel = q.code_label ?? defaultQuestion.code_label;
+  const codeHint = q.code_hint ?? defaultQuestion.code_hint;
+
   return `
     <div class="q-type-tag"><i class="iconoir-user-badge-check"></i> Participant ID</div>
     <p class="q-prompt">${escapeHtml(prompt)}</p>
@@ -45,9 +50,9 @@ export function renderStudy(q, _i) {
         </div>
       </div>
       <div class="pid-code-box" hidden>
-        <div class="pid-code-label">Dein anonymer Code</div>
+        <div class="pid-code-label">${escapeHtml(codeLabel)}</div>
         <div class="pid-code-display"></div>
-        <div class="pid-code-hint">Bitte notieren — wird für Folgestudien benötigt.</div>
+        <div class="pid-code-hint">${escapeHtml(codeHint)}</div>
       </div>
     </div>`;
 }
@@ -57,6 +62,14 @@ export function renderEditor(q) {
     <div class="field">
       <label>Prompt</label>
       <textarea class="fi-textarea q-prompt-input" rows="3">${escapeHtml(q.prompt || defaultQuestion.prompt)}</textarea>
+    </div>
+    <div class="field">
+      <label>Titel für generierten Code</label>
+      <input type="text" class="fi-input q-code-label-input" value="${escapeHtml(q.code_label ?? defaultQuestion.code_label)}">
+    </div>
+    <div class="field">
+      <label>Hinweistext unter dem Code (Datenschutz)</label>
+      <textarea class="fi-textarea q-code-hint-input" rows="3">${escapeHtml(q.code_hint ?? defaultQuestion.code_hint)}</textarea>
     </div>
     <p class="editor-hint" style="margin-top:0.75rem;font-size:0.8rem;opacity:0.6;">
       Dieses Feld erfasst Vorname, Nachname, Geburtsdatum und Geburtsort des Teilnehmers
@@ -69,6 +82,8 @@ export function collectConfig(el) {
   return {
     type: 'participant-id',
     prompt: el.querySelector('.q-prompt-input')?.value ?? defaultQuestion.prompt,
+    code_label: el.querySelector('.q-code-label-input')?.value ?? defaultQuestion.code_label,
+    code_hint: el.querySelector('.q-code-hint-input')?.value ?? defaultQuestion.code_hint,
   };
 }
 
