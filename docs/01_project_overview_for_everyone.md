@@ -1,116 +1,42 @@
-# Project overview for everyone
+# Project Overview For Everyone
 
-This document is for people who want to understand the project without reading the code first.
+Study Runner is a local study tool with one admin page, one participant page, and optional built-in plugins for lab integrations.
 
-## What this project does
+## Main Parts
 
-Study Runner is a small local web app for user studies.
+- `server.py`: starts the local server.
+- `server_app/`: backend app and backend services.
+- `plugins/`: built-in integrations such as BrainBit, MR60, camera emotion, LSL, OSC, LabRecorder, and Notion.
+- `web_interface/`: browser pages, styles, scripts, cards, and fonts.
+- `desktop_app/`: optional Tauri desktop launcher for one-click startup.
+- `packaging/`: PyInstaller build files for the Python server sidecar.
+- `settings/`: editable local settings for the active study and plugins.
+- `saved_studies/`: saved study presets.
+- `saved_results/`: participant results and optional sensor sidecar files.
+- `docs/`: explanations and project notes.
 
-- One person on the team sets up the study.
-- A participant answers the questions on an iPad.
-- The server saves the answers as local files.
-- The server can trigger optional external tools such as LSL marker streams, TouchDesigner,
-  or a repo-local BrainBit process.
-- The server can also prepare optional camera emotion, Mini-radar, Notion upload,
-  and Raspberry Pi gateway integrations.
-- Stimulus cards can include an optional warm-up phase before the active phase begins.
+## How A Study Run Works
 
-## Who uses which page
+1. The study lead opens `/admin`.
+2. The admin page loads the active study from `settings/study_config.json`.
+3. The study lead edits cards and saves.
+4. A tablet opens the participant page.
+5. Stimulus cards can send trial start and stop events through the plugin registry.
+6. Answers are validated by the backend.
+7. Results are saved locally in `saved_results/`.
 
-- `Admin page`: Used by the person who prepares the study. The left sidebar holds the settings,
-  question list, and question editor. The right side shows a live preview of the study as the
-  participant will see it. It also has a first live dashboard shell that appears when a study
-  page is connected.
-- `Study page`: Used by the participant on the iPad. Questions appear as individual cards,
-  one after the other on a single screen.
-- `Server`: Runs on the lab computer and connects both pages.
-
-## Simple flow
-
-1. The computer starts `server.py`.
-2. The study lead opens `/admin` and checks the configuration in the left sidebar.
-3. The study lead edits or adds cards. Changes appear instantly in the right preview.
-4. The participant opens the study page on the iPad.
-5. The study page sends a small heartbeat so the admin page knows a study device is connected.
-6. A stimulus card can first show a warm-up instruction phase.
-7. Then the active stimulus phase begins and optional signals or trigger actions are fired.
-8. The remaining question cards are answered one by one.
-9. The answers are validated and saved in the `data/` folder.
-10. The participant sees a final thank-you card after the save succeeds.
-
-## What each file group is for
-
-- `server.py`: Small startup file for the Flask app.
-- `app/`: Backend logic split by responsibility.
-- `app/integrations/`: One file per hardware integration (LSL, OSC, BrainBit). Each file is
-  self-contained and does nothing if the required library is not installed. Mini-radar,
-  camera emotion, Notion, and Raspberry Pi gateway support now also live here.
-- `app/validation.py`: Checks whether incoming config and result data can be saved safely.
-- `app/admin_status_service.py`: Builds the live admin dashboard status payload.
-- `app/study_client_service.py`: Tracks connected study pages through lightweight heartbeats.
-- `hardware_config.json`: Researcher-editable settings for hardware integrations.
-  Set `enabled: true` to activate LSL markers, OSC messages, BrainBit, Mini-radar,
-  camera emotion, Notion upload, or the Raspberry Pi gateway.
-  Restart the server after changes.
-- `local_secrets.json`: Optional backend-local secret file, for example for the Notion API key.
-  This file is not tracked by Git and works the same on Windows, macOS, and Raspberry Pi.
-- `study_config.json`: Stores the current study configuration, including study-specific settings.
-- `studies/`: Stores saved study presets / archive copies.
-  New saves use `.study-runner`; older `.json` presets are still supported.
-- `brainbit/`: Stores the repo-local BrainBit script, BrainBit notes, and the TouchDesigner example file.
-- `emotion_worker/`: Optional heavier camera emotion worker.
-- `raspi/`: Optional Raspberry Pi-side sensor scripts.
-- `static/admin.html` and `static/study.html`: The page structure.
-- `static/css/main.css`: All visual styles in one central file, including the Materiability font.
-- `static/fonts/`: The Materiability font files.
-- `static/js/`: Browser logic split into small modules.
-- `static/js/cards/`: One file per card type. Each file handles rendering, editing,
-  and answer collection for its type.
-- `data/`: Stores one folder per study, with participant folders inside for JSON results and optional XDF files.
-- `docs/`: Stores simple explanations, plans, and project rules.
-
-## How the parts talk to each other
+## Plugin Flow
 
 ```text
-Admin page  ->  Browser JavaScript  ->  Flask routes  ->  config and result services
-Study page  ->  Browser JavaScript  ->  Flask routes  ->  config and result services
-Study page  ->  heartbeat endpoint   ->  admin status service
-Flask app   ->  trial_service.py    ->  optional tools such as LSL or TouchDesigner
-Flask app   ->  brainbit_adapter.py ->  repo-local BrainBit CLI -> TouchDesigner / optional LSL
-Flask app   ->  mini_radar_adapter.py / camera_affect_adapter.py -> LSL / XDF-ready streams
-Flask app   ->  notion_adapter.py   ->  optional Notion upload with retry queue
-Flask app   ->  raspi_adapter.py    ->  optional Raspberry Pi sensor gateway
+server_app routes -> plugins/registry.py -> plugin folder -> adapter or external tool
 ```
 
-## Common questions from non-coders
+The registry is explicit. A plugin only becomes active when it is imported and listed in `plugins/registry.py`.
 
-- "Where do I change the questions?"
-  In the admin page sidebar, or directly in `study_config.json`.
+## Where To Change Common Things
 
-- "Where can I find the saved answers?"
-  In the `data/` folder.
-
-- "Where do I change the visual design?"
-  All styles are in `static/css/main.css`.
-
-- "Where would a new hardware integration be added?"
-  Create a new file in `app/integrations/` following the pattern in `lsl_adapter.py` or
-  `osc_adapter.py`. For a background process like BrainBit, follow `brainbit_adapter.py`.
-
-- "How do I add a new question type?"
-  Create a new file in `static/js/cards/`, then register it in `cards/index.js`.
-  The README explains the full step-by-step process.
-
-## What the recent cleanup improved
-
-- All styles live in one central CSS file (`main.css`) with the custom Materiability font.
-- Each card type is a self-contained module in `static/js/cards/`.
-- The study now uses fixed `participant-id` and `finish` bookend cards.
-- Stimulus cards support an optional warm-up phase before the active phase starts.
-- Study presets now carry their own `study_settings`, for example for participant-side sensors
-  and optional Notion upload targets.
-- Config and result payloads are validated before they are saved.
-- Clearer separation between startup, routes, config logic, result logic, and trial control.
-- Better orientation for people who are not familiar with large all-in-one files.
-
-The remaining open steps are described in `docs/03_plan_for_clearer_code.md`.
+- Change a study: use the admin page or edit `settings/study_config.json`.
+- Change plugin settings: use the dashboard controls or edit `settings/hardware_settings.json`.
+- Add a question card type: add a module in `web_interface/scripts/cards/` and register it in the card index.
+- Add a plugin: add a folder in `plugins/`, export `PLUGIN` from `plugin.py`, and list it in `plugins/registry.py`.
+- Build the desktop launcher: see `docs/07_desktop_launcher.md`.

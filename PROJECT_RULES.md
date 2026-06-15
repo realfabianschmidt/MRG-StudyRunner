@@ -1,4 +1,4 @@
-# Project Rules
+﻿# Project Rules
 
 This document replaces the imported engineering standards from the other software project.
 
@@ -24,13 +24,14 @@ It keeps only the rules that are useful for this small Study Runner project. The
 - `Handler`: A small function that reacts to a click, request, or timer.
 - `Service`: A file or function with one clear job, such as loading config or saving results.
 - `Adapter`: A small bridge to external tools such as BrainBit or TouchDesigner.
+- `Integration plugin`: A small built-in registry entry that gives one adapter a common label, status shape, runtime actions, and trial callbacks. This project uses an internal registry only, not installable third-party plugins.
 - `API`: Fixed web addresses that let the browser pages and server talk to each other.
 - `Validation`: Checking whether incoming data is complete and sensible before it is saved or used.
 
 ## 1. Keep it simple
 
 - Required: Build direct, simple solutions.
-- Required: Do not introduce a plugin architecture.
+- Required: Keep the internal integration plugin registry small and explicit. Do not add dynamic package loading, entry-point discovery, or installable third-party plugins.
 - Required: Do not add structure for a possible future use case unless there is a clear need now.
 - Required: If a term is hard to understand, replace it or explain it immediately.
 
@@ -73,7 +74,7 @@ It keeps only the rules that are useful for this small Study Runner project. The
 - Required: Reusable logic goes into services or helper functions, not into click handlers.
 - Recommended: A reader should be able to understand the rough purpose of a handler within a few seconds.
 
-## 7. Stay extensible without plugins
+## 7. Stay extensible with the internal registry
 
 - Required: New question types should always follow the same order.
 - First define the default data.
@@ -82,6 +83,7 @@ It keeps only the rules that are useful for this small Study Runner project. The
 - Then add answer collection.
 - Then update validation and documentation.
 - Required: External tools such as BrainBit or TouchDesigner should live in small adapter files.
+- Required: Built-in integrations should be registered in `plugins/registry.py` so status, dashboard controls, trial callbacks, and sidecar exports follow one model.
 - Required: Extend the existing simple path instead of building a second system next to it.
 
 ## 8. Write documents for humans
@@ -100,7 +102,7 @@ It keeps only the rules that are useful for this small Study Runner project. The
 
 ## 10. What this project does not need
 
-- No plugin architecture
+- No dynamic or installable third-party plugin architecture
 - No microservices
 - No heavy framework just to look architecturally clean
 - No abstract names copied from unrelated projects
@@ -116,3 +118,6 @@ A change is done when:
 - relevant error cases were considered
 - the docs still match reality
 - a short verification pass happened
+
+
+
