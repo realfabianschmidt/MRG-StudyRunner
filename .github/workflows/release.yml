@@ -91,7 +91,8 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
-            throw "WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD secrets are required for Windows signing."
+            Write-Host "WINDOWS_CERTIFICATE or WINDOWS_CERTIFICATE_PASSWORD is not set; building unsigned Windows bundles."
+            exit 0
           }
 
           $certificateDir = Join-Path $env:RUNNER_TEMP "study-runner-certificate"
@@ -122,8 +123,8 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ] || [ -z "$KEYCHAIN_PASSWORD" ]; then
-            echo "APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, and KEYCHAIN_PASSWORD secrets are required for macOS signing." >&2
-            exit 1
+            echo "APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, or KEYCHAIN_PASSWORD is not set; building unsigned macOS bundles."
+            exit 0
           fi
 
           CERTIFICATE_PATH="$RUNNER_TEMP/study-runner-certificate.p12"
@@ -155,8 +156,8 @@ jobs:
           APPLE_API_KEY_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_PRIVATE_KEY }}
         run: |
           if [ -z "$APPLE_API_ISSUER" ] || [ -z "$APPLE_API_KEY" ] || [ -z "$APPLE_API_KEY_PRIVATE_KEY" ]; then
-            echo "APPLE_API_ISSUER, APPLE_API_KEY, and APPLE_API_KEY_PRIVATE_KEY secrets are required for notarization." >&2
-            exit 1
+            echo "APPLE_API_ISSUER, APPLE_API_KEY, or APPLE_API_KEY_PRIVATE_KEY is not set; skipping macOS notarization."
+            exit 0
           fi
 
           KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
