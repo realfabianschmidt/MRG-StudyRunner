@@ -1,0 +1,16 @@
+{
+  "name": "study-runner-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "npm run build:sidecar && tauri build",
+    "build:sidecar": "node scripts/build-sidecar.mjs --sidecar",
+    "build:server:onedir": "node scripts/build-sidecar.mjs --onedir"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

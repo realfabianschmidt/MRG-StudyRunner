@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Study Runner",
+  "version": "0.1.0",
+  "identifier": "de.materiability.study-runner",
+  "build": {
+    "frontendDist": "../web"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Study Runner",
+        "width": 460,
+        "height": 620,
+        "minWidth": 380,
+        "minHeight": 520,
+        "resizable": true,
+        "url": "index.html"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:3000 http://127.0.0.1:3000"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["nsis", "dmg", "appimage"],
+    "icon": ["icons/icon.ico"],
+    "externalBin": ["binaries/study-runner-server"],
+    "windows": {
+      "signCommand": {
+        "cmd": "powershell",
+        "args": [
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "../scripts/sign-windows.ps1",
+          "-File",
+          "%1"
+        ]
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCQkRENEQ2MjhCQzc4MDAKUldRQWVMd28xdFM5SzJQMTV3dXBhL2RBY2xUY2RPMTFqWWtJQXl3cjFEK2lWTmVNQ2lLYVBTSDEK",
+      "endpoints": [
+        "https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}
