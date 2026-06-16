@@ -221,7 +221,13 @@ Use this checklist for the next release:
 1. Change source files, docs, studies, or launcher files on a branch.
 2. Keep generated folders out of Git.
 3. Bump all desktop version fields to the same SemVer value.
-4. Run local checks:
+4. Install the local test runner if it is missing:
+
+```bash
+python -m pip install pytest
+```
+
+5. Run local checks:
 
 ```bash
 python -m pytest
@@ -239,17 +245,17 @@ cargo check -q
 
 The sidecar build is required before `cargo check` in a clean checkout because Tauri validates that the configured `externalBin` exists.
 
-5. Push the branch and merge through a pull request.
-6. Create and push the annotated release tag:
+6. Push the branch and merge through a pull request.
+7. Create and push the annotated release tag:
 
 ```bash
 git tag -a app-v0.3.0 -m "Study Runner 0.3.0"
 git push origin app-v0.3.0
 ```
 
-7. Wait for all release jobs to pass.
-8. Verify that the release is published and contains `latest.json`, installers, and signature files.
-9. Install an older build and confirm that the launcher shows the update.
+8. Wait for all release jobs to pass.
+9. Verify that the release is published and contains `latest.json`, installers, and signature files.
+10. Install an older build and confirm that the launcher shows the update.
 
 ## Troubleshooting
 

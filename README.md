@@ -184,6 +184,10 @@ Never commit private keys, certificates, passwords, or `.pfx`, `.p12`, `.key`, `
 Run from `Software/` unless noted otherwise:
 
 ```bash
+python -m pip install pytest
+```
+
+```bash
 python -m pytest
 node --check desktop_app/web/main.js
 node --check desktop_app/scripts/verify-release-version.mjs
