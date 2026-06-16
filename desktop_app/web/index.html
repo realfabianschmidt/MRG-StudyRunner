@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Study Runner Launcher</title>
+  <link rel="stylesheet" href="main.css">
+</head>
+<body>
+  <main class="launcher-shell">
+    <section class="launcher-card">
+      <div class="launcher-mark">SR</div>
+      <p class="launcher-kicker">Study Runner</p>
+      <h1>Starting local study server</h1>
+      <p class="launcher-copy">The admin page will open when the bundled Python server is ready. Participant devices can still use the browser link on the same private network.</p>
+
+      <div class="status-panel">
+        <div class="status-dot" id="status-dot"></div>
+        <div>
+          <div class="status-title" id="status-title">Starting server</div>
+          <div class="status-detail" id="status-detail">Preparing local data folder and launching the sidecar.</div>
+        </div>
+      </div>
+
+      <div class="update-panel" id="update-panel" hidden>
+        <div class="update-heading">
+          <div class="update-icon" id="update-icon">i</div>
+          <div>
+            <div class="update-title" id="update-title">Checking for updates</div>
+            <div class="update-detail" id="update-detail">Looking for a newer Study Runner build.</div>
+          </div>
+        </div>
+        <div class="update-progress" id="update-progress" hidden>
+          <div class="update-progress-bar" id="update-progress-bar"></div>
+        </div>
+        <button id="btn-install-update" type="button" class="update-action" hidden>Install Update</button>
+      </div>
+
+      <div class="link-list">
+        <div class="link-row">
+          <span>Admin</span>
+          <code id="admin-url">http://localhost:3000/admin</code>
+        </div>
+        <div class="link-row">
+          <span>Participant</span>
+          <code id="participant-url">http://localhost:3000</code>
+        </div>
+        <div class="link-row">
+          <span>Data</span>
+          <code id="data-dir">App data folder</code>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="btn-open-admin" type="button">Open Admin</button>
+        <button id="btn-open-browser" type="button" class="secondary">Open in Browser</button>
+      </div>
+    </section>
+  </main>
+  <script src="main.js"></script>
+</body>
+</html>

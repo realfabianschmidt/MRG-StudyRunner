@@ -1,693 +1,224 @@
 # Study Runner
 
-## What is this?
+Study Runner is a local app for running small user studies in a lab, classroom, workshop, or design research setting.
 
-Study Runner is a small local web app for user studies.
+It has two ways to run:
 
-The project is intentionally simple:
+- Browser mode for development and direct local use with Python.
+- Desktop mode for installed Windows, macOS, and Linux apps with automatic updates through GitHub Releases.
 
-- one admin page for setting up the study
-- one study page for the participant
-- one small Python server app that keeps everything together locally
-- local result files in the `data/` folder
+The project is written to stay understandable for researchers, designers, and assistants who are not full-time software developers.
 
-This README is intentionally written so that people without a coding background can still use it.
+## Start The Browser App
 
-## Quick start
-
-Install once:
+Use this when you are developing, changing study files, or running the app directly from this repository.
 
 ```bash
 pip install -r requirements.txt
-```
-
-Optional hardware packages can now auto-install themselves when the related integration
-is enabled in `hardware_config.json`.
-
-Important for secrets:
-
-- Keep access tokens out of Git-tracked JSON files.
-- Use backend-local `local_secrets.json` or environment variables such as
-  `STUDY_RUNNER_NOTION_API_KEY` for Notion.
-- `local_secrets.json` is ignored by Git and works on Windows, macOS, and Raspberry Pi.
-
-Start the server:
-
-```bash
 python server.py
 ```
 
-For iPad camera access, browsers usually require HTTPS. For local testing you can start the
-server with a temporary self-signed certificate:
+The terminal prints the available addresses.
+
+- Admin page: `http://localhost:3000/admin`
+- Participant page: `http://<computer-ip>:3000`
+
+Participant tablets or phones need to be on the same local network as the computer that runs Study Runner.
+
+For local HTTPS testing, for example when a tablet browser needs camera access:
 
 ```powershell
 $env:STUDY_RUNNER_HTTPS='1'
 python server.py
 ```
 
-On macOS or Linux:
+Optional runtime settings:
 
 ```bash
-STUDY_RUNNER_HTTPS=1 python server.py
+STUDY_RUNNER_HOST=0.0.0.0
+STUDY_RUNNER_PORT=3000
+STUDY_RUNNER_DATA_DIR=/path/to/writable/study-runner-data
 ```
 
-The terminal will then show the local addresses.
+## Use The Desktop App
 
-- Admin page: `http://localhost:3000/admin`
-- Study page on the iPad: `http://<ip>:3000`
+The desktop app is a Tauri launcher. It starts the bundled Python Study Runner server and opens the launcher window. Users do not need to install Python.
 
-`<ip>` means the IP address of the computer in the local network.
+Installed apps can update themselves when a newer public GitHub Release exists. Normal pushes to `main` do not become user updates. A user update only exists after a release tag such as `app-v0.2.0` has built successfully.
 
-No internet connection is required during a study run. The computer and the iPad only need to be in the same local WiFi network.
-
-## Typical workflow
-
-1. The study lead opens the admin page.
-2. The left sidebar shows the settings and question list.
-3. The right side of the admin page shows a live preview of each card, exactly as the participant will see it.
-4. The study lead clicks a card or a list item to open its editor in the sidebar overlay.
-5. Changes in the editor update the preview immediately.
-6. The question list in the sidebar can be reordered with the drag handle.
-7. The participant opens the study page on the iPad.
-8. The admin page can detect the connected study page and show a live dashboard button.
-9. Stimulus cards can appear anywhere in the study flow.
-10. A stimulus card may begin with an optional warm-up phase. When the warm-up ends, the active timer begins automatically.
-11. Question cards appear one at a time.
-12. At the end, the answers are validated and saved as a local JSON file.
-
-## What each file is for
+Current release page:
 
 ```text
-study-runner/
+https://github.com/realfabianschmidt/MRG-StudyRunner/releases/tag/app-v0.2.0
+```
+
+Expected release assets for `0.2.0`:
+
+- `latest.json`
+- `Study.Runner_0.2.0_x64-setup.exe`
+- `Study.Runner_0.2.0_x64-setup.exe.sig`
+- `Study.Runner_0.2.0_amd64.AppImage`
+- `Study.Runner_0.2.0_amd64.AppImage.sig`
+- `Study.Runner_0.2.0_x64.dmg`
+- `Study.Runner_0.2.0_aarch64.dmg`
+
+## Folder Map
+
+```text
+Software/
 |-- server.py
-|   Starts the app and runs the local Flask server.
-|-- app/
-|   |-- __init__.py
-|   |   Creates the Flask app, reads hardware_config.json, and starts active integrations.
-|   |-- routes.py
-|   |   Defines the web pages and API routes.
-|   |-- config_service.py
-|   |   Loads and saves the study configuration.
-|   |-- results_service.py
-|   |   Builds safe result file names and writes result files.
-|   |-- admin_status_service.py
-|   |   Builds the live admin dashboard status payload.
-|   |-- study_client_service.py
-|   |   Tracks connected study pages through lightweight browser heartbeats.
-|   |-- validation.py
-|   |   Validates incoming config and result payloads before saving.
-|   |-- trial_service.py
-|   |   Sends start and stop signals to all active hardware integrations.
-|   `-- integrations/
-|       One file per hardware integration. Each file is self-contained.
-|       |-- __init__.py
-|       |-- dependency_utils.py Optional dependency checks and auto-install helper
-|       |-- lsl_adapter.py      Sends LSL event markers
-|       |-- osc_adapter.py      Sends OSC messages to TouchDesigner
-|       |-- brainbit_adapter.py Starts the repo-local BrainBit CLI and optional LSL mirroring
-|       |-- mini_radar_adapter.py Prepares pulse and breathing values for LSL / XDF
-|       |-- camera_affect_adapter.py Accepts iPad snapshots for camera emotion analysis
-|       |-- notion_adapter.py Uploads completed study runs to Notion or queues them offline
-|       `-- raspi_adapter.py Talks to the optional Raspberry Pi sensor gateway
-|-- hardware_config.json
-|   Researcher-editable settings for hardware integrations and uploads.
-|-- study_config.json
-|   Stores the current study configuration.
-|-- requirements.txt
-|   Lists the required Python packages.
-|-- brainbit/
-|   Repo-local BrainBit helper files, docs, and the TouchDesigner example project.
-|-- emotion_worker/
-|   Optional Python worker for heavier camera emotion analysis.
-|-- raspi/
-|   Raspberry Pi-side sensor scripts for the optional gateway setup.
-|-- knomi_firmware/
-|   Optional KNOMI 2 display firmware for study status and rescue actions.
-|-- static/
-|   |-- admin.html
-|   |   The admin page structure. Uses a two-column layout:
-|   |   left sidebar for settings and editing, right area for the live preview.
-|   |-- study.html
-|   |   The participant page structure. Questions appear as individual cards.
-|   |-- css/
-|   |   `-- main.css
-|   |       All visual styles in one central file.
-|   |       Also loads the Materiability font from static/fonts/.
-|   |-- fonts/
-|   |   Materiability font files used throughout the project.
-|   `-- js/
-|       |-- api-client.js
-|       |   Shared browser helper for API requests.
-|       |-- study-controller.js
-|       |   Participant page: manages study flow, timers, triggers, and answer submission.
-|       |-- admin-controller.js
-|       |   Admin page: manages the sidebar, question list, drag-and-drop sorting,
-|       |   live preview, and saving.
-|       |-- admin-dashboard-controller.js
-|       |   Admin page: polls live hardware and study-client status for the dashboard.
-|       |-- study-client-heartbeat.js
-|       |   Participant page: tells the server that a study device is connected.
-|       |-- camera-capture.js
-|       |   Participant page: captures optional iPad selfie snapshots during stimulus phases.
-|       `-- cards/
-|           One file per card type. Each file is self-contained.
-|           |-- index.js
-|           |   The central registry. Lists all card types and their defaults.
-|           |-- card-likert.js       Likert scale
-|           |-- card-semantic.js     Semantic differential
-|           |-- card-choice.js       Multiple choice and single choice
-|           |-- card-participant-id.js Participant pseudonym card
-|           |-- card-slider.js       Slider from 0 to 100
-|           |-- card-multi-slider.js Multi-axis slider rating
-|           |-- card-ranking.js      Ranking with up/down controls inside the card
-|           |-- card-word-cloud.js   Word cloud style word selection
-|           |-- card-mood-meter.js   Quadrant-based mood selection
-|           |-- card-text.js         Free-text answer
-|           |-- card-stimulus.js     Stimulus / countdown card
-|           `-- card-finish.js       Final thank-you screen
-|-- data/
-|   Stores participant output folders with JSON results and optional XDF files.
-|-- studies/
-|   Stores saved study presets / archive copies by study ID.
-|   New saves use `.study-runner`; older `.json` presets are still listed and can still be loaded.
-`-- docs/
-    Stores simple explanations, rules, and plans for the project.
+|   Starts the local Flask server.
+|-- server_app/
+|   Backend routes and services.
+|-- plugins/
+|   Built-in integration plugins such as BrainBit, mini radar, OSC, LSL,
+|   LabRecorder, camera emotion, local emotion worker, and Notion upload.
+|-- web_interface/
+|   Browser pages, styles, scripts, card UI, and fonts.
+|-- settings/
+|   Editable default settings for local browser mode and desktop first start.
+|-- saved_studies/
+|   Saved study presets.
+|-- saved_results/
+|   Local participant results and optional sidecar files. Ignored by Git.
+|-- desktop_app/
+|   Tauri desktop launcher, updater UI, release scripts, and Rust wrapper.
+|-- packaging/
+|   PyInstaller build files for the bundled Python sidecar.
+|-- docs/
+|   Human-readable project notes and guides.
+`-- requirements.txt
+    Python dependencies for browser mode and the bundled server.
 ```
 
-## How the app is split
+Generated build folders are not source files:
 
-### Server side
+- `build/`
+- `dist/`
+- `desktop_app/node_modules/`
+- `desktop_app/src-tauri/target/`
+- `desktop_app/src-tauri/binaries/study-runner-server-*`
 
-The server runs on macOS or Windows and handles all backend work.
+Do not edit generated files as the source of truth. They are recreated by builds.
 
-- `Flask` hosts the pages and API routes.
-- `config_service.py` reads and writes `study_config.json`.
-- `validation.py` checks whether config and result payloads are complete enough to save.
-- `results_service.py` writes result files into `data/<study_id>/<participant_id>/` using safe file names.
-- `trial_service.py` triggers active hardware integrations.
-- `lsl_adapter.py` can send LSL markers when enabled.
-- `osc_adapter.py` can send OSC messages to TouchDesigner or another OSC host.
-- `brainbit_adapter.py` can start the repo-local BrainBit CLI from `brainbit/`,
-  keep it running in the background, and optionally mirror selected BrainBit values into LSL.
+## Typical Study Workflow
 
-The current built-in hardware path is:
+1. Open `/admin`.
+2. Edit the study ID, settings, and question cards.
+3. Save the study. The active study is written to `settings/study_config.json`; a reusable preset is written to `saved_studies/`.
+4. Open the participant page on the tablet or another browser.
+5. Run the study. Results are written to `saved_results/<study_id>/<participant_id>/`.
 
-- optional LSL event markers from this server
-- optional OSC start and stop messages from this server
-- optional BrainBit EEG / bands / mental-state OSC data from the repo-local BrainBit CLI
-- optional BrainBit-to-LSL mirroring for LabRecorder
-- prepared Mini-radar LSL streams for pulse and breathing
-- prepared camera emotion LSL streams for iPad snapshot analysis
-- optional Notion upload with offline retry queue
-- optional Raspberry Pi gateway control for remote sensor devices
-- optional LabRecorder workflow for synchronized `.xdf` files
+The admin page also shows an Access card with copyable admin and participant links.
 
-### Browser side
+## Local Desktop Build
 
-The browser side runs in Safari on the iPad and in the admin browser on the lab computer.
-
-- The participant sees one card at a time.
-- The admin sees a two-column page: left for settings and editing, right for live preview.
-- The admin page has a first biosignal dashboard shell that appears when a study page is connected.
-- The study page sends lightweight heartbeats so the admin page can detect connected devices.
-- The admin Settings modal can load and save `hardware_config.json` before a session.
-- The admin page can load older study presets from the local `studies/` folder.
-- Study-specific settings are saved together with each study preset.
-- These study settings currently control whether participant-side sensors are used and
-  whether completed runs should be uploaded to Notion.
-- The admin page also offers a Notion settings modal for automatic result uploads.
-- The real Notion API key stays on the backend and is no longer returned to the browser.
-- Stimulus cards can optionally start iPad camera snapshots for camera emotion analysis.
-- Browser code sends and receives data through the local API.
-- All styling comes from `static/css/main.css`.
-- Each card type has its own JavaScript file in `static/js/cards/`.
-
-Important: `jsPsych` is not part of the current version. The current flow is handled by the project's own JavaScript modules.
-
-## Current card types
-
-The study flow is card-based. A study can contain any mix of these card types:
-
-- `participant-id`
-  First card. Builds an anonymous participant code locally from name, birth date, and birth place.
-
-- `stimulus`
-  Countdown card with an optional warm-up phase before the active phase.
-
-- `likert`
-  Rating scale, for example 1 to 7.
-
-- `semantic`
-  Opposing word pairs such as `alive | mechanical`.
-
-- `choice`
-  Multiple choice.
-
-- `single`
-  Single choice.
-
-- `slider`
-  Slider from 0 to 100.
-
-- `ranking`
-  Reorder items with up and down buttons inside the question card.
-
-- `multi-slider`
-  Rate several dimensions on parallel sliders from `-100` to `100`.
-
-- `text`
-  Free-text answer.
-
-- `word-cloud`
-  Select one or more feeling words from a chip cloud.
-
-- `mood-meter`
-  Pick words from a quadrant-based mood map.
-
-- `finish`
-  Final thank-you screen shown automatically after a successful save.
-
-`participant-id` and `finish` are treated as fixed bookend cards by the admin UI.
-
-## Study settings per preset
-
-Each saved study preset also contains a small `study_settings` object.
-
-- `sensors_enabled`
-  Lets a study disable participant-side sensor capture even if hardware is available on the host.
-
-- `notion_enabled`
-  Turns per-study Notion upload on or off.
-
-- `notion_parent_page_id`
-  Optional Notion page used as the parent when the adapter auto-creates a database for that study.
-
-- `notion_database_id`
-  Optional existing Notion database for that study.
-
-- `notion_data_source_id`
-  Internal cache field used when Notion exposes data sources. It is persisted with the study so
-  follow-up uploads do not need to rediscover the target every time.
-
-## Stimulus cards and triggers
-
-Stimulus cards can appear anywhere in the study flow and are intentionally replayable if the participant navigates back to them.
-
-Each stimulus card has its own:
-
-- title
-- subtitle
-- warm-up duration
-- active duration
-- trigger type
-- trigger content
-- Study Runner signal on/off setting
-- BrainBit -> LSL on/off setting
-- BrainBit -> TouchDesigner on/off setting
-
-A stimulus card can have two phases:
-
-- Warm-up phase
-  Optional preparation time. This phase only shows the instruction view.
-
-- Active phase
-  The real stimulus phase. The active timer begins here. Signals, media triggers, and custom JavaScript begin here.
-
-The current trigger types are:
-
-- `timer`
-  Countdown only.
-
-- `image`
-  Show an image during the active phase.
-
-- `video`
-  Show a video during the active phase.
-
-- `audio`
-  Play audio during the active phase.
-
-- `html`
-  Show researcher-provided inline HTML during the active phase.
-
-- `js`
-  Run researcher-provided JavaScript in the browser during the active phase.
-
-If `send_signal` is enabled for that stimulus card, the server sends the Study Runner
-start/stop actions at the beginning and end of the active phase:
-
-- LSL `start` / `stop` markers from Study Runner
-- OSC `/study/start` / `/study/stop` from Study Runner
-
-If `brainbit_to_lsl` is enabled for that stimulus card, BrainBit EEG-related values are mirrored
-into the BrainBit LSL streams only during that active phase.
-
-If `brainbit_to_touchdesigner` is enabled for that stimulus card, BrainBit values are forwarded
-to TouchDesigner only during that active phase.
-
-The JS trigger receives a small `study` helper with two functions:
-
-- `study.call(path, data)`
-  Sends a POST request to a local Flask route.
-
-- `study.onCleanup(callback)`
-  Registers cleanup logic that runs when the participant leaves that stimulus card or when the active phase ends.
-
-Important: custom `html` and `js` trigger content is treated as trusted researcher-authored content. It should never come from participant input.
-
-## Set up a new study
-
-1. Open `/admin`
-2. Change the study ID, for example to `US2`
-3. Add, remove, or reorder cards with the drag handle in the admin list
-4. Edit the card content in the sidebar overlay
-5. Open `Study Settings` if this preset should disable sensors or upload runs to Notion
-6. Save
-
-No code changes are needed for a normal study setup.
-
-## What gets saved
-
-Each study gets its own folder in `data/`, and each participant run is stored inside that study folder.
-
-Inside that folder, Study Runner saves:
-
-- `<participant_id>/<participant_id>.json`
-- optionally `<participant_id>/<participant_id>.xdf` if `labrecorder` pickup is configured
-
-If files with that exact name already exist for the same participant, Study Runner keeps the
-folder and adds a numeric suffix such as `_2` instead of overwriting older runs.
-
-Each saved JSON result file contains:
-
-- `participant_id`
-  Anonymous participant label entered at the start.
-
-- `study_id`
-  Study label from `study_config.json`.
-
-- `timestamp_start`
-  Start time of the run.
-
-- `timestamp_end`
-  End time of the run.
-
-- `answers`
-  The recorded answers for all non-stimulus cards.
-
-The server validates the payload before saving it. Folder and file names use a safe version of the
-study ID and participant ID so that broken or unsafe names do not escape the `data/` folder.
-
-## Privacy note
-
-- All data stays local in the `data/` folder.
-- No direct personal details such as full name or email address should be stored.
-- Only an anonymous `Participant-ID` is saved.
-- If data is exported later, it should still be checked for anonymity first.
-
-## Hardware integrations: LSL, OSC, BrainBit, and `.xdf`
-
-### Current state
-
-- OSC support is already built in through `app/integrations/osc_adapter.py`.
-- LSL marker support is already built in through `app/integrations/lsl_adapter.py`.
-- BrainBit support is built in through `app/integrations/brainbit_adapter.py`.
-- The BrainBit adapter launches the repo-local script `brainbit/brainbit_realtime_cli_OSC_15.py`.
-- The recommended current EEG sync path is BrainBit LSL mirroring plus Study Runner markers in LabRecorder.
-
-### Enable hardware integrations
-
-Hardware support is configured in `hardware_config.json` at the project root. Set `"enabled": true` for each integration you want to use, then restart the server.
-
-```json
-{
-  "lsl": {
-    "enabled": true,
-    "auto_install": true,
-    "stream_name": "StudyRunner",
-    "stream_type": "Markers"
-  },
-  "osc": {
-    "enabled": true,
-    "auto_install": true,
-    "host": "127.0.0.1",
-    "port": 8000,
-    "address_start": "/study/start",
-    "address_stop": "/study/stop"
-  },
-  "brainbit": {
-    "enabled": true,
-    "script_path": "brainbit/brainbit_realtime_cli_OSC_15.py",
-    "working_dir": "brainbit",
-    "log_dir": "brainbit/logs",
-    "python_executable": {
-      "windows": "",
-      "macos": ""
-    },
-    "osc_host": "127.0.0.1",
-    "osc_port": 8000,
-    "scan_seconds": 5,
-    "resist_seconds": 6,
-    "signal_seconds": 0,
-    "pretty": false,
-    "debug": false,
-    "quiet_output": true,
-    "open_monitor_terminal": true,
-    "monitor_refresh_ms": 1000,
-    "disconnect_timeout_ms": 5000,
-    "lsl": {
-      "enabled": true,
-      "auto_install": true,
-      "stream_prefix": "BrainBit"
-    }
-  },
-  "mini_radar": {
-    "enabled": false,
-    "port": {
-      "windows": "",
-      "macos": ""
-    },
-    "baudrate": 115200,
-    "lsl": {
-      "enabled": true,
-      "stream_prefix": "MiniRadar"
-    }
-  },
-  "camera_emotion": {
-    "enabled": false,
-    "snapshot_interval_ms": 1000,
-    "worker_mode": "opencv_haar",
-    "lsl": {
-      "enabled": true,
-      "stream_name": "CameraEmotion"
-    }
-  },
-  "labrecorder": {
-    "enabled": false,
-    "xdf_source_dir": "brainbit/recordings",
-    "move_xdf": false,
-    "lookback_minutes": 120,
-    "lookahead_minutes": 120
-  }
-}
-```
-
-For path-like BrainBit fields you can use either:
-
-- one plain string for all systems
-- or an object with OS-specific values such as `windows` and `macos`
-
-Study Runner resolves the correct value automatically at startup. Relative paths are resolved
-from the project root, so `brainbit/brainbit_realtime_cli_OSC_15.py` works on both Windows
-and macOS inside the same repository checkout.
-
-If `labrecorder.enabled` is true, Study Runner also looks for a matching `.xdf` file in
-`xdf_source_dir` and copies or moves it into the participant folder under the participant ID.
-This path may also be relative to the project root, for example `brainbit/recordings`.
-
-### LSL markers and `.xdf` recording
-
-LSL stands for Lab Streaming Layer.
-
-When `lsl` is enabled, the server sends a `start` marker at the beginning of an active stimulus
-phase and a `stop` marker at the end, if `send_signal` is enabled for that stimulus card.
-
-If `brainbit.lsl.enabled` is also true, the BrainBit adapter mirrors selected BrainBit data into
-additional LSL streams:
-
-- `BrainBit_EEG`
-- `BrainBit_BANDS`
-- `BrainBit_MENTAL`
-- `BrainBit_QUALITY`
-- `BrainBit_BATTERY`
-- `MiniRadar_VITALS`
-- `MiniRadar_PHASES`
-- `CameraEmotion`
-- `CameraFaceQuality`
-
-`CameraEmotion` starts with an OpenCV face-detection path. Without a trained emotion model it
-keeps the emotion label as `unknown` instead of pretending to know a participant's emotion.
-
-`LabRecorder` is a free standalone tool that listens on the LSL network and records all active
-streams into a single `.xdf` file with aligned timestamps.
-
-Typical workflow:
-
-1. Enable `lsl` in `hardware_config.json`
-2. Enable `brainbit` and `brainbit.lsl` if you want BrainBit mirrored into LSL
-3. Start the Study Runner server
-4. Let the server auto-install `pylsl` if needed, or install it manually
-5. Start LabRecorder
-6. Record the BrainBit streams and the Study Runner marker stream together
-7. Use `pyxdf` and later `MNE-Python` for analysis
-
-Install `pylsl` manually only if you do not want to rely on auto-install:
+From `Software/desktop_app/`:
 
 ```bash
-pip install pylsl
+npm install
+python -m pip install -r ../packaging/requirements-build.txt
+npm run build:sidecar
+npm run build
 ```
 
-### OSC messages for TouchDesigner
+The build creates a fresh PyInstaller sidecar first, then bundles the Tauri app. Changes in `server.py`, `server_app/`, `plugins/`, `web_interface/`, `settings/`, `saved_studies/`, or `desktop_app/` are included in the next desktop build.
 
-Two OSC paths now exist:
+Native installers must be built on the matching operating system. GitHub Actions handles this for official releases.
 
-- Study Runner can send `/study/start` and `/study/stop` during stimulus cards through
-  `app/integrations/osc_adapter.py`.
-- The BrainBit adapter forwards continuous `/BrainBit/...` messages to TouchDesigner while the
-  BrainBit device is running.
+## Release And Update Workflow
 
-The host, port, and message addresses all come from `hardware_config.json`. If your TouchDesigner
-patch listens on a single OSC port, both Study Runner and BrainBit can target that same port.
+Official update builds are tag driven.
 
-The provided TouchDesigner project from `brainbit/HelloEEG_HelloMYO_01.3.toe`
-is expected to listen for the BrainBit OSC namespace on port `8000`.
+1. Make the code or documentation changes on a branch.
+2. Keep these desktop versions equal:
+   - `desktop_app/package.json`
+   - `desktop_app/src-tauri/tauri.conf.json`
+   - `desktop_app/src-tauri/Cargo.toml`
+3. Run the local checks listed below.
+4. Push the branch and merge through a pull request.
+5. Create and push a release tag after the version is final:
 
-`python-osc` is included in `requirements.txt`, and Study Runner can auto-install it if the OSC
-integration is enabled and the package is missing.
-
-### Admin hardware settings
-
-The admin page has a `Settings` button in the left sidebar. The first implementation opens a
-JSON editor for `hardware_config.json`, so all BrainBit, Mini-radar, camera emotion, LSL,
-TouchDesigner, and LabRecorder settings can be changed from the browser.
-
-After saving hardware settings, restart `server.py`. Some integrations, especially BrainBit and
-LSL outlets, are initialized at server startup so a restart keeps the runtime state predictable.
-
-### BrainBit integration
-
-When `brainbit.enabled` is true, Study Runner starts the repo-local BrainBit CLI at server startup.
-
-What the adapter does:
-
-- launches `brainbit/brainbit_realtime_cli_OSC_15.py`
-- keeps reading its console output in the background
-- forwards parsed BrainBit values to TouchDesigner through the configured OSC port
-- optionally mirrors selected BrainBit values into LSL for LabRecorder
-- writes the full BrainBit output to `brainbit_runtime.log`
-- writes the latest parsed values to `brainbit_state.json`
-- can open a second terminal window with a stable live monitor instead of spamming the server console
-  on both Windows and macOS
-- stops the BrainBit process automatically when the server exits
-
-Important notes:
-
-- BrainBit is not started and stopped per stimulus card. It is managed once at server startup.
-- Study Runner still controls the stimulus markers (`/study/start`, `/study/stop`) separately.
-- The repo-local BrainBit script already auto-installs its own SDK-related packages:
-  `pyneurosdk2`, `python-osc`, and `pyem-st-artifacts`.
-- Recommended console setup:
-  `pretty: false`, `quiet_output: true`, `open_monitor_terminal: true`
-
-### Custom JavaScript trigger
-
-Stimulus cards support a JS trigger type. The snippet runs in the browser during the active phase. It can call a route that already exists, or a custom route that you add yourself later.
-
-```js
-// Example snippet. These routes are examples you would add yourself in routes.py.
-study.call('/api/osc/send', { address: '/td/record', value: 1 });
-study.call('/api/lsl/marker', { value: 'custom_event' });
+```bash
+git tag -a app-v0.3.0 -m "Study Runner 0.3.0"
+git push origin app-v0.3.0
 ```
 
-All hardware logic stays on the server side. The snippet only sends a request.
+Pushing `app-v0.3.0` starts `.github/workflows/release.yml`. The workflow builds Windows, Linux, macOS Intel, and macOS Apple Silicon packages, uploads updater signatures, uploads `latest.json`, and publishes the GitHub Release when all platform builds pass.
 
-### Adding a new integration
+The installed desktop app checks:
 
-1. Create a new file in `app/integrations/`, for example `brainbit_adapter.py`
-2. Add an `initialize()` function and the action functions you need
-3. Call `initialize()` from `app/__init__.py` following the pattern for LSL and OSC
-4. Call the action functions from `app/trial_service.py`
+```text
+https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest/download/latest.json
+```
 
-## How question card files work
+If `latest.json` describes a newer SemVer version than the installed app, the launcher shows an update action.
 
-Each file in `static/js/cards/` handles one question type. To add a new question type, follow this order:
+## Required Release Secrets
 
-1. Create a new file `card-yourtype.js` in `static/js/cards/`
-2. Define the default question data (`defaultQuestion`)
-3. Write the study-side rendering (`renderStudy`) so the participant can see it
-4. Write the admin editor rendering (`renderEditor`) so the study lead can edit it
-5. Write config collection (`collectConfig`) to read the editor fields back into a question object
-6. Write answer collection (`collectAnswer`) to read the participant's answer from the DOM
-7. Register the new type in `cards/index.js`
-8. Update this README and `docs/02_data_and_terms_explained.md`
+The Tauri updater needs signing even when the Windows and macOS installers are not OS-code-signed.
 
-## Terms and abbreviations
+Required GitHub repository secrets:
 
-- `API`
-  Application Programming Interface. In this project, this means fixed web addresses such as `/api/config`.
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
 
-- `HTML`
-  The structure of a web page.
+Optional Windows signing secrets:
 
-- `CSS`
-  The visual styling of a web page. All styles are in `static/css/main.css`.
+- `WINDOWS_CERTIFICATE`
+- `WINDOWS_CERTIFICATE_PASSWORD`
 
-- `JavaScript` or `JS`
-  The logic that runs in the browser.
+Optional Apple signing and notarization secrets:
 
-- `JSON`
-  A simple text format used for settings and saved data.
+- `APPLE_CERTIFICATE`
+- `APPLE_CERTIFICATE_PASSWORD`
+- `KEYCHAIN_PASSWORD`
+- `APPLE_API_ISSUER`
+- `APPLE_API_KEY`
+- `APPLE_API_KEY_PRIVATE_KEY`
 
-- `Flask`
-  The Python web framework used by this project.
+Never commit private keys, certificates, passwords, or `.pfx`, `.p12`, `.key`, `.pem`, or `.p8` files. `desktop_app/.secrets/` is intentionally ignored by Git.
 
-- `LSL`
-  Lab Streaming Layer. A system for time-synchronized data streams and markers.
+## Checks Before Pushing
 
-- `OSC`
-  Open Sound Control. Lightweight network messages used by tools such as TouchDesigner.
+Run from `Software/` unless noted otherwise:
 
-- `XDF`
-  A recording file format often used with LabRecorder for synchronized streams.
+```bash
+python -m pip install pytest
+```
 
-- `SDK`
-  Software Development Kit. An extra package provided by a hardware or software vendor, for example BrainBit.
+```bash
+python -m pytest
+node --check desktop_app/web/main.js
+node --check desktop_app/scripts/verify-release-version.mjs
+node desktop_app/scripts/verify-release-version.mjs app-v0.2.0
+npm --prefix desktop_app run build:sidecar
+```
 
-- `PII`
-  Personally Identifiable Information. Data that can directly identify a person, such as a full name or email address.
+Run from `Software/desktop_app/src-tauri/`:
 
-- `Participant-ID`
-  The anonymous ID entered for the study participant.
+```bash
+cargo check -q
+```
 
-- `Card`
-  One self-contained unit in the study flow, for example a stimulus card or a question card.
+The sidecar build is needed before `cargo check` in a clean checkout because Tauri validates the configured `externalBin` path. For a future version, replace `app-v0.2.0` with the matching tag name.
 
-- `Live preview`
-  The right side of the admin page shows exactly how each card will look to the participant.
+## AI Assistant Notes
 
-- `Materiability`
-  The custom font used throughout the project, loaded from `static/fonts/`.
+Use these rules when an AI assistant or a new contributor edits the project:
 
-## Additional documents
+- Treat this README, `PROJECT_RULES.md`, and `docs/07_desktop_launcher.md` as the release source of truth.
+- Keep active documentation and code comments in English.
+- Do not commit local study results, generated build output, private secrets, or bundled sidecar executables.
+- Prefer small, explicit changes over broad rewrites.
+- Keep built-in integrations registered in `plugins/registry.py`; do not add dynamic plugin discovery.
+- If a release fails, fix the branch and create a new version tag. Do not move an already published release tag unless the release has not been used.
+
+## More Docs
 
 - `PROJECT_RULES.md`
-  The project-specific working rules in clear English.
-
 - `docs/01_project_overview_for_everyone.md`
-  A short overview for team members who do not want to start with the code.
-
 - `docs/02_data_and_terms_explained.md`
-  Explains data fields, question types, and important terms.
-
 - `docs/03_plan_for_clearer_code.md`
-  Describes the current status and remaining steps for cleaner code.
+- `docs/05_integration_plugin_guide.md`
+- `docs/07_desktop_launcher.md`

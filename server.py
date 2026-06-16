@@ -6,19 +6,16 @@ Open on the iPad: http://<your-computer-ip>:3000
 """
 
 import os
-import socket
 
-from app import create_app
+from server_app import create_app
+from server_app.services.runtime_config import get_local_private_ips, read_server_host, read_server_port
 
 
 app = create_app()
 
 
 def get_local_ip() -> str:
-    try:
-        return socket.gethostbyname(socket.gethostname())
-    except Exception:
-        return "127.0.0.1"
+    return get_local_private_ips()[0]
 
 
 def is_debug_enabled() -> bool:
@@ -39,16 +36,21 @@ def get_ssl_context():
 
 
 if __name__ == "__main__":
-    local_ip = get_local_ip()
+    host = read_server_host()
+    port = read_server_port()
+    local_ips = get_local_private_ips()
     ssl_context = get_ssl_context()
     scheme = "https" if ssl_context else "http"
 
     print("\n" + "-" * 50)
     print("  Study Runner is running")
-    print(f"  Admin page:  {scheme}://localhost:3000/admin")
-    print(f"  Open on iPad: {scheme}://{local_ip}:3000")
+    print(f"  Admin page:  {scheme}://localhost:{port}/admin")
+    print(f"  Open on tablet: {scheme}://{local_ips[0]}:{port}")
+    if len(local_ips) > 1:
+        print(f"  Other local addresses: {', '.join(local_ips[1:])}")
+    print(f"  Data folder: {app.config['DATA_DIR']}")
     if ssl_context:
         print("  HTTPS enabled for browser camera access.")
     print("-" * 50 + "\n")
 
-    app.run(host="0.0.0.0", port=3000, debug=is_debug_enabled(), ssl_context=ssl_context)
+    app.run(host=host, port=port, debug=is_debug_enabled(), ssl_context=ssl_context)
