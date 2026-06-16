@@ -201,5 +201,15 @@ jobs:
     steps:
       - name: Publish completed release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq ".[] | select(.tag_name == \"${GITHUB_REF_NAME}\") | .id" | head -n 1)"
+          if [ -z "$release_id" ]; then
+            echo "Could not find a draft release for ${GITHUB_REF_NAME}." >&2
+            exit 1
+          fi
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -f draft=false \
+            -f make_latest=true
