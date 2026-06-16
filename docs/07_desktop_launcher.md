@@ -1,8 +1,8 @@
-# Desktop Launcher Plan And Build Notes
+# Desktop Launcher And Auto-Update Notes
 
-Study Runner can now be launched as a desktop app without replacing the existing browser workflow.
+Study Runner can run as an installed desktop app without replacing the existing browser workflow.
 
-The desktop app is a small Tauri launcher. It starts the Python Study Runner server as a sidecar, then opens the admin page. Participant tablets and other browsers still connect to the same local server over the private network.
+The desktop app is a small Tauri launcher. It starts the Python Study Runner server as a bundled sidecar, then opens the launcher UI. Participant tablets and other browsers still connect to the same local server over the private network.
 
 ## Runtime Model
 
@@ -19,6 +19,8 @@ The desktop app is a small Tauri launcher. It starts the Python Study Runner ser
   - `saved_studies/`
   - `saved_results/`
 - On first desktop start, default settings and saved-study examples are copied from the bundled project files.
+
+Bundled defaults are never the long-term user data store. Updates must not overwrite existing local studies, settings, results, or local secrets in the app data folder.
 
 ## Browser Access
 
@@ -51,13 +53,11 @@ PyInstaller bundles the active Python app structure from `Software/`:
 
 That means users do not need to install Python or run `python server.py` when they use the desktop package.
 
-The bundled `settings/` and `saved_studies/` files are defaults. On first desktop start, Study Runner copies those defaults into the platform app data folder. After that, user edits, results, local secrets, and saved studies live in that writable app data folder.
-
 ## What To Edit Before Rebuilding
 
-Normal development should still happen in the regular project files, not inside the generated desktop output.
+Normal development should happen in the regular project files, not inside generated desktop output.
 
-Edit these files and folders as usual:
+Edit these files and folders as needed:
 
 - `server.py`
 - `server_app/`
@@ -67,11 +67,11 @@ Edit these files and folders as usual:
 - `saved_studies/`
 - `desktop_app/` when the launcher itself needs to change
 
-Then run the build again from `Software/desktop_app/`. The build first creates a fresh PyInstaller sidecar from the current project files, then Tauri bundles that sidecar into the desktop app.
+Then build from `Software/desktop_app/`. The build first creates a fresh PyInstaller sidecar from the current project files, then Tauri bundles that sidecar into the desktop app.
 
-Do not edit generated files in `dist/`, `build/`, or `desktop_app/src-tauri/target/` as a source of truth. They are build outputs and will be replaced by later builds.
+Do not edit generated files in `dist/`, `build/`, `desktop_app/src-tauri/target/`, or `desktop_app/src-tauri/binaries/` as source files. They are build outputs and will be replaced by later builds.
 
-## Build Commands
+## Local Build Commands
 
 From `Software/desktop_app/`:
 
@@ -85,27 +85,179 @@ npm run build
 
 `build:server:onedir` creates a PyInstaller one-folder server build for debugging and smoke checks.
 
-`build:sidecar` creates the single executable sidecar that Tauri can bundle through `externalBin`.
+`build:sidecar` creates the single executable sidecar that Tauri bundles through `externalBin`.
 
 `build` creates the platform desktop bundle through Tauri.
 
-Native builds should be produced on each target operating system because Python and PyInstaller bundles are platform-specific.
+Native builds should be produced on each target operating system because Python and PyInstaller bundles are platform-specific. The official release workflow does this on GitHub-hosted Windows, Linux, macOS Intel, and macOS Apple Silicon runners.
 
-## Which File To Share
+## Auto-Update Model
 
-Builds are native per operating system. A Windows build cannot be sent to a Mac user and expected to work.
+Study Runner uses the Tauri v2 updater with public GitHub Releases.
 
-- Windows: send the NSIS setup file from `desktop_app/src-tauri/target/release/bundle/nsis/`, for example `Study Runner_0.1.0_x64-setup.exe`.
-- macOS: build on macOS and send the generated DMG from `desktop_app/src-tauri/target/release/bundle/dmg/`. A generated `.app` can also work, but a DMG is usually easier to share.
-- Linux: build on Linux and send the generated AppImage from `desktop_app/src-tauri/target/release/bundle/appimage/`.
+The app checks this endpoint:
 
-Unsigned macOS builds may show Gatekeeper warnings. Signing and notarization should be added before broad distribution outside trusted test users.
+```text
+https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest/download/latest.json
+```
 
-## Packaging Notes
+If `latest.json` describes a newer SemVer version than the installed desktop app, the launcher shows an update action. Downloaded update bundles are verified with the Tauri updater signature before installation.
 
-- Windows: start with the Tauri NSIS installer.
-- macOS: start with `.app` or DMG; signing and notarization are phase two.
-- Linux: start with AppImage; add DEB or RPM later only if needed.
+Important rules:
+
+- Normal commits and pushes do not create installed-app updates.
+- Only tags matching `app-vX.Y.Z` start the release workflow.
+- The release tag must match the desktop app version.
+- Tauri updater signing is required.
+- Windows and macOS OS code signing are optional for the current setup, but recommended before broad distribution.
+
+## Official Release Workflow
+
+The release workflow lives in `.github/workflows/release.yml`.
+
+It runs only on tags:
+
+```text
+app-v*
+```
+
+The workflow does this:
+
+1. Verifies that the tag matches the app version.
+2. Installs Node, Python, Rust, and Linux system dependencies.
+3. Installs Python dependencies from `requirements.txt` and `packaging/requirements-build.txt`.
+4. Builds the PyInstaller sidecar.
+5. Builds Tauri bundles for:
+   - Windows x64 NSIS
+   - Linux x64 AppImage
+   - macOS Intel DMG
+   - macOS Apple Silicon DMG
+6. Uploads updater artifacts and `latest.json`.
+7. Publishes the GitHub Release only after all platform builds pass.
+
+The action is pinned to a known working release:
+
+```yaml
+uses: tauri-apps/tauri-action@v0.6.2
+```
+
+Do not change this pin unless the new action version exists and has been tested.
+
+## Versioning Rules
+
+These three version fields must always match:
+
+- `desktop_app/package.json`
+- `desktop_app/src-tauri/tauri.conf.json`
+- `desktop_app/src-tauri/Cargo.toml`
+
+The release tag must be:
+
+```text
+app-v<version>
+```
+
+For example, version `0.3.0` must use tag `app-v0.3.0`.
+
+The guard script is:
+
+```bash
+node desktop_app/scripts/verify-release-version.mjs app-v0.3.0
+```
+
+## Required And Optional Secrets
+
+Required for updater signatures:
+
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+Optional for Windows OS code signing:
+
+- `WINDOWS_CERTIFICATE`
+- `WINDOWS_CERTIFICATE_PASSWORD`
+
+Optional for macOS signing and notarization:
+
+- `APPLE_CERTIFICATE`
+- `APPLE_CERTIFICATE_PASSWORD`
+- `KEYCHAIN_PASSWORD`
+- `APPLE_API_ISSUER`
+- `APPLE_API_KEY`
+- `APPLE_API_KEY_PRIVATE_KEY`
+
+If optional Windows or Apple secrets are missing, the workflow still builds unsigned OS packages. Updater signatures are still required.
+
+Private keys and certificates must never be committed. `desktop_app/.secrets/` is ignored by Git and is only for local key material.
+
+## Current 0.2.0 Release
+
+Release:
+
+```text
+https://github.com/realfabianschmidt/MRG-StudyRunner/releases/tag/app-v0.2.0
+```
+
+Successful workflow run:
+
+```text
+https://github.com/realfabianschmidt/MRG-StudyRunner/actions/runs/27611155278
+```
+
+Expected release assets:
+
+- `latest.json`
+- `Study.Runner_0.2.0_x64-setup.exe`
+- `Study.Runner_0.2.0_x64-setup.exe.sig`
+- `Study.Runner_0.2.0_amd64.AppImage`
+- `Study.Runner_0.2.0_amd64.AppImage.sig`
+- `Study.Runner_0.2.0_x64.dmg`
+- `Study.Runner_0.2.0_aarch64.dmg`
+
+## Future Release Checklist
+
+Use this checklist for the next release:
+
+1. Change source files, docs, studies, or launcher files on a branch.
+2. Keep generated folders out of Git.
+3. Bump all desktop version fields to the same SemVer value.
+4. Run local checks:
+
+```bash
+python -m pytest
+node --check desktop_app/web/main.js
+node --check desktop_app/scripts/verify-release-version.mjs
+node desktop_app/scripts/verify-release-version.mjs app-v0.3.0
+npm --prefix desktop_app run build:sidecar
+```
+
+From `Software/desktop_app/src-tauri/`:
+
+```bash
+cargo check -q
+```
+
+The sidecar build is required before `cargo check` in a clean checkout because Tauri validates that the configured `externalBin` exists.
+
+5. Push the branch and merge through a pull request.
+6. Create and push the annotated release tag:
+
+```bash
+git tag -a app-v0.3.0 -m "Study Runner 0.3.0"
+git push origin app-v0.3.0
+```
+
+7. Wait for all release jobs to pass.
+8. Verify that the release is published and contains `latest.json`, installers, and signature files.
+9. Install an older build and confirm that the launcher shows the update.
+
+## Troubleshooting
+
+- If a release workflow does not start, check that the pushed ref is a tag named `app-vX.Y.Z`.
+- If the version guard fails, make the three desktop version fields equal and push a new tag for the corrected version.
+- If updater signatures fail, check `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+- If macOS warns on install, the build is likely unsigned or not notarized. This is expected for test distribution without Apple signing secrets.
+- If a release tag is already public and may have been installed, do not force-move it. Create a new patch version instead.
 
 ## Integration Notes
 

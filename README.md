@@ -1,18 +1,34 @@
 # Study Runner
 
-Study Runner is a small local web app for user studies. It is designed so researchers and designers can understand the project layout without being software developers.
+Study Runner is a local app for running small user studies in a lab, classroom, workshop, or design research setting.
 
-## Quick Start
+It has two ways to run:
 
-Install the required Python packages once:
+- Browser mode for development and direct local use with Python.
+- Desktop mode for installed Windows, macOS, and Linux apps with automatic updates through GitHub Releases.
+
+The project is written to stay understandable for researchers, designers, and assistants who are not full-time software developers.
+
+## Start The Browser App
+
+Use this when you are developing, changing study files, or running the app directly from this repository.
 
 ```bash
 pip install -r requirements.txt
+python server.py
 ```
 
-Start the local server:
+The terminal prints the available addresses.
 
-```bash
+- Admin page: `http://localhost:3000/admin`
+- Participant page: `http://<computer-ip>:3000`
+
+Participant tablets or phones need to be on the same local network as the computer that runs Study Runner.
+
+For local HTTPS testing, for example when a tablet browser needs camera access:
+
+```powershell
+$env:STUDY_RUNNER_HTTPS='1'
 python server.py
 ```
 
@@ -24,21 +40,27 @@ STUDY_RUNNER_PORT=3000
 STUDY_RUNNER_DATA_DIR=/path/to/writable/study-runner-data
 ```
 
-For tablet selfie-camera access, browsers usually require HTTPS. For local testing you can start the server with a temporary self-signed certificate:
+## Use The Desktop App
 
-```powershell
-$env:STUDY_RUNNER_HTTPS='1'
-python server.py
+The desktop app is a Tauri launcher. It starts the bundled Python Study Runner server and opens the launcher window. Users do not need to install Python.
+
+Installed apps can update themselves when a newer public GitHub Release exists. Normal pushes to `main` do not become user updates. A user update only exists after a release tag such as `app-v0.2.0` has built successfully.
+
+Current release page:
+
+```text
+https://github.com/realfabianschmidt/MRG-StudyRunner/releases/tag/app-v0.2.0
 ```
 
-The terminal prints the local addresses.
+Expected release assets for `0.2.0`:
 
-- Admin page: `http://localhost:3000/admin`
-- Participant page: `http://<computer-ip>:3000`
-
-No internet connection is required during a study run. The computer and tablet only need to be on the same local WiFi network.
-
-The admin hub also shows an Access card with copyable admin and participant links.
+- `latest.json`
+- `Study.Runner_0.2.0_x64-setup.exe`
+- `Study.Runner_0.2.0_x64-setup.exe.sig`
+- `Study.Runner_0.2.0_amd64.AppImage`
+- `Study.Runner_0.2.0_amd64.AppImage.sig`
+- `Study.Runner_0.2.0_x64.dmg`
+- `Study.Runner_0.2.0_aarch64.dmg`
 
 ## Folder Map
 
@@ -47,104 +69,150 @@ Software/
 |-- server.py
 |   Starts the local Flask server.
 |-- server_app/
-|   The backend web app.
-|   |-- routes.py
-|   |   Defines pages and API routes.
-|   `-- services/
-|       Small backend services for study settings, saved results, validation,
-|       secrets, trial events, and admin status.
+|   Backend routes and services.
 |-- plugins/
-|   Built-in integration plugins. Each plugin has its own folder.
-|   |-- registry.py
-|   |   Explicitly lists the active built-in plugins.
-|   |-- plugin_api.py
-|   |   Defines the shared plugin contract.
-|   |-- brainbit/
-|   |-- mr60_mini_radar/
-|   |-- tablet_camera_emotion/
-|   |-- local_emotion_worker/
-|   |-- lsl_markers/
-|   |-- osc_touchdesigner/
-|   |-- labrecorder_xdf/
-|   `-- notion_upload/
+|   Built-in integration plugins such as BrainBit, mini radar, OSC, LSL,
+|   LabRecorder, camera emotion, local emotion worker, and Notion upload.
 |-- web_interface/
-|   Browser files served under the `/static/...` URL.
-|   |-- pages/
-|   |   Admin and participant HTML pages.
-|   |-- styles/
-|   |   Visual styling.
-|   |-- scripts/
-|   |   Browser JavaScript, including card modules.
-|   `-- fonts/
-|       Materiability font files.
+|   Browser pages, styles, scripts, card UI, and fonts.
 |-- settings/
-|   Editable local settings.
-|   |-- study_config.json
-|   |   The active study.
-|   `-- hardware_settings.json
-|       Plugin and hardware settings.
+|   Editable default settings for local browser mode and desktop first start.
 |-- saved_studies/
 |   Saved study presets.
 |-- saved_results/
-|   Local participant results, sidecar sensor files, upload queues, and optional XDF files.
+|   Local participant results and optional sidecar files. Ignored by Git.
+|-- desktop_app/
+|   Tauri desktop launcher, updater UI, release scripts, and Rust wrapper.
+|-- packaging/
+|   PyInstaller build files for the bundled Python sidecar.
 |-- docs/
 |   Human-readable project notes and guides.
 `-- requirements.txt
-    Required Python packages.
+    Python dependencies for browser mode and the bundled server.
 ```
 
-## Typical Workflow
+Generated build folders are not source files:
+
+- `build/`
+- `dist/`
+- `desktop_app/node_modules/`
+- `desktop_app/src-tauri/target/`
+- `desktop_app/src-tauri/binaries/study-runner-server-*`
+
+Do not edit generated files as the source of truth. They are recreated by builds.
+
+## Typical Study Workflow
 
 1. Open `/admin`.
-2. Edit the study ID, study settings, and question cards.
-3. Save the study. The active file is updated in `settings/study_config.json`, and a preset copy is written to `saved_studies/`.
-4. Open the participant page on the tablet.
+2. Edit the study ID, settings, and question cards.
+3. Save the study. The active study is written to `settings/study_config.json`; a reusable preset is written to `saved_studies/`.
+4. Open the participant page on the tablet or another browser.
 5. Run the study. Results are written to `saved_results/<study_id>/<participant_id>/`.
 
-## Plugins
+The admin page also shows an Access card with copyable admin and participant links.
 
-Plugins are built-in integration folders, not an external marketplace. This keeps the project readable and avoids hidden runtime discovery.
+## Local Desktop Build
 
-To add a new integration:
+From `Software/desktop_app/`:
 
-1. Create a folder such as `plugins/my_new_sensor/`.
-2. Add `__init__.py`, `plugin.py`, and `adapter.py`.
-3. In `plugin.py`, export one `PLUGIN: IntegrationPlugin`.
-4. Add an explicit import and tuple entry in `plugins/registry.py`.
-5. Add the matching settings section in `settings/hardware_settings.json`.
+```bash
+npm install
+python -m pip install -r ../packaging/requirements-build.txt
+npm run build:sidecar
+npm run build
+```
 
-The public integration keys stay stable:
+The build creates a fresh PyInstaller sidecar first, then bundles the Tauri app. Changes in `server.py`, `server_app/`, `plugins/`, `web_interface/`, `settings/`, `saved_studies/`, or `desktop_app/` are included in the next desktop build.
 
-- `brainbit`
-- `mini_radar`
-- `camera_emotion`
-- `emotion_worker`
-- `lsl`
-- `osc`
-- `labrecorder`
-- `notion`
+Native installers must be built on the matching operating system. GitHub Actions handles this for official releases.
 
-## Important Settings
+## Release And Update Workflow
 
-- `settings/study_config.json`
-  Stores the currently active study.
+Official update builds are tag driven.
 
-- `settings/hardware_settings.json`
-  Stores plugin and hardware settings such as enabled flags, BrainBit paths, LSL settings, OSC target, Notion upload, and LabRecorder pickup.
+1. Make the code or documentation changes on a branch.
+2. Keep these desktop versions equal:
+   - `desktop_app/package.json`
+   - `desktop_app/src-tauri/tauri.conf.json`
+   - `desktop_app/src-tauri/Cargo.toml`
+3. Run the local checks listed below.
+4. Push the branch and merge through a pull request.
+5. Create and push a release tag after the version is final:
 
-- `settings/local_secrets.json`
-  Optional backend-local secret file. It is ignored by Git. Use it for tokens such as the Notion API key.
+```bash
+git tag -a app-v0.3.0 -m "Study Runner 0.3.0"
+git push origin app-v0.3.0
+```
 
-## Saved Data
+Pushing `app-v0.3.0` starts `.github/workflows/release.yml`. The workflow builds Windows, Linux, macOS Intel, and macOS Apple Silicon packages, uploads updater signatures, uploads `latest.json`, and publishes the GitHub Release when all platform builds pass.
 
-Each study gets its own folder in `saved_results/`. Each participant run gets its own participant folder.
+The installed desktop app checks:
 
-The backend validates incoming data before saving. File and folder names are sanitized so unsafe study or participant labels cannot escape the saved-results folder.
+```text
+https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest/download/latest.json
+```
 
-Privacy rule: saved results should not contain direct personal details. The participant ID should be anonymous or pseudonymized.
+If `latest.json` describes a newer SemVer version than the installed app, the launcher shows an update action.
+
+## Required Release Secrets
+
+The Tauri updater needs signing even when the Windows and macOS installers are not OS-code-signed.
+
+Required GitHub repository secrets:
+
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+Optional Windows signing secrets:
+
+- `WINDOWS_CERTIFICATE`
+- `WINDOWS_CERTIFICATE_PASSWORD`
+
+Optional Apple signing and notarization secrets:
+
+- `APPLE_CERTIFICATE`
+- `APPLE_CERTIFICATE_PASSWORD`
+- `KEYCHAIN_PASSWORD`
+- `APPLE_API_ISSUER`
+- `APPLE_API_KEY`
+- `APPLE_API_KEY_PRIVATE_KEY`
+
+Never commit private keys, certificates, passwords, or `.pfx`, `.p12`, `.key`, `.pem`, or `.p8` files. `desktop_app/.secrets/` is intentionally ignored by Git.
+
+## Checks Before Pushing
+
+Run from `Software/` unless noted otherwise:
+
+```bash
+python -m pytest
+node --check desktop_app/web/main.js
+node --check desktop_app/scripts/verify-release-version.mjs
+node desktop_app/scripts/verify-release-version.mjs app-v0.2.0
+npm --prefix desktop_app run build:sidecar
+```
+
+Run from `Software/desktop_app/src-tauri/`:
+
+```bash
+cargo check -q
+```
+
+The sidecar build is needed before `cargo check` in a clean checkout because Tauri validates the configured `externalBin` path. For a future version, replace `app-v0.2.0` with the matching tag name.
+
+## AI Assistant Notes
+
+Use these rules when an AI assistant or a new contributor edits the project:
+
+- Treat this README, `PROJECT_RULES.md`, and `docs/07_desktop_launcher.md` as the release source of truth.
+- Keep active documentation and code comments in English.
+- Do not commit local study results, generated build output, private secrets, or bundled sidecar executables.
+- Prefer small, explicit changes over broad rewrites.
+- Keep built-in integrations registered in `plugins/registry.py`; do not add dynamic plugin discovery.
+- If a release fails, fix the branch and create a new version tag. Do not move an already published release tag unless the release has not been used.
 
 ## More Docs
 
+- `PROJECT_RULES.md`
 - `docs/01_project_overview_for_everyone.md`
 - `docs/02_data_and_terms_explained.md`
 - `docs/03_plan_for_clearer_code.md`
