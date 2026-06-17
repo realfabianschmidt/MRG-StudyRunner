@@ -28,10 +28,12 @@ jobs:
             args: --bundles appimage
           - label: macOS Intel
             platform: macos-15-intel
-            args: --bundles dmg
+            # DMG is for manual install; app creates the .app.tar.gz updater artifact.
+            args: --bundles app,dmg
           - label: macOS Apple Silicon
             platform: macos-15
-            args: --bundles dmg
+            # DMG is for manual install; app creates the .app.tar.gz updater artifact.
+            args: --bundles app,dmg
 
     steps:
       - name: Checkout
