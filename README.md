@@ -46,21 +46,21 @@ The desktop app is a Tauri launcher. It starts the bundled Python Study Runner s
 
 Installed apps can update themselves when a newer public GitHub Release exists. Normal pushes to `main` do not become user updates. A user update only exists after a release tag such as `app-v0.2.0` has built successfully.
 
-Current release page:
+Latest release page:
 
 ```text
-https://github.com/realfabianschmidt/MRG-StudyRunner/releases/tag/app-v0.2.0
+https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
 ```
 
-Expected release assets for `0.2.0`:
+Expected release assets for a desktop release:
 
 - `latest.json`
-- `Study.Runner_0.2.0_x64-setup.exe`
-- `Study.Runner_0.2.0_x64-setup.exe.sig`
-- `Study.Runner_0.2.0_amd64.AppImage`
-- `Study.Runner_0.2.0_amd64.AppImage.sig`
-- `Study.Runner_0.2.0_x64.dmg`
-- `Study.Runner_0.2.0_aarch64.dmg`
+- `Study.Runner_<version>_x64-setup.exe`
+- `Study.Runner_<version>_x64-setup.exe.sig`
+- `Study.Runner_<version>_amd64.AppImage`
+- `Study.Runner_<version>_amd64.AppImage.sig`
+- `Study.Runner_<version>_x64.dmg`
+- `Study.Runner_<version>_aarch64.dmg`
 
 ## Folder Map
 
@@ -191,7 +191,7 @@ python -m pip install pytest
 python -m pytest
 node --check desktop_app/web/main.js
 node --check desktop_app/scripts/verify-release-version.mjs
-node desktop_app/scripts/verify-release-version.mjs app-v0.2.0
+node desktop_app/scripts/verify-release-version.mjs app-v0.2.1
 npm --prefix desktop_app run build:sidecar
 ```
 
@@ -201,7 +201,7 @@ Run from `Software/desktop_app/src-tauri/`:
 cargo check -q
 ```
 
-The sidecar build is needed before `cargo check` in a clean checkout because Tauri validates the configured `externalBin` path. For a future version, replace `app-v0.2.0` with the matching tag name.
+The sidecar build is needed before `cargo check` in a clean checkout because Tauri validates the configured `externalBin` path. For a future version, replace `app-v0.2.1` with the matching tag name.
 
 ## AI Assistant Notes
 

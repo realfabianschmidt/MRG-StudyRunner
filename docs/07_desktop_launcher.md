@@ -190,29 +190,29 @@ If optional Windows or Apple secrets are missing, the workflow still builds unsi
 
 Private keys and certificates must never be committed. `desktop_app/.secrets/` is ignored by Git and is only for local key material.
 
-## Current 0.2.0 Release
+## Latest Release
 
 Release:
 
 ```text
-https://github.com/realfabianschmidt/MRG-StudyRunner/releases/tag/app-v0.2.0
+https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
 ```
 
-Successful workflow run:
+The first successful updater release was `app-v0.2.0`:
 
 ```text
 https://github.com/realfabianschmidt/MRG-StudyRunner/actions/runs/27611155278
 ```
 
-Expected release assets:
+Expected release assets for each desktop release:
 
 - `latest.json`
-- `Study.Runner_0.2.0_x64-setup.exe`
-- `Study.Runner_0.2.0_x64-setup.exe.sig`
-- `Study.Runner_0.2.0_amd64.AppImage`
-- `Study.Runner_0.2.0_amd64.AppImage.sig`
-- `Study.Runner_0.2.0_x64.dmg`
-- `Study.Runner_0.2.0_aarch64.dmg`
+- `Study.Runner_<version>_x64-setup.exe`
+- `Study.Runner_<version>_x64-setup.exe.sig`
+- `Study.Runner_<version>_amd64.AppImage`
+- `Study.Runner_<version>_amd64.AppImage.sig`
+- `Study.Runner_<version>_x64.dmg`
+- `Study.Runner_<version>_aarch64.dmg`
 
 ## Future Release Checklist
 
