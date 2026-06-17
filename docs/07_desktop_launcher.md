@@ -219,7 +219,21 @@ The macOS DMG files are for manual installation. The Tauri updater uses the app-
 
 ## Future Release Checklist
 
-Use this checklist for the next release:
+Use the release helper for the next release:
+
+```bash
+node desktop_app/scripts/release-study-runner.mjs prepare 0.3.0
+```
+
+Merge the printed Pull Request after CI passes, then publish the immutable updater tag:
+
+```bash
+node desktop_app/scripts/release-study-runner.mjs publish 0.3.0
+```
+
+The helper uses one branch per version, `release/study-runner-<version>`, and runs the checks listed below before committing.
+
+Manual checklist:
 
 1. Change source files, docs, studies, or launcher files on a branch.
 2. Keep generated folders out of Git.

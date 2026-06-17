@@ -133,6 +133,26 @@ Native installers must be built on the matching operating system. GitHub Actions
 
 Official update builds are tag driven.
 
+Recommended helper flow:
+
+```bash
+node desktop_app/scripts/release-study-runner.mjs prepare 0.2.3
+```
+
+This creates or reuses one branch named `release/study-runner-0.2.3`, bumps the desktop version files, runs the release checks, blocks common secret files or private key contents, commits the current non-ignored worktree changes, pushes the branch, and prints the Pull Request URL.
+
+After the Pull Request is merged:
+
+```bash
+node desktop_app/scripts/release-study-runner.mjs publish 0.2.3
+```
+
+This verifies that `origin/main` contains version `0.2.3`, creates the annotated tag `app-v0.2.3`, and pushes it. Pushing the tag starts the GitHub Release workflow.
+
+Use this helper unless you deliberately need the manual release flow below.
+
+Manual flow:
+
 1. Make the code or documentation changes on a branch.
 2. Keep these desktop versions equal:
    - `desktop_app/package.json`
