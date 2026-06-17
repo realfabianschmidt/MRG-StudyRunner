@@ -130,8 +130,8 @@ The workflow does this:
 5. Builds Tauri bundles for:
    - Windows x64 NSIS
    - Linux x64 AppImage
-   - macOS Intel DMG
-   - macOS Apple Silicon DMG
+   - macOS Intel app bundle and DMG
+   - macOS Apple Silicon app bundle and DMG
 6. Uploads updater artifacts and `latest.json`.
 7. Publishes the GitHub Release only after all platform builds pass.
 
@@ -213,6 +213,9 @@ Expected release assets for each desktop release:
 - `Study.Runner_<version>_amd64.AppImage.sig`
 - `Study.Runner_<version>_x64.dmg`
 - `Study.Runner_<version>_aarch64.dmg`
+- macOS `.app.tar.gz` updater archives and `.sig` files for Intel and Apple Silicon
+
+The macOS DMG files are for manual installation. The Tauri updater uses the app-bundle updater archives referenced by `latest.json`, so macOS release jobs must build both `app` and `dmg` bundles.
 
 ## Future Release Checklist
 
