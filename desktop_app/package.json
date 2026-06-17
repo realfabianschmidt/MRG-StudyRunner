@@ -8,7 +8,10 @@
     "dev": "tauri dev",
     "build": "npm run build:sidecar && tauri build",
     "build:sidecar": "node scripts/build-sidecar.mjs --sidecar",
-    "build:server:onedir": "node scripts/build-sidecar.mjs --onedir"
+    "build:server:onedir": "node scripts/build-sidecar.mjs --onedir",
+    "release:prepare": "node scripts/release-study-runner.mjs prepare",
+    "release:publish": "node scripts/release-study-runner.mjs publish",
+    "release:status": "node scripts/release-study-runner.mjs status"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"
