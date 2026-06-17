@@ -27,7 +27,7 @@ body {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 28px;
+  padding: 24px;
 }
 
 .launcher-card {
@@ -100,12 +100,14 @@ h1 {
 .status-title {
   font-weight: 700;
   margin-bottom: 2px;
+  overflow-wrap: anywhere;
 }
 
 .status-detail {
   color: var(--ink-60);
   font-size: .88rem;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .update-panel {
@@ -139,6 +141,7 @@ h1 {
 }
 
 .update-icon {
+  position: relative;
   flex: 0 0 28px;
   width: 28px;
   height: 28px;
@@ -147,9 +150,7 @@ h1 {
   border-radius: 999px;
   background: var(--accent);
   color: #fff;
-  font-size: .68rem;
-  font-weight: 800;
-  text-transform: uppercase;
+  overflow: hidden;
 }
 
 .update-panel[data-state="none"] .update-icon {
@@ -160,15 +161,96 @@ h1 {
   background: var(--danger);
 }
 
+.update-icon::before,
+.update-icon::after {
+  content: "";
+  position: absolute;
+  display: block;
+}
+
+.update-icon[data-icon="checking"]::before {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, .45);
+  border-top-color: #fff;
+  border-radius: 999px;
+  animation: spin-status .8s linear infinite;
+}
+
+.update-icon[data-icon="none"]::before {
+  width: 12px;
+  height: 7px;
+  margin-top: -2px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg);
+}
+
+.update-icon[data-icon="available"]::before {
+  width: 9px;
+  height: 9px;
+  margin-top: -4px;
+  border-top: 2px solid #fff;
+  border-left: 2px solid #fff;
+  transform: rotate(45deg);
+}
+
+.update-icon[data-icon="available"]::after {
+  width: 2px;
+  height: 14px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.update-icon[data-icon="downloading"]::before {
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border-right: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(45deg);
+}
+
+.update-icon[data-icon="downloading"]::after {
+  width: 2px;
+  height: 14px;
+  margin-top: -4px;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.update-icon[data-icon="failed"]::before {
+  width: 3px;
+  height: 13px;
+  margin-top: -3px;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.update-icon[data-icon="failed"]::after {
+  width: 3px;
+  height: 3px;
+  margin-top: 15px;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.update-text {
+  min-width: 0;
+}
+
 .update-title {
   font-weight: 800;
   margin-bottom: 2px;
+  overflow-wrap: anywhere;
 }
 
 .update-detail {
   color: var(--ink-60);
   font-size: .84rem;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .update-progress {
@@ -260,6 +342,12 @@ button:disabled {
   opacity: .68;
 }
 
+@keyframes spin-status {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes indeterminate-progress {
   0% {
     transform: translateX(-120%);
@@ -267,5 +355,28 @@ button:disabled {
 
   100% {
     transform: translateX(280%);
+  }
+}
+
+@media (max-width: 420px) {
+  .launcher-shell {
+    padding: 14px;
+  }
+
+  .launcher-card {
+    padding: 20px;
+  }
+
+  h1 {
+    font-size: 1.55rem;
+  }
+
+  .link-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .actions {
+    flex-direction: column;
   }
 }

@@ -20,6 +20,15 @@ function setText(id, value) {
   if (element) element.textContent = value;
 }
 
+function setUpdateIcon(icon, label) {
+  const element = document.getElementById('update-icon');
+  if (!element) return;
+
+  element.dataset.icon = icon;
+  element.setAttribute('aria-label', label);
+  element.textContent = '';
+}
+
 function setReady() {
   document.getElementById('status-dot')?.classList.add('ready');
   setText('status-title', 'Server ready');
@@ -61,14 +70,14 @@ function renderUpdateState(state, options = {}) {
   }
 
   if (state === 'checking') {
-    setText('update-icon', '...');
+    setUpdateIcon('checking', 'Checking for updates');
     setText('update-title', 'Checking for updates');
     setText('update-detail', 'Looking for a newer Study Runner build.');
     return;
   }
 
   if (state === 'none') {
-    setText('update-icon', 'ok');
+    setUpdateIcon('none', 'No update available');
     setText('update-title', 'Study Runner is up to date');
     setText('update-detail', `Installed version ${options.currentVersion || 'unknown'} is current.`);
     if (options.silent) {
@@ -82,7 +91,7 @@ function renderUpdateState(state, options = {}) {
   }
 
   if (state === 'available') {
-    setText('update-icon', 'up');
+    setUpdateIcon('available', 'Update available');
     setText('update-title', `Update ${options.version} available`);
     setText('update-detail', `Installed version ${options.currentVersion || 'unknown'} can be updated now.`);
     if (button) {
@@ -93,7 +102,7 @@ function renderUpdateState(state, options = {}) {
   }
 
   if (state === 'downloading') {
-    setText('update-icon', 'dl');
+    setUpdateIcon('downloading', 'Downloading update');
     setText('update-title', `Installing update ${availableUpdate?.version || ''}`.trim());
     setText('update-detail', 'Preparing the update download.');
     if (button) {
@@ -106,7 +115,7 @@ function renderUpdateState(state, options = {}) {
   }
 
   if (state === 'failed') {
-    setText('update-icon', '!');
+    setUpdateIcon('failed', 'Update failed');
     setText('update-title', 'Update check failed');
     setText('update-detail', options.detail || 'Study Runner could not complete the update workflow.');
     if (button) {
