@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: lts/*
           cache: npm
-          cache-dependency-path: desktop_app/package-lock.json
+          cache-dependency-path: desktop_wrapper/package-lock.json
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -47,31 +47,31 @@ jobs:
 
       - name: Install Node dependencies
         run: npm ci
-        working-directory: desktop_app
+        working-directory: desktop_wrapper
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest -r requirements.txt -r packaging/requirements-build.txt
+          python -m pip install pytest -r requirements.txt -r build_tools/pyinstaller/requirements-build.txt
 
       - name: Check desktop JavaScript syntax
         run: |
-          node --check desktop_app/web/main.js
-          node --check desktop_app/scripts/verify-release-version.mjs
+          node --check desktop_wrapper/web/main.js
+          node --check release_tools/verify-release-version.mjs
 
       - name: Verify desktop version fields
         shell: bash
         run: |
-          version="$(node -p "require('./desktop_app/package.json').version")"
-          node desktop_app/scripts/verify-release-version.mjs "app-v${version}"
+          version="$(node -p "require('./desktop_wrapper/package.json').version")"
+          node release_tools/verify-release-version.mjs "app-v${version}"
 
       - name: Run Python tests
         run: python -m pytest
 
       - name: Build desktop sidecar for Tauri checks
         run: npm run build:sidecar
-        working-directory: desktop_app
+        working-directory: desktop_wrapper
 
       - name: Check Tauri Rust crate
         run: cargo check -q
-        working-directory: desktop_app/src-tauri
+        working-directory: desktop_wrapper/src-tauri

@@ -1,0 +1,101 @@
+{
+  "_comment": "Desktop-only Study Runner plugin settings for Windows, macOS, and Linux. Use the dashboard controls for common enabled flags and runtime actions.",
+  "brainbit": {
+    "debug": false,
+    "disconnect_timeout_ms": 5000,
+    "enabled": true,
+    "log_dir": "study_runner/integrations/brainbit/logs",
+    "lsl": {
+      "auto_install": true,
+      "enabled": true,
+      "stream_prefix": "BrainBit"
+    },
+    "monitor_refresh_ms": 1000,
+    "osc_host": "127.0.0.1",
+    "osc_port": 8000,
+    "pretty": false,
+    "python_executable": {
+      "macos": "",
+      "windows": ""
+    },
+    "quiet_output": true,
+    "resist_seconds": 6,
+    "scan_seconds": 5,
+    "script_path": "study_runner/integrations/brainbit/brainbit_realtime_cli_OSC_15.py",
+    "signal_seconds": 0,
+    "working_dir": "study_runner/integrations/brainbit"
+  },
+  "camera_emotion": {
+    "auto_install": true,
+    "emotion_worker_timeout_ms": 5000,
+    "emotion_worker_url": "http://127.0.0.1:3001",
+    "enabled": true,
+    "lsl": {
+      "auto_install": true,
+      "enabled": true,
+      "stream_name": "CameraEmotion"
+    },
+    "overlay_enabled": true,
+    "snapshot_interval_ms": 200,
+    "store_raw_frames": false,
+    "worker_mode": "local_worker"
+  },
+  "labrecorder": {
+    "enabled": false,
+    "lookahead_minutes": 120,
+    "lookback_minutes": 120,
+    "move_xdf": false,
+    "xdf_source_dir": "study_runner/integrations/brainbit/recordings"
+  },
+  "lsl": {
+    "auto_install": true,
+    "enabled": true,
+    "stream_name": "StudyRunner",
+    "stream_type": "Markers"
+  },
+  "mini_radar": {
+    "auto_install": true,
+    "auto_reconnect": true,
+    "baudrate": 115200,
+    "connection_type": "ble",
+    "data_timeout_seconds": 5,
+    "enabled": true,
+    "log_dir": "saved_results",
+    "lsl": {
+      "auto_install": true,
+      "enabled": true,
+      "stream_prefix": "MiniRadar"
+    },
+    "ble": {
+      "device_name": "MR60_BLE",
+      "address": {
+        "windows": "",
+        "macos": "",
+        "linux": "",
+        "default": ""
+      },
+      "scan_timeout_seconds": 5,
+      "service_uuid": "9d6f0001-7d2a-4c6b-9f4e-5c2b1f4a6e10",
+      "characteristic_uuid": "9d6f0002-7d2a-4c6b-9f4e-5c2b1f4a6e10"
+    },
+    "port": {
+      "linux": "/dev/ttyUSB0",
+      "macos": "",
+      "windows": ""
+    },
+    "reconnect_delay": 5
+  },
+  "notion": {
+    "enabled": true,
+    "auto_retry_failed": true,
+    "timeout_seconds": 10
+  },
+  "osc": {
+    "address_start": "/study/start",
+    "address_stop": "/study/stop",
+    "auto_install": true,
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8000
+  }
+}

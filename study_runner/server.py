@@ -1,12 +1,38 @@
-"""Compatibility entrypoint for running Study Runner from the repository root.
-
-Keep using:
-
-    python server.py
+"""
+Study Runner - server.py
+Runs on macOS or Windows and hosts the study for the iPad.
+Start with: python server.py
+Open on the iPad: http://<your-computer-ip>:3000
 """
 
-from study_runner.server import app, get_local_ip, get_ssl_context, is_debug_enabled
+import os
+
+from study_runner.backend import create_app
 from study_runner.backend.services.runtime_config import get_local_private_ips, read_server_host, read_server_port
+
+
+app = create_app()
+
+
+def get_local_ip() -> str:
+    return get_local_private_ips()[0]
+
+
+def is_debug_enabled() -> bool:
+    return os.getenv("STUDY_RUNNER_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def get_ssl_context():
+    """Return an SSL context when HTTPS is requested for camera access on iPad."""
+    if os.getenv("STUDY_RUNNER_HTTPS", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return None
+
+    cert_file = os.getenv("STUDY_RUNNER_SSL_CERT", "").strip()
+    key_file = os.getenv("STUDY_RUNNER_SSL_KEY", "").strip()
+    if cert_file and key_file:
+        return (cert_file, key_file)
+
+    return "adhoc"
 
 
 if __name__ == "__main__":

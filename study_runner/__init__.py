@@ -1,0 +1,1 @@
+"""Study Runner application package."""

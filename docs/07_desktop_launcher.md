@@ -7,7 +7,7 @@ The desktop app is a small Tauri launcher. It starts the Python Study Runner ser
 ## Runtime Model
 
 - The Python server remains the source of truth.
-- The built-in integration plugin registry stays in `plugins/registry.py`.
+- The built-in integration plugin registry stays in `study_runner/integrations/registry.py`.
 - The desktop launcher sets:
   - `STUDY_RUNNER_APP_MODE=desktop`
   - `STUDY_RUNNER_HOST=0.0.0.0`
@@ -16,7 +16,7 @@ The desktop app is a small Tauri launcher. It starts the Python Study Runner ser
   - `STUDY_RUNNER_DISABLE_RUNTIME_PIP=1`
 - In desktop mode, writable files are stored in the app data folder:
   - `settings/`
-  - `saved_studies/`
+  - `studies/`
   - `saved_results/`
 - On first desktop start, default settings and saved-study examples are copied from the bundled project files.
 
@@ -39,17 +39,17 @@ The backend also exposes:
 
 The desktop app contains two parts:
 
-- the Tauri launcher from `desktop_app/`
+- the Tauri launcher from `desktop_wrapper/`
 - a bundled Python server executable built with PyInstaller
 
 PyInstaller bundles the active Python app structure from `Software/`:
 
 - `server.py`
-- `server_app/`
-- `plugins/`
-- `web_interface/`
-- `settings/`
-- `saved_studies/`
+- `study_runner/backend/`
+- `study_runner/integrations/`
+- `study_runner/web/`
+- `study_content/settings/`
+- `study_content/studies/`
 
 That means users do not need to install Python or run `python server.py` when they use the desktop package.
 
@@ -60,24 +60,24 @@ Normal development should happen in the regular project files, not inside genera
 Edit these files and folders as needed:
 
 - `server.py`
-- `server_app/`
-- `plugins/`
-- `web_interface/`
-- `settings/`
-- `saved_studies/`
-- `desktop_app/` when the launcher itself needs to change
+- `study_runner/backend/`
+- `study_runner/integrations/`
+- `study_runner/web/`
+- `study_content/settings/`
+- `study_content/studies/`
+- `desktop_wrapper/` when the launcher itself needs to change
 
-Then build from `Software/desktop_app/`. The build first creates a fresh PyInstaller sidecar from the current project files, then Tauri bundles that sidecar into the desktop app.
+Then build from `Software/desktop_wrapper/`. The build first creates a fresh PyInstaller sidecar from the current project files, then Tauri bundles that sidecar into the desktop app.
 
-Do not edit generated files in `dist/`, `build/`, `desktop_app/src-tauri/target/`, or `desktop_app/src-tauri/binaries/` as source files. They are build outputs and will be replaced by later builds.
+Do not edit generated files in `dist/`, `build/`, `desktop_wrapper/src-tauri/target/`, or `desktop_wrapper/src-tauri/binaries/` as source files. They are build outputs and will be replaced by later builds.
 
 ## Local Build Commands
 
-From `Software/desktop_app/`:
+From `Software/desktop_wrapper/`:
 
 ```bash
 npm install
-python -m pip install -r ../packaging/requirements-build.txt
+python -m pip install -r ../build_tools/pyinstaller/requirements-build.txt
 npm run build:server:onedir
 npm run build:sidecar
 npm run build
@@ -125,7 +125,7 @@ The workflow does this:
 
 1. Verifies that the tag matches the app version.
 2. Installs Node, Python, Rust, and Linux system dependencies.
-3. Installs Python dependencies from `requirements.txt` and `packaging/requirements-build.txt`.
+3. Installs Python dependencies from `requirements.txt` and `build_tools/pyinstaller/requirements-build.txt`.
 4. Builds the PyInstaller sidecar.
 5. Builds Tauri bundles for:
    - Windows x64 NSIS
@@ -147,9 +147,9 @@ Do not change this pin unless the new action version exists and has been tested.
 
 These three version fields must always match:
 
-- `desktop_app/package.json`
-- `desktop_app/src-tauri/tauri.conf.json`
-- `desktop_app/src-tauri/Cargo.toml`
+- `desktop_wrapper/package.json`
+- `desktop_wrapper/src-tauri/tauri.conf.json`
+- `desktop_wrapper/src-tauri/Cargo.toml`
 
 The release tag must be:
 
@@ -162,7 +162,7 @@ For example, version `0.3.0` must use tag `app-v0.3.0`.
 The guard script is:
 
 ```bash
-node desktop_app/scripts/verify-release-version.mjs app-v0.3.0
+node release_tools/verify-release-version.mjs app-v0.3.0
 ```
 
 ## Required And Optional Secrets
@@ -188,7 +188,7 @@ Optional for macOS signing and notarization:
 
 If optional Windows or Apple secrets are missing, the workflow still builds unsigned OS packages. Updater signatures are still required.
 
-Private keys and certificates must never be committed. `desktop_app/.secrets/` is ignored by Git and is only for local key material.
+Private keys and certificates must never be committed. `desktop_wrapper/.secrets/` is ignored by Git and is only for local key material.
 
 ## Latest Release
 
@@ -219,19 +219,25 @@ The macOS DMG files are for manual installation. The Tauri updater uses the app-
 
 ## Future Release Checklist
 
-Use the release helper for the next release:
+Use the one-command helper for the next release:
 
-```bash
-node desktop_app/scripts/release-study-runner.mjs prepare 0.3.0
+```powershell
+.\release.ps1 patch
 ```
 
-Merge the printed Pull Request after CI passes, then publish the immutable updater tag:
+For an explicit version:
 
-```bash
-node desktop_app/scripts/release-study-runner.mjs publish 0.3.0
+```powershell
+.\release.ps1 0.3.0
 ```
 
-The helper uses one branch per version, `release/study-runner-<version>`, and runs the checks listed below before committing.
+The helper uses one branch per version, `release/study-runner-<version>`. It bumps versions, runs local checks, creates a PR, waits for CI, merges the PR, pushes `app-v<version>`, waits for the release workflow, and checks `latest.json`.
+
+Use a dry run first when you only want to see what would happen:
+
+```powershell
+.\release.ps1 patch -DryRun
+```
 
 Manual checklist:
 
@@ -248,13 +254,13 @@ python -m pip install pytest
 
 ```bash
 python -m pytest
-node --check desktop_app/web/main.js
-node --check desktop_app/scripts/verify-release-version.mjs
-node desktop_app/scripts/verify-release-version.mjs app-v0.3.0
-npm --prefix desktop_app run build:sidecar
+node --check desktop_wrapper/web/main.js
+node --check release_tools/verify-release-version.mjs
+node release_tools/verify-release-version.mjs app-v0.3.0
+npm --prefix desktop_wrapper run build:sidecar
 ```
 
-From `Software/desktop_app/src-tauri/`:
+From `Software/desktop_wrapper/src-tauri/`:
 
 ```bash
 cargo check -q
@@ -263,16 +269,12 @@ cargo check -q
 The sidecar build is required before `cargo check` in a clean checkout because Tauri validates that the configured `externalBin` exists.
 
 6. Push the branch and merge through a pull request.
-7. Create and push the annotated release tag:
-
-```bash
-git tag -a app-v0.3.0 -m "Study Runner 0.3.0"
-git push origin app-v0.3.0
-```
-
+7. Create and push the annotated release tag.
 8. Wait for all release jobs to pass.
 9. Verify that the release is published and contains `latest.json`, installers, and signature files.
 10. Install an older build and confirm that the launcher shows the update.
+
+The one-command helper performs steps 3 through 9 automatically.
 
 ## Troubleshooting
 
@@ -286,4 +288,4 @@ git push origin app-v0.3.0
 
 Runtime `pip install` is disabled in desktop mode. Optional dependencies must be included in the package or configured manually.
 
-BrainBit has one special rule: in a frozen desktop build, it must not use the frozen server executable as a Python interpreter for its separate CLI script. If BrainBit is needed in a packaged desktop build, set `brainbit.python_executable` in `settings/hardware_settings.json` to a real Python interpreter or package that integration as its own sidecar later.
+BrainBit has one special rule: in a frozen desktop build, it must not use the frozen server executable as a Python interpreter for its separate CLI script. If BrainBit is needed in a packaged desktop build, set `brainbit.python_executable` in `study_content/settings/hardware_settings.json` to a real Python interpreter or package that integration as its own sidecar later.
