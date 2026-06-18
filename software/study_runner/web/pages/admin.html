@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Study Admin</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/iconoir/css/iconoir.css">
+<link rel="stylesheet" href="/static/styles/main.css">
+</head>
+<body class="admin">
+
+<!-- HUB VIEW -->
+<div id="view-hub" class="admin-view active">
+  <div class="hub-container">
+    <header class="hub-header">
+      <div class="hub-header-text">
+        <h1 data-i18n="hub.welcome.title">Welcome to Study Runner</h1>
+        <p data-i18n="hub.welcome.subtitle">Choose a study or create a new one.</p>
+      </div>
+      <div class="lang-switcher" id="lang-switcher" role="group" aria-label="Language">
+        <button type="button" class="lang-btn" data-lang="en">EN</button>
+        <button type="button" class="lang-btn" data-lang="de">DE</button>
+      </div>
+    </header>
+
+    <div class="hub-grid">
+      <div class="hub-section">
+        <h2 data-i18n="hub.quickAccess">Quick access</h2>
+        <div class="hub-cards">
+          <button class="hub-card" id="btn-hub-new">
+            <i class="iconoir-add-folder"></i>
+            <span data-i18n="hub.newStudy">New study</span>
+          </button>
+          <button class="hub-card" id="btn-load-config">
+            <i class="iconoir-import"></i>
+            <span data-i18n="hub.importStudy">Import study</span>
+          </button>
+        </div>
+
+        <h2 style="margin-top: 40px;" data-i18n="hub.recent">Recently used</h2>
+        <div class="hub-recent-list" id="hub-recent-list">
+          <div class="hub-recent-item empty">
+            <i class="iconoir-clock"></i>
+            <div data-i18n="hub.recent.loading">Loading saved studies ...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hub-section">
+        <h2 data-i18n="hub.activeStudy">Active study</h2>
+        <div class="hub-active-card">
+          <div class="hub-active-header">
+            <div class="hub-active-icon"><i class="iconoir-journal-page"></i></div>
+            <div>
+              <div class="hub-active-label" data-i18n="hub.loaded">LOADED</div>
+              <div class="hub-active-title" id="hub-active-title" data-i18n="hub.loading">Loading...</div>
+            </div>
+          </div>
+          <div class="hub-active-actions">
+            <button class="btn-secondary" id="btn-hub-editor" type="button"><i class="iconoir-edit-pencil"></i> <span data-i18n="hub.openEditor">Open editor</span></button>
+            <button class="btn-secondary" id="btn-admin-dashboard" type="button" hidden><i class="iconoir-pulse"></i> <span data-i18n="hub.liveDashboard">Live dashboard</span></button>
+            <button class="btn-secondary" id="btn-notion-settings" type="button"><i class="iconoir-database"></i> <span data-i18n="hub.notionSettings">Notion settings</span></button>
+        </div>
+      </div>
+
+        <div class="hub-access-card" id="admin-access-card">
+          <div class="hub-access-header">
+            <div>
+              <div class="hub-active-label" data-i18n="access.label">ACCESS</div>
+              <div class="hub-access-title" data-i18n="access.browserLinks">Browser links</div>
+            </div>
+            <i class="iconoir-wifi"></i>
+          </div>
+          <div class="hub-access-row">
+            <span data-i18n="access.admin">Admin</span>
+            <code id="access-admin-url" data-i18n="access.loading">Loading ...</code>
+            <div class="hub-access-actions">
+              <button class="btn-icon-only" type="button" id="btn-admin-qr-url" data-i18n-title="access.openAdminQr" data-i18n-aria-label="access.openAdminQr" title="Show admin QR code" aria-label="Show admin QR code">
+                <i class="iconoir-qr-code"></i>
+              </button>
+              <button class="btn-icon-only" type="button" id="btn-copy-admin-url" data-i18n-title="access.copyAdmin" title="Copy admin link">
+                <i class="iconoir-copy"></i>
+              </button>
+            </div>
+          </div>
+          <div class="hub-access-row">
+            <span data-i18n="access.participant">Participant</span>
+            <code id="access-participant-url" data-i18n="access.loading">Loading ...</code>
+            <div class="hub-access-actions">
+              <button class="btn-icon-only" type="button" id="btn-participant-qr-url" data-i18n-title="access.openParticipantQr" data-i18n-aria-label="access.openParticipantQr" title="Show participant QR code" aria-label="Show participant QR code">
+                <i class="iconoir-qr-code"></i>
+              </button>
+              <button class="btn-icon-only" type="button" id="btn-copy-participant-url" data-i18n-title="access.copyParticipant" title="Copy participant link">
+                <i class="iconoir-copy"></i>
+              </button>
+            </div>
+          </div>
+          <div class="hub-access-hint" id="access-hint" data-i18n="access.hint">Use the participant link from a tablet or browser on the same private network.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- WORKSPACE VIEW (Editor & Dashboard) -->
+<div id="view-workspace" class="admin-view" hidden>
+  <div class="admin-layout">
+
+  <!-- SIDEBAR -->
+  <aside class="admin-sidebar" id="admin-sidebar">
+
+    <!-- Clipping container for the slide animation.
+         The save bar sits outside so it is never covered. -->
+    <div class="sidebar-content">
+
+    <!-- Scrollable main content (slides away when overlay opens) -->
+    <div class="sidebar-main" id="sidebar-main">
+
+      <div class="sidebar-header">
+        <button class="btn-icon-only" id="btn-workspace-home" data-i18n-title="workspace.backToHub" title="Back to hub"><i class="iconoir-home"></i></button>
+        <span class="sidebar-logo"><i class="iconoir-brain"></i> <span data-i18n="workspace.studyAdmin">Study Admin</span></span>
+        <a href="/" target="_blank" class="sidebar-link" data-i18n-title="workspace.openStudy" title="Open study">
+          <i class="iconoir-open-new-window"></i>
+        </a>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-title"><i class="iconoir-settings"></i> <span data-i18n="sidebar.settings">Settings</span></div>
+        <div class="field" style="margin-bottom: 8px;">
+          <label data-i18n="sidebar.studyId">Study ID</label>
+          <input type="text" id="cfg-id" data-i18n-placeholder="sidebar.studyIdPlaceholder" placeholder="e.g. US1">
+        </div>
+        <button class="btn-secondary" id="btn-study-settings" type="button" style="width: 100%; justify-content: center;">
+          <i class="iconoir-settings-cloud"></i> <span data-i18n="sidebar.studySettings">Study settings</span>
+        </button>
+      </div>
+
+      <div class="sidebar-section sidebar-section--grow">
+        <div class="sidebar-section-title">
+          <i class="iconoir-list"></i> <span data-i18n="sidebar.questions">Questions</span>
+          <span id="q-count" class="section-count"></span>
+        </div>
+        <div id="admin-q-list"></div>
+
+        <div class="add-area">
+          <button class="btn-add" id="btn-add-main" type="button">
+            <i class="iconoir-plus"></i> <span data-i18n="sidebar.addQuestion">Add question</span>
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /sidebar-main -->
+
+    <!-- Editor overlay: slides in from the right over sidebar-main -->
+    <div class="sidebar-overlay" id="sidebar-overlay">
+      <div class="overlay-header">
+        <div class="overlay-type-tag" id="overlay-type-tag"></div>
+        <button class="overlay-close" id="overlay-close" type="button" data-i18n-aria-label="editor.close" aria-label="Close editor">
+          <i class="iconoir-xmark"></i>
+        </button>
+      </div>
+      <div class="overlay-body" id="editor-fields"></div>
+    </div><!-- /sidebar-overlay -->
+    </div><!-- /sidebar-content -->
+
+    <!-- Save bar: always visible at the bottom, never covered by the overlay -->
+    <div class="sidebar-save">
+      <button class="btn-primary" id="btn-save-config" type="button" style="width: 100%;" data-i18n="sidebar.saveStudy">Save study</button>
+    </div>
+
+  </aside>
+
+  <!-- MAIN PREVIEW -->
+  <main class="admin-main">
+    <div id="admin-edit-view">
+      <div id="study-preview"></div>
+      <div class="preview-empty" id="preview-empty">
+        <i class="iconoir-list-plus"></i>
+        <p data-i18n="preview.empty">Add a question to see the preview</p>
+      </div>
+    </div>
+  </main>
+
+  </div>
+</div>
+
+<!-- DASHBOARD VIEW -->
+<div id="view-dashboard" class="admin-view" hidden>
+  <div style="padding: 60px 40px;">
+    <section class="admin-dashboard" id="admin-dashboard">
+      <div class="dashboard-hero">
+        <div>
+          <span class="dashboard-kicker" data-i18n="dashboard.liveControl">Live Control</span>
+          <h1 data-i18n="dashboard.title">Biosignal Dashboard</h1>
+          <p data-i18n="dashboard.subtitle">Monitor connected study clients, BrainBit, MR60 BLE, tablet camera emotion, local processing, and XDF readiness.</p>
+        </div>
+        <button class="btn-secondary" id="btn-admin-edit-view" type="button">
+          <i class="iconoir-home"></i> <span data-i18n="dashboard.backToHub">Back to hub</span>
+        </button>
+      </div>
+
+      <div class="dashboard-grid">
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-tablet"></i> <span data-i18n="dashboard.studyClient">Study client</span></div>
+          <div id="dashboard-clients" class="dashboard-card-body" data-i18n="dashboard.waitingHeartbeat">Waiting for study page heartbeat.</div>
+        </article>
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-brain"></i> <span data-i18n="dashboard.brainbit">BrainBit</span></div>
+          <div id="dashboard-brainbit" class="dashboard-card-body" data-i18n="dashboard.waitingStatus">Waiting for status.</div>
+        </article>
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-activity"></i> <span data-i18n="dashboard.miniRadar">Mini-radar</span></div>
+          <div id="dashboard-radar" class="dashboard-card-body" data-i18n="dashboard.planned">Planned.</div>
+        </article>
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-camera"></i> <span data-i18n="dashboard.cameraEmotion">Camera emotion</span></div>
+          <div id="dashboard-camera" class="dashboard-card-body" data-i18n="dashboard.planned">Planned.</div>
+        </article>
+        <article class="dashboard-card dashboard-card--wide">
+          <div class="dashboard-card-title"><i class="iconoir-settings-profiles"></i> <span data-i18n="dashboard.integrationControls">Integration controls</span></div>
+          <div id="dashboard-integration-controls" class="dashboard-card-body" data-i18n="dashboard.waitingIntegration">Waiting for integration status.</div>
+        </article>
+        <article class="dashboard-card dashboard-card--wide">
+          <div class="dashboard-card-title"><i class="iconoir-timer"></i> <span data-i18n="dashboard.xdfTimestamps">XDF and timestamps</span></div>
+          <div id="dashboard-xdf" class="dashboard-card-body" data-i18n="dashboard.xdfHint">Use LSL timestamps as primary sync layer.</div>
+        </article>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- NOTION SETTINGS VIEW -->
+<div id="view-notion-settings" class="admin-view" hidden>
+  <div style="padding: 60px 40px;">
+    <section class="admin-dashboard notion-settings-page" id="notion-settings-page">
+      <div class="dashboard-hero">
+        <div>
+          <span class="dashboard-kicker" data-i18n="notion.uploadIntegration">Upload Integration</span>
+          <h1 data-i18n="notion.title">Notion Settings</h1>
+          <p data-i18n="notion.subtitle">Configure the backend-local Notion token, the active study target, and the upload queue without editing raw hardware JSON.</p>
+        </div>
+        <button class="btn-secondary" id="btn-notion-back" type="button">
+          <i class="iconoir-home"></i> <span data-i18n="notion.backToHub">Back to hub</span>
+        </button>
+      </div>
+
+      <div class="dashboard-grid notion-dashboard-grid">
+        <article class="dashboard-card dashboard-card--wide">
+          <div class="dashboard-card-title"><i class="iconoir-database"></i> <span data-i18n="notion.status">Status</span></div>
+          <div class="notion-status-grid notion-status-grid--dashboard">
+            <div class="notion-status-card">
+              <div class="notion-status-label" data-i18n="notion.global">Global</div>
+              <div class="notion-status-value" id="notion-global-status" data-i18n="notion.loading">Loading ...</div>
+              <div class="settings-hint" id="notion-global-hint"></div>
+            </div>
+            <div class="notion-status-card">
+              <div class="notion-status-label" data-i18n="notion.apiKey">API Key</div>
+              <div class="notion-status-value" id="notion-storage-value" data-i18n="notion.loading">Loading ...</div>
+              <div class="settings-hint" id="notion-storage-hint"></div>
+            </div>
+            <div class="notion-status-card">
+              <div class="notion-status-label" data-i18n="notion.activeStudy">Active study</div>
+              <div class="notion-status-value" id="notion-study-status" data-i18n="notion.loading">Loading ...</div>
+              <div class="settings-hint" id="notion-study-hint"></div>
+            </div>
+            <div class="notion-status-card">
+              <div class="notion-status-label" data-i18n="notion.queue">Queue</div>
+              <div class="notion-status-value" id="notion-queue-value" data-i18n="notion.loading">Loading ...</div>
+              <div class="settings-hint" id="notion-queue-detail"></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-keyframes"></i> <span data-i18n="notion.globalNotion">Global Notion</span></div>
+          <div class="field">
+            <label class="consent-row" for="notion-enabled">
+              <input type="checkbox" id="notion-enabled">
+              <span data-i18n="notion.enableGlobal">Enable global Notion integration</span>
+            </label>
+          </div>
+          <div class="field">
+            <label data-i18n="notion.apiKey">API Key</label>
+            <input class="fi-input" type="password" id="notion-api-key" autocomplete="off" placeholder="secret_...">
+            <div class="settings-hint" id="notion-api-key-status"></div>
+            <div class="settings-hint" data-i18n="notion.keyLocalHint">The key stays backend-local on this computer, normally in local_secrets.json.</div>
+          </div>
+          <input type="hidden" id="notion-clear-api-key" value="0">
+          <div class="dashboard-actions notion-secret-actions">
+            <button class="btn-secondary" id="btn-notion-clear-key" type="button"><i class="iconoir-trash"></i> <span data-i18n="notion.clearBackendKey">Delete backend key</span></button>
+            <span class="settings-hint" id="notion-clear-key-state" data-i18n="notion.noClearPending">No deletion pending.</span>
+          </div>
+          <div class="field">
+            <label class="consent-row" for="notion-auto-retry">
+              <input type="checkbox" id="notion-auto-retry">
+              <span data-i18n="notion.autoRetry">Automatically retry failed uploads on server start</span>
+            </label>
+          </div>
+          <div class="dashboard-actions">
+            <button class="btn-secondary" id="btn-notion-test" type="button"><i class="iconoir-plug-xmark" id="notion-test-icon"></i> <span data-i18n="notion.testConnection">Test connection</span></button>
+            <button class="btn-primary" id="btn-notion-save" type="button" data-i18n="notion.saveGlobal">Save global settings</button>
+          </div>
+          <div id="notion-test-result" hidden></div>
+        </article>
+
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-journal-page"></i> <span data-i18n="notion.activeStudyTarget">Active Study Target</span></div>
+          <div class="notion-study-header">
+            <div class="notion-study-label" data-i18n="notion.activeStudy">Active study</div>
+            <div class="notion-study-name" id="notion-active-study-name">-</div>
+            <div class="settings-hint" data-i18n="notion.studyValuesHint">These values are saved with the currently loaded study.</div>
+          </div>
+          <div class="field">
+            <label class="consent-row" for="notion-study-enabled">
+              <input type="checkbox" id="notion-study-enabled">
+              <span data-i18n="notion.uploadThisStudy">Upload results of this study to Notion</span>
+            </label>
+          </div>
+          <div id="notion-study-fields">
+            <div class="field">
+              <label data-i18n="notion.parentPageId">Notion Parent Page ID</label>
+              <input class="fi-input" type="text" id="notion-study-parent-id" autocomplete="off" data-i18n-placeholder="notion.parentPageIdPlaceholder" placeholder="32 characters from the Notion page URL">
+              <div class="settings-hint" data-i18n="notion.parentPageHint">Study Runner creates the participant database under this page when needed.</div>
+            </div>
+            <div class="field">
+              <label data-i18n="notion.databaseId">Notion Database ID</label>
+              <input class="fi-input" type="text" id="notion-study-database-id" autocomplete="off" data-i18n-placeholder="notion.databaseIdPlaceholder" placeholder="Optional, leave empty for auto-create">
+            </div>
+          </div>
+          <div class="dashboard-actions">
+            <button class="btn-primary" id="btn-notion-study-save" type="button" data-i18n="notion.saveStudySettings">Save study settings</button>
+          </div>
+        </article>
+
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-upload-data-window"></i> <span data-i18n="notion.queueActions">Queue &amp; Actions</span></div>
+          <p class="settings-hint" id="notion-queue-status" data-i18n="notion.queueLoading">Queue status is loading.</p>
+          <div class="dashboard-actions">
+            <button class="btn-secondary" id="btn-notion-flush" type="button"><i class="iconoir-refresh"></i> <span data-i18n="notion.uploadQueue">Upload queue</span></button>
+          </div>
+          <div class="notion-inline-note" data-i18n="notion.queueNote">An upload only happens when Notion is globally active and the currently loaded study has Notion enabled too.</div>
+        </article>
+
+        <article class="dashboard-card">
+          <div class="dashboard-card-title"><i class="iconoir-help-circle"></i> <span data-i18n="notion.setupGuide">Setup Guide</span></div>
+          <div class="notion-help-body notion-help-body--inline">
+            <div class="notion-help-step"><div class="notion-help-step-num">1</div><div><strong data-i18n="notion.guide.step1.title">Create an integration</strong><p data-i18n="notion.guide.step1.body">In Notion, under notion.so/profile/integrations, create an internal integration with Read, Update and Insert Content.</p></div></div>
+            <div class="notion-help-step"><div class="notion-help-step-num">2</div><div><strong data-i18n="notion.guide.step2.title">Save the API key</strong><p data-i18n="notion.guide.step2.body">Paste the token into the API key field. The browser never receives saved keys back.</p></div></div>
+            <div class="notion-help-step"><div class="notion-help-step-num">3</div><div><strong data-i18n="notion.guide.step3.title">Share the page</strong><p data-i18n="notion.guide.step3.body">Create a Notion page for StudyRunner data and invite the integration with full access.</p></div></div>
+            <div class="notion-help-step"><div class="notion-help-step-num">4</div><div><strong data-i18n="notion.guide.step4.title">Set the Parent Page ID</strong><p data-i18n="notion.guide.step4.body">Enter the 32 characters from the Notion page URL into the Active Study Target settings.</p></div></div>
+          </div>
+        </article>
+      </div>
+    </section>
+  </div>
+</div>
+<!-- Access QR Modal -->
+<div class="modal-backdrop" id="access-qr-modal" hidden>
+  <div class="settings-modal settings-modal--qr" role="dialog" aria-modal="true" aria-labelledby="access-qr-title">
+    <div class="settings-modal-header">
+      <div>
+        <span class="dashboard-kicker" data-i18n="access.qrKicker">Browser access</span>
+        <h2 id="access-qr-title" data-i18n="access.qrTitle">QR code</h2>
+      </div>
+      <button class="overlay-close" id="btn-close-access-qr" type="button" data-i18n-aria-label="access.closeQr" aria-label="Close QR code">
+        <i class="iconoir-xmark"></i>
+      </button>
+    </div>
+    <div class="settings-modal-body access-qr-body">
+      <div class="access-qr-label" id="access-qr-label">Participant link</div>
+      <div class="access-qr-code" id="access-qr-code" aria-hidden="true"></div>
+      <code class="access-qr-url" id="access-qr-url"></code>
+    </div>
+  </div>
+</div>
+
+<!-- Study Settings Modal -->
+<div class="modal-backdrop" id="study-settings-modal" hidden>
+  <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="study-settings-title" style="max-width: 500px;">
+    <div class="settings-modal-header">
+      <div>
+        <span class="dashboard-kicker" data-i18n="settings.localSettings">Local settings</span>
+        <h2 id="study-settings-title" data-i18n="settings.studySettings">Study settings</h2>
+      </div>
+      <button class="overlay-close" id="btn-close-study-settings" type="button" data-i18n-aria-label="settings.close" aria-label="Close">
+        <i class="iconoir-xmark"></i>
+      </button>
+    </div>
+    <div class="settings-modal-body">
+      <p class="settings-hint" style="margin-bottom: 16px;" data-i18n="settings.notionMovedHint">Notion-specific study values are collected on the full Notion settings page.</p>
+      <div class="field" style="margin-bottom: 20px;">
+        <label class="consent-row" for="study-sensors-enabled" style="margin-bottom: 0;">
+          <input type="checkbox" id="study-sensors-enabled">
+          <span style="display:flex; flex-direction:column; gap:4px;">
+            <strong style="color:var(--ink);" data-i18n="settings.recordBiosignals">Record biosignals</strong>
+            <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.recordBiosignalsHint">When disabled, this study sends no triggers to external sensors (BrainBit/radar), even if cards request it.</small>
+          </span>
+        </label>
+      </div>
+      <div class="settings-toolbar" style="margin-top: 24px;">
+        <button class="btn-primary" id="btn-save-study-settings" type="button" style="width: 100%; justify-content: center;" data-i18n="settings.apply">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><i id="toast-icon"></i><span id="toast-msg"></span></div>
+
+<script type="module" src="/static/scripts/admin-controller.js"></script>
+</body>
+</html>

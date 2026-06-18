@@ -4,15 +4,17 @@ Study Runner is a local study tool with one admin page, one participant page, an
 
 ## Main Parts
 
-- `server.py`: starts the local server.
-- `study_runner/backend/`: backend app and backend services.
-- `study_runner/integrations/`: built-in integrations such as BrainBit, MR60, camera emotion, LSL, OSC, LabRecorder, and Notion.
-- `study_runner/web/`: browser pages, styles, scripts, cards, and fonts.
-- `desktop_wrapper/`: optional Tauri desktop launcher for one-click startup.
-- `build_tools/pyinstaller/`: PyInstaller build files for the Python server sidecar.
-- `study_content/settings/`: editable local settings for the active study and plugins.
-- `study_content/studies/`: saved study presets.
-- `saved_results/`: participant results and optional sensor sidecar files.
+The editable program lives in `software/`; the installable wrapper lives in `desktop/`.
+
+- `software/server.py`: starts the local server.
+- `software/study_runner/backend/`: backend app and backend services.
+- `software/study_runner/integrations/`: built-in integrations such as BrainBit, MR60, camera emotion, LSL, OSC, LabRecorder, and Notion.
+- `software/study_runner/web/`: browser pages, styles, scripts, cards, and fonts.
+- `software/study_content/settings/`: editable local settings for the active study and plugins.
+- `software/study_content/studies/`: saved study presets.
+- `software/saved_results/`: participant results and optional sensor sidecar files.
+- `desktop/`: optional Tauri desktop launcher for one-click startup.
+- `desktop/build_tools/pyinstaller/`: PyInstaller build files for the Python server sidecar.
 - `docs/`: explanations and project notes.
 
 ## How A Study Run Works

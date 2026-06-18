@@ -39,17 +39,17 @@ The backend also exposes:
 
 The desktop app contains two parts:
 
-- the Tauri launcher from `desktop_wrapper/`
+- the Tauri launcher from `desktop/`
 - a bundled Python server executable built with PyInstaller
 
-PyInstaller bundles the active Python app structure from `Software/`:
+PyInstaller bundles the active Python app structure from `software/`:
 
-- `server.py`
-- `study_runner/backend/`
-- `study_runner/integrations/`
-- `study_runner/web/`
-- `study_content/settings/`
-- `study_content/studies/`
+- `software/server.py`
+- `software/study_runner/backend/`
+- `software/study_runner/integrations/`
+- `software/study_runner/web/`
+- `software/study_content/settings/`
+- `software/study_content/studies/`
 
 That means users do not need to install Python or run `python server.py` when they use the desktop package.
 
@@ -59,25 +59,25 @@ Normal development should happen in the regular project files, not inside genera
 
 Edit these files and folders as needed:
 
-- `server.py`
-- `study_runner/backend/`
-- `study_runner/integrations/`
-- `study_runner/web/`
-- `study_content/settings/`
-- `study_content/studies/`
-- `desktop_wrapper/` when the launcher itself needs to change
+- `software/server.py`
+- `software/study_runner/backend/`
+- `software/study_runner/integrations/`
+- `software/study_runner/web/`
+- `software/study_content/settings/`
+- `software/study_content/studies/`
+- `desktop/` when the launcher itself needs to change
 
-Then build from `Software/desktop_wrapper/`. The build first creates a fresh PyInstaller sidecar from the current project files, then Tauri bundles that sidecar into the desktop app.
+Then build from `desktop/`. The build first creates a fresh PyInstaller sidecar from the current `software/` files, then Tauri bundles that sidecar into the desktop app.
 
-Do not edit generated files in `dist/`, `build/`, `desktop_wrapper/src-tauri/target/`, or `desktop_wrapper/src-tauri/binaries/` as source files. They are build outputs and will be replaced by later builds.
+Do not edit generated files in `software/dist/`, `software/build/`, `desktop/src-tauri/target/`, or `desktop/src-tauri/binaries/` as source files. They are build outputs and will be replaced by later builds.
 
 ## Local Build Commands
 
-From `Software/desktop_wrapper/`:
+From `desktop/`:
 
 ```bash
 npm install
-python -m pip install -r ../build_tools/pyinstaller/requirements-build.txt
+python -m pip install -r build_tools/pyinstaller/requirements-build.txt
 npm run build:server:onedir
 npm run build:sidecar
 npm run build
@@ -147,9 +147,9 @@ Do not change this pin unless the new action version exists and has been tested.
 
 These three version fields must always match:
 
-- `desktop_wrapper/package.json`
-- `desktop_wrapper/src-tauri/tauri.conf.json`
-- `desktop_wrapper/src-tauri/Cargo.toml`
+- `desktop/package.json`
+- `desktop/src-tauri/tauri.conf.json`
+- `desktop/src-tauri/Cargo.toml`
 
 The release tag must be:
 
@@ -188,7 +188,7 @@ Optional for macOS signing and notarization:
 
 If optional Windows or Apple secrets are missing, the workflow still builds unsigned OS packages. Updater signatures are still required.
 
-Private keys and certificates must never be committed. `desktop_wrapper/.secrets/` is ignored by Git and is only for local key material.
+Private keys and certificates must never be committed. `desktop/.secrets/` is ignored by Git and is only for local key material.
 
 ## Latest Release
 
@@ -253,14 +253,14 @@ python -m pip install pytest
 5. Run local checks:
 
 ```bash
-python -m pytest
-node --check desktop_wrapper/web/main.js
+python -m pytest software
+node --check desktop/web/main.js
 node --check release_tools/verify-release-version.mjs
 node release_tools/verify-release-version.mjs app-v0.3.0
-npm --prefix desktop_wrapper run build:sidecar
+npm --prefix desktop run build:sidecar
 ```
 
-From `Software/desktop_wrapper/src-tauri/`:
+From `desktop/src-tauri/`:
 
 ```bash
 cargo check -q
@@ -282,7 +282,22 @@ The one-command helper performs steps 3 through 9 automatically.
 - If the version guard fails, make the three desktop version fields equal and push a new tag for the corrected version.
 - If updater signatures fail, check `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 - If macOS warns on install, the build is likely unsigned or not notarized. This is expected for test distribution without Apple signing secrets.
+- If the macOS launcher window opens but no button works, the bundled Python server was
+  blocked by Gatekeeper because the build is unsigned. The launcher now shows a
+  "Server did not start" state and writes a log to `<app data folder>/logs/server.log`.
+  Fix it once per machine by removing the quarantine flag:
+  `xattr -dr com.apple.quarantine "/Applications/Study Runner.app"`. The permanent fix is
+  Apple Developer ID signing plus notarization (the release workflow already supports it
+  through the optional `APPLE_*` secrets).
+- If macOS clients on the same network cannot reach the participant page, allow Study
+  Runner under System Settings -> Privacy & Security -> Local Network. The bundle ships
+  `NSLocalNetworkUsageDescription` so macOS prompts for this.
 - If a release tag is already public and may have been installed, do not force-move it. Create a new patch version instead.
+- If `release.ps1` stops part way (for example CI fails after the branch is pushed), the
+  release branch `release/study-runner-<version>` already exists on GitHub. Fix the cause,
+  then re-run the same `release.ps1 <version>`: the helper reuses the existing branch and
+  open pull request. If a tag was already pushed but the release did not finish, do not
+  reuse that version number; bump to the next patch and release again.
 
 ## Integration Notes
 

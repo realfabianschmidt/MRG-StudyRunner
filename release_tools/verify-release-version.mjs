@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
-const desktopRoot = path.join(repoRoot, 'desktop_wrapper');
+const desktopRoot = path.join(repoRoot, 'desktop');
 
 function readJson(relativePath) {
   return JSON.parse(readFileSync(path.join(desktopRoot, relativePath), 'utf8'));
