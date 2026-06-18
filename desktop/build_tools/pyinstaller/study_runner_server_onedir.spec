@@ -11,7 +11,7 @@ root = software_root(SPECPATH)
 sys.path.insert(0, str(root))
 
 a = Analysis(
-    [str(root / "study_runner" / "server.py")],
+    [str(root / "server.py")],
     pathex=[str(root)],
     binaries=[],
     datas=common_datas(root),

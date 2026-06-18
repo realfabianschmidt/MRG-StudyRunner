@@ -67,7 +67,7 @@ def _refresh_trial_runtime() -> None:
 def _spawn_server_restart(base_dir) -> None:
     server_file = base_dir / "server.py"
     if not server_file.exists():
-        server_file = base_dir / "study_runner" / "server.py"
+        server_file = base_dir / "study_runner" / "app_server.py"
     server_path = str(server_file)
     helper_code = (
         "import os, subprocess, sys, time; "

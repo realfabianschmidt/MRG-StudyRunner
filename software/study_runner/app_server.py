@@ -1,8 +1,6 @@
-"""
-Study Runner - server.py
-Runs on macOS or Windows and hosts the study for the iPad.
-Start with: python server.py
-Open on the iPad: http://<your-computer-ip>:3000
+"""Internal Flask app/server module for Study Runner.
+
+Use ``software/server.py`` as the local development entrypoint.
 """
 
 import os
@@ -35,7 +33,7 @@ def get_ssl_context():
     return "adhoc"
 
 
-if __name__ == "__main__":
+def run_app() -> None:
     host = read_server_host()
     port = read_server_port()
     local_ips = get_local_private_ips()
@@ -54,3 +52,7 @@ if __name__ == "__main__":
     print("-" * 50 + "\n")
 
     app.run(host=host, port=port, debug=is_debug_enabled(), ssl_context=ssl_context)
+
+
+if __name__ == "__main__":
+    run_app()

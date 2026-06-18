@@ -2,7 +2,7 @@
 
 Dieser Ordner ist die eigentliche Anwendung:
 
-- `server.py`: Python-Server fuer Browser- und Desktop-Modus.
+- `app_server.py`: internes Flask-App-Modul fuer Browser- und Desktop-Modus. Lokal gestartet wird ueber `../server.py`.
 - `backend/`: Flask-App, Routen und Services.
 - `web/`: Admin- und Teilnehmeroberflaeche.
 - `integrations/`: eingebaute Integrationen wie BrainBit, OSC, LSL, Notion und Kamera.
