@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from server_app import create_app
+from study_runner.backend import create_app
 
 
 class RuntimeRoutesTests(unittest.TestCase):

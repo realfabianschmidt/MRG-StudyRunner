@@ -40,11 +40,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify release version
-        run: node desktop_app/scripts/verify-release-version.mjs "$env:GITHUB_REF_NAME"
+        run: node release_tools/verify-release-version.mjs "$env:GITHUB_REF_NAME"
         if: runner.os == 'Windows'
 
       - name: Verify release version
-        run: node desktop_app/scripts/verify-release-version.mjs "$GITHUB_REF_NAME"
+        run: node release_tools/verify-release-version.mjs "$GITHUB_REF_NAME"
         if: runner.os != 'Windows'
 
       - name: Setup Node
@@ -52,7 +52,7 @@ jobs:
         with:
           node-version: lts/*
           cache: npm
-          cache-dependency-path: desktop_app/package-lock.json
+          cache-dependency-path: desktop_wrapper/package-lock.json
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -70,10 +70,10 @@ jobs:
 
       - name: Install Node dependencies
         run: npm ci
-        working-directory: desktop_app
+        working-directory: desktop_wrapper
 
       - name: Install Python build dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt -r packaging/requirements-build.txt
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt -r build_tools/pyinstaller/requirements-build.txt
 
       - name: Verify updater signing secret
         shell: bash
@@ -173,7 +173,7 @@ jobs:
 
       - name: Build Python sidecar
         run: npm run build:sidecar
-        working-directory: desktop_app
+        working-directory: desktop_wrapper
 
       - name: Build and upload Tauri bundles
         uses: tauri-apps/tauri-action@v0.6.2
@@ -185,7 +185,7 @@ jobs:
           WINDOWS_DIGEST_ALGORITHM: sha256
           WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL || 'http://timestamp.digicert.com' }}
         with:
-          projectPath: desktop_app
+          projectPath: desktop_wrapper
           tauriScript: npm run tauri
           tagName: ${{ github.ref_name }}
           releaseName: Study Runner ${{ github.ref_name }}

@@ -2,7 +2,7 @@
 
 ## Active Study
 
-The active study is stored in `settings/study_config.json`.
+The active study is stored in `study_content/settings/study_config.json`.
 
 Important fields:
 
@@ -10,7 +10,7 @@ Important fields:
 - `questions`: the ordered card list shown to the participant.
 - `study_settings`: study-level options such as sensor use and Notion upload target.
 
-Saved presets are stored in `saved_studies/` as `.study-runner` files.
+Saved presets are stored in `study_content/studies/` as `.study-runner` files.
 
 ## Results
 
@@ -30,7 +30,7 @@ Optional plugin sidecar files may be saved next to the main result file, for exa
 
 ## Browser Cards
 
-Question card modules live in `web_interface/scripts/cards/`. The type string in the study config must match the card registration in `web_interface/scripts/cards/index.js`.
+Question card modules live in `study_runner/web/scripts/cards/`. The type string in the study config must match the card registration in `study_runner/web/scripts/cards/index.js`.
 
 Common card types include:
 
@@ -51,12 +51,12 @@ Common card types include:
 ## Terms
 
 - `API`: a fixed backend route used by the browser, for example `/api/config`.
-- `Backend`: the Python server in `server_app/`.
-- `Frontend`: the browser files in `web_interface/`.
-- `Plugin`: a built-in integration folder under `plugins/`.
+- `Backend`: the Python server in `study_runner/backend/`.
+- `Frontend`: the browser files in `study_runner/web/`.
+- `Plugin`: a built-in integration folder under `study_runner/integrations/`.
 - `Adapter`: code inside a plugin that talks to an external tool or device.
-- `Registry`: `plugins/registry.py`, the explicit list of active built-in plugins.
+- `Registry`: `study_runner/integrations/registry.py`, the explicit list of active built-in plugins.
 - `LSL`: Lab Streaming Layer, used for synchronized markers and streams.
 - `OSC`: Open Sound Control, used for messages to tools such as TouchDesigner.
 - `XDF`: recording format commonly written by LabRecorder.
-- `Materiability`: the project font family stored in `web_interface/fonts/`.
+- `Materiability`: the project font family stored in `study_runner/web/fonts/`.

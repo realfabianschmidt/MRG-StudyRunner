@@ -3,6 +3,7 @@ server_app/__pycache__/
 server_app/services/__pycache__/
 plugins/__pycache__/
 plugins/*/__pycache__/
+study_runner/**/__pycache__/
 *.pyc
 .claude/
 saved_results/
@@ -13,6 +14,10 @@ plugins/brainbit_assets_to_copy/
 plugins/brainbit/logs/
 plugins/brainbit/recordings/
 settings/local_secrets.json
+study_content/settings/local_secrets.json
+study_runner/integrations/brainbit_assets_to_copy/
+study_runner/integrations/brainbit/logs/
+study_runner/integrations/brainbit/recordings/
 .env
 .env.*
 build/
@@ -22,3 +27,8 @@ desktop_app/.secrets/
 desktop_app/src-tauri/gen/
 desktop_app/src-tauri/target/
 desktop_app/src-tauri/binaries/study-runner-server-*
+desktop_wrapper/node_modules/
+desktop_wrapper/.secrets/
+desktop_wrapper/src-tauri/gen/
+desktop_wrapper/src-tauri/target/
+desktop_wrapper/src-tauri/binaries/study-runner-server-*

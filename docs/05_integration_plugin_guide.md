@@ -1,20 +1,20 @@
 # Integration Plugin Guide
 
-Study Runner uses built-in integration plugins. A plugin is a normal Python folder under `plugins/`. There is no automatic discovery and no external plugin marketplace.
+Study Runner uses built-in integration plugins. A plugin is a normal Python folder under `study_runner/integrations/`. There is no automatic discovery and no external plugin marketplace.
 
 ## Important Files
 
-- `plugins/plugin_api.py`: shared `IntegrationContext` and `IntegrationPlugin` types.
-- `plugins/registry.py`: explicit list of active built-in plugins.
-- `settings/hardware_settings.json`: persisted plugin settings.
-- `server_app/services/trial_service.py`: sends trial start and stop through the registry.
-- `server_app/services/results_service.py`: asks plugins for interval summaries and sidecar samples.
-- `server_app/services/admin_status_service.py`: builds dashboard status from the registry.
+- `study_runner/integrations/plugin_api.py`: shared `IntegrationContext` and `IntegrationPlugin` types.
+- `study_runner/integrations/registry.py`: explicit list of active built-in plugins.
+- `study_content/settings/hardware_settings.json`: persisted plugin settings.
+- `study_runner/backend/services/trial_service.py`: sends trial start and stop through the registry.
+- `study_runner/backend/services/results_service.py`: asks plugins for interval summaries and sidecar samples.
+- `study_runner/backend/services/admin_status_service.py`: builds dashboard status from the registry.
 
 ## Required Plugin Shape
 
 ```text
-plugins/my_new_sensor/
+study_runner/integrations/my_new_sensor/
   __init__.py
   plugin.py
   adapter.py
@@ -23,7 +23,7 @@ plugins/my_new_sensor/
 `plugin.py` must export one object:
 
 ```python
-from plugins.plugin_api import IntegrationPlugin
+from study_runner.integrations.plugin_api import IntegrationPlugin
 
 PLUGIN = IntegrationPlugin(
     key="my_new_sensor",
@@ -33,7 +33,7 @@ PLUGIN = IntegrationPlugin(
 )
 ```
 
-To enable the plugin, import it explicitly in `plugins/registry.py` and add it to the `PLUGINS` tuple. Then add its settings section to `settings/hardware_settings.json`.
+To enable the plugin, import it explicitly in `study_runner/integrations/registry.py` and add it to the `PLUGINS` tuple. Then add its settings section to `study_content/settings/hardware_settings.json`.
 
 ## Lifecycle Callbacks
 
@@ -71,5 +71,5 @@ The registry normalizes common fields:
 - Keep adapter code specific to one external tool or device.
 - Keep plugin registry entries explicit.
 - Keep secrets out of browser responses and Git-tracked settings.
-- Store backend-local secrets in `settings/local_secrets.json`.
+- Store backend-local secrets in `study_content/settings/local_secrets.json`.
 - Do not add dynamic plugin loading unless the project deliberately changes architecture later.
