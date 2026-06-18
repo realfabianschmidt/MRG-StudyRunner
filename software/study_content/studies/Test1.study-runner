@@ -1,0 +1,21 @@
+{
+  "study_id": "Test1",
+  "questions": [
+    {
+      "type": "participant-id",
+      "prompt": "Bitte gib deine Daten zur anonymen Identifikation ein."
+    },
+    {
+      "type": "finish",
+      "title": "Vielen Dank!",
+      "prompt": "Deine Antworten wurden gespeichert.\nDu kannst das Gerät jetzt ablegen."
+    }
+  ],
+  "study_settings": {
+    "sensors_enabled": true,
+    "notion_enabled": false,
+    "notion_parent_page_id": "",
+    "notion_database_id": "",
+    "notion_data_source_id": ""
+  }
+}

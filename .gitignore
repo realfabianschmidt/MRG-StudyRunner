@@ -1,34 +1,29 @@
+# Python caches
 __pycache__/
-server_app/__pycache__/
-server_app/services/__pycache__/
-plugins/__pycache__/
-plugins/*/__pycache__/
-study_runner/**/__pycache__/
 *.pyc
-.claude/
+
+# Local study results and secrets (never commit these)
+software/saved_results/
 saved_results/
-app/
-tools/
-web_interface/static/
-plugins/brainbit_assets_to_copy/
-plugins/brainbit/logs/
-plugins/brainbit/recordings/
-settings/local_secrets.json
-study_content/settings/local_secrets.json
-study_runner/integrations/brainbit_assets_to_copy/
-study_runner/integrations/brainbit/logs/
-study_runner/integrations/brainbit/recordings/
+software/study_content/settings/local_secrets.json
+software/study_runner/integrations/brainbit_assets_to_copy/
+software/study_runner/integrations/brainbit/logs/
+software/study_runner/integrations/brainbit/recordings/
+
+# Environment and editor tooling
 .env
 .env.*
+.claude/
+
+# Python build output (PyInstaller writes into software/)
+software/build/
+software/dist/
 build/
 dist/
-desktop_app/node_modules/
-desktop_app/.secrets/
-desktop_app/src-tauri/gen/
-desktop_app/src-tauri/target/
-desktop_app/src-tauri/binaries/study-runner-server-*
-desktop_wrapper/node_modules/
-desktop_wrapper/.secrets/
-desktop_wrapper/src-tauri/gen/
-desktop_wrapper/src-tauri/target/
-desktop_wrapper/src-tauri/binaries/study-runner-server-*
+
+# Desktop wrapper build output
+desktop/node_modules/
+desktop/.secrets/
+desktop/src-tauri/gen/
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/study-runner-server-*

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
-const desktopRoot = path.join(repoRoot, 'desktop_wrapper');
+const desktopRoot = path.join(repoRoot, 'desktop');
 const tauriRoot = path.join(desktopRoot, 'src-tauri');
 const isWindows = process.platform === 'win32';
 const npmCommand = isWindows ? 'npm.cmd' : 'npm';
@@ -27,6 +27,10 @@ Usage:
 
 Recommended non-coder command on Windows:
   .\\release.ps1 patch
+
+Requirements on the machine that runs a release:
+  Git, Node.js + npm, Python 3.12, Rust (cargo), and the GitHub CLI (gh, logged in).
+  Use --skip-checks to skip the local build checks if the toolchain is incomplete.
 
 The release command creates one branch, opens a PR, waits for CI, merges it,
 pushes app-v<version>, waits for the release workflow, and verifies latest.json.
@@ -79,6 +83,8 @@ function gh(args, options = {}) {
   return run('gh', args, options);
 }
 
+// Block the current step for `ms` without async. Atomics.wait is a simple, dependency-free
+// synchronous sleep; this CLI runs one step at a time, so a busy wait here is fine.
 function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -100,7 +106,7 @@ function writeJson(relativePath, value) {
 }
 
 function currentDesktopVersion() {
-  return readJson('desktop_wrapper/package.json').version;
+  return readJson('desktop/package.json').version;
 }
 
 function ensureSemver(value) {
@@ -202,22 +208,22 @@ function replacePackageVersion(relativePath, nextVersion) {
 }
 
 function replacePackageLockVersion(nextVersion) {
-  const lock = readJson('desktop_wrapper/package-lock.json');
+  const lock = readJson('desktop/package-lock.json');
   lock.version = nextVersion;
   if (lock.packages?.['']) {
     lock.packages[''].version = nextVersion;
   }
-  writeJson('desktop_wrapper/package-lock.json', lock);
+  writeJson('desktop/package-lock.json', lock);
 }
 
 function replaceTauriVersion(nextVersion) {
-  const config = readJson('desktop_wrapper/src-tauri/tauri.conf.json');
+  const config = readJson('desktop/src-tauri/tauri.conf.json');
   config.version = nextVersion;
-  writeJson('desktop_wrapper/src-tauri/tauri.conf.json', config);
+  writeJson('desktop/src-tauri/tauri.conf.json', config);
 }
 
 function replaceCargoTomlVersion(nextVersion) {
-  const relativePath = 'desktop_wrapper/src-tauri/Cargo.toml';
+  const relativePath = 'desktop/src-tauri/Cargo.toml';
   const input = readText(relativePath);
   const output = input.replace(
     /(^\[package\][\s\S]*?^version\s*=\s*")[^"]+(")/m,
@@ -230,7 +236,7 @@ function replaceCargoTomlVersion(nextVersion) {
 }
 
 function replaceCargoLockVersion(nextVersion) {
-  const relativePath = 'desktop_wrapper/src-tauri/Cargo.lock';
+  const relativePath = 'desktop/src-tauri/Cargo.lock';
   const input = readText(relativePath);
   const output = input.replace(
     /(\[\[package\]\]\r?\nname = "study-runner-desktop"\r?\nversion = ")[^"]+(")/,
@@ -243,19 +249,42 @@ function replaceCargoLockVersion(nextVersion) {
 }
 
 function bumpVersions(nextVersion) {
-  replacePackageVersion('desktop_wrapper/package.json', nextVersion);
+  replacePackageVersion('desktop/package.json', nextVersion);
   replacePackageLockVersion(nextVersion);
   replaceTauriVersion(nextVersion);
   replaceCargoTomlVersion(nextVersion);
   replaceCargoLockVersion(nextVersion);
 }
 
+// A release builds the Python sidecar and the Rust crate, so it needs the full local
+// toolchain. Check it up front with a friendly message instead of failing mid-build.
+function ensureToolchain() {
+  const tools = [
+    { cmd: 'node', args: ['--version'], hint: 'Install Node.js from https://nodejs.org' },
+    { cmd: npmCommand, args: ['--version'], hint: 'npm ships with Node.js' },
+    { cmd: 'python', args: ['--version'], hint: 'Install Python 3.12 from https://python.org' },
+    { cmd: 'cargo', args: ['--version'], hint: 'Install Rust from https://rustup.rs' },
+    { cmd: 'git', args: ['--version'], hint: 'Install Git from https://git-scm.com' },
+  ];
+  const missing = [];
+  for (const tool of tools) {
+    const result = run(tool.cmd, tool.args, { capture: true, allowFailure: true });
+    if (result.error || result.status !== 0) {
+      missing.push(`- ${tool.cmd}: ${tool.hint}`);
+    }
+  }
+  if (missing.length > 0) {
+    fail(`Some tools needed for a release are missing:\n${missing.join('\n')}\n\nInstall them, or run with --skip-checks to skip the local build checks.`);
+  }
+}
+
 function runChecks(nextVersion) {
-  run('node', ['--check', 'desktop_wrapper/web/main.js']);
+  ensureToolchain();
+  run('node', ['--check', 'desktop/web/main.js']);
   run('node', ['--check', 'release_tools/verify-release-version.mjs']);
   run('node', ['release_tools/verify-release-version.mjs', releaseTagName(nextVersion)]);
-  run('python', ['-m', 'pytest']);
-  run(npmCommand, ['--prefix', 'desktop_wrapper', 'run', 'build:sidecar']);
+  run('python', ['-m', 'pytest', 'software']);
+  run(npmCommand, ['--prefix', 'desktop', 'run', 'build:sidecar']);
   run('cargo', ['check', '-q'], { cwd: tauriRoot });
   git(['diff', '--check']);
 }
@@ -386,9 +415,9 @@ function readVersionFromGit(ref, relativePath, reader) {
 
 function verifyRemoteMainVersion(version) {
   const versions = {
-    'desktop_wrapper/package.json': readVersionFromGit('origin/main', 'desktop_wrapper/package.json', (content) => JSON.parse(content).version),
-    'desktop_wrapper/src-tauri/tauri.conf.json': readVersionFromGit('origin/main', 'desktop_wrapper/src-tauri/tauri.conf.json', (content) => JSON.parse(content).version),
-    'desktop_wrapper/src-tauri/Cargo.toml': readVersionFromGit('origin/main', 'desktop_wrapper/src-tauri/Cargo.toml', versionFromCargoToml),
+    'desktop/package.json': readVersionFromGit('origin/main', 'desktop/package.json', (content) => JSON.parse(content).version),
+    'desktop/src-tauri/tauri.conf.json': readVersionFromGit('origin/main', 'desktop/src-tauri/tauri.conf.json', (content) => JSON.parse(content).version),
+    'desktop/src-tauri/Cargo.toml': readVersionFromGit('origin/main', 'desktop/src-tauri/Cargo.toml', versionFromCargoToml),
   };
 
   const mismatches = Object.entries(versions).filter(([, value]) => value !== version);
@@ -584,9 +613,9 @@ async function release(input) {
 function status() {
   console.log(`Branch: ${currentBranch() || '<detached>'}`);
   console.log(`Git status:\n${git(['status', '--short'], { capture: true }) || '<clean>'}`);
-  console.log(`Desktop package version: ${readJson('desktop_wrapper/package.json').version}`);
-  console.log(`Tauri config version: ${readJson('desktop_wrapper/src-tauri/tauri.conf.json').version}`);
-  console.log(`Cargo version: ${versionFromCargoToml(readText('desktop_wrapper/src-tauri/Cargo.toml'))}`);
+  console.log(`Desktop package version: ${readJson('desktop/package.json').version}`);
+  console.log(`Tauri config version: ${readJson('desktop/src-tauri/tauri.conf.json').version}`);
+  console.log(`Cargo version: ${versionFromCargoToml(readText('desktop/src-tauri/Cargo.toml'))}`);
 }
 
 if (!command || command === '--help' || command === '-h') {
