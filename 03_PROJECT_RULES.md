@@ -14,7 +14,7 @@ It keeps only the rules that are useful for this small Study Runner project. The
 ## Language rule
 
 - Required: Active technical documentation must be written in English.
-- Exception: `START_HERE.md` may be written in German because it is the non-coder entry point requested for this repository.
+- Exception: `01_START_HERE.md` may be written in German because it is the non-coder entry point requested for this repository.
 - Required: All code comments must be written in English.
 - Required: All implementation plans, developer notes, and work instructions must be written in English.
 - Required: New file names for documentation should be clear English names.
@@ -84,7 +84,7 @@ It keeps only the rules that are useful for this small Study Runner project. The
 - Then add answer collection.
 - Then update validation and documentation.
 - Required: External tools such as BrainBit or TouchDesigner should live in small adapter files.
-- Required: Built-in integrations should be registered in `study_runner/integrations/registry.py` so status, dashboard controls, trial callbacks, and sidecar exports follow one model.
+- Required: Built-in integrations should be registered in `software/study_runner/integrations/registry.py` so status, dashboard controls, trial callbacks, and sidecar exports follow one model.
 - Required: Extend the existing simple path instead of building a second system next to it.
 
 ## 8. Write documents for humans

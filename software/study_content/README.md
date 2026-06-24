@@ -1,9 +1,9 @@
 # Study Content
 
-Hier liegen die anpassbaren Standardinhalte:
+This folder contains editable default content.
 
-- `settings/study_config.json`: aktive Standardstudie.
-- `settings/hardware_settings.json`: Standardwerte fuer Integrationen.
-- `studies/`: wiederverwendbare Studienvorlagen.
+- `settings/study_config.json`: active default study.
+- `settings/hardware_settings.json`: default integration settings.
+- `studies/`: reusable `.study-runner` study presets.
 
-Im Desktop-Modus werden diese Dateien nur beim ersten Start in den App-Data-Ordner kopiert. Spaetere Updates ueberschreiben lokale Nutzerstudien und lokale Settings nicht.
+In desktop mode, these files are copied into the platform app-data folder only on first start. Later updates do not overwrite local user studies, local settings, saved results, or local secrets.

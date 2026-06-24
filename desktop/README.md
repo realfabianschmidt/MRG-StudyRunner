@@ -1,13 +1,13 @@
 # Desktop Wrapper
 
-Dieser Ordner macht aus Study Runner eine installierbare Desktop-App.
+This folder turns Study Runner into an installable desktop app.
 
-Er enthaelt:
+It contains:
 
-- Tauri-Konfiguration und Rust-Wrapper in `src-tauri/`.
-- Launcher-UI in `web/`.
-- Hilfsskripte in `scripts/`.
+- Tauri configuration and the Rust wrapper in `src-tauri/`.
+- Launcher UI files in `web/`.
+- Build and signing helper scripts in `scripts/`.
+- PyInstaller sidecar build files in `build_tools/`.
 
-Die eigentliche Study-Runner-App liegt im Nachbarordner `software/`:
-`software/study_runner/` enthaelt den Code, `software/study_content/` die Studieninhalte.
-Dieser Wrapper-Ordner wird nur angefasst, wenn der Launcher selbst geaendert werden soll.
+The actual Study Runner app lives next to this folder in `software/`.
+Use `software/server.py` as the local browser-mode entrypoint. The desktop wrapper should only be changed when the launcher, updater, packaging, or signing flow changes.

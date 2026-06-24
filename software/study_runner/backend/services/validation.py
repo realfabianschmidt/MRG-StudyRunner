@@ -396,18 +396,25 @@ def _validate_question(question_data: Any, question_index: int) -> dict[str, Any
         }
 
     if question_type == "participant-id":
-        return {
+        normalized = {
             "type": "participant-id",
             "prompt": _normalize_text(question_data.get("prompt")),
         }
+        code_label = _normalize_text(question_data.get("code_label"))
+        if code_label:
+            normalized["code_label"] = code_label
+        code_hint = _normalize_text(question_data.get("code_hint"))
+        if code_hint:
+            normalized["code_hint"] = code_hint
+        return normalized
 
     if question_type == "finish":
         return {
             "type": "finish",
-            "title": _normalize_text(question_data.get("title"), default="Vielen Dank!"),
+            "title": _normalize_text(question_data.get("title"), default="Thank you!"),
             "prompt": _normalize_text(
                 question_data.get("prompt"),
-                default="Deine Antworten wurden gespeichert.\nDu kannst das Gerät jetzt ablegen.",
+                default="Your answers have been saved.\nYou can now put the device down.",
             ),
         }
 

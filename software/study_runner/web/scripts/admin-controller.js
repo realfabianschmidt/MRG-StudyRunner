@@ -106,12 +106,12 @@ async function init() {
 }
 
 function updateHubTitle() {
-  const studyId = $('cfg-id').value.trim() || 'Unbenannte Studie';
+  const studyId = $('cfg-id').value.trim() || t('admin.unnamedStudy', 'Untitled study');
   const hubTitle = $('hub-active-title');
   if (hubTitle) hubTitle.textContent = studyId;
 }
 function getCurrentStudyName() {
-  return $('cfg-id').value.trim() || state.config.study_id || 'Unbenannte Studie';
+  return $('cfg-id').value.trim() || state.config.study_id || t('admin.unnamedStudy', 'Untitled study');
 }
 
 function switchView(viewId) {
@@ -122,26 +122,27 @@ function switchView(viewId) {
 }
 
 function startNewStudy() {
+  const studyName = t('admin.newStudyDefault', 'New study');
   state.config = {
-    study_id: "Neue Studie",
+    study_id: studyName,
     questions: [defaultFor('participant-id'), defaultFor('finish')],
     study_settings: defaultStudySettings(),
   };
-  $('cfg-id').value = "Neue Studie";
+  $('cfg-id').value = studyName;
   updateHubTitle();
   rebuildAll();
   markUnsaved();
   showToast(t('toast.studyCreated'), 'info');
-  
-  // Direkt in den Editor springen
+
+  // Open the editor immediately after creating the study.
   switchView('view-workspace');
 }
 
 function openTypePicker() {
-  $('overlay-type-tag').innerHTML = `<i class="iconoir-plus"></i> Add question`;
+  $('overlay-type-tag').innerHTML = `<i class="iconoir-plus"></i> ${escapeHtml(t('question.addTag', 'Add question'))}`;
 
   $('editor-fields').innerHTML = `
-    <div class="type-picker-title">Choose question type</div>
+    <div class="type-picker-title">${escapeHtml(t('question.chooseType', 'Choose question type'))}</div>
     <div class="type-grid">
       ${CARD_TYPES.filter(ct => ct.type !== 'participant-id' && ct.type !== 'finish').map(({ type, module, overrideMeta }) => {
         const meta = overrideMeta || module.meta;
@@ -256,8 +257,10 @@ function renderAccessInfo() {
   }
   if (hint) {
     hint.removeAttribute('data-i18n');
-    const mode = info.app_mode ? `Mode: ${info.app_mode}. ` : '';
-    const dataDir = info.data_dir ? `Data folder: ${info.data_dir}` : 'Use the participant link from a tablet or browser on the same private network.';
+    const mode = info.app_mode ? `${t('access.mode', 'Mode')}: ${info.app_mode}. ` : '';
+    const dataDir = info.data_dir
+      ? `${t('access.dataFolder', 'Data folder')}: ${info.data_dir}`
+      : t('access.hint', 'Use the participant link from a tablet or browser on the same private network.');
     hint.textContent = `${mode}${dataDir}`;
   }
 }
@@ -276,7 +279,7 @@ function renderAccessInfoError() {
   }
   if (hint) {
     hint.removeAttribute('data-i18n');
-    hint.textContent = 'Runtime info is unavailable. The current browser origin is shown as fallback.';
+    hint.textContent = t('access.runtimeUnavailable', 'Runtime info is unavailable. The current browser origin is shown as fallback.');
   }
 }
 
@@ -563,10 +566,10 @@ function renderListItemMarkup(question, questionIndex, meta) {
     <i class="iconoir-${meta.icon} admin-q-type-icon"></i>
     <span class="admin-q-label">${renderCardLabel(question)}</span>
     <div class="admin-q-actions">
-      <button type="button" class="admin-q-drag" data-role="drag-question" draggable="${!isFixed}" ${isFixed ? 'disabled' : ''} title="Drag to reorder" aria-label="Drag to reorder">
+      <button type="button" class="admin-q-drag" data-role="drag-question" draggable="${!isFixed}" ${isFixed ? 'disabled' : ''} title="${escapeHtml(t('question.dragToReorder', 'Drag to reorder'))}" aria-label="${escapeHtml(t('question.dragToReorder', 'Drag to reorder'))}">
         <i class="iconoir-menu-scale"></i>
       </button>
-      <button type="button" class="del" data-role="remove-question" data-index="${questionIndex}" title="Remove" ${isFixed ? 'disabled' : ''}>
+      <button type="button" class="del" data-role="remove-question" data-index="${questionIndex}" title="${escapeHtml(t('question.remove', 'Remove'))}" ${isFixed ? 'disabled' : ''}>
         <i class="iconoir-trash"></i>
       </button>
     </div>`;
@@ -590,7 +593,7 @@ function rebuildPreview() {
       <div class="q-card-study">${cardModule.renderStudy(question, questionIndex)}</div>
       <div class="preview-card-overlay">
         <button type="button" data-role="select-card" data-index="${questionIndex}">
-          <i class="iconoir-edit-pencil"></i> Edit
+          <i class="iconoir-edit-pencil"></i> ${escapeHtml(t('question.edit', 'Edit'))}
         </button>
       </div>`;
     preview.appendChild(wrap);
@@ -677,7 +680,8 @@ function addQuestion(type) {
 }
 
 function removeQuestion(index) {
-  if (!confirm(`Remove question ${index + 1}?`)) {
+  const message = t('question.removeConfirm', 'Remove question {number}?').replace('{number}', String(index + 1));
+  if (!confirm(message)) {
     return;
   }
 
@@ -722,7 +726,7 @@ function handleTriggerTypePill(pillElement) {
       const savedValue = currentInput.value;
       const label = contentField.querySelector('label');
       if (label) {
-        label.textContent = isCode ? 'Code' : 'URL';
+        label.textContent = isCode ? t('stimulus.codeLabel', 'Code') : t('stimulus.urlLabel', 'URL');
       }
 
       let replacement;
@@ -730,13 +734,13 @@ function handleTriggerTypePill(pillElement) {
         replacement = document.createElement('textarea');
         replacement.className = 'se-trigger-content se-trigger-content--code';
         replacement.rows = 6;
-        replacement.placeholder = `Paste ${triggerType} code here...`;
+        replacement.placeholder = t('stimulus.codePlaceholder', 'Paste {type} code here...').replace('{type}', triggerType);
         replacement.value = savedValue;
       } else {
         replacement = document.createElement('input');
         replacement.type = 'url';
         replacement.className = 'se-trigger-content';
-        replacement.placeholder = 'https://...';
+        replacement.placeholder = t('stimulus.urlPlaceholder', 'https://...');
         replacement.value = savedValue;
       }
       currentInput.replaceWith(replacement);
@@ -757,7 +761,7 @@ function ensureBookends(questions) {
 }
 
 async function saveConfig(options = {}) {
-  const { successMessage = 'Saved', skipToast = false } = options;
+  const { successMessage = t('toast.studySaved', 'Study saved'), skipToast = false } = options;
   let questions = state.config.questions || [];
   ensureBookends(questions);
 
@@ -818,7 +822,7 @@ function loadFromFile() {
       rebuildAll();
       state.loaded = true;
       markUnsaved();
-      showToast(`Loaded: ${file.name}`, 'info');
+      showToast(t('toast.loadedFile', 'Loaded: {name}').replace('{name}', file.name), 'info');
       checkIntegrationReadinessForStudy();
     } catch {
       showToast(t('toast.invalidJson'), 'error');
@@ -861,12 +865,13 @@ async function downloadStudy(id) {
 }
 
 async function deleteStudy(id) {
-  if (!confirm(`M\u00f6chtest du die Studie "${id}" wirklich unwiderruflich l\u00f6schen?`)) return;
+  const message = t('hub.recent.deleteConfirm', 'Delete study "{id}" permanently?').replace('{id}', id);
+  if (!confirm(message)) return;
   try {
     const response = await fetch(`/api/admin/studies/${encodeURIComponent(id)}`, { method: 'DELETE' });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload.ok === false) {
-      throw new Error(payload.error || 'Delete failed');
+      throw new Error(payload.error || t('toast.deleteFailed', 'Delete failed'));
     }
     showToast(t('toast.studyDeleted'), 'success');
     await loadRecentStudies();
@@ -883,7 +888,7 @@ async function loadRecentStudies() {
       listEl.innerHTML = `
         <div class="hub-recent-item empty">
           <i class="iconoir-clock"></i>
-          <div>Noch keine Studien gespeichert.</div>
+          <div>${escapeHtml(t('hub.recent.empty', 'No saved studies yet.'))}</div>
         </div>`;
       return;
     }
@@ -894,13 +899,13 @@ async function loadRecentStudies() {
           <i class="iconoir-journal-page" style="font-size: 20px; color: var(--accent);"></i>
           <div style="text-align: left;">
             <div style="font-weight: 600; color: var(--ink);">${escapeHtml(s.id)}</div>
-            <div style="font-size: 0.75rem; color: var(--ink-40);">Zuletzt bearbeitet: ${new Date(s.modified * 1000).toLocaleString()}</div>
+            <div style="font-size: 0.75rem; color: var(--ink-40);">${escapeHtml(t('hub.recent.modified', 'Last edited'))}: ${new Date(s.modified * 1000).toLocaleString(getLanguage())}</div>
           </div>
         </div>
         <div class="hub-recent-actions" style="display: flex; gap: 6px;">
-          <button class="btn-icon-only" data-action="load" title="Laden / Bearbeiten"><i class="iconoir-edit-pencil"></i></button>
-          <button class="btn-icon-only" data-action="download" title="Herunterladen"><i class="iconoir-download"></i></button>
-          <button class="btn-icon-only" data-action="delete" title="L\u00f6schen" style="color: #D32F2F; border-color: rgba(211,47,47,0.3);"><i class="iconoir-trash"></i></button>
+          <button class="btn-icon-only" data-action="load" title="${escapeHtml(t('hub.recent.loadEdit', 'Load / edit'))}"><i class="iconoir-edit-pencil"></i></button>
+          <button class="btn-icon-only" data-action="download" title="${escapeHtml(t('hub.recent.download', 'Download'))}"><i class="iconoir-download"></i></button>
+          <button class="btn-icon-only" data-action="delete" title="${escapeHtml(t('hub.recent.delete', 'Delete'))}" style="color: #D32F2F; border-color: rgba(211,47,47,0.3);"><i class="iconoir-trash"></i></button>
         </div>
       </div>
     `).join('');
@@ -919,7 +924,7 @@ async function loadRecentStudies() {
 
 function renderCardLabel(question) {
   const label = getCardLabel(question);
-  return label ? escapeHtml(label) : '<em>no text</em>';
+  return label ? escapeHtml(label) : `<em>${escapeHtml(t('question.noText', 'no text'))}</em>`;
 }
 
 function getCardLabel(question) {
@@ -962,17 +967,13 @@ function saveStudySettings() {
   showToast(t('toast.studySettingsApplied'), 'info');
 }
 
-function toggleStudyNotionFields() {
-  return;
-}
-
 async function checkIntegrationReadinessForStudy() {
   const s = state.config.study_settings || {};
   if (s.notion_enabled) {
     try {
       const status = await getJson('/api/notion/status');
       if (!status.connected) {
-        alert("Achtung: Diese Studie nutzt den Notion-Upload, aber auf diesem Host-Rechner ist kein Notion API-Key konfiguriert.\n\nBitte hinterlege einen API-Key in den Notion Settings, damit der Upload funktioniert.");
+        alert(t('notion.missingKeyAlert', 'This study uses Notion upload, but this host has no Notion API key configured. Add an API key in Notion Settings before running uploads.'));
       }
     } catch(e) {}
   }

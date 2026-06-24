@@ -9,7 +9,7 @@ export const meta = { type: 'mood-meter', icon: 'app-window', label: 'Mood Meter
 const QUADRANTS = [
   {
     id: 'red',
-    label: 'High Energy · Unpleasant',
+    label: 'High Energy - Unpleasant',
     color: '#C0392B', colorDark: '#7B241C',
     dirX: -1, dirY: -1,
     examples: ['Stressed', 'Anxious', 'Frustrated'],
@@ -23,7 +23,7 @@ const QUADRANTS = [
   },
   {
     id: 'yellow',
-    label: 'High Energy · Pleasant',
+    label: 'High Energy - Pleasant',
     color: '#D4860A', colorDark: '#9A6108',
     dirX: 1, dirY: -1,
     examples: ['Excited', 'Happy', 'Enthusiastic'],
@@ -37,7 +37,7 @@ const QUADRANTS = [
   },
   {
     id: 'green',
-    label: 'Low Energy · Pleasant',
+    label: 'Low Energy - Pleasant',
     color: '#1E8449', colorDark: '#145A32',
     dirX: 1, dirY: 1,
     examples: ['Calm', 'Content', 'Serene'],
@@ -51,7 +51,7 @@ const QUADRANTS = [
   },
   {
     id: 'blue',
-    label: 'Low Energy · Unpleasant',
+    label: 'Low Energy - Unpleasant',
     color: '#2471A3', colorDark: '#1A5276',
     dirX: -1, dirY: 1,
     examples: ['Sad', 'Tired', 'Hopeless'],
@@ -98,7 +98,7 @@ export function renderStudy(q, i) {
     <button class="mm-quad-btn" data-card-index="${i}" data-quadrant="${quad.id}"
             style="--mm-color:${quad.color};">
       <span class="mm-quad-label">${escapeHtml(quad.label)}</span>
-      <span class="mm-quad-examples">${quad.examples.slice(0, 3).map(w => escapeHtml(w)).join(' · ')}</span>
+      <span class="mm-quad-examples">${quad.examples.slice(0, 3).map(w => escapeHtml(w)).join(' - ')}</span>
     </button>`;
   }).join('');
 

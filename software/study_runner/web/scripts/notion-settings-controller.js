@@ -1,5 +1,7 @@
 ﻿import { getJson, postJson } from './api-client.js';
 
+import { t } from './i18n.js';
+
 let callbacks = {};
 let clearKeyRequested = false;
 let initialized = false;
@@ -58,11 +60,11 @@ async function openNotionSettings() {
     setClearKeyRequested(false);
     populateStudyForm();
     $('notion-api-key-status').textContent = config.api_key_configured
-      ? 'API key is already stored on this backend. Leave the field empty to keep it.'
-      : 'No backend-local API key is stored yet.';
+      ? t('notion.apiKeyAlreadyStored', 'API key is already stored on this backend. Leave the field empty to keep it.')
+      : t('notion.noBackendApiKey', 'No backend-local API key is stored yet.');
   } catch (error) {
     console.error('[notion] Could not load config:', error);
-    callbacks.showToast?.('Could not load Notion settings', 'error');
+    callbacks.showToast?.(t('notion.loadFailed', 'Could not load Notion settings'), 'error');
   }
   await refreshNotionStatus();
 }
@@ -81,11 +83,11 @@ async function saveGlobalNotionSettings() {
     await postJson('/api/hardware-config', hardwareConfig);
     $('notion-api-key').value = '';
     setClearKeyRequested(false);
-    callbacks.showToast?.('Notion settings saved', 'success');
+    callbacks.showToast?.(t('notion.settingsSaved', 'Notion settings saved'), 'success');
     await refreshNotionStatus();
   } catch (error) {
     console.error('[notion] Save failed:', error);
-    callbacks.showToast?.('Notion save failed', 'error');
+    callbacks.showToast?.(t('notion.saveFailed', 'Notion save failed'), 'error');
   }
 }
 
@@ -100,10 +102,10 @@ async function saveStudyNotionSettings() {
   });
 
   const saved = await callbacks.saveStudyConfig?.({
-    successMessage: 'Studie inklusive Notion-Settings gespeichert.',
+    successMessage: t('notion.studySettingsSavedFull', 'Study including Notion settings saved.'),
   });
   if (saved !== false) {
-    callbacks.showToast?.('Study Notion target saved', 'success');
+    callbacks.showToast?.(t('notion.studyTargetSaved', 'Study Notion target saved'), 'success');
     await refreshNotionStatus();
   }
 }
@@ -113,7 +115,7 @@ async function flushNotionQueue() {
   const originalText = button?.innerHTML || '';
   if (button) {
     button.disabled = true;
-    button.innerHTML = '<i class="iconoir-refresh"></i> Uploading...';
+    button.innerHTML = `<i class="iconoir-refresh"></i> ${escapeHtml(t('notion.uploading', 'Uploading...'))}`;
   }
 
   try {
@@ -121,13 +123,13 @@ async function flushNotionQueue() {
     await refreshNotionStatus();
     const err = result.last_error || result.error;
     if (result.remaining > 0 && err) {
-      callbacks.showToast?.(`${result.remaining} uploads failed`, 'error');
+      callbacks.showToast?.(t('notion.uploadsFailed', '{count} uploads failed').replace('{count}', String(result.remaining)), 'error');
     } else {
-      callbacks.showToast?.(`${result.succeeded ?? 0} uploads completed`, 'success');
+      callbacks.showToast?.(t('notion.uploadsCompleted', '{count} uploads completed').replace('{count}', String(result.succeeded ?? 0)), 'success');
     }
   } catch (error) {
     console.error('[notion] Flush failed:', error);
-    callbacks.showToast?.('Notion queue upload failed', 'error');
+    callbacks.showToast?.(t('notion.queueUploadFailed', 'Notion queue upload failed'), 'error');
   } finally {
     if (button) {
       button.disabled = false;
@@ -155,7 +157,7 @@ async function testNotionConnection() {
     if (icon) icon.className = result.ok ? 'iconoir-plug' : 'iconoir-plug-xmark';
   } catch (error) {
     if (resultEl) {
-      resultEl.innerHTML = `<div class="notion-test-result-box notion-test-result-box--fail"><div class="notion-test-row"><i class="iconoir-xmark-circle"></i><span>Server error: ${escapeHtml(error.message)}</span></div></div>`;
+      resultEl.innerHTML = `<div class="notion-test-result-box notion-test-result-box--fail"><div class="notion-test-row"><i class="iconoir-xmark-circle"></i><span>${escapeHtml(t('notion.serverError', 'Server error'))}: ${escapeHtml(error.message)}</span></div></div>`;
       resultEl.hidden = false;
     }
     if (icon) icon.className = 'iconoir-plug-xmark';
@@ -197,51 +199,55 @@ function renderNotionStatus(status) {
   setText('notion-active-study-name', studyName);
   setText('notion-global-status', globalStatusLabel(status));
   setText('notion-global-hint', globalStatusHint(status));
-  setText('notion-storage-value', status.api_key_configured ? (status.api_key_storage || 'configured') : 'not stored');
+  setText('notion-storage-value', status.api_key_configured ? (status.api_key_storage || t('notion.configured', 'configured')) : t('notion.notStored', 'not stored'));
   setText('notion-storage-hint', status.api_key_configured
-    ? 'New API-key input is stored backend-local on this computer.'
-    : `Saving stores the key in ${status.local_secrets_file || 'local_secrets.json'}.`);
+    ? t('notion.newKeyStoredLocal', 'New API-key input is stored backend-local on this computer.')
+    : t('notion.savingStoresKey', 'Saving stores the key in {file}.').replace('{file}', status.local_secrets_file || 'local_secrets.json'));
   setText('notion-api-key-status', status.api_key_configured
-    ? `Currently used: ${status.api_key_storage || 'configured'}. Leave empty to keep it.`
-    : 'No backend-local API key is stored yet.');
-  setText('notion-study-status', status.current_study_notion_enabled ? `${studyName} uploads` : `${studyName} does not upload`);
+    ? t('notion.currentlyUsed', 'Currently used: {source}. Leave empty to keep it.').replace('{source}', status.api_key_storage || t('notion.configured', 'configured'))
+    : t('notion.noBackendApiKey', 'No backend-local API key is stored yet.'));
+  setText('notion-study-status', status.current_study_notion_enabled
+    ? t('notion.studyUploads', '{name} uploads').replace('{name}', studyName)
+    : t('notion.studyDoesNotUpload', '{name} does not upload').replace('{name}', studyName));
   setText('notion-study-hint', studyStatusHint(status));
   const queueSize = status.queue_size ?? 0;
-  setText('notion-queue-value', queueSize > 0 ? `${queueSize} waiting` : 'empty');
+  setText('notion-queue-value', queueSize > 0 ? t('notion.queueWaiting', '{count} waiting').replace('{count}', String(queueSize)) : t('notion.queueEmpty', 'empty'));
   setText('notion-queue-detail', queueExplanation(status));
-  setText('notion-queue-status', `Queue: ${queueSize} waiting - API: ${status.connected ? 'connected' : 'not connected'}`);
+  setText('notion-queue-status', t('notion.queueStatus', 'Queue: {count} waiting - API: {state}')
+    .replace('{count}', String(queueSize))
+    .replace('{state}', status.connected ? t('notion.connected', 'connected') : t('notion.notConnected', 'not connected')));
 }
 
 function globalStatusLabel(status) {
-  if (!status.enabled_globally) return 'disabled';
-  if (status.connected) return 'connected';
-  if (status.api_key_configured) return 'configured';
-  return 'waiting for API key';
+  if (!status.enabled_globally) return t('notion.disabled', 'disabled');
+  if (status.connected) return t('notion.connected', 'connected');
+  if (status.api_key_configured) return t('notion.configured', 'configured');
+  return t('notion.waitingApiKey', 'waiting for API key');
 }
 
 function globalStatusHint(status) {
-  if (!status.enabled_globally) return 'Global upload is disabled.';
-  if (!status.api_key_configured) return 'No effective API key is stored on the backend.';
-  if (!status.connected) return 'API key exists, but the adapter is not connected yet.';
-  return 'The Notion adapter is ready on this computer.';
+  if (!status.enabled_globally) return t('notion.globalDisabledHint', 'Global upload is disabled.');
+  if (!status.api_key_configured) return t('notion.noEffectiveApiKey', 'No effective API key is stored on the backend.');
+  if (!status.connected) return t('notion.adapterNotConnected', 'API key exists, but the adapter is not connected yet.');
+  return t('notion.adapterReady', 'The Notion adapter is ready on this computer.');
 }
 
 function studyStatusHint(status) {
-  if (!status.current_study_notion_enabled) return 'This study will not upload completed sessions.';
-  if (status.current_study_database_id) return 'A Notion database is configured for this study.';
-  if (status.current_study_parent_page_id) return 'Parent page is set; the database can be created automatically.';
-  return 'This study still needs a Parent Page ID or Database ID.';
+  if (!status.current_study_notion_enabled) return t('notion.studyUploadDisabledHint', 'This study will not upload completed sessions.');
+  if (status.current_study_database_id) return t('notion.databaseConfiguredHint', 'A Notion database is configured for this study.');
+  if (status.current_study_parent_page_id) return t('notion.parentPageReadyHint', 'Parent page is set; the database can be created automatically.');
+  return t('notion.studyNeedsTargetHint', 'This study still needs a Parent Page ID or Database ID.');
 }
 
 function queueExplanation(status) {
   const queueSize = status.queue_size ?? 0;
-  if (queueSize > 0) return 'Failed uploads are waiting for retry.';
-  if (!status.current_study_notion_enabled) return 'Queue is empty because the active study has Notion upload disabled.';
-  if (!status.enabled_globally) return 'Queue is empty because the global Notion integration is disabled.';
-  if (!status.api_key_configured) return 'Queue is empty because no API key is stored.';
-  if (!status.current_study_target_ready) return 'Queue is empty. The active study still needs a Notion target.';
-  if (!status.connected) return 'Queue is empty. The adapter is not connected yet, but failed uploads will be buffered.';
-  return 'Queue is empty. New completed sessions should upload directly.';
+  if (queueSize > 0) return t('notion.queueFailedWaiting', 'Failed uploads are waiting for retry.');
+  if (!status.current_study_notion_enabled) return t('notion.queueStudyDisabled', 'Queue is empty because the active study has Notion upload disabled.');
+  if (!status.enabled_globally) return t('notion.queueGlobalDisabled', 'Queue is empty because the global Notion integration is disabled.');
+  if (!status.api_key_configured) return t('notion.queueNoApiKey', 'Queue is empty because no API key is stored.');
+  if (!status.current_study_target_ready) return t('notion.queueNeedsTarget', 'Queue is empty. The active study still needs a Notion target.');
+  if (!status.connected) return t('notion.queueAdapterDisconnected', 'Queue is empty. The adapter is not connected yet, but failed uploads will be buffered.');
+  return t('notion.queueUploadsDirect', 'Queue is empty. New completed sessions should upload directly.');
 }
 
 function populateStudyForm() {
@@ -268,16 +274,16 @@ function setClearKeyRequested(value) {
   const button = $('btn-notion-clear-key');
   if (button) {
     button.innerHTML = clearKeyRequested
-      ? '<i class="iconoir-check"></i> Loeschung vorgemerkt'
-      : '<i class="iconoir-trash"></i> Backend-Key loeschen';
+      ? `<i class="iconoir-check"></i> ${escapeHtml(t('notion.clearKeyPendingButton', 'Deletion pending'))}`
+      : `<i class="iconoir-trash"></i> ${escapeHtml(t('notion.clearBackendKey', 'Delete backend key'))}`;
   }
   setText('notion-clear-key-state', clearKeyRequested
-    ? 'Der gespeicherte backend-lokale Key wird beim naechsten Speichern entfernt.'
-    : 'Kein Loeschvorgang vorgemerkt.');
+    ? t('notion.clearKeyPendingState', 'The stored backend-local key will be removed on the next save.')
+    : t('notion.noClearPending', 'No deletion pending.'));
 }
 
 function getCurrentStudyName() {
-  return callbacks.getCurrentStudyName?.() || 'Unbenannte Studie';
+  return callbacks.getCurrentStudyName?.() || t('admin.unnamedStudy', 'Untitled study');
 }
 
 function setText(id, value) {

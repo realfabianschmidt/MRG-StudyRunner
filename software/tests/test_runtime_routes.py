@@ -43,6 +43,23 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertTrue(info_payload["participant_url"].startswith("http://"))
         self.assertTrue(info_payload["uses_external_storage"])
 
+    def test_desktop_restart_returns_sidecar_message(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_APP_MODE": "desktop",
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            response = app.test_client().post("/api/admin/restart")
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(payload["ok"])
+        self.assertIn("bundled desktop sidecar", payload["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

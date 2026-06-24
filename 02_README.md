@@ -31,7 +31,7 @@ MRG-StudyRunner/
 |   |-- scripts/           Sidecar build and signing helpers.
 |   `-- build_tools/       PyInstaller config that bundles software/ into a sidecar.
 |-- release_tools/         Versioning, release checks, GitHub PR/tag/release automation.
-`-- docs/                  Technical notes and implementation guides.
+`-- docs/                  Active docs plus docs/archive/ for historical notes.
 ```
 
 Local study results are written to `software/saved_results/` and are ignored by Git.
@@ -86,7 +86,7 @@ From the repository root:
 
 ```bash
 npm --prefix desktop install
-python -m pip install -r desktop/build_tools/pyinstaller/requirements-build.txt
+python -m pip install -r software/requirements.txt -r desktop/build_tools/pyinstaller/requirements-build.txt
 npm --prefix desktop run build:sidecar
 npm --prefix desktop run build
 ```
@@ -160,6 +160,8 @@ cargo check -q
 - Runtime app code: `software/study_runner/`
 - Desktop shell: `desktop/`
 - Release automation: `release_tools/`
+- Docs index: `docs/README.md`
 - Desktop/release details: `docs/07_desktop_launcher.md`
+- Historical plans and audits: `docs/archive/`
 
 Never commit local study results, generated build output, private keys, certificates, passwords, `.pfx`, `.p12`, `.key`, `.pem`, `.p8`, or `desktop/.secrets/`.

@@ -1,3 +1,5 @@
+import { t } from '../i18n.js';
+
 function escapeHtml(v) {
   return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
@@ -11,9 +13,9 @@ export const meta = {
 
 export const defaultQuestion = {
   type: 'participant-id',
-  prompt: 'Bitte gib deine Daten zur anonymen Identifikation ein.',
-  code_label: 'Dein anonymer Code',
-  code_hint: 'Deine Eingaben werden lokal auf dem Gerät in eine unumkehrbare Zeichenfolge (SHA-256 Hash) umgewandelt und danach sofort verworfen. Deine echten Daten werden zu keinem Zeitpunkt gespeichert oder übertragen.',
+  prompt: 'Please enter your data for anonymous identification.',
+  code_label: 'Your anonymous code',
+  code_hint: 'Your input is transformed locally into a one-way SHA-256 hash and then discarded. Your real data is never saved or transmitted.',
 };
 
 // Module-level: the currently computed hash. Set async on input.
@@ -25,28 +27,28 @@ export function renderStudy(q, _i) {
   const codeHint = q.code_hint ?? defaultQuestion.code_hint;
 
   return `
-    <div class="q-type-tag"><i class="iconoir-user-badge-check"></i> Participant ID</div>
+    <div class="q-type-tag"><i class="iconoir-user-badge-check"></i> ${escapeHtml(t('cards.participant.tag', 'Participant ID'))}</div>
     <p class="q-prompt">${escapeHtml(prompt)}</p>
     <div class="pid-card-body">
       <div class="pid-fields">
         <div class="pid-field-row">
-          <label class="pid-label">Vorname</label>
+          <label class="pid-label">${escapeHtml(t('cards.participant.firstName', 'First name'))}</label>
           <input class="fi-input pid-field" type="text" name="pid-firstname"
-            autocomplete="off" autocorrect="off" spellcheck="false" placeholder="z.B. Anna">
+            autocomplete="off" autocorrect="off" spellcheck="false" placeholder="${escapeHtml(t('cards.participant.firstNamePlaceholder', 'e.g. Anna'))}">
         </div>
         <div class="pid-field-row">
-          <label class="pid-label">Nachname</label>
+          <label class="pid-label">${escapeHtml(t('cards.participant.lastName', 'Last name'))}</label>
           <input class="fi-input pid-field" type="text" name="pid-lastname"
-            autocomplete="off" autocorrect="off" spellcheck="false" placeholder="z.B. Müller">
+            autocomplete="off" autocorrect="off" spellcheck="false" placeholder="${escapeHtml(t('cards.participant.lastNamePlaceholder', 'e.g. Miller'))}">
         </div>
         <div class="pid-field-row">
-          <label class="pid-label">Geburtsdatum</label>
+          <label class="pid-label">${escapeHtml(t('cards.participant.birthDate', 'Date of birth'))}</label>
           <input class="fi-input pid-field" type="date" name="pid-birthdate">
         </div>
         <div class="pid-field-row">
-          <label class="pid-label">Geburtsort</label>
+          <label class="pid-label">${escapeHtml(t('cards.participant.birthPlace', 'Place of birth'))}</label>
           <input class="fi-input pid-field" type="text" name="pid-birthplace"
-            autocomplete="off" autocorrect="off" spellcheck="false" placeholder="z.B. München">
+            autocomplete="off" autocorrect="off" spellcheck="false" placeholder="${escapeHtml(t('cards.participant.birthPlacePlaceholder', 'e.g. Munich'))}">
         </div>
       </div>
       <div class="pid-code-box" hidden>
@@ -60,21 +62,19 @@ export function renderStudy(q, _i) {
 export function renderEditor(q) {
   return `
     <div class="field">
-      <label>Prompt</label>
+      <label>${escapeHtml(t('cards.editor.prompt', 'Prompt'))}</label>
       <textarea class="fi-textarea q-prompt-input" rows="3">${escapeHtml(q.prompt || defaultQuestion.prompt)}</textarea>
     </div>
     <div class="field">
-      <label>Titel für generierten Code</label>
+      <label>${escapeHtml(t('cards.participant.codeTitleLabel', 'Generated code title'))}</label>
       <input type="text" class="fi-input q-code-label-input" value="${escapeHtml(q.code_label ?? defaultQuestion.code_label)}">
     </div>
     <div class="field">
-      <label>Hinweistext unter dem Code (Datenschutz)</label>
+      <label>${escapeHtml(t('cards.participant.codeHintLabel', 'Privacy hint below the code'))}</label>
       <textarea class="fi-textarea q-code-hint-input" rows="3">${escapeHtml(q.code_hint ?? defaultQuestion.code_hint)}</textarea>
     </div>
     <p class="editor-hint" style="margin-top:0.75rem;font-size:0.8rem;opacity:0.6;">
-      Dieses Feld erfasst Vorname, Nachname, Geburtsdatum und Geburtsort des Teilnehmers
-      und berechnet daraus einen anonymen SHA-256-Hash als Participant-ID.
-      Die Rohdaten werden niemals gespeichert.
+      ${escapeHtml(t('cards.participant.editorHint', 'This card collects first name, last name, date of birth, and place of birth, then computes an anonymous SHA-256 hash as the participant ID. Raw inputs are never saved.'))}
     </p>`;
 }
 
@@ -112,17 +112,17 @@ async function _updateHash(cardBody) {
 
   try {
     const raw = vals.join('|');
-    
-    // crypto.subtle erfordert HTTPS! Fallback für lokales HTTP-Testing:
+
+    // crypto.subtle may require HTTPS; keep a local HTTP testing fallback.
     if (window.crypto && window.crypto.subtle) {
       const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
       const hex = Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('');
       _computedId = hex.slice(0, 16);
     } else {
-      // Fallback-Hash ohne HTTPS
+      // Fallback hash for local HTTP testing.
       let h1 = 0xdeadbeef ^ raw.length, h2 = 0x41c6ce57 ^ raw.length;
       for (let i = 0; i < raw.length; i++) {
-        let ch = raw.charCodeAt(i);
+        const ch = raw.charCodeAt(i);
         h1 = Math.imul(h1 ^ ch, 2654435761);
         h2 = Math.imul(h2 ^ ch, 1597334677);
       }
@@ -135,8 +135,8 @@ async function _updateHash(cardBody) {
     if (display) display.textContent = _computedId.slice(0, 8);
     const box = cardBody.querySelector('.pid-code-box');
     if (box) box.hidden = false;
-  } catch (_e) {
-    console.error("Hash generation failed:", _e);
+  } catch (error) {
+    console.error('Hash generation failed:', error);
     _computedId = null;
   }
 

@@ -55,7 +55,7 @@ console.log(`Tauri sidecar copied to ${destination}`);
 // On macOS, ad-hoc sign the sidecar so it is allowed to launch (Apple Silicon refuses
 // to run unsigned executables). This is a no-cost stand-in for a Developer ID signature;
 // it does not remove the Gatekeeper quarantine on a downloaded app, so users of an
-// unsigned build must still un-quarantine the app once (see START_HERE.md).
+// unsigned build must still un-quarantine the app once (see 01_START_HERE.md).
 if (isMac) {
   const codesign = spawnSync('codesign', ['--force', '--sign', '-', destination], {
     stdio: 'inherit',

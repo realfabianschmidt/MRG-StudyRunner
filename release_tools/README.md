@@ -1,14 +1,14 @@
 # Release Tools
 
-Dieser Ordner enthaelt die Release-Automation.
+This folder contains the Study Runner release automation.
 
-Empfohlener Einstieg unter Windows:
+Recommended Windows entrypoint from the repository root:
 
 ```powershell
 .\release.ps1 patch
 ```
 
-Voraussetzung:
+One-time prerequisite:
 
 ```powershell
 winget install --id GitHub.cli
@@ -16,10 +16,10 @@ gh auth login
 gh auth status
 ```
 
-Direkter Node-Aufruf:
+Direct Node entrypoint:
 
 ```bash
 node release_tools/release-study-runner.mjs release patch
 ```
 
-Der Release-Befehl erstellt einen Branch, oeffnet einen PR, wartet auf CI, merged bei gruenem Ergebnis, pusht den Release-Tag und prueft den fertigen GitHub Release.
+The release command creates a release branch, opens a pull request, waits for CI, merges when checks are green, pushes the release tag, waits for the GitHub release workflow, and verifies the finished release assets.

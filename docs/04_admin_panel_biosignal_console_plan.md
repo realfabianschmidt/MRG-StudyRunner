@@ -17,7 +17,7 @@ operator-facing control room for optional integrations:
 - OSC / TouchDesigner
 - Notion upload
 
-The visible raw raw hardware panel has been removed. Common integration operation happens in
+The visible raw hardware panel has been removed. Common integration operation happens in
 the dashboard. Notion setup happens in the full-page Notion Settings view.
 
 ## Dashboard entry behavior
@@ -114,5 +114,5 @@ Browser camera access usually requires HTTPS on a real tablet.
 
 - `docs/05_integration_plugin_guide.md` explains the registry lifecycle and how to add a sensor.
 - `docs/01_project_overview_for_everyone.md` gives the high-level project overview.
-- `README.md` contains the operator workflow and config examples.
+- `02_README.md` contains the operator workflow and config examples.
 

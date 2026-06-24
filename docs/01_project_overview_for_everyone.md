@@ -20,25 +20,25 @@ The editable program lives in `software/`; the installable wrapper lives in `des
 ## How A Study Run Works
 
 1. The study lead opens `/admin`.
-2. The admin page loads the active study from `study_content/settings/study_config.json`.
+2. The admin page loads the active study from `software/study_content/settings/study_config.json`.
 3. The study lead edits cards and saves.
 4. A tablet opens the participant page.
 5. Stimulus cards can send trial start and stop events through the plugin registry.
 6. Answers are validated by the backend.
-7. Results are saved locally in `saved_results/`.
+7. Results are saved locally in `software/saved_results/`.
 
 ## Plugin Flow
 
 ```text
-study_runner/backend routes -> study_runner/integrations/registry.py -> plugin folder -> adapter or external tool
+software/study_runner/backend routes -> software/study_runner/integrations/registry.py -> plugin folder -> adapter or external tool
 ```
 
-The registry is explicit. A plugin only becomes active when it is imported and listed in `study_runner/integrations/registry.py`.
+The registry is explicit. A plugin only becomes active when it is imported and listed in `software/study_runner/integrations/registry.py`.
 
 ## Where To Change Common Things
 
-- Change a study: use the admin page or edit `study_content/settings/study_config.json`.
-- Change plugin settings: use the dashboard controls or edit `study_content/settings/hardware_settings.json`.
-- Add a question card type: add a module in `study_runner/web/scripts/cards/` and register it in the card index.
-- Add a plugin: add a folder in `study_runner/integrations/`, export `PLUGIN` from `plugin.py`, and list it in `study_runner/integrations/registry.py`.
+- Change a study: use the admin page or edit `software/study_content/settings/study_config.json`.
+- Change plugin settings: use the dashboard controls or edit `software/study_content/settings/hardware_settings.json`.
+- Add a question card type: add a module in `software/study_runner/web/scripts/cards/` and register it in the card index.
+- Add a plugin: add a folder in `software/study_runner/integrations/`, export `PLUGIN` from `plugin.py`, and list it in `software/study_runner/integrations/registry.py`.
 - Build the desktop launcher: see `docs/07_desktop_launcher.md`.

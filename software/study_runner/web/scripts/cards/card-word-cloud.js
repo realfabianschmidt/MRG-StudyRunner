@@ -46,7 +46,7 @@ export function renderStudy(q, i) {
          aria-label="${escapeHtml(q.prompt)}">${chips}</div>
     <div class="wc-tray" id="wc-tray-${i}" aria-label="Selected words">
       <span class="wc-tray-hint" id="wc-tray-hint-${i}">
-        Tap a word — or drag it here
+        Tap a word or drag it here
       </span>
     </div>`;
 }
@@ -182,7 +182,7 @@ export function bindCardEvents(cardEl, cardIndex) {
     const dy = e.clientY - dragging.startY;
 
     if (!dragging.moved && Math.hypot(dx, dy) > 10) {
-      // Start dragging — spawn ghost
+      // Start dragging and spawn ghost.
       dragging.moved = true;
       ghost = createGhost(dragging.chip, e.clientX, e.clientY);
       dragging.chip.classList.add('wc-chip--dragging');
@@ -233,7 +233,7 @@ function addTrayChip(tray, word, cardIndex, cloud, isMultiple) {
   const chip = document.createElement('span');
   chip.className = 'wc-tray-chip';
   chip.dataset.word = word;
-  chip.innerHTML = `${escapeHtml(word)}<button class="wc-tray-remove" aria-label="Remove ${escapeHtml(word)}">×</button>`;
+  chip.innerHTML = `${escapeHtml(word)}<button class="wc-tray-remove" aria-label="Remove ${escapeHtml(word)}">x</button>`;
 
   chip.querySelector('.wc-tray-remove').addEventListener('click', () => {
     const sel = getSelected(cardIndex);

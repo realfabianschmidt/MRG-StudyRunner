@@ -36,7 +36,7 @@ export function renderEditor(q) {
       <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="Enter question...">
     </div>
     <div class="field">
-      <label>Word pairs — one per line: word A | word B</label>
+      <label>Word pairs - one per line: word A | word B</label>
       <textarea class="qe-pairs">${escapeHtml(lines)}</textarea>
     </div>`;
 }

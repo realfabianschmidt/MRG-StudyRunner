@@ -1,3 +1,5 @@
+import { t } from '../i18n.js';
+
 function escapeHtml(v) {
   return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');
 }
@@ -36,19 +38,19 @@ export function renderStudy(q, i) {
       data-phase="${startsWithWarmup ? 'warmup' : 'active'}"
     >
       <div class="stimulus-stage stimulus-stage--warmup" id="stimulus-warmup-${i}"${startsWithWarmup ? '' : ' hidden'}>
-        <div class="q-type-tag"><i class="iconoir-spark"></i> Prepare</div>
+        <div class="q-type-tag"><i class="iconoir-spark"></i> ${escapeHtml(t('stimulus.prepare', 'Prepare'))}</div>
         <div class="stimulus-copy-wrap">
           <h1 class="stimulus-hero-title">${escapeHtml(q.title || 'Observe the material')}</h1>
           <p class="stimulus-hero-sub">${escapeHtml(q.subtitle || '')}</p>
         </div>
         <div class="stimulus-mini-timer" id="stimulus-mini-timer-${i}">
-          <span class="stimulus-mini-label">Starts in</span>
+          <span class="stimulus-mini-label">${escapeHtml(t('stimulus.startsIn', 'Starts in'))}</span>
           <span class="stimulus-mini-value" id="warmup-num-${i}">${warmupSeconds}</span>
         </div>
       </div>
 
       <div class="stimulus-stage stimulus-stage--active" id="stimulus-active-${i}"${startsWithWarmup ? ' hidden' : ''}>
-        <div class="q-type-tag"><i class="iconoir-timer"></i> Stimulus active</div>
+        <div class="q-type-tag"><i class="iconoir-timer"></i> ${escapeHtml(t('stimulus.active', 'Stimulus active'))}</div>
         <div class="stimulus-active-copy">
           <h1 class="screen-title">${escapeHtml(q.title || 'Observe the material')}</h1>
           <p class="screen-sub">${escapeHtml(q.subtitle || '')}</p>
@@ -72,7 +74,7 @@ export function renderStudy(q, i) {
           ></circle>
         </svg>
         <div class="cd-num" id="cd-num-${i}">${durationSeconds}</div>
-        <div class="cd-lbl">seconds remaining</div>
+        <div class="cd-lbl">${escapeHtml(t('stimulus.secondsRemaining', 'seconds remaining'))}</div>
       </div>
     </div>`;
 }
@@ -87,25 +89,25 @@ export function renderEditor(q) {
 
   return `
     <div class="field">
-      <label>Title</label>
+      <label>${escapeHtml(t('stimulus.titleLabel', 'Title'))}</label>
       <input type="text" class="se-title" value="${escapeHtml(q.title || '')}">
     </div>
     <div class="field">
-      <label>Subtitle / instruction</label>
+      <label>${escapeHtml(t('stimulus.subtitleLabel', 'Subtitle / instruction'))}</label>
       <textarea class="se-subtitle" rows="3">${escapeHtml(q.subtitle || '')}</textarea>
     </div>
     <div class="row2">
       <div class="field">
-        <label>Warm-up (seconds before start)</label>
+        <label>${escapeHtml(t('stimulus.warmupLabel', 'Warm-up (seconds before start)'))}</label>
         <input type="number" class="se-warmup-duration" min="0" max="600" value="${warmupSeconds}">
       </div>
       <div class="field">
-        <label>Active duration (seconds)</label>
+        <label>${escapeHtml(t('stimulus.durationLabel', 'Active duration (seconds)'))}</label>
         <input type="number" class="se-duration" min="1" max="600" value="${durationSeconds}">
       </div>
     </div>
     <div class="field">
-      <label>Trigger type</label>
+      <label>${escapeHtml(t('stimulus.triggerTypeLabel', 'Trigger type'))}</label>
       <div class="trigger-type-pills">
         ${triggerTypes.map(type => `
           <button type="button" class="trigger-pill${triggerType === type ? ' active' : ''}" data-trigger-type="${escapeHtml(type)}">
@@ -115,49 +117,48 @@ export function renderEditor(q) {
       <input type="hidden" class="se-trigger-type" value="${escapeHtml(triggerType)}">
     </div>
     <div class="field se-trigger-content-field"${isContentHidden ? ' hidden' : ''}>
-      <label>${isCode ? 'Code' : 'URL'}</label>
+      <label>${isCode ? escapeHtml(t('stimulus.codeLabel', 'Code')) : escapeHtml(t('stimulus.urlLabel', 'URL'))}</label>
       ${isCode
-        ? `<textarea class="se-trigger-content se-trigger-content--code" rows="6" placeholder="Paste ${escapeHtml(triggerType)} code here...">${escapeHtml(q.trigger_content || '')}</textarea>`
-        : `<input type="url" class="se-trigger-content" placeholder="https://..." value="${escapeHtml(q.trigger_content || '')}">`
+        ? `<textarea class="se-trigger-content se-trigger-content--code" rows="6" placeholder="${escapeHtml(t('stimulus.codePlaceholder', 'Paste {type} code here...').replace('{type}', triggerType))}">${escapeHtml(q.trigger_content || '')}</textarea>`
+        : `<input type="url" class="se-trigger-content" placeholder="${escapeHtml(t('stimulus.urlPlaceholder', 'https://...'))}" value="${escapeHtml(q.trigger_content || '')}">`
       }
     </div>
     <div class="field">
       <label class="checkbox-row">
         <input type="checkbox" class="se-send-signal"${q.send_signal !== false ? ' checked' : ''}>
-        <span>Send Study Runner start/stop signals when the active phase begins and ends</span>
+        <span>${escapeHtml(t('stimulus.sendSignalLabel', 'Send Study Runner start/stop signals when the active phase begins and ends'))}</span>
       </label>
     </div>
     <div class="field">
       <label class="checkbox-row">
         <input type="checkbox" class="se-brainbit-lsl"${q.brainbit_to_lsl !== false ? ' checked' : ''}>
-        <span>Forward BrainBit data to LSL during this active phase</span>
+        <span>${escapeHtml(t('stimulus.brainbitLslLabel', 'Forward BrainBit data to LSL during this active phase'))}</span>
       </label>
     </div>
     <div class="field">
       <label class="checkbox-row">
         <input type="checkbox" class="se-brainbit-touchdesigner"${q.brainbit_to_touchdesigner !== false ? ' checked' : ''}>
-        <span>Forward BrainBit data to TouchDesigner during this active phase</span>
+        <span>${escapeHtml(t('stimulus.touchdesignerLabel', 'Forward BrainBit data to TouchDesigner during this active phase'))}</span>
       </label>
     </div>
     <div class="field">
       <label class="checkbox-row">
         <input type="checkbox" class="se-mini-radar-recording"${q.mini_radar_recording_enabled !== false ? ' checked' : ''}>
-        <span>Record Mini-radar pulse and breathing during this active phase</span>
+        <span>${escapeHtml(t('stimulus.radarRecordingLabel', 'Record Mini-radar pulse and breathing during this active phase'))}</span>
       </label>
     </div>
     <div class="field">
       <label class="checkbox-row">
         <input type="checkbox" class="se-camera-capture"${q.camera_capture_enabled === true ? ' checked' : ''}>
-        <span>Capture tablet selfie-camera snapshots for camera emotion analysis during this active phase</span>
+        <span>${escapeHtml(t('stimulus.cameraCaptureLabel', 'Capture tablet selfie-camera snapshots for camera emotion analysis during this active phase'))}</span>
       </label>
     </div>
     <div class="field">
-      <label>Camera snapshot interval (ms)</label>
+      <label>${escapeHtml(t('stimulus.cameraIntervalLabel', 'Camera snapshot interval (ms)'))}</label>
       <input type="number" class="se-camera-interval" min="200" max="60000" step="50" value="${Number(q.camera_snapshot_interval_ms || 200)}">
     </div>
     <p class="stimulus-editor-note">
-      Warm-up only shows the instruction view. Study signals, BrainBit routing, Mini-radar recording, camera snapshots, media triggers, and custom JS start when the active timer begins.
-      HTML and JS trigger types stay blocked unless the server explicitly enables <code>STUDY_RUNNER_ALLOW_UNSAFE_STIMULUS_CODE=1</code>.
+      ${escapeHtml(t('stimulus.editorNote', 'Warm-up only shows the instruction view. Study signals, BrainBit routing, Mini-radar recording, camera snapshots, media triggers, and custom JS start when the active timer begins. HTML and JS trigger types stay blocked unless the server explicitly enables STUDY_RUNNER_ALLOW_UNSAFE_STIMULUS_CODE=1.'))}
     </p>`;
 }
 

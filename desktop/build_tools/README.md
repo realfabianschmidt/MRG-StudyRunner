@@ -1,7 +1,11 @@
 # Build Tools
 
-Technische Build-Konfiguration fuer die Desktop-App.
+This folder contains technical build configuration for the desktop app.
 
-- `pyinstaller/`: baut den Python-Server aus `software/` als Sidecar, das Tauri in die Desktop-App packt.
+- `pyinstaller/`: builds the Python app from `software/` into the server sidecar that Tauri bundles with the launcher.
 
-Normalerweise wird dieser Ordner nur von CI oder `npm --prefix desktop run build:sidecar` verwendet.
+Most development does not happen here. These files are normally used by CI or by:
+
+```bash
+npm --prefix desktop run build:sidecar
+```

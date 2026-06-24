@@ -1,10 +1,17 @@
-# Study Runner App
+# Study Runner App Code
 
-Dieser Ordner ist die eigentliche Anwendung:
+This folder contains the runnable application code.
 
-- `app_server.py`: internes Flask-App-Modul fuer Browser- und Desktop-Modus. Lokal gestartet wird ueber `../server.py`.
-- `backend/`: Flask-App, Routen und Services.
-- `web/`: Admin- und Teilnehmeroberflaeche.
-- `integrations/`: eingebaute Integrationen wie BrainBit, OSC, LSL, Notion und Kamera.
+- `app_server.py`: internal Flask app module used by browser mode and desktop mode.
+- `backend/`: Flask routes and backend services.
+- `web/`: admin page, participant page, scripts, styles, cards, fonts, and locales.
+- `integrations/`: built-in integrations such as BrainBit, OSC, LSL, Notion, LabRecorder, MR60, and camera emotion.
 
-Normale Studieninhalte liegen nicht hier, sondern in `study_content/`.
+For local browser-mode development, start the app through the single main entrypoint:
+
+```bash
+cd software
+python server.py
+```
+
+Normal study content is stored in `software/study_content/`, not in this code package.

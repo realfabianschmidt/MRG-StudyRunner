@@ -7,7 +7,7 @@ The desktop app is a small Tauri launcher. It starts the Python Study Runner ser
 ## Runtime Model
 
 - The Python server remains the source of truth.
-- The built-in integration plugin registry stays in `study_runner/integrations/registry.py`.
+- The built-in integration plugin registry stays in `software/study_runner/integrations/registry.py`.
 - The desktop launcher sets:
   - `STUDY_RUNNER_APP_MODE=desktop`
   - `STUDY_RUNNER_HOST=0.0.0.0`
@@ -77,7 +77,7 @@ From `desktop/`:
 
 ```bash
 npm install
-python -m pip install -r build_tools/pyinstaller/requirements-build.txt
+python -m pip install -r ../software/requirements.txt -r build_tools/pyinstaller/requirements-build.txt
 npm run build:server:onedir
 npm run build:sidecar
 npm run build
@@ -125,7 +125,7 @@ The workflow does this:
 
 1. Verifies that the tag matches the app version.
 2. Installs Node, Python, Rust, and Linux system dependencies.
-3. Installs Python dependencies from `requirements.txt` and `build_tools/pyinstaller/requirements-build.txt`.
+3. Installs Python dependencies from `software/requirements.txt` and `desktop/build_tools/pyinstaller/requirements-build.txt`.
 4. Builds the PyInstaller sidecar.
 5. Builds Tauri bundles for:
    - Windows x64 NSIS
@@ -303,4 +303,4 @@ The one-command helper performs steps 3 through 9 automatically.
 
 Runtime `pip install` is disabled in desktop mode. Optional dependencies must be included in the package or configured manually.
 
-BrainBit has one special rule: in a frozen desktop build, it must not use the frozen server executable as a Python interpreter for its separate CLI script. If BrainBit is needed in a packaged desktop build, set `brainbit.python_executable` in `study_content/settings/hardware_settings.json` to a real Python interpreter or package that integration as its own sidecar later.
+BrainBit has one special rule: in a frozen desktop build, it must not use the frozen server executable as a Python interpreter for its separate CLI script. If BrainBit is needed in a packaged desktop build, set `brainbit.python_executable` in `software/study_content/settings/hardware_settings.json` before bundling, or configure the matching app-data settings file after first launch.

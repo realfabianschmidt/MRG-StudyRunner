@@ -1,5 +1,7 @@
 ﻿import { getJson, postJson } from './api-client.js';
 
+import { t } from './i18n.js';
+
 const POLL_INTERVAL_MS = 2000;
 
 let pollTimer = null;
@@ -43,22 +45,24 @@ async function runDashboardAction(action, elements, showToast) {
   const [, integrationKey, runtimeAction] = runtimeMatch;
   try {
     await postJson(`/api/admin/integrations/${encodeURIComponent(integrationKey)}/${runtimeAction}`, {});
-    showToast?.('Dashboard action sent', 'success');
+    showToast?.(t('dashboard.actionSent', 'Dashboard action sent'), 'success');
     await refreshAdminStatus(elements, showToast);
   } catch (error) {
     console.error('[admin] Dashboard action failed:', error);
-    showToast?.('Dashboard action failed', 'error');
+    showToast?.(t('dashboard.actionFailed', 'Dashboard action failed'), 'error');
   }
 }
 
 async function updateIntegrationToggle(integrationKey, enabled, elements, showToast) {
   try {
     await postJson(`/api/admin/integrations/${encodeURIComponent(integrationKey)}/enabled`, { enabled });
-    showToast?.(`${formatIntegrationName(integrationKey)} ${enabled ? 'enabled' : 'disabled'}`, 'success');
+    const messageKey = enabled ? 'dashboard.integrationEnabled' : 'dashboard.integrationDisabled';
+    const fallback = enabled ? '{name} enabled' : '{name} disabled';
+    showToast?.(t(messageKey, fallback).replace('{name}', formatIntegrationName(integrationKey)), 'success');
     await refreshAdminStatus(elements, showToast);
   } catch (error) {
     console.error('[admin] Integration toggle failed:', error);
-    showToast?.('Integration toggle failed', 'error');
+    showToast?.(t('dashboard.integrationToggleFailed', 'Integration toggle failed'), 'error');
   }
 }
 
@@ -83,7 +87,7 @@ async function refreshAdminStatus(elements, showToast) {
     renderAdminStatus(elements, status);
   } catch (error) {
     console.error('[admin] Could not load admin status:', error);
-    showToast?.('Dashboard status failed', 'error');
+    showToast?.(t('dashboard.statusFailed', 'Dashboard status failed'), 'error');
   }
 }
 
@@ -102,20 +106,20 @@ function renderAdminStatus(elements, status) {
 function renderClients(target, clients) {
   if (!target) return;
   if (!clients.length) {
-    target.innerHTML = '<p>No connected study client yet.</p>';
+    target.innerHTML = `<p>${escapeHtml(t('dashboard.noClient', 'No connected study client yet.'))}</p>`;
     return;
   }
 
   target.innerHTML = clients.map((client) => `
     <div class="status-row">
       <span class="status-pill status-pill--${escapeHtml(client.status)}">${escapeHtml(client.status)}</span>
-      <strong>${escapeHtml(client.participant_id || 'No participant ID yet')}</strong>
+      <strong>${escapeHtml(client.participant_id || t('dashboard.noParticipantId', 'No participant ID yet'))}</strong>
     </div>
     <dl class="status-list">
-      <dt>Study</dt><dd>${escapeHtml(client.study_id || '-')}</dd>
-      <dt>Card</dt><dd>${formatCard(client)}</dd>
-      <dt>Age</dt><dd>${escapeHtml(client.age_seconds)}s</dd>
-      <dt>Camera</dt><dd>${escapeHtml(client.camera_permission || 'unknown')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.study', 'Study'))}</dt><dd>${escapeHtml(client.study_id || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.card', 'Card'))}</dt><dd>${formatCard(client)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.age', 'Age'))}</dt><dd>${escapeHtml(client.age_seconds)}s</dd>
+      <dt>${escapeHtml(t('dashboard.field.camera', 'Camera'))}</dt><dd>${escapeHtml(client.camera_permission || t('dashboard.unknown', 'unknown'))}</dd>
     </dl>
   `).join('');
 }
@@ -133,20 +137,20 @@ function renderBrainBit(target, brainbit) {
   target.innerHTML = `
     <div class="status-row">
       <span class="status-pill status-pill--${escapeHtml(brainbit.status || 'unknown')}">${escapeHtml(brainbit.status || 'unknown')}</span>
-      <strong>${brainbit.configured_enabled ? 'Enabled' : 'Disabled'}</strong>
+      <strong>${formatEnabled(brainbit.configured_enabled)}</strong>
     </div>
     <dl class="status-list">
-      <dt>Scan window</dt><dd>${formatValue(brainbit.scan_timeout_seconds, ' s')} (${escapeHtml(brainbit.scan_mode || 'one-shot')})</dd>
-      <dt>Last scan</dt><dd>${escapeHtml(brainbit.last_scan_started_at || '-')}</dd>
-      <dt>Battery</dt><dd>${formatValue(battery.percent, '%')}</dd>
-      <dt>Quality</dt><dd>${formatSensorChannels(quality, ['O1', 'O2', 'T3', 'T4'])}</dd>
-      <dt>Bands</dt><dd>${formatSensorChannels(bands, ['delta', 'theta', 'alpha', 'beta', 'gamma'])}</dd>
-      <dt>Mental</dt><dd>${formatSensorChannels(mental, ['Inst_Attention', 'Inst_Relaxation', 'Rel_Attention', 'Rel_Relaxation'])}</dd>
-      <dt>Calibration</dt><dd>${formatCalibration(calibration)}</dd>
-      <dt>State</dt><dd>${formatObjectBrief(sensorState)}</dd>
-      <dt>LSL</dt><dd>${brainbit.lsl_enabled ? 'Enabled' : 'Disabled'}</dd>
-      <dt>Last active</dt><dd>${escapeHtml(latest.last_activity_at || brainbit.last_activity_at || '-')}</dd>
-      <dt>Message</dt><dd>${escapeHtml(latest.last_message || brainbit.last_message || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.scanWindow', 'Scan window'))}</dt><dd>${formatValue(brainbit.scan_timeout_seconds, ' s')} (${escapeHtml(brainbit.scan_mode || 'one-shot')})</dd>
+      <dt>${escapeHtml(t('dashboard.field.lastScan', 'Last scan'))}</dt><dd>${escapeHtml(brainbit.last_scan_started_at || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.battery', 'Battery'))}</dt><dd>${formatValue(battery.percent, '%')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.quality', 'Quality'))}</dt><dd>${formatSensorChannels(quality, ['O1', 'O2', 'T3', 'T4'])}</dd>
+      <dt>${escapeHtml(t('dashboard.field.bands', 'Bands'))}</dt><dd>${formatSensorChannels(bands, ['delta', 'theta', 'alpha', 'beta', 'gamma'])}</dd>
+      <dt>${escapeHtml(t('dashboard.field.mental', 'Mental'))}</dt><dd>${formatSensorChannels(mental, ['Inst_Attention', 'Inst_Relaxation', 'Rel_Attention', 'Rel_Relaxation'])}</dd>
+      <dt>${escapeHtml(t('dashboard.field.calibration', 'Calibration'))}</dt><dd>${formatCalibration(calibration)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.state', 'State'))}</dt><dd>${formatObjectBrief(sensorState)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.lsl', 'LSL'))}</dt><dd>${formatEnabled(brainbit.lsl_enabled)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.lastActive', 'Last active'))}</dt><dd>${escapeHtml(latest.last_activity_at || brainbit.last_activity_at || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.message', 'Message'))}</dt><dd>${escapeHtml(latest.last_message || brainbit.last_message || '-')}</dd>
     </dl>
     ${renderRuntimeButtons(brainbit)}
   `;
@@ -158,26 +162,26 @@ function renderMiniRadar(target, radar) {
   target.innerHTML = `
     <div class="status-row">
       <span class="status-pill status-pill--${escapeHtml(radar.status || 'planned')}">${escapeHtml(radar.status || 'planned')}</span>
-      <strong>${radar.configured_enabled ? 'Enabled' : 'Disabled'}</strong>
+      <strong>${formatEnabled(radar.configured_enabled)}</strong>
     </div>
     <dl class="status-list">
-      <dt>Connection</dt><dd>${escapeHtml(radar.connection_type || '-')}</dd>
-      <dt>Device</dt><dd>${escapeHtml(radar.device_label || radar.ble_device_name || radar.port || '-')}</dd>
-      <dt>Scan window</dt><dd>${formatValue(radar.scan_timeout_seconds, ' s')} (${escapeHtml(radar.scan_mode || 'repeated')})</dd>
-      <dt>Last scan</dt><dd>${escapeHtml(radar.last_scan_started_at || '-')}</dd>
-      <dt>Next retry</dt><dd>${escapeHtml(radar.next_retry_at || '-')}</dd>
-      <dt>Heart</dt><dd>${formatValue(latest.heartRate, ' BPM')}</dd>
-      <dt>Breath</dt><dd>${formatValue(latest.breathRate, ' /min')}</dd>
-      <dt>Presence</dt><dd>${formatBoolean(latest.present)}</dd>
-      <dt>Valid</dt><dd>${formatBoolean(latest.valid)}</dd>
-      <dt>Stabilized</dt><dd>${formatBoolean(latest.stabilized)}</dd>
-      <dt>Distance</dt><dd>${formatValue(latest.distance, ' cm')}</dd>
-      <dt>Phases</dt><dd>${formatPhases(latest)}</dd>
-      <dt>Sequence</dt><dd>${escapeHtml(latest.sequence_number ?? '-')}</dd>
-      <dt>Drops</dt><dd>${formatDropInfo(latest)}</dd>
-      <dt>Timing</dt><dd>${formatTimingInfo(latest)}</dd>
-      <dt>Last update age</dt><dd>${formatValue(radar.seconds_since_last_activity, ' s')}</dd>
-      <dt>Message</dt><dd>${escapeHtml(radar.last_message || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.connection', 'Connection'))}</dt><dd>${escapeHtml(radar.connection_type || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.device', 'Device'))}</dt><dd>${escapeHtml(radar.device_label || radar.ble_device_name || radar.port || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.scanWindow', 'Scan window'))}</dt><dd>${formatValue(radar.scan_timeout_seconds, ' s')} (${escapeHtml(radar.scan_mode || 'repeated')})</dd>
+      <dt>${escapeHtml(t('dashboard.field.lastScan', 'Last scan'))}</dt><dd>${escapeHtml(radar.last_scan_started_at || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.nextRetry', 'Next retry'))}</dt><dd>${escapeHtml(radar.next_retry_at || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.heart', 'Heart'))}</dt><dd>${formatValue(latest.heartRate, ' BPM')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.breath', 'Breath'))}</dt><dd>${formatValue(latest.breathRate, ' /min')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.presence', 'Presence'))}</dt><dd>${formatBoolean(latest.present)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.valid', 'Valid'))}</dt><dd>${formatBoolean(latest.valid)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.stabilized', 'Stabilized'))}</dt><dd>${formatBoolean(latest.stabilized)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.distance', 'Distance'))}</dt><dd>${formatValue(latest.distance, ' cm')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.phases', 'Phases'))}</dt><dd>${formatPhases(latest)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.sequence', 'Sequence'))}</dt><dd>${escapeHtml(latest.sequence_number ?? '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.drops', 'Drops'))}</dt><dd>${formatDropInfo(latest)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.timing', 'Timing'))}</dt><dd>${formatTimingInfo(latest)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.lastUpdateAge', 'Last update age'))}</dt><dd>${formatValue(radar.seconds_since_last_activity, ' s')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.message', 'Message'))}</dt><dd>${escapeHtml(radar.last_message || '-')}</dd>
     </dl>
     ${renderRuntimeButtons(radar)}
   `;
@@ -190,17 +194,17 @@ function renderCameraEmotion(target, camera, worker) {
   target.innerHTML = `
     <div class="status-row">
       <span class="status-pill status-pill--${escapeHtml(camera.status || 'planned')}">${escapeHtml(camera.status || 'planned')}</span>
-      <strong>${camera.configured_enabled ? 'Enabled' : 'Disabled'}</strong>
+      <strong>${formatEnabled(camera.configured_enabled)}</strong>
     </div>
     <dl class="status-list">
-      <dt>Mode</dt><dd>${escapeHtml(camera.worker_mode || '-')}</dd>
-      <dt>Interval</dt><dd>${formatValue(camera.snapshot_interval_ms, ' ms')}</dd>
-      <dt>Worker</dt><dd>${escapeHtml(worker.status || '-')}</dd>
-      <dt>Emotion</dt><dd>${escapeHtml(analysis.emotion || '-')}</dd>
-      <dt>Confidence</dt><dd>${formatValue(analysis.confidence)}</dd>
-      <dt>Face</dt><dd>${formatBoolean(analysis.face_detected)}</dd>
-      <dt>Frame</dt><dd>${formatFrame(latest.frame)}</dd>
-      <dt>Processed</dt><dd>${escapeHtml(latest.processed_at || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.mode', 'Mode'))}</dt><dd>${escapeHtml(camera.worker_mode || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.interval', 'Interval'))}</dt><dd>${formatValue(camera.snapshot_interval_ms, ' ms')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.worker', 'Worker'))}</dt><dd>${escapeHtml(worker.status || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.emotion', 'Emotion'))}</dt><dd>${escapeHtml(analysis.emotion || '-')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.confidence', 'Confidence'))}</dt><dd>${formatValue(analysis.confidence)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.face', 'Face'))}</dt><dd>${formatBoolean(analysis.face_detected)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.frame', 'Frame'))}</dt><dd>${formatFrame(latest.frame)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.processed', 'Processed'))}</dt><dd>${escapeHtml(latest.processed_at || '-')}</dd>
     </dl>
     ${renderRuntimeButtons(camera)}
   `;
@@ -210,7 +214,7 @@ function renderIntegrationControls(target, integrations) {
   if (!target) return;
   const rows = Object.values(integrations).filter((item) => item && item.key);
   if (!rows.length) {
-    target.innerHTML = '<p>No integrations registered.</p>';
+    target.innerHTML = `<p>${escapeHtml(t('dashboard.noIntegrations', 'No integrations registered.'))}</p>`;
     return;
   }
   target.innerHTML = `<div class="integration-controls">
@@ -222,9 +226,9 @@ function renderIntegrationControlRow(item) {
   const configured = Boolean(item.configured_enabled ?? item.enabled);
   const status = item.status || (configured ? 'enabled' : 'disabled');
   const toggleButtons = item.can_toggle ? `
-    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_on"${configured ? ' disabled' : ''}>Enable</button>
-    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_off"${!configured ? ' disabled' : ''}>Disable</button>
-  ` : '<span class="integration-control-note">Managed by parent integration</span>';
+    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_on"${configured ? ' disabled' : ''}>${escapeHtml(t('dashboard.action.enable', 'Enable'))}</button>
+    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_off"${!configured ? ' disabled' : ''}>${escapeHtml(t('dashboard.action.disable', 'Disable'))}</button>
+  ` : `<span class="integration-control-note">${escapeHtml(t('dashboard.managedByParent', 'Managed by parent integration'))}</span>`;
 
   return `
     <div class="integration-control-row">
@@ -244,13 +248,13 @@ function renderIntegrationControlRow(item) {
 
 function renderRuntimeButtons(item, compact = false) {
   const buttons = [];
-  if (item.can_start) buttons.push(['start', 'Start']);
-  if (item.can_restart) buttons.push(['restart', 'Restart']);
-  if (item.can_stop) buttons.push(['stop', 'Stop']);
+  if (item.can_start) buttons.push(['start', t('dashboard.action.start', 'Start')]);
+  if (item.can_restart) buttons.push(['restart', t('dashboard.action.restart', 'Restart')]);
+  if (item.can_stop) buttons.push(['stop', t('dashboard.action.stop', 'Stop')]);
   if (!buttons.length) return compact ? '' : '<div class="dashboard-actions"></div>';
   const className = compact ? 'btn-secondary btn-xs' : 'btn-secondary';
   const html = buttons.map(([action, label]) => `
-    <button type="button" class="${className}" data-dashboard-action="runtime_${escapeHtml(item.key)}_${action}">${label}</button>
+    <button type="button" class="${className}" data-dashboard-action="runtime_${escapeHtml(item.key)}_${action}">${escapeHtml(label)}</button>
   `).join('');
   return compact ? html : `<div class="dashboard-actions">${html}</div>`;
 }
@@ -259,9 +263,9 @@ function buildIntegrationDetail(item) {
   const details = [];
   if (item.category) details.push(item.category);
   if (item.device_label) details.push(item.device_label);
-  if (item.lsl_enabled !== undefined) details.push(`LSL ${item.lsl_enabled ? 'on' : 'off'}`);
-  if (item.recording_enabled !== undefined) details.push(`recording ${item.recording_enabled ? 'on' : 'off'}`);
-  if (item.scan_timeout_seconds !== undefined && item.scan_timeout_seconds !== null) details.push(`scan ${item.scan_timeout_seconds}s`);
+  if (item.lsl_enabled !== undefined) details.push(`LSL ${formatOnOff(item.lsl_enabled)}`);
+  if (item.recording_enabled !== undefined) details.push(`${t('dashboard.recording', 'recording')} ${formatOnOff(item.recording_enabled)}`);
+  if (item.scan_timeout_seconds !== undefined && item.scan_timeout_seconds !== null) details.push(`${t('dashboard.scan', 'scan')} ${item.scan_timeout_seconds}s`);
   if (item.url) details.push(item.url);
   if (item.host) details.push(`${item.host}:${item.port || ''}`);
   return escapeHtml(details.filter(Boolean).join(' - ') || item.last_message || '-');
@@ -273,10 +277,10 @@ function renderXdf(target, status) {
   const lsl = status.integrations?.lsl || {};
   target.innerHTML = `
     <dl class="status-list">
-      <dt>Primary sync</dt><dd>${escapeHtml(status.timestamp_strategy?.primary || 'LSL')}</dd>
-      <dt>Format</dt><dd>${escapeHtml(status.timestamp_strategy?.recording_format || '.xdf')}</dd>
-      <dt>LSL markers</dt><dd>${lsl.configured_enabled ? 'Enabled' : 'Disabled'}</dd>
-      <dt>LabRecorder</dt><dd>${labrecorder.configured_enabled ? 'Enabled' : 'Disabled'}</dd>
+      <dt>${escapeHtml(t('dashboard.field.primarySync', 'Primary sync'))}</dt><dd>${escapeHtml(status.timestamp_strategy?.primary || 'LSL')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.format', 'Format'))}</dt><dd>${escapeHtml(status.timestamp_strategy?.recording_format || '.xdf')}</dd>
+      <dt>${escapeHtml(t('dashboard.field.lslMarkers', 'LSL markers'))}</dt><dd>${formatEnabled(lsl.configured_enabled)}</dd>
+      <dt>${escapeHtml(t('dashboard.field.labRecorder', 'LabRecorder'))}</dt><dd>${formatEnabled(labrecorder.configured_enabled)}</dd>
     </dl>
   `;
 }
@@ -307,10 +311,18 @@ function formatBoolean(value) {
   if (value === null || value === undefined || value === '') return '-';
   if (typeof value === 'string') {
     const normalized = value.trim().toLowerCase();
-    if (['1', 'true', 'yes', 'on', 'present'].includes(normalized)) return 'yes';
-    if (['0', 'false', 'no', 'off', 'absent'].includes(normalized)) return 'no';
+    if (['1', 'true', 'yes', 'on', 'present'].includes(normalized)) return t('dashboard.yes', 'yes');
+    if (['0', 'false', 'no', 'off', 'absent'].includes(normalized)) return t('dashboard.no', 'no');
   }
-  return value ? 'yes' : 'no';
+  return value ? t('dashboard.yes', 'yes') : t('dashboard.no', 'no');
+}
+
+function formatEnabled(value) {
+  return escapeHtml(value ? t('dashboard.enabled', 'Enabled') : t('dashboard.disabled', 'Disabled'));
+}
+
+function formatOnOff(value) {
+  return value ? t('dashboard.on', 'on') : t('dashboard.off', 'off');
 }
 
 function formatSensorChannels(source, keys) {

@@ -186,6 +186,15 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/api/admin/restart", methods=["POST"])
     def admin_restart():
+        app_mode = str(current_app.config.get("APP_MODE", "python")).strip().lower()
+        if app_mode in {"desktop", "packaged"} or getattr(sys, "frozen", False):
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "Server restart is unavailable inside the bundled desktop sidecar. Restart Study Runner from the desktop launcher.",
+                }
+            ), 503
+
         shutdown_func = request.environ.get("werkzeug.server.shutdown")
         if shutdown_func is None:
             return jsonify({"ok": False, "error": "Server restart is only available on the built-in Study Runner server."}), 503

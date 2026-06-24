@@ -3,11 +3,11 @@
   "brainbit": {
     "debug": false,
     "disconnect_timeout_ms": 5000,
-    "enabled": true,
+    "enabled": false,
     "log_dir": "study_runner/integrations/brainbit/logs",
     "lsl": {
-      "auto_install": true,
-      "enabled": true,
+      "auto_install": false,
+      "enabled": false,
       "stream_prefix": "BrainBit"
     },
     "monitor_refresh_ms": 1000,
@@ -26,13 +26,13 @@
     "working_dir": "study_runner/integrations/brainbit"
   },
   "camera_emotion": {
-    "auto_install": true,
+    "auto_install": false,
     "emotion_worker_timeout_ms": 5000,
     "emotion_worker_url": "http://127.0.0.1:3001",
-    "enabled": true,
+    "enabled": false,
     "lsl": {
-      "auto_install": true,
-      "enabled": true,
+      "auto_install": false,
+      "enabled": false,
       "stream_name": "CameraEmotion"
     },
     "overlay_enabled": true,
@@ -48,22 +48,22 @@
     "xdf_source_dir": "study_runner/integrations/brainbit/recordings"
   },
   "lsl": {
-    "auto_install": true,
-    "enabled": true,
+    "auto_install": false,
+    "enabled": false,
     "stream_name": "StudyRunner",
     "stream_type": "Markers"
   },
   "mini_radar": {
-    "auto_install": true,
+    "auto_install": false,
     "auto_reconnect": true,
     "baudrate": 115200,
     "connection_type": "ble",
     "data_timeout_seconds": 5,
-    "enabled": true,
+    "enabled": false,
     "log_dir": "saved_results",
     "lsl": {
-      "auto_install": true,
-      "enabled": true,
+      "auto_install": false,
+      "enabled": false,
       "stream_prefix": "MiniRadar"
     },
     "ble": {
@@ -86,15 +86,15 @@
     "reconnect_delay": 5
   },
   "notion": {
-    "enabled": true,
+    "enabled": false,
     "auto_retry_failed": true,
     "timeout_seconds": 10
   },
   "osc": {
     "address_start": "/study/start",
     "address_stop": "/study/stop",
-    "auto_install": true,
-    "enabled": true,
+    "auto_install": false,
+    "enabled": false,
     "host": "127.0.0.1",
     "port": 8000
   }

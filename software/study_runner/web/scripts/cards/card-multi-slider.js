@@ -52,7 +52,7 @@ export function renderEditor(q) {
       <input type="text" class="ms-ed-label fi-input" value="${escapeHtml(dim.label)}" placeholder="Dimension name" style="margin-bottom:0;">
       <input type="text" class="ms-ed-lmin fi-input" value="${escapeHtml(dim.min_label||'')}" placeholder="Left label" style="margin-bottom:0;">
       <input type="text" class="ms-ed-lmax fi-input" value="${escapeHtml(dim.max_label||'')}" placeholder="Right label" style="margin-bottom:0;">
-      <button type="button" class="ms-ed-remove-btn" aria-label="Remove dimension">✕</button>
+      <button type="button" class="ms-ed-remove-btn" aria-label="Remove dimension">x</button>
     </div>`).join('');
 
   return `
@@ -108,7 +108,7 @@ export function bindEditorEvents(el) {
       <input type="text" class="ms-ed-label fi-input" value="" placeholder="Dimension name" style="margin-bottom:0;">
       <input type="text" class="ms-ed-lmin  fi-input" value="" placeholder="Left label"      style="margin-bottom:0;">
       <input type="text" class="ms-ed-lmax  fi-input" value="" placeholder="Right label"     style="margin-bottom:0;">
-      <button type="button" class="ms-ed-remove-btn" aria-label="Remove dimension">✕</button>`;
+      <button type="button" class="ms-ed-remove-btn" aria-label="Remove dimension">x</button>`;
     container.appendChild(row);
     row.querySelector('.ms-ed-remove-btn').addEventListener('click', () => row.remove());
   });

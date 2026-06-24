@@ -378,7 +378,7 @@ def time_now_epoch() -> float:
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[3]
 
 
 def _question_prompt(question: dict[str, Any]) -> str:

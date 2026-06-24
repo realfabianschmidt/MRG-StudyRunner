@@ -45,7 +45,7 @@ async function init() {
   }
 
   // Estimate clock offset between tablet and Study Runner server for precise trigger timestamps.
-  // Runs in background — does not block study start.
+  // Runs in the background and does not block study start.
   void syncClock();
 }
 
@@ -73,7 +73,7 @@ async function syncClock() {
       const offset = ((srvRecvPerf - clientSendMs) + (srvSendPerf - clientRecvMs)) / 2;
       offsets.push(offset);
     } catch {
-      // Server unreachable — skip round
+      // Server unreachable; skip this round.
     }
     // Small delay between rounds to avoid burst
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -146,8 +146,8 @@ function updateFullscreenUi() {
 
   fullscreenUi.hidden = false;
   fullscreenUi.classList.toggle('study-fullscreen-ui--active', isActive);
-  fullscreenButton.setAttribute('aria-label', isActive ? 'Vollbild beenden' : 'Vollbild aktivieren');
-  fullscreenButton.title = isActive ? 'Vollbild beenden' : 'Vollbild';
+  fullscreenButton.setAttribute('aria-label', isActive ? t('study.exitFullscreenAria', 'Exit fullscreen') : t('study.fullscreenAria', 'Enter fullscreen'));
+  fullscreenButton.title = isActive ? t('study.exitFullscreenTitle', 'Exit fullscreen') : t('study.fullscreenTitle', 'Fullscreen');
   icon.className = isActive ? 'iconoir-xmark' : 'iconoir-expand';
 }
 
