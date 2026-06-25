@@ -30,7 +30,7 @@ MRG-StudyRunner/
 |   |-- src-tauri/         Rust shell and auto-updater.
 |   |-- scripts/           Sidecar build and signing helpers.
 |   `-- build_tools/       PyInstaller config that bundles software/ into a sidecar.
-|-- release_tools/         Versioning, release checks, GitHub PR/tag/release automation.
+|-- release_tools/         Versioning, release checks, tag, and release automation.
 `-- docs/                  Active docs plus docs/archive/ for historical notes.
 ```
 
@@ -95,18 +95,7 @@ The build creates a fresh PyInstaller sidecar from `software/` first, then bundl
 
 ## One-Command Release
 
-Prerequisite once per machine:
-
-```bash
-gh auth login
-gh auth status
-```
-
-On Windows, install GitHub CLI first if `gh` is missing:
-
-```powershell
-winget install --id GitHub.cli
-```
+GitHub CLI is not required for the normal release helper. The helper pushes `main` and then pushes a tag; GitHub Actions builds the installers after that tag arrives.
 
 Windows-friendly release command:
 
@@ -121,36 +110,35 @@ Other supported inputs:
 .\release.ps1 major
 .\release.ps1 0.3.0
 .\release.ps1 patch -DryRun
+.\release.ps1 patch -FullChecks
 ```
 
 The release helper:
 
 1. bumps all desktop version files,
-2. runs local checks,
-3. creates one branch named `release/study-runner-<version>`,
-4. opens a PR with `gh`,
-5. waits for CI,
-6. merges only when CI is green and the PR head is unchanged,
-7. pushes `app-v<version>`,
-8. waits for the GitHub Release workflow,
-9. verifies release assets and updater metadata.
+2. runs fast local checks by default,
+3. commits the version bump on `main`,
+4. pushes `main`,
+5. pushes `app-v<version>` to start the GitHub Release workflow.
 
 Normal commits and pushes do not create installed-app updates. Only tags named `app-vX.Y.Z` trigger updater releases.
 
 ## Manual Checks
 
 ```bash
-python -m pytest software
+python -m unittest discover software/tests
 node --check desktop/web/main.js
 node --check release_tools/verify-release-version.mjs
+node --check release_tools/release-study-runner.mjs
 node release_tools/verify-release-version.mjs app-v0.2.2
-npm --prefix desktop run build:sidecar
+git diff --check
 ```
 
-From `desktop/src-tauri/`:
+Optional full local build checks:
 
 ```bash
-cargo check -q
+npm --prefix desktop run build:sidecar
+cargo check -q --manifest-path desktop/src-tauri/Cargo.toml
 ```
 
 ## Source Of Truth

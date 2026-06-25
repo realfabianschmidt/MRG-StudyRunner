@@ -2,6 +2,7 @@ param(
   [Parameter(Position = 0)]
   [string]$VersionOrBump = "patch",
   [switch]$DryRun,
+  [switch]$FullChecks,
   [switch]$SkipChecks
 )
 
@@ -12,6 +13,10 @@ $arguments = @($script, "release", $VersionOrBump)
 
 if ($DryRun) {
   $arguments += "--dry-run"
+}
+
+if ($FullChecks) {
+  $arguments += "--full-checks"
 }
 
 if ($SkipChecks) {

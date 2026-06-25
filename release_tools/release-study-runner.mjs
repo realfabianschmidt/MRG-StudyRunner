@@ -1,5 +1,4 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import https from 'node:https';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -20,8 +19,8 @@ function printHelp() {
 Study Runner release helper
 
 Usage:
-  node release_tools/release-study-runner.mjs release <patch|minor|major|version> [--dry-run] [--skip-checks]
-  node release_tools/release-study-runner.mjs prepare <patch|minor|major|version> [--skip-checks] [--no-push]
+  node release_tools/release-study-runner.mjs release <patch|minor|major|version> [--dry-run] [--full-checks] [--skip-checks]
+  node release_tools/release-study-runner.mjs prepare <patch|minor|major|version> [--full-checks] [--skip-checks]
   node release_tools/release-study-runner.mjs publish <version>
   node release_tools/release-study-runner.mjs status
 
@@ -29,11 +28,11 @@ Recommended non-coder command on Windows:
   .\\release.ps1 patch
 
 Requirements on the machine that runs a release:
-  Git, Node.js + npm, Python 3.12, Rust (cargo), and the GitHub CLI (gh, logged in).
-  Use --skip-checks to skip the local build checks if the toolchain is incomplete.
+  Git, Node.js, and Python 3.12. Full local checks also need npm and Rust (cargo).
+  GitHub CLI is not required. GitHub Actions builds the installer artifacts after the tag is pushed.
 
-The release command creates one branch, opens a PR, waits for CI, merges it,
-pushes app-v<version>, waits for the release workflow, and verifies latest.json.
+The release command bumps versions on main, runs fast local checks, commits,
+pushes main, then pushes app-v<version> to start the release workflow.
 `);
 }
 
@@ -79,16 +78,6 @@ function git(args, options = {}) {
   return run('git', args, options);
 }
 
-function gh(args, options = {}) {
-  return run('gh', args, options);
-}
-
-// Block the current step for `ms` without async. Atomics.wait is a simple, dependency-free
-// synchronous sleep; this CLI runs one step at a time, so a busy wait here is fine.
-function sleep(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
 function readText(relativePath) {
   return readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
@@ -125,10 +114,6 @@ function resolveNextVersion(input) {
   return input;
 }
 
-function releaseBranchName(version) {
-  return `release/study-runner-${version}`;
-}
-
 function releaseTagName(version) {
   return `app-v${version}`;
 }
@@ -139,28 +124,6 @@ function currentBranch() {
 
 function headSha(ref = 'HEAD') {
   return git(['rev-parse', ref], { capture: true });
-}
-
-function branchExists(branchName) {
-  return git(['rev-parse', '--verify', branchName], {
-    capture: true,
-    allowFailure: true,
-  }).status === 0;
-}
-
-function ensureGhReady() {
-  const ghVersion = gh(['--version'], {
-    capture: true,
-    allowFailure: true,
-  });
-  if (ghVersion.error || ghVersion.status !== 0) {
-    fail('GitHub CLI is required for one-command releases. Install it first, then run: gh auth login');
-  }
-
-  const authStatus = gh(['auth', 'status'], { allowFailure: true });
-  if (authStatus.status !== 0) {
-    fail('GitHub CLI is installed but not logged in. Run: gh auth login');
-  }
 }
 
 function ensureTagDoesNotExist(tagName) {
@@ -177,28 +140,26 @@ function ensureTagDoesNotExist(tagName) {
   }
 }
 
-function ensureReleaseStartingPoint(branchName) {
+function ensureCleanWorkingTree() {
+  const status = git(['status', '--porcelain'], { capture: true });
+  if (status) {
+    fail(`Working tree must be clean before releasing:\n${status}`);
+  }
+}
+
+function ensureDirectReleaseStartingPoint() {
   git(['fetch', 'origin', 'main', '--tags']);
   const branch = currentBranch();
-
-  if (branch === branchName) {
-    return;
-  }
 
   if (branch !== 'main') {
     fail(`You are on '${branch}'. Switch to main before starting a release.`);
   }
 
+  ensureCleanWorkingTree();
+
   if (headSha('HEAD') !== headSha('origin/main')) {
-    fail('Local main is not equal to origin/main. Pull or reset main before releasing.');
+    fail('Local main is not equal to origin/main. Pull or push main before releasing.');
   }
-
-  if (branchExists(branchName)) {
-    git(['switch', branchName]);
-    return;
-  }
-
-  git(['switch', '-c', branchName]);
 }
 
 function replacePackageVersion(relativePath, nextVersion) {
@@ -256,16 +217,19 @@ function bumpVersions(nextVersion) {
   replaceCargoLockVersion(nextVersion);
 }
 
-// A release builds the Python sidecar and the Rust crate, so it needs the full local
-// toolchain. Check it up front with a friendly message instead of failing mid-build.
-function ensureToolchain() {
+function ensureToolchain({ full = false } = {}) {
   const tools = [
     { cmd: 'node', args: ['--version'], hint: 'Install Node.js from https://nodejs.org' },
-    { cmd: npmCommand, args: ['--version'], hint: 'npm ships with Node.js' },
     { cmd: 'python', args: ['--version'], hint: 'Install Python 3.12 from https://python.org' },
-    { cmd: 'cargo', args: ['--version'], hint: 'Install Rust from https://rustup.rs' },
     { cmd: 'git', args: ['--version'], hint: 'Install Git from https://git-scm.com' },
   ];
+  if (full) {
+    tools.push(
+      { cmd: npmCommand, args: ['--version'], hint: 'npm ships with Node.js' },
+      { cmd: 'cargo', args: ['--version'], hint: 'Install Rust from https://rustup.rs' },
+    );
+  }
+
   const missing = [];
   for (const tool of tools) {
     const result = run(tool.cmd, tool.args, { capture: true, allowFailure: true });
@@ -274,18 +238,24 @@ function ensureToolchain() {
     }
   }
   if (missing.length > 0) {
-    fail(`Some tools needed for a release are missing:\n${missing.join('\n')}\n\nInstall them, or run with --skip-checks to skip the local build checks.`);
+    fail(`Some tools needed for release checks are missing:\n${missing.join('\n')}\n\nInstall them, or run with --skip-checks to skip local checks.`);
   }
 }
 
 function runChecks(nextVersion) {
-  ensureToolchain();
+  const fullChecks = flags.has('--full-checks');
+  ensureToolchain({ full: fullChecks });
   run('node', ['--check', 'desktop/web/main.js']);
   run('node', ['--check', 'release_tools/verify-release-version.mjs']);
+  run('node', ['--check', 'release_tools/release-study-runner.mjs']);
   run('node', ['release_tools/verify-release-version.mjs', releaseTagName(nextVersion)]);
-  run('python', ['-m', 'pytest', 'software']);
-  run(npmCommand, ['--prefix', 'desktop', 'run', 'build:sidecar']);
-  run('cargo', ['check', '-q'], { cwd: tauriRoot });
+  run('python', ['-m', 'unittest', 'discover', path.join('software', 'tests')]);
+
+  if (fullChecks) {
+    run(npmCommand, ['--prefix', 'desktop', 'run', 'build:sidecar']);
+    run('cargo', ['check', '-q'], { cwd: tauriRoot });
+  }
+
   git(['diff', '--check']);
 }
 
@@ -319,7 +289,7 @@ function ensureNoStagedSecrets(files) {
   }
 }
 
-function commitReleaseBranch(version) {
+function commitVersionChanges(version, message) {
   git(['add', '-A']);
   const files = stagedFiles();
   if (files.length === 0) {
@@ -327,79 +297,7 @@ function commitReleaseBranch(version) {
   }
 
   ensureNoStagedSecrets(files);
-  git(['commit', '-m', `prepare study runner ${version}`]);
-}
-
-function getPr(branchName) {
-  const result = gh(['pr', 'view', branchName, '--json', 'number,url,state,headRefOid'], {
-    capture: true,
-    allowFailure: true,
-  });
-  if (result.status !== 0 || !result.stdout.trim()) {
-    return null;
-  }
-  return JSON.parse(result.stdout);
-}
-
-function ensurePr(version, branchName) {
-  const existing = getPr(branchName);
-  if (existing?.state === 'OPEN') {
-    return existing;
-  }
-
-  const body = [
-    `Release Study Runner ${version}.`,
-    '',
-    'This PR was created by the release helper.',
-    '',
-    'The helper already bumped versions and ran local release checks before pushing this branch.',
-  ].join('\n');
-
-  gh([
-    'pr',
-    'create',
-    '--base',
-    'main',
-    '--head',
-    branchName,
-    '--title',
-    `Release Study Runner ${version}`,
-    '--body',
-    body,
-  ]);
-
-  const pr = getPr(branchName);
-  if (!pr) {
-    fail('Could not read the created pull request.');
-  }
-  return pr;
-}
-
-function waitForPrChecks(prNumber) {
-  gh(['pr', 'checks', String(prNumber), '--watch', '--fail-fast']);
-}
-
-function mergePr(pr, expectedHeadSha, version) {
-  const latest = gh(['pr', 'view', String(pr.number), '--json', 'headRefOid,state'], { capture: true });
-  const latestPr = JSON.parse(latest);
-  if (latestPr.state !== 'OPEN') {
-    fail(`Pull request #${pr.number} is not open.`);
-  }
-  if (latestPr.headRefOid !== expectedHeadSha) {
-    fail(`Pull request #${pr.number} changed while checks were running. Aborting merge.`);
-  }
-
-  gh([
-    'pr',
-    'merge',
-    String(pr.number),
-    '--merge',
-    '--delete-branch',
-    '--subject',
-    `Merge Study Runner ${version} release`,
-    '--body',
-    `Automated release merge for Study Runner ${version}.`,
-  ]);
+  git(['commit', '-m', message || `Release Study Runner ${version}`]);
 }
 
 function versionFromCargoToml(content) {
@@ -426,7 +324,7 @@ function verifyRemoteMainVersion(version) {
     for (const [file, value] of Object.entries(versions)) {
       console.error(`- ${file}: ${value || '<missing>'}`);
     }
-    fail('Merge the release PR first, then run publish again.');
+    fail('Push the release version commit to main first, then run publish again.');
   }
 }
 
@@ -440,110 +338,20 @@ function pushReleaseTag(version) {
   return tagName;
 }
 
-function findReleaseRun(tagName) {
-  const output = gh([
-    'run',
-    'list',
-    '--workflow',
-    'release.yml',
-    '--json',
-    'databaseId,headBranch,status,conclusion,url',
-    '--limit',
-    '20',
-  ], { capture: true });
-  const runs = JSON.parse(output);
-  return runs.find((runInfo) => runInfo.headBranch === tagName) || null;
-}
-
-function waitForReleaseWorkflow(tagName) {
-  let runInfo = null;
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    runInfo = findReleaseRun(tagName);
-    if (runInfo) break;
-    sleep(10000);
-  }
-  if (!runInfo) {
-    fail(`Could not find release workflow run for ${tagName}.`);
-  }
-
-  console.log(`Watching release workflow: ${runInfo.url}`);
-  gh(['run', 'watch', String(runInfo.databaseId), '--exit-status']);
-  return runInfo;
-}
-
-function fetchJson(url) {
-  return new Promise((resolve, reject) => {
-    https
-      .get(url, { headers: { 'User-Agent': 'study-runner-release-helper' } }, (response) => {
-        let body = '';
-        response.setEncoding('utf8');
-        response.on('data', (chunk) => {
-          body += chunk;
-        });
-        response.on('end', () => {
-          if (response.statusCode < 200 || response.statusCode >= 300) {
-            reject(new Error(`HTTP ${response.statusCode} for ${url}`));
-            return;
-          }
-          try {
-            resolve(JSON.parse(body));
-          } catch (error) {
-            reject(error);
-          }
-        });
-      })
-      .on('error', reject);
-  });
-}
-
-async function verifyPublishedRelease(version, tagName) {
-  const release = JSON.parse(gh(['release', 'view', tagName, '--json', 'assets,isDraft,isPrerelease,url'], { capture: true }));
-  if (release.isDraft) {
-    fail(`${tagName} is still a draft release.`);
-  }
-
-  const assetNames = release.assets.map((asset) => asset.name);
-  const requiredAssets = [
-    'latest.json',
-    `Study.Runner_${version}_x64-setup.exe`,
-    `Study.Runner_${version}_x64-setup.exe.sig`,
-    `Study.Runner_${version}_amd64.AppImage`,
-    `Study.Runner_${version}_amd64.AppImage.sig`,
-    `Study.Runner_${version}_x64.dmg`,
-    `Study.Runner_${version}_aarch64.dmg`,
-    'Study.Runner_x64.app.tar.gz',
-    'Study.Runner_x64.app.tar.gz.sig',
-    'Study.Runner_aarch64.app.tar.gz',
-    'Study.Runner_aarch64.app.tar.gz.sig',
-  ];
-
-  const missingAssets = requiredAssets.filter((asset) => !assetNames.includes(asset));
-  if (missingAssets.length > 0) {
-    fail(`Release is missing expected assets:\n- ${missingAssets.join('\n- ')}`);
-  }
-
-  const latestJson = await fetchJson('https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest/download/latest.json');
-  const requiredPlatforms = ['windows-x86_64', 'linux-x86_64', 'darwin-x86_64', 'darwin-aarch64'];
-  const missingPlatforms = requiredPlatforms.filter((platform) => !latestJson.platforms?.[platform]);
-  if (latestJson.version !== version || missingPlatforms.length > 0) {
-    fail(`latest.json is not ready for ${version}. Missing platforms: ${missingPlatforms.join(', ') || '<none>'}`);
-  }
-
-  console.log('\nRelease is published and updater metadata is valid.');
-  console.log(release.url);
-  console.log('\nInstaller assets:');
-  for (const name of assetNames.filter((asset) => !asset.endsWith('.sig') && asset !== 'latest.json' && !asset.endsWith('.tar.gz'))) {
-    console.log(`- ${name}`);
-  }
+function printReleaseLinks(tagName) {
+  console.log('\nGitHub Actions:');
+  console.log('https://github.com/realfabianschmidt/MRG-StudyRunner/actions/workflows/release.yml');
+  console.log('\nRelease page:');
+  console.log(`https://github.com/realfabianschmidt/MRG-StudyRunner/releases/tag/${tagName}`);
+  console.log('\nGitHub Actions will build the installers and publish the release when all platform builds pass.');
 }
 
 function prepare(version) {
   const resolvedVersion = resolveNextVersion(version);
-  const branchName = releaseBranchName(resolvedVersion);
   const tagName = releaseTagName(resolvedVersion);
 
   ensureTagDoesNotExist(tagName);
-  ensureReleaseStartingPoint(branchName);
+  ensureDirectReleaseStartingPoint();
   bumpVersions(resolvedVersion);
 
   if (!flags.has('--skip-checks')) {
@@ -552,41 +360,33 @@ function prepare(version) {
     console.warn('Skipping checks because --skip-checks was provided.');
   }
 
-  commitReleaseBranch(resolvedVersion);
-
-  if (flags.has('--no-push')) {
-    console.log(`\nPrepared local commit on ${branchName}.`);
-    return;
-  }
-
-  git(['push', '-u', 'origin', branchName]);
-  console.log(`\nOpen the PR and merge it after CI passes: https://github.com/realfabianschmidt/MRG-StudyRunner/compare/main...${branchName}?expand=1`);
+  commitVersionChanges(resolvedVersion, `Prepare Study Runner ${resolvedVersion}`);
+  console.log(`\nPrepared local version commit for ${resolvedVersion}. No tag was created.`);
 }
 
 function publish(version) {
   ensureSemver(version);
   const tagName = pushReleaseTag(version);
   console.log(`\nRelease tag pushed: ${tagName}`);
-  console.log('Watch the release workflow in GitHub Actions.');
+  printReleaseLinks(tagName);
 }
 
 async function release(input) {
   const resolvedVersion = resolveNextVersion(input || 'patch');
-  const branchName = releaseBranchName(resolvedVersion);
   const tagName = releaseTagName(resolvedVersion);
 
   console.log(`Study Runner release target: ${resolvedVersion}`);
-  console.log(`Branch: ${branchName}`);
+  console.log('Branch: main');
   console.log(`Tag: ${tagName}`);
 
   if (flags.has('--dry-run')) {
-    console.log('\nDry run only. No files, branches, PRs, tags, or releases were changed.');
+    console.log('\nDry run only. No files, commits, pushes, tags, or releases were changed.');
+    console.log('\nA real release would bump versions, run local checks, commit on main, push main, and push the release tag.');
     return;
   }
 
-  ensureGhReady();
   ensureTagDoesNotExist(tagName);
-  ensureReleaseStartingPoint(branchName);
+  ensureDirectReleaseStartingPoint();
   bumpVersions(resolvedVersion);
 
   if (!flags.has('--skip-checks')) {
@@ -595,19 +395,11 @@ async function release(input) {
     console.warn('Skipping checks because --skip-checks was provided.');
   }
 
-  commitReleaseBranch(resolvedVersion);
-  const releaseCommit = headSha('HEAD');
-  git(['push', '-u', 'origin', branchName]);
-
-  const pr = ensurePr(resolvedVersion, branchName);
-  console.log(`Pull Request: ${pr.url}`);
-  waitForPrChecks(pr.number);
-  mergePr(pr, releaseCommit, resolvedVersion);
-
-  git(['fetch', 'origin', 'main', '--tags']);
+  commitVersionChanges(resolvedVersion, `Release Study Runner ${resolvedVersion}`);
+  git(['push', 'origin', 'main']);
   const pushedTag = pushReleaseTag(resolvedVersion);
-  waitForReleaseWorkflow(pushedTag);
-  await verifyPublishedRelease(resolvedVersion, pushedTag);
+  console.log(`\nRelease tag pushed: ${pushedTag}`);
+  printReleaseLinks(pushedTag);
 }
 
 function status() {

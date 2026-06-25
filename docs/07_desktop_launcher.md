@@ -231,7 +231,7 @@ For an explicit version:
 .\release.ps1 0.3.0
 ```
 
-The helper uses one branch per version, `release/study-runner-<version>`. It bumps versions, runs local checks, creates a PR, waits for CI, merges the PR, pushes `app-v<version>`, waits for the release workflow, and checks `latest.json`.
+The helper bumps versions on `main`, runs fast local checks, commits the version bump, pushes `main`, and then pushes `app-v<version>`. The tag starts the GitHub release workflow, which builds and publishes the platform installers.
 
 Use a dry run first when you only want to see what would happen:
 
@@ -239,42 +239,44 @@ Use a dry run first when you only want to see what would happen:
 .\release.ps1 patch -DryRun
 ```
 
+Use full local checks when you also want to build the PyInstaller sidecar and run the Rust check before the tag is pushed:
+
+```powershell
+.\release.ps1 patch -FullChecks
+```
+
 Manual checklist:
 
-1. Change source files, docs, studies, or launcher files on a branch.
+1. Change source files, docs, studies, or launcher files.
 2. Keep generated folders out of Git.
 3. Bump all desktop version fields to the same SemVer value.
-4. Install the local test runner if it is missing:
+4. Run fast local checks:
 
 ```bash
-python -m pip install pytest
-```
-
-5. Run local checks:
-
-```bash
-python -m pytest software
+python -m unittest discover software/tests
 node --check desktop/web/main.js
 node --check release_tools/verify-release-version.mjs
+node --check release_tools/release-study-runner.mjs
 node release_tools/verify-release-version.mjs app-v0.3.0
-npm --prefix desktop run build:sidecar
+git diff --check
 ```
 
-From `desktop/src-tauri/`:
+5. Optionally run full local build checks:
 
 ```bash
-cargo check -q
+npm --prefix desktop run build:sidecar
+cargo check -q --manifest-path desktop/src-tauri/Cargo.toml
 ```
 
 The sidecar build is required before `cargo check` in a clean checkout because Tauri validates that the configured `externalBin` exists.
 
-6. Push the branch and merge through a pull request.
+6. Commit and push `main`.
 7. Create and push the annotated release tag.
 8. Wait for all release jobs to pass.
 9. Verify that the release is published and contains `latest.json`, installers, and signature files.
 10. Install an older build and confirm that the launcher shows the update.
 
-The one-command helper performs steps 3 through 9 automatically.
+The one-command helper performs steps 3, 4, 6, and 7 automatically. GitHub Actions performs the platform builds and publishes the release after the tag is pushed.
 
 ## Troubleshooting
 
@@ -293,11 +295,9 @@ The one-command helper performs steps 3 through 9 automatically.
   Runner under System Settings -> Privacy & Security -> Local Network. The bundle ships
   `NSLocalNetworkUsageDescription` so macOS prompts for this.
 - If a release tag is already public and may have been installed, do not force-move it. Create a new patch version instead.
-- If `release.ps1` stops part way (for example CI fails after the branch is pushed), the
-  release branch `release/study-runner-<version>` already exists on GitHub. Fix the cause,
-  then re-run the same `release.ps1 <version>`: the helper reuses the existing branch and
-  open pull request. If a tag was already pushed but the release did not finish, do not
-  reuse that version number; bump to the next patch and release again.
+- If `release.ps1` stops before the tag is pushed, fix the cause and re-run the same
+  command. If the tag was already pushed but the release did not finish, do not reuse that
+  version number; bump to the next patch and release again.
 
 ## Integration Notes
 

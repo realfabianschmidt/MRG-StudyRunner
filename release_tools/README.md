@@ -8,18 +8,22 @@ Recommended Windows entrypoint from the repository root:
 .\release.ps1 patch
 ```
 
-One-time prerequisite:
-
-```powershell
-winget install --id GitHub.cli
-gh auth login
-gh auth status
-```
-
 Direct Node entrypoint:
 
 ```bash
 node release_tools/release-study-runner.mjs release patch
 ```
 
-The release command creates a release branch, opens a pull request, waits for CI, merges when checks are green, pushes the release tag, waits for the GitHub release workflow, and verifies the finished release assets.
+The release command bumps the desktop version files, runs fast local checks, commits on `main`, pushes `main`, and pushes an `app-v<version>` tag. GitHub Actions builds and publishes the platform installers after the tag is pushed.
+
+Use a dry run to preview the next version:
+
+```powershell
+.\release.ps1 patch -DryRun
+```
+
+Use full local checks when you also want the PyInstaller sidecar and Rust crate checked before the tag is pushed:
+
+```powershell
+.\release.ps1 patch -FullChecks
+```

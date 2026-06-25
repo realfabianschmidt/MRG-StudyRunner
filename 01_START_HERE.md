@@ -102,31 +102,22 @@ erlaube Study Runner unter Systemeinstellungen den Zugriff auf das lokale Netzwe
 
 ## Neues Update veroeffentlichen
 
-Voraussetzung: GitHub CLI ist installiert und angemeldet.
-
-Installation unter Windows:
-
-```powershell
-winget install --id GitHub.cli
-```
-
-Einmalig pruefen:
-
-```powershell
-gh auth login
-gh auth status
-```
-
 Patch-Update starten (aus dem Hauptordner, nicht aus `software/`):
 
 ```powershell
 .\release.ps1 patch
 ```
 
-Das Skript bumpet die Version, erstellt einen PR, wartet auf CI, merged bei gruenem Ergebnis, taggt die Version, wartet auf den GitHub-Release und prueft die Update-Datei.
+Das Skript bumpet die Version, fuehrt schnelle lokale Checks aus, committet auf `main`, pusht `main` und pusht einen Tag wie `app-v0.2.3`. Dieser Tag startet GitHub Actions. Dort werden die Windows-, Linux- und Mac-Installer gebaut und als GitHub Release veroeffentlicht.
 
 Trockenlauf ohne Veraenderungen:
 
 ```powershell
 .\release.ps1 patch -DryRun
+```
+
+Lokaler Vollcheck mit Sidecar- und Rust-Check:
+
+```powershell
+.\release.ps1 patch -FullChecks
 ```
