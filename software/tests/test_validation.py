@@ -9,7 +9,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.validation import validate_and_normalize_config
+from study_runner.backend.services.validation import (
+    ValidationError,
+    validate_and_normalize_config,
+    validate_and_normalize_results,
+)
 
 
 class ValidationTests(unittest.TestCase):
@@ -22,7 +26,7 @@ class ValidationTests(unittest.TestCase):
                         "type": "participant-id",
                         "prompt": "Please identify yourself anonymously.",
                         "code_label": "Your code",
-                        "code_hint": "The raw inputs are hashed locally.",
+                        "info_top": "The raw inputs are hashed locally.",
                     },
                     {
                         "type": "finish",
@@ -35,7 +39,154 @@ class ValidationTests(unittest.TestCase):
 
         participant_card = config["questions"][0]
         self.assertEqual(participant_card["code_label"], "Your code")
-        self.assertEqual(participant_card["code_hint"], "The raw inputs are hashed locally.")
+        self.assertEqual(participant_card["info_top"], "The raw inputs are hashed locally.")
+        self.assertNotIn("code_hint", participant_card)
+
+    def test_participant_id_legacy_code_hint_migrates_to_info_top(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Legacy Hint",
+                "questions": [
+                    {
+                        "type": "participant-id",
+                        "prompt": "Identify yourself.",
+                        "code_hint": "Hashed locally on this device.",
+                    },
+                    {"type": "finish", "title": "Done", "prompt": "Saved."},
+                ],
+            }
+        )
+
+        participant_card = config["questions"][0]
+        self.assertEqual(participant_card["info_top"], "Hashed locally on this device.")
+        self.assertNotIn("code_hint", participant_card)
+
+    def test_card_info_text_round_trips_and_omits_empty(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Card Info",
+                "questions": [
+                    {
+                        "type": "likert",
+                        "prompt": "How relaxed do you feel?",
+                        "info_top": "Read the scale before answering.",
+                        "info_bottom": "There are no right or wrong answers.",
+                    },
+                    {
+                        "type": "likert",
+                        "prompt": "And now?",
+                        "info_top": "   ",
+                    },
+                ],
+            }
+        )
+
+        first = config["questions"][0]
+        self.assertEqual(first["info_top"], "Read the scale before answering.")
+        self.assertEqual(first["info_bottom"], "There are no right or wrong answers.")
+
+        second = config["questions"][1]
+        self.assertNotIn("info_top", second)
+        self.assertNotIn("info_bottom", second)
+
+    def test_participant_id_default_field_config_is_private_for_names(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Participant Defaults",
+                "questions": [
+                    {"type": "participant-id", "prompt": "Identify yourself."},
+                    {"type": "finish", "title": "Done", "prompt": "Saved."},
+                ],
+            }
+        )
+
+        fields = config["questions"][0]["fields"]
+        self.assertEqual(fields["first_name"], {"enabled": True, "use_for_key": True, "store": False})
+        self.assertEqual(fields["last_name"], {"enabled": True, "use_for_key": True, "store": False})
+        self.assertEqual(fields["age_group"], {"enabled": True, "use_for_key": True, "store": True})
+        self.assertEqual(fields["childhood_area"], {"enabled": True, "use_for_key": True, "store": True})
+        self.assertEqual(fields["childhood_nearest_city"], {"enabled": True, "use_for_key": True, "store": True})
+
+    def test_participant_id_needs_at_least_one_key_field(self) -> None:
+        with self.assertRaises(ValidationError):
+            validate_and_normalize_config(
+                {
+                    "study_id": "No Key",
+                    "questions": [
+                        {
+                            "type": "participant-id",
+                            "fields": {
+                                "first_name": {"enabled": True, "use_for_key": False, "store": False},
+                                "last_name": {"enabled": True, "use_for_key": False, "store": False},
+                                "age_group": {"enabled": True, "use_for_key": False, "store": True},
+                                "childhood_area": {"enabled": True, "use_for_key": False, "store": True},
+                                "childhood_nearest_city": {"enabled": True, "use_for_key": False, "store": True},
+                            },
+                        },
+                        {"type": "finish"},
+                    ],
+                }
+            )
+
+    def test_result_accepts_configured_participant_metadata(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Metadata Study",
+                "questions": [
+                    {"type": "participant-id", "prompt": "Identify yourself."},
+                    {"type": "finish"},
+                ],
+            }
+        )
+
+        result = validate_and_normalize_results(
+            {
+                "participant_id": "abc123",
+                "study_id": "Metadata Study",
+                "timestamp_start": "2026-01-01T10:00:00Z",
+                "timestamp_end": "2026-01-01T10:01:00Z",
+                "answers": {},
+                "participant_metadata": {
+                    "age_group": "18-25",
+                    "childhood_area": "urban",
+                    "childhood_nearest_city": "Munich",
+                },
+            },
+            config,
+        )
+
+        self.assertEqual(result["participant_metadata"]["age_group"], "18-25")
+        self.assertEqual(result["participant_metadata"]["childhood_area"], "urban")
+        self.assertEqual(result["participant_metadata"]["childhood_nearest_city"], "Munich")
+
+    def test_result_rejects_unstored_participant_metadata(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Metadata Study",
+                "questions": [
+                    {"type": "participant-id", "prompt": "Identify yourself."},
+                    {"type": "finish"},
+                ],
+            }
+        )
+
+        with self.assertRaises(ValidationError):
+            validate_and_normalize_results(
+                {
+                    "participant_id": "abc123",
+                    "study_id": "Metadata Study",
+                    "timestamp_start": "2026-01-01T10:00:00Z",
+                    "timestamp_end": "2026-01-01T10:01:00Z",
+                    "answers": {},
+                    "participant_metadata": {
+                        "first_name": "Anna",
+                        "age_group": "18-25",
+                        "childhood_area": "urban",
+                        "childhood_nearest_city": "Munich",
+                    },
+                },
+                config,
+            )
 
 
 if __name__ == "__main__":

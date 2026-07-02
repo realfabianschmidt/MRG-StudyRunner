@@ -1,6 +1,7 @@
 import { getJson, postJson } from './api-client.js';
 import { startCameraCaptureSession } from './camera-capture.js';
 import { CARDS } from './cards/index.js';
+import { renderInfoTop, renderInfoBottom } from './cards/card-info.js';
 import { onInput as sliderInput } from './cards/card-slider.js';
 import { bindDrag as rankBindDrag } from './cards/card-ranking.js';
 import { onClick as moodMeterClick } from './cards/card-mood-meter.js';
@@ -238,6 +239,15 @@ function resolveParticipantId() {
   return 'unknown';
 }
 
+function collectParticipantMetadata() {
+  const questions = state.config.questions || [];
+  const pidIdx = questions.findIndex(q => q.type === 'participant-id');
+  if (pidIdx >= 0) {
+    return CARDS['participant-id'].collectMetadata?.() || {};
+  }
+  return {};
+}
+
 function showScreen(screenName) {
   document.querySelectorAll('.screen').forEach((screenElement) => {
     screenElement.classList.remove('active');
@@ -284,7 +294,7 @@ function buildQuestions() {
     const cardElement = document.createElement('div');
     cardElement.className = 'q-card-study';
     cardElement.id = `card-q-${questionIndex}`;
-    cardElement.innerHTML = cardModule.renderStudy(question, questionIndex);
+    cardElement.innerHTML = renderInfoTop(question) + cardModule.renderStudy(question, questionIndex) + renderInfoBottom(question);
     container.appendChild(cardElement);
 
     if (question.type === 'ranking') {
@@ -871,7 +881,8 @@ function updateNavigation() {
   if (!total) {
     getElement('btn-prev').disabled = true;
     getElement('btn-next').disabled = true;
-    getElement('q-counter').textContent = '00 / 00';
+    renderCounter(0, 0);
+    updateProgressBar(0, 0);
     getElement('btn-next-label').textContent = t('study.finish', 'Finish');
     getElement('btn-next-icon').className = 'iconoir-check';
     return;
@@ -879,10 +890,13 @@ function updateNavigation() {
 
   const currentIndex = state.currentIndex;
   const currentQuestion = questions[currentIndex];
+  const totalNormal = questions.filter(q => q.type !== 'finish').length;
 
   const nav = document.querySelector('.q-nav');
   if (currentQuestion && currentQuestion.type === 'finish') {
     if (nav) nav.style.display = 'none';
+    renderCounter(totalNormal, totalNormal);
+    updateProgressBar(totalNormal, totalNormal);
     return;
   } else {
     if (nav) nav.style.display = 'flex';
@@ -897,11 +911,37 @@ function updateNavigation() {
   getElement('btn-prev').disabled = isFirst || isStimulusBusy;
   getElement('btn-next').disabled = !answered;
 
-  const totalNormal = questions.filter(q => q.type !== 'finish').length;
-  const pad = (value) => String(value).padStart(2, '0');
-  getElement('q-counter').textContent = `${pad(Math.min(currentIndex + 1, totalNormal))} / ${pad(totalNormal)}`;
+  renderCounter(Math.min(currentIndex + 1, totalNormal), totalNormal);
+  updateProgressBar(Math.min(currentIndex + 1, totalNormal), totalNormal);
   getElement('btn-next-label').textContent = isLastNormalCard ? t('study.submit', 'Submit') : t('study.next', 'Next');
   getElement('btn-next-icon').className = isLastNormalCard ? 'iconoir-check' : 'iconoir-nav-arrow-right';
+}
+
+function renderCounter(current, total) {
+  const pad = (value) => String(value).padStart(2, '0');
+  getElement('q-counter').innerHTML = `
+    <span class="q-counter-current">${pad(current)}</span>
+    <span class="q-counter-divider">/</span>
+    <span class="q-counter-total">${pad(total)}</span>`;
+}
+
+function updateProgressBar(current, total) {
+  const progressBar = getElement('study-progress-bar');
+  const progressFill = getElement('study-progress-fill');
+  if (!progressBar || !progressFill) {
+    return;
+  }
+
+  const enabled = state.config.study_settings?.progress_bar_enabled === true;
+  if (!enabled || total <= 0) {
+    progressBar.hidden = true;
+    progressFill.style.width = '0%';
+    return;
+  }
+
+  const percent = Math.max(0, Math.min(100, (current / total) * 100));
+  progressBar.hidden = false;
+  progressFill.style.width = `${percent}%`;
 }
 
 async function handleNext() {
@@ -971,6 +1011,7 @@ async function submitResults() {
       timestamp_start: new Date(state.startTime).toISOString(),
       timestamp_end: new Date().toISOString(),
       answers: collectAnswers(),
+      participant_metadata: collectParticipantMetadata(),
       answer_events: collectAnswerEvents(),
     });
 

@@ -3,7 +3,70 @@
   "questions": [
     {
       "type": "participant-id",
-      "prompt": "Bitte gib deine Daten zur anonymen Identifikation ein."
+      "prompt": "Bitte gib deine Daten zur anonymen Identifikation ein.",
+      "fields": {
+        "first_name": {
+          "enabled": true,
+          "use_for_key": true,
+          "store": false
+        },
+        "last_name": {
+          "enabled": true,
+          "use_for_key": true,
+          "store": false
+        },
+        "age_group": {
+          "enabled": true,
+          "use_for_key": true,
+          "store": true
+        },
+        "childhood_area": {
+          "enabled": true,
+          "use_for_key": true,
+          "store": true
+        },
+        "childhood_nearest_city": {
+          "enabled": true,
+          "use_for_key": true,
+          "store": true
+        }
+      }
+    },
+    {
+      "type": "stimulus",
+      "title": "Observe the material",
+      "subtitle": "Pay attention to all sensory impressions. The questionnaire will appear automatically.",
+      "warmup_duration_ms": 0,
+      "duration_ms": 30000,
+      "trigger_type": "timer",
+      "trigger_content": "",
+      "send_signal": true,
+      "brainbit_to_lsl": true,
+      "brainbit_to_touchdesigner": true,
+      "camera_capture_enabled": false,
+      "camera_snapshot_interval_ms": 200,
+      "mini_radar_recording_enabled": true
+    },
+    {
+      "type": "slider",
+      "prompt": "",
+      "label_min": "not at all",
+      "label_max": "very strongly"
+    },
+    {
+      "type": "word-cloud",
+      "prompt": "Which words describe how you feel right now?",
+      "words": [
+        "Happy",
+        "Sad",
+        "Excited",
+        "Calm",
+        "Anxious",
+        "Tired",
+        "Focused",
+        "Restless"
+      ],
+      "allow_multiple": true
     },
     {
       "type": "finish",
@@ -13,6 +76,7 @@
   ],
   "study_settings": {
     "sensors_enabled": true,
+    "progress_bar_enabled": false,
     "notion_enabled": false,
     "notion_parent_page_id": "",
     "notion_database_id": "",

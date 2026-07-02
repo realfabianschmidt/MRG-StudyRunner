@@ -18,11 +18,20 @@ from pathlib import Path
 from typing import Any
 
 from ..dependency_utils import ensure_requirements
+from study_runner.backend.services.validation import PARTICIPANT_FIELD_ORDER
 
 
 _client: Any = None
 _config: dict[str, Any] = {}
 _queue_path: Path | None = None
+
+PARTICIPANT_NOTION_PROPERTIES = {
+    "first_name": ("First Name", "rich_text"),
+    "last_name": ("Last Name", "rich_text"),
+    "age_group": ("Age Group", "select"),
+    "childhood_area": ("Childhood Area", "select"),
+    "childhood_nearest_city": ("Childhood Nearest City", "rich_text"),
+}
 
 
 def initialize(
@@ -105,7 +114,7 @@ def upload_study_result(
         page_id = _find_or_create_participant(db_id, result_payload, study_settings, config_data)
         session_num = _get_session_count(page_id) + 1
         _append_session_block(page_id, session_num, result_payload, hardware_config, saved_output)
-        _update_participant_properties(page_id, session_num, result_payload)
+        _update_participant_properties(page_id, session_num, result_payload, config_data)
         pid_short = str(result_payload.get("participant_id") or "?")[:8]
         print(f"[NOTION] Uploaded session {session_num} for participant {pid_short}…")
         return {"ok": True}
@@ -176,10 +185,66 @@ def get_status() -> dict[str, Any]:
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
+def _stored_participant_metadata_fields(config_data: dict[str, Any]) -> list[str]:
+    questions = config_data.get("questions") or []
+    participant_question = next(
+        (
+            question
+            for question in questions
+            if isinstance(question, dict) and question.get("type") == "participant-id"
+        ),
+        None,
+    )
+    if not participant_question:
+        return []
+
+    fields = participant_question.get("fields") or {}
+    stored_fields: list[str] = []
+    for field_key in PARTICIPANT_FIELD_ORDER:
+        field_config = fields.get(field_key) or {}
+        if field_config.get("enabled") and field_config.get("store"):
+            stored_fields.append(field_key)
+    return stored_fields
+
+
+def _build_participant_metadata_schema(config_data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    schema: dict[str, dict[str, Any]] = {}
+    for field_key in _stored_participant_metadata_fields(config_data):
+        property_name, property_type = PARTICIPANT_NOTION_PROPERTIES[field_key]
+        schema[property_name] = {property_type: {}}
+    return schema
+
+
+def _build_participant_metadata_properties(
+    result_payload: dict[str, Any],
+    config_data: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    metadata = result_payload.get("participant_metadata") or {}
+    if not isinstance(metadata, dict):
+        return {}
+
+    properties: dict[str, dict[str, Any]] = {}
+    for field_key in _stored_participant_metadata_fields(config_data):
+        value = str(metadata.get(field_key) or "").strip()
+        if not value:
+            continue
+
+        property_name, property_type = PARTICIPANT_NOTION_PROPERTIES[field_key]
+        if property_type == "select":
+            properties[property_name] = {"select": {"name": value}}
+        else:
+            properties[property_name] = {
+                "rich_text": [{"type": "text", "text": {"content": _truncate(value)}}],
+            }
+    return properties
+
+
 def _ensure_database(study_settings: dict[str, Any], config_data: dict[str, Any]) -> str:
     db_id = study_settings.get("notion_database_id", "")
     if db_id:
-        return _strip_dashes(db_id)
+        normalized_db_id = _strip_dashes(db_id)
+        _ensure_participant_metadata_properties(normalized_db_id, study_settings, config_data)
+        return normalized_db_id
 
     parent_page_id = _strip_dashes(study_settings.get("notion_parent_page_id", ""))
     if not parent_page_id:
@@ -196,6 +261,7 @@ def _ensure_database(study_settings: dict[str, Any], config_data: dict[str, Any]
         "First Session": {"date": {}},
         "Last Session": {"date": {}},
     }
+    schema.update(_build_participant_metadata_schema(config_data))
 
     if hasattr(_client, "data_sources"):
         db_args["initial_data_source"] = {"properties": schema}
@@ -215,6 +281,54 @@ def _ensure_database(study_settings: dict[str, Any], config_data: dict[str, Any]
     _persist_study_database_id(config_data)
     print(f"[NOTION] Auto-created database: {new_id}")
     return new_id
+
+
+def _ensure_participant_metadata_properties(
+    db_id: str,
+    study_settings: dict[str, Any],
+    config_data: dict[str, Any],
+) -> None:
+    desired_schema = _build_participant_metadata_schema(config_data)
+    if not desired_schema:
+        return
+
+    if hasattr(_client, "data_sources"):
+        target_id = _get_data_source_id(db_id, study_settings, config_data)
+        existing_properties = _retrieve_data_source_properties(target_id, db_id)
+        missing_schema = {
+            name: schema
+            for name, schema in desired_schema.items()
+            if name not in existing_properties
+        }
+        if missing_schema:
+            if hasattr(_client.data_sources, "update"):
+                _client.data_sources.update(data_source_id=target_id, properties=missing_schema)
+            else:
+                _client.databases.update(database_id=db_id, properties=missing_schema)
+        return
+
+    db = _client.databases.retrieve(database_id=db_id)
+    existing_properties = db.get("properties", {})
+    missing_schema = {
+        name: schema
+        for name, schema in desired_schema.items()
+        if name not in existing_properties
+    }
+    if missing_schema:
+        _client.databases.update(database_id=db_id, properties=missing_schema)
+
+
+def _retrieve_data_source_properties(data_source_id: str, db_id: str) -> dict[str, Any]:
+    try:
+        data_source = _client.data_sources.retrieve(data_source_id=data_source_id)
+        return data_source.get("properties", {})
+    except Exception:
+        try:
+            db = _client.databases.retrieve(database_id=db_id)
+            return db.get("properties", {})
+        except Exception:
+            return {}
+
 
 def _get_data_source_id(db_id: str, study_settings: dict[str, Any], config_data: dict[str, Any]) -> str:
     if not hasattr(_client, "data_sources"):
@@ -266,6 +380,7 @@ def _find_or_create_participant(db_id: str, result_payload: dict[str, Any], stud
             "Study Count": {"number": 0},
             "First Session": {"date": {"start": session_date}},
             "Last Session": {"date": {"start": session_date}},
+            **_build_participant_metadata_properties(result_payload, config_data),
         },
     )
     return page["id"]
@@ -281,13 +396,17 @@ def _get_session_count(page_id: str) -> int:
 
 
 def _update_participant_properties(
-    page_id: str, session_num: int, result_payload: dict[str, Any]
+    page_id: str,
+    session_num: int,
+    result_payload: dict[str, Any],
+    config_data: dict[str, Any],
 ) -> None:
     _client.pages.update(
         page_id=page_id,
         properties={
             "Study Count": {"number": session_num},
             "Last Session": {"date": {"start": _session_date_iso(result_payload)}},
+            **_build_participant_metadata_properties(result_payload, config_data),
         },
     )
 

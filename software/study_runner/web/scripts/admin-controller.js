@@ -2,6 +2,7 @@
 import { initializeAdminDashboard } from './admin-dashboard-controller.js';
 import { initializeNotionSettings } from './notion-settings-controller.js';
 import { CARDS, CARD_TYPES, defaultFor } from './cards/index.js';
+import { renderInfoTop, renderInfoBottom, renderInfoEditor, collectInfo } from './cards/card-info.js';
 import { initI18n, setLanguage, getLanguage, t } from './i18n.js';
 import { createQrSvg } from './qr-code.js';
 
@@ -53,6 +54,7 @@ const $ = (id) => document.getElementById(id);
 function defaultStudySettings() {
   return {
     sensors_enabled: true,
+    progress_bar_enabled: false,
     notion_enabled: false,
     notion_parent_page_id: '',
     notion_database_id: '',
@@ -65,6 +67,7 @@ function normalizeStudySettings(settings) {
     ...defaultStudySettings(),
     ...(settings && typeof settings === 'object' ? settings : {}),
     sensors_enabled: settings?.sensors_enabled !== false,
+    progress_bar_enabled: Boolean(settings?.progress_bar_enabled),
     notion_enabled: Boolean(settings?.notion_enabled),
     notion_parent_page_id: String(settings?.notion_parent_page_id || '').trim(),
     notion_database_id: String(settings?.notion_database_id || '').trim(),
@@ -590,7 +593,7 @@ function rebuildPreview() {
     wrap.className = `preview-card-wrap${questionIndex === state.selectedIndex ? ' selected' : ''}`;
     wrap.id = `pc-${questionIndex}`;
     wrap.innerHTML = `
-      <div class="q-card-study">${cardModule.renderStudy(question, questionIndex)}</div>
+      <div class="q-card-study">${renderInfoTop(question)}${cardModule.renderStudy(question, questionIndex)}${renderInfoBottom(question)}</div>
       <div class="preview-card-overlay">
         <button type="button" data-role="select-card" data-index="${questionIndex}">
           <i class="iconoir-edit-pencil"></i> ${escapeHtml(t('question.edit', 'Edit'))}
@@ -630,7 +633,7 @@ function openOverlay(index) {
     `<i class="iconoir-${meta.icon}"></i> ${meta.label} <span class="editor-index">#${index + 1}</span>`;
 
   const editorEl = $('editor-fields');
-  editorEl.innerHTML = cardModule.renderEditor(question, index);
+  editorEl.innerHTML = cardModule.renderEditor(question, index) + renderInfoEditor(question);
   if (typeof cardModule.bindEditorEvents === 'function') {
     cardModule.bindEditorEvents(editorEl);
   }
@@ -653,11 +656,13 @@ function liveUpdate(index) {
     return;
   }
 
+  Object.assign(updated, collectInfo($('editor-fields')));
+
   state.config.questions[index] = updated;
 
   const previewWrap = $(`pc-${index}`);
   if (previewWrap) {
-    previewWrap.querySelector('.q-card-study').innerHTML = cardModule.renderStudy(updated, index);
+    previewWrap.querySelector('.q-card-study').innerHTML = renderInfoTop(updated) + cardModule.renderStudy(updated, index) + renderInfoBottom(updated);
   }
 
   const label = $('admin-q-list').querySelector(`.admin-q-item[data-index="${index}"] .admin-q-label`);
@@ -946,6 +951,7 @@ function getMeta(type) {
 function openStudySettings() {
   const s = normalizeStudySettings(state.config.study_settings);
   $('study-sensors-enabled').checked = s.sensors_enabled !== false;
+  $('study-progress-bar-enabled').checked = Boolean(s.progress_bar_enabled);
   $('study-settings-modal').hidden = false;
 }
 
@@ -957,6 +963,7 @@ function saveStudySettings() {
   const currentSettings = normalizeStudySettings(state.config.study_settings);
   state.config.study_settings = {
     sensors_enabled: $('study-sensors-enabled').checked,
+    progress_bar_enabled: $('study-progress-bar-enabled').checked,
     notion_enabled: currentSettings.notion_enabled,
     notion_parent_page_id: currentSettings.notion_parent_page_id,
     notion_database_id: currentSettings.notion_database_id,

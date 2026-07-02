@@ -486,12 +486,50 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
 /* Counter "01 / 07" - FI data-label style: mono, muted, wide tracking */
 .q-counter {
   font-family: var(--font-mono);
-  font-size: .688rem;
-  letter-spacing: .08em;
+  font-size: .8125rem;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--ink-25);
   flex: 1;
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
   text-align: center;
+}
+
+.q-counter-current {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.q-counter-divider,
+.q-counter-total {
+  font-size: .8125rem;
+  color: var(--ink-35);
+}
+
+.study-progress-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 80;
+  height: 5px;
+  max-height: 5px;
+  background: var(--ink-06);
+}
+
+.study-progress-bar[hidden] {
+  display: none;
+}
+
+.study-progress-fill {
+  width: 0%;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--t-med) var(--fluid);
 }
 
 /* Nav buttons - FI morphing: organic pill (rest) -> technical block (active) */
@@ -2188,10 +2226,7 @@ body.admin::before { display: none; }
 }
 
 .pid-code-box {
-  background: var(--accent-06);
-  border: 1.5px dashed var(--accent-25);
-  border-radius: var(--r-surface);
-  padding: 20px 24px;
+  padding: 12px 24px 0;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -2215,10 +2250,107 @@ body.admin::before { display: none; }
   color: var(--accent);
 }
 
-.pid-code-hint {
+/* Shared per-card info text (see cards/card-info.js) */
+.card-info-top {
+  background: var(--accent-06);
+  border: 1px solid var(--accent-25);
+  border-radius: var(--r-surface);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: .875rem;
+  line-height: 1.5;
+  color: var(--ink-60);
+  text-align: center;
+  white-space: pre-wrap;
+}
+
+.card-info-bottom {
+  margin-top: 16px;
   font-size: .8125rem;
+  line-height: 1.5;
   color: var(--ink-40, #999);
-  margin-top: 2px;
+  text-align: center;
+  white-space: pre-wrap;
+}
+
+.pid-editor-matrix {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ink-12);
+  border-radius: var(--r-surface);
+  overflow: hidden;
+  background: var(--bg-elevated);
+}
+
+.pid-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px 56px 64px;
+  align-items: center;
+  gap: 4px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--ink-06);
+}
+
+.pid-editor-row:first-child {
+  border-top: 0;
+}
+
+.pid-editor-row--head {
+  min-height: 34px;
+  background: var(--ink-06);
+  color: var(--ink-40);
+  font-size: .6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.pid-editor-row--head span:not(:first-child) {
+  text-align: center;
+}
+
+.pid-editor-field-name {
+  min-width: 0;
+  color: var(--ink);
+  font-size: .8125rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.pid-editor-check {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 36px;
+  min-height: 32px;
+  cursor: pointer;
+}
+
+.pid-editor-check input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pid-editor-check span {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid var(--ink-20);
+  background: #fff;
+  transition: all var(--t-fast) var(--fluid);
+}
+
+.pid-editor-check input:checked + span {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 5px #fff;
+}
+
+.pid-editor-check input:disabled + span {
+  opacity: .35;
+  background: var(--ink-06);
 }
 
 /* ============================================================

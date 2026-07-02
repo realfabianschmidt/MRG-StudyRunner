@@ -22,6 +22,25 @@ ALLOWED_QUESTION_TYPES = {
 
 ALLOWED_TRIGGER_TYPES = {"timer", "image", "video", "audio", "html", "js"}
 
+PARTICIPANT_FIELD_ORDER = [
+    "first_name",
+    "last_name",
+    "age_group",
+    "childhood_area",
+    "childhood_nearest_city",
+]
+
+PARTICIPANT_FIELD_DEFAULTS = {
+    "first_name": {"enabled": True, "use_for_key": True, "store": False},
+    "last_name": {"enabled": True, "use_for_key": True, "store": False},
+    "age_group": {"enabled": True, "use_for_key": True, "store": True},
+    "childhood_area": {"enabled": True, "use_for_key": True, "store": True},
+    "childhood_nearest_city": {"enabled": True, "use_for_key": True, "store": True},
+}
+
+AGE_GROUP_OPTIONS = {"18-25", "26-35", "36-45", "46-60", "60+"}
+CHILDHOOD_AREA_OPTIONS = {"urban", "rural"}
+
 
 class ValidationError(ValueError):
     """Raised when config or result payloads are incomplete or malformed."""
@@ -71,6 +90,10 @@ def validate_and_normalize_results(
         result_payload.get("answer_events"),
         study_config.get("questions", []),
     )
+    participant_metadata = _validate_participant_metadata(
+        result_payload.get("participant_metadata"),
+        study_config.get("questions", []),
+    )
 
     return {
         "participant_id": participant_id,
@@ -78,6 +101,7 @@ def validate_and_normalize_results(
         "timestamp_start": timestamp_start,
         "timestamp_end": timestamp_end,
         "answers": _validate_answers(answers, study_config.get("questions", [])),
+        "participant_metadata": participant_metadata,
         "answer_events": answer_events,
     }
 
@@ -142,6 +166,75 @@ def _validate_answers(
         raise ValidationError(f"Unexpected answer keys: {', '.join(extra_keys)}.")
 
     return normalized_answers
+
+
+def _validate_participant_metadata(
+    value: Any,
+    questions: list[dict[str, Any]],
+) -> dict[str, str]:
+    stored_fields = _stored_participant_fields(questions)
+
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise ValidationError("participant_metadata must be a JSON object.")
+
+    normalized: dict[str, str] = {}
+    for field_key in stored_fields:
+        if field_key not in value:
+            raise ValidationError(f"participant_metadata is missing {field_key}.")
+        normalized[field_key] = _validate_participant_metadata_value(
+            field_key,
+            value.get(field_key),
+        )
+
+    extra_keys = sorted(set(value.keys()) - set(stored_fields))
+    if extra_keys:
+        raise ValidationError(
+            f"participant_metadata contains unexpected fields: {', '.join(extra_keys)}."
+        )
+
+    return normalized
+
+
+def _stored_participant_fields(questions: list[dict[str, Any]]) -> list[str]:
+    participant_question = next(
+        (question for question in questions if question.get("type") == "participant-id"),
+        None,
+    )
+    if not participant_question:
+        return []
+
+    fields = participant_question.get("fields") or {}
+    stored: list[str] = []
+    for field_key in PARTICIPANT_FIELD_ORDER:
+        field_config = fields.get(field_key) or {}
+        if field_config.get("enabled") and field_config.get("store"):
+            stored.append(field_key)
+    return stored
+
+
+def _validate_participant_metadata_value(field_key: str, value: Any) -> str:
+    normalized = _require_text(value, f"participant_metadata {field_key}")
+
+    if field_key == "age_group":
+        if normalized not in AGE_GROUP_OPTIONS:
+            raise ValidationError(
+                "participant_metadata age_group must be one of: "
+                + ", ".join(sorted(AGE_GROUP_OPTIONS))
+                + "."
+            )
+        return normalized
+
+    if field_key == "childhood_area":
+        normalized = normalized.lower()
+        if normalized not in CHILDHOOD_AREA_OPTIONS:
+            raise ValidationError(
+                "participant_metadata childhood_area must be urban or rural."
+            )
+        return normalized
+
+    return normalized
 
 
 def _validate_answer_events(
@@ -333,6 +426,23 @@ def _validate_answer_value(
 
 
 def _validate_question(question_data: Any, question_index: int) -> dict[str, Any]:
+    normalized = _validate_question_by_type(question_data, question_index)
+
+    # Optional per-question info text, shared by every card type. Only kept when set.
+    info_top = _normalize_text(question_data.get("info_top"))
+    if not info_top and normalized.get("type") == "participant-id":
+        # Migrate legacy participant-id privacy hint into the shared top callout.
+        info_top = _normalize_text(question_data.get("code_hint"))
+    info_bottom = _normalize_text(question_data.get("info_bottom"))
+    if info_top:
+        normalized["info_top"] = info_top
+    if info_bottom:
+        normalized["info_bottom"] = info_bottom
+
+    return normalized
+
+
+def _validate_question_by_type(question_data: Any, question_index: int) -> dict[str, Any]:
     if not isinstance(question_data, dict):
         raise ValidationError(f"Question {question_index} must be a JSON object.")
 
@@ -399,13 +509,14 @@ def _validate_question(question_data: Any, question_index: int) -> dict[str, Any
         normalized = {
             "type": "participant-id",
             "prompt": _normalize_text(question_data.get("prompt")),
+            "fields": _validate_participant_fields(
+                question_data.get("fields"),
+                question_index,
+            ),
         }
         code_label = _normalize_text(question_data.get("code_label"))
         if code_label:
             normalized["code_label"] = code_label
-        code_hint = _normalize_text(question_data.get("code_hint"))
-        if code_hint:
-            normalized["code_hint"] = code_hint
         return normalized
 
     if question_type == "finish":
@@ -519,11 +630,56 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
 
     return {
         "sensors_enabled": _normalize_boolean(value.get("sensors_enabled", True)),
+        "progress_bar_enabled": _normalize_boolean(value.get("progress_bar_enabled", False)),
         "notion_enabled": _normalize_boolean(value.get("notion_enabled", False)),
         "notion_parent_page_id": _normalize_text(value.get("notion_parent_page_id")),
         "notion_database_id": _normalize_text(value.get("notion_database_id")),
         "notion_data_source_id": _normalize_text(value.get("notion_data_source_id")),
     }
+
+
+def _validate_participant_fields(value: Any, question_index: int) -> dict[str, dict[str, bool]]:
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise ValidationError(f"Question {question_index} participant fields must be an object.")
+
+    extra_keys = sorted(set(value.keys()) - set(PARTICIPANT_FIELD_ORDER))
+    if extra_keys:
+        raise ValidationError(
+            f"Question {question_index} participant fields contain unsupported entries: "
+            + ", ".join(extra_keys)
+            + "."
+        )
+
+    normalized: dict[str, dict[str, bool]] = {}
+    for field_key in PARTICIPANT_FIELD_ORDER:
+        defaults = PARTICIPANT_FIELD_DEFAULTS[field_key]
+        raw_field = value.get(field_key, {})
+        if raw_field is None:
+            raw_field = {}
+        if not isinstance(raw_field, dict):
+            raise ValidationError(
+                f"Question {question_index} participant field {field_key} must be an object."
+            )
+
+        enabled = _normalize_boolean(raw_field.get("enabled", defaults["enabled"]))
+        use_for_key = enabled and _normalize_boolean(
+            raw_field.get("use_for_key", defaults["use_for_key"])
+        )
+        store = enabled and _normalize_boolean(raw_field.get("store", defaults["store"]))
+        normalized[field_key] = {
+            "enabled": enabled,
+            "use_for_key": use_for_key,
+            "store": store,
+        }
+
+    if not any(field.get("enabled") and field.get("use_for_key") for field in normalized.values()):
+        raise ValidationError(
+            f"Question {question_index} participant fields need at least one field for key generation."
+        )
+
+    return normalized
 
 
 def _normalize_trigger_type(value: Any, question_index: int) -> str:
