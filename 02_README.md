@@ -77,6 +77,10 @@ Use:
 
 The installed app updates itself through `latest.json` and signed updater artifacts.
 
+Python-only server packages are also published during releases. They use the Admin
+page update card instead of the Tauri launcher. This path is available for testing
+the server-only future, while Tauri remains the normal installed-app wrapper.
+
 Note for macOS: the current builds are not Apple-signed, so the first launch needs a
 one-time un-quarantine step. See `01_START_HERE.md` and `docs/07_desktop_launcher.md`.
 
@@ -115,13 +119,16 @@ Other supported inputs:
 
 The release helper:
 
-1. bumps all desktop version files,
+1. bumps all desktop and Python version files,
 2. runs fast local checks by default,
 3. commits the version bump on `main`,
 4. pushes `main`,
 5. pushes `app-v<version>` to start the GitHub Release workflow.
 
-Normal commits and pushes do not create installed-app updates. Only tags named `app-vX.Y.Z` trigger updater releases.
+Normal commits and pushes do not create installed-app updates. Only tags named
+`app-vX.Y.Z` trigger updater releases. After the GitHub Actions release workflow
+finishes, installed Tauri apps can update from the launcher and Python-only builds
+can update from the Admin page update card.
 
 ## Manual Checks
 
@@ -130,6 +137,7 @@ python -m unittest discover software/tests
 node --check desktop/web/main.js
 node --check release_tools/verify-release-version.mjs
 node --check release_tools/release-study-runner.mjs
+python -m py_compile release_tools/package-python-onedir.py release_tools/write-python-update-key.py release_tools/build-python-update-manifest.py
 node release_tools/verify-release-version.mjs app-v0.2.2
 git diff --check
 ```
@@ -150,6 +158,7 @@ cargo check -q --manifest-path desktop/src-tauri/Cargo.toml
 - Release automation: `release_tools/`
 - Docs index: `docs/README.md`
 - Desktop/release details: `docs/07_desktop_launcher.md`
+- Python-only update details: `docs/09_python_auto_update.md`
 - Historical plans and audits: `docs/archive/`
 
 Never commit local study results, generated build output, private keys, certificates, passwords, `.pfx`, `.p12`, `.key`, `.pem`, `.p8`, or `desktop/.secrets/`.

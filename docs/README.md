@@ -12,3 +12,4 @@ Recommended starting points:
 - `docs/02_data_and_terms_explained.md`: config, results, card types, and important terms.
 - `docs/05_integration_plugin_guide.md`: built-in integration plugin pattern.
 - `docs/07_desktop_launcher.md`: packaging, updater, and release details.
+- `docs/09_python_auto_update.md`: Python-only update flow and release requirements.

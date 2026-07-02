@@ -1,42 +1,73 @@
 import { t } from '../i18n.js';
 
+// Field metadata: render kind, label, and (for choice fields) default options.
+// `configurable: true` fields expose an editable option list in the settings modal.
+const FIELD_META = {
+  first_name: { kind: 'text', label: ['cards.participant.firstName', 'First name'], placeholder: ['cards.participant.firstNamePlaceholder', 'e.g. Anna'] },
+  last_name: { kind: 'text', label: ['cards.participant.lastName', 'Last name'], placeholder: ['cards.participant.lastNamePlaceholder', 'e.g. Miller'] },
+  age_group: { kind: 'select', configurable: true, label: ['cards.participant.ageGroup', 'Age group'], defaultOptions: ['18-25', '26-35', '36-45', '46-60', '60+'] },
+  gender: { kind: 'select', configurable: true, label: ['cards.participant.gender', 'Gender'], defaultOptions: ['Female', 'Male', 'Non-binary', 'Prefer not to say'] },
+  childhood_area: { kind: 'area', label: ['cards.participant.childhoodArea', 'Childhood area'] },
+  childhood_nearest_city: { kind: 'text', label: ['cards.participant.childhoodNearestCity', 'Nearest larger city in childhood'], placeholder: ['cards.participant.childhoodNearestCityPlaceholder', 'e.g. Munich'] },
+  birth_place: { kind: 'text', label: ['cards.participant.birthPlace', 'Place of birth'], placeholder: ['cards.participant.birthPlacePlaceholder', 'e.g. Munich'] },
+  birth_date: { kind: 'date', label: ['cards.participant.birthDate', 'Date of birth'] },
+};
+
 const FIELD_ORDER = [
   'first_name',
   'last_name',
   'age_group',
+  'gender',
   'childhood_area',
   'childhood_nearest_city',
+  'birth_place',
+  'birth_date',
 ];
-
-const AGE_GROUPS = ['18-25', '26-35', '36-45', '46-60', '60+'];
 
 const DEFAULT_FIELDS = {
   first_name: { enabled: true, use_for_key: true, store: false },
   last_name: { enabled: true, use_for_key: true, store: false },
   age_group: { enabled: true, use_for_key: true, store: true },
+  gender: { enabled: false, use_for_key: false, store: true },
   childhood_area: { enabled: true, use_for_key: true, store: true },
   childhood_nearest_city: { enabled: true, use_for_key: true, store: true },
+  birth_place: { enabled: false, use_for_key: false, store: true },
+  birth_date: { enabled: false, use_for_key: false, store: true },
 };
 
-const FIELD_LABELS = {
-  first_name: ['cards.participant.firstName', 'First name'],
-  last_name: ['cards.participant.lastName', 'Last name'],
-  age_group: ['cards.participant.ageGroup', 'Age group'],
-  childhood_area: ['cards.participant.childhoodArea', 'Childhood area'],
-  childhood_nearest_city: ['cards.participant.childhoodNearestCity', 'Nearest larger city in childhood'],
-};
+function isConfigurable(fieldKey) {
+  return Boolean(FIELD_META[fieldKey]?.configurable);
+}
+
+function defaultOptions(fieldKey) {
+  return [...(FIELD_META[fieldKey]?.defaultOptions || [])];
+}
 
 function escapeHtml(v) {
   return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function cloneDefaultFields() {
-  return JSON.parse(JSON.stringify(DEFAULT_FIELDS));
+  const fields = JSON.parse(JSON.stringify(DEFAULT_FIELDS));
+  FIELD_ORDER.forEach((fieldKey) => {
+    if (isConfigurable(fieldKey)) fields[fieldKey].options = defaultOptions(fieldKey);
+  });
+  return fields;
 }
 
 function fieldLabel(fieldKey) {
-  const [key, fallback] = FIELD_LABELS[fieldKey] || [fieldKey, fieldKey];
+  const [key, fallback] = FIELD_META[fieldKey]?.label || [fieldKey, fieldKey];
   return t(key, fallback);
+}
+
+function normalizeOptions(rawOptions, fieldKey) {
+  if (!Array.isArray(rawOptions)) return defaultOptions(fieldKey);
+  const cleaned = [];
+  rawOptions.forEach((item) => {
+    const text = String(item ?? '').trim();
+    if (text && !cleaned.includes(text)) cleaned.push(text);
+  });
+  return cleaned.length ? cleaned : defaultOptions(fieldKey);
 }
 
 function normalizeFields(rawFields) {
@@ -53,6 +84,9 @@ function normalizeFields(rawFields) {
       use_for_key: Boolean(enabled) && Boolean(raw.use_for_key ?? base.use_for_key),
       store: Boolean(enabled) && Boolean(raw.store ?? base.store),
     };
+    if (isConfigurable(fieldKey)) {
+      fields[fieldKey].options = normalizeOptions(raw.options ?? base.options, fieldKey);
+    }
   });
 
   if (!FIELD_ORDER.some((fieldKey) => fields[fieldKey].enabled && fields[fieldKey].use_for_key)) {
@@ -107,6 +141,7 @@ export function renderStudy(q, _i) {
 
 function renderStudyField(fieldKey, fieldConfig) {
   const label = escapeHtml(fieldLabel(fieldKey));
+  const kind = FIELD_META[fieldKey]?.kind || 'text';
   const commonAttrs = [
     'class="fi-input pid-field"',
     `name="pid-${escapeHtml(fieldKey)}"`,
@@ -116,25 +151,25 @@ function renderStudyField(fieldKey, fieldConfig) {
   ].join(' ');
 
   let control = '';
-  if (fieldKey === 'age_group') {
+  if (kind === 'select') {
+    const options = normalizeOptions(fieldConfig.options, fieldKey);
     control = `
       <select ${commonAttrs}>
         <option value="">${escapeHtml(t('cards.participant.selectPlaceholder', 'Select...'))}</option>
-        ${AGE_GROUPS.map((ageGroup) => `<option value="${escapeHtml(ageGroup)}">${escapeHtml(ageGroup)}</option>`).join('')}
+        ${options.map((opt) => `<option value="${escapeHtml(opt)}">${escapeHtml(opt)}</option>`).join('')}
       </select>`;
-  } else if (fieldKey === 'childhood_area') {
+  } else if (kind === 'area') {
     control = `
       <select ${commonAttrs}>
         <option value="">${escapeHtml(t('cards.participant.selectPlaceholder', 'Select...'))}</option>
         <option value="urban">${escapeHtml(t('cards.participant.childhoodAreaUrban', 'Urban'))}</option>
         <option value="rural">${escapeHtml(t('cards.participant.childhoodAreaRural', 'Rural'))}</option>
       </select>`;
+  } else if (kind === 'date') {
+    control = `<input ${commonAttrs} type="date">`;
   } else {
-    const placeholder = fieldKey === 'childhood_nearest_city'
-      ? t('cards.participant.childhoodNearestCityPlaceholder', 'e.g. Munich')
-      : (fieldKey === 'first_name'
-        ? t('cards.participant.firstNamePlaceholder', 'e.g. Anna')
-        : t('cards.participant.lastNamePlaceholder', 'e.g. Miller'));
+    const [pKey, pFallback] = FIELD_META[fieldKey]?.placeholder || ['', ''];
+    const placeholder = pKey ? t(pKey, pFallback) : '';
     control = `<input ${commonAttrs} type="text" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="${escapeHtml(placeholder)}">`;
   }
 
@@ -144,6 +179,8 @@ function renderStudyField(fieldKey, fieldConfig) {
       ${control}
     </div>`;
 }
+
+// ── Editor ─────────────────────────────────────────────────────────────────
 
 export function renderEditor(q) {
   const fields = normalizeFields(q.fields);
@@ -159,100 +196,206 @@ export function renderEditor(q) {
     </div>
     <div class="field">
       <label>${escapeHtml(t('cards.participant.fieldsLabel', 'Participant fields'))}</label>
-      <div class="pid-editor-matrix">
-        <div class="pid-editor-row pid-editor-row--head">
-          <span>${escapeHtml(t('cards.participant.fieldColumn', 'Field'))}</span>
-          <span>${escapeHtml(t('cards.participant.askColumn', 'Ask'))}</span>
-          <span>${escapeHtml(t('cards.participant.keyColumn', 'Key'))}</span>
-          <span>${escapeHtml(t('cards.participant.storeColumn', 'Store'))}</span>
-        </div>
+      <div class="pid-field-list">
         ${FIELD_ORDER.map((fieldKey) => renderEditorFieldRow(fieldKey, fields[fieldKey])).join('')}
       </div>
     </div>
     <p class="editor-hint" style="margin-top:0.75rem;font-size:0.8rem;opacity:0.6;">
-      ${escapeHtml(t('cards.participant.editorHint', 'Choose which fields are asked, used for the generated key, and stored in local results or Notion. At least one field must be used for the key.'))}
+      ${escapeHtml(t('cards.participant.editorHint', 'Turn fields on or off. Use the gear to choose whether a field feeds the anonymous code, is stored in results, and (for choice fields) which answers are allowed. At least one field must feed the code.'))}
     </p>`;
 }
 
 function renderEditorFieldRow(fieldKey, fieldConfig) {
+  const settingsAria = escapeHtml(`${fieldLabel(fieldKey)} ${t('cards.participant.fieldSettings', 'settings')}`);
+  const stateValue = escapeHtml(JSON.stringify({
+    use_for_key: fieldConfig.use_for_key,
+    store: fieldConfig.store,
+    options: isConfigurable(fieldKey) ? normalizeOptions(fieldConfig.options, fieldKey) : undefined,
+  }));
+
   return `
-    <div class="pid-editor-row" data-pid-editor-row="${escapeHtml(fieldKey)}">
-      <span class="pid-editor-field-name">${escapeHtml(fieldLabel(fieldKey))}</span>
-      ${renderEditorCheckbox(fieldKey, 'enabled', fieldConfig.enabled, false)}
-      ${renderEditorCheckbox(fieldKey, 'use_for_key', fieldConfig.use_for_key, !fieldConfig.enabled)}
-      ${renderEditorCheckbox(fieldKey, 'store', fieldConfig.store, !fieldConfig.enabled)}
+    <div class="pid-field-row-ed" data-pid-editor-row="${escapeHtml(fieldKey)}">
+      <span class="pid-field-name">${escapeHtml(fieldLabel(fieldKey))}</span>
+      <div class="pid-field-controls">
+        <label class="switch" aria-label="${escapeHtml(fieldLabel(fieldKey))}">
+          <input type="checkbox" class="pid-enabled" data-pid-field="${escapeHtml(fieldKey)}" ${fieldConfig.enabled ? 'checked' : ''}>
+          <span class="switch-slider"></span>
+        </label>
+        <button type="button" class="pid-gear" data-pid-gear="${escapeHtml(fieldKey)}"
+                title="${settingsAria}" aria-label="${settingsAria}" ${fieldConfig.enabled ? '' : 'hidden'}>
+          <i class="iconoir-settings"></i>
+        </button>
+      </div>
+      <input type="hidden" class="pid-field-state" data-pid-field="${escapeHtml(fieldKey)}" value="${stateValue}">
     </div>`;
 }
 
-function renderEditorCheckbox(fieldKey, setting, checked, disabled) {
-  const label = `${fieldLabel(fieldKey)} ${setting}`;
-  return `
-    <label class="pid-editor-check" aria-label="${escapeHtml(label)}">
-      <input type="checkbox"
-        class="pid-editor-toggle"
-        data-pid-field="${escapeHtml(fieldKey)}"
-        data-pid-setting="${escapeHtml(setting)}"
-        ${checked ? 'checked' : ''}
-        ${disabled ? 'disabled' : ''}>
-      <span></span>
-    </label>`;
+function readFieldState(editorEl, fieldKey) {
+  const stateEl = editorEl.querySelector(`.pid-field-state[data-pid-field="${fieldKey}"]`);
+  let parsed = {};
+  try { parsed = JSON.parse(stateEl?.value || '{}'); } catch { parsed = {}; }
+  return {
+    use_for_key: Boolean(parsed.use_for_key),
+    store: Boolean(parsed.store),
+    options: isConfigurable(fieldKey) ? normalizeOptions(parsed.options, fieldKey) : undefined,
+  };
+}
+
+function writeFieldState(editorEl, fieldKey, next) {
+  const stateEl = editorEl.querySelector(`.pid-field-state[data-pid-field="${fieldKey}"]`);
+  if (!stateEl) return;
+  stateEl.value = JSON.stringify({
+    use_for_key: Boolean(next.use_for_key),
+    store: Boolean(next.store),
+    options: isConfigurable(fieldKey) ? normalizeOptions(next.options, fieldKey) : undefined,
+  });
+  // Trigger the admin overlay's input delegation so the preview + unsaved state update.
+  stateEl.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 export function bindEditorEvents(editorEl) {
-  syncParticipantFieldMatrix(editorEl);
-  editorEl.addEventListener('input', (event) => {
-    if (event.target?.matches?.('.pid-editor-toggle')) {
-      syncParticipantFieldMatrix(editorEl);
+  // #editor-fields is reused across overlay opens; bind the delegated listeners once.
+  if (editorEl.dataset.pidBound === '1') return;
+  editorEl.dataset.pidBound = '1';
+
+  editorEl.addEventListener('change', (event) => {
+    const toggle = event.target.closest?.('.pid-enabled');
+    if (toggle) syncFieldRow(editorEl, toggle.dataset.pidField);
+  });
+
+  editorEl.addEventListener('click', (event) => {
+    const gear = event.target.closest?.('.pid-gear');
+    if (gear) {
+      event.preventDefault();
+      openFieldModal(editorEl, gear.dataset.pidGear);
     }
   });
 }
 
-function syncParticipantFieldMatrix(editorEl) {
-  const rows = FIELD_ORDER
-    .map((fieldKey) => editorEl.querySelector(`[data-pid-editor-row="${fieldKey}"]`))
-    .filter(Boolean);
+function syncFieldRow(editorEl, fieldKey) {
+  const row = editorEl.querySelector(`[data-pid-editor-row="${fieldKey}"]`);
+  if (!row) return;
+  const enabled = Boolean(row.querySelector('.pid-enabled')?.checked);
+  const gear = row.querySelector('.pid-gear');
+  if (gear) gear.hidden = !enabled;
+}
 
-  rows.forEach((row) => {
-    const enabledInput = row.querySelector('[data-pid-setting="enabled"]');
-    const keyInput = row.querySelector('[data-pid-setting="use_for_key"]');
-    const storeInput = row.querySelector('[data-pid-setting="store"]');
-    const enabled = Boolean(enabledInput?.checked);
+// ── Per-field settings modal ─────────────────────────────────────────────────
 
-    [keyInput, storeInput].forEach((input) => {
-      if (!input) return;
-      input.disabled = !enabled;
-      if (!enabled) input.checked = false;
-    });
+let _activeFieldModal = null;
+
+function closeFieldModal() {
+  if (_activeFieldModal) {
+    if (_activeFieldModal._escHandler) document.removeEventListener('keydown', _activeFieldModal._escHandler);
+    _activeFieldModal.remove();
+    _activeFieldModal = null;
+  }
+}
+
+function openFieldModal(editorEl, fieldKey) {
+  closeFieldModal();
+
+  const state = readFieldState(editorEl, fieldKey);
+  const configurable = isConfigurable(fieldKey);
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+
+  const optionsSection = configurable ? `
+    <div class="field">
+      <label>${escapeHtml(t('cards.participant.optionsLabel', 'Answer options'))}</label>
+      <div class="pid-options-editor">
+        ${state.options.map((opt) => renderOptionRow(opt)).join('')}
+      </div>
+      <button type="button" class="btn-secondary pid-add-option" style="margin-top:8px;">
+        <i class="iconoir-plus"></i> ${escapeHtml(t('cards.participant.addOption', 'Add option'))}
+      </button>
+    </div>` : '';
+
+  backdrop.innerHTML = `
+    <div class="settings-modal" role="dialog" aria-modal="true" style="max-width: 460px;">
+      <div class="settings-modal-header">
+        <h2>${escapeHtml(fieldLabel(fieldKey))}</h2>
+        <button class="overlay-close pid-modal-close" type="button" aria-label="${escapeHtml(t('cards.participant.modalClose', 'Close'))}">
+          <i class="iconoir-xmark"></i>
+        </button>
+      </div>
+      <div class="settings-modal-body">
+        <label class="checkbox-row" style="margin-bottom:12px;">
+          <input type="checkbox" class="pid-modal-key" ${state.use_for_key ? 'checked' : ''}>
+          <span>${escapeHtml(t('cards.participant.useForKeyLabel', 'Use for anonymous code (hash)'))}</span>
+        </label>
+        <label class="checkbox-row" style="margin-bottom:12px;">
+          <input type="checkbox" class="pid-modal-store" ${state.store ? 'checked' : ''}>
+          <span>${escapeHtml(t('cards.participant.storeLabel', 'Store in results (DB)'))}</span>
+        </label>
+        ${optionsSection}
+        <button class="btn-primary pid-modal-apply" type="button" style="width:100%; justify-content:center; margin-top:16px;">
+          ${escapeHtml(t('cards.participant.modalApply', 'Apply'))}
+        </button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+  _activeFieldModal = backdrop;
+
+  backdrop.addEventListener('click', (event) => {
+    if (event.target === backdrop) closeFieldModal();
+  });
+  backdrop.querySelector('.pid-modal-close')?.addEventListener('click', closeFieldModal);
+
+  const optionsEditor = backdrop.querySelector('.pid-options-editor');
+  backdrop.querySelector('.pid-add-option')?.addEventListener('click', () => {
+    optionsEditor.insertAdjacentHTML('beforeend', renderOptionRow(''));
+    optionsEditor.lastElementChild?.querySelector('input')?.focus();
+  });
+  optionsEditor?.addEventListener('click', (event) => {
+    const remove = event.target.closest('.pid-option-remove');
+    if (remove && optionsEditor.querySelectorAll('.pid-option-row').length > 1) {
+      remove.closest('.pid-option-row')?.remove();
+    }
   });
 
-  const keyInputs = rows.map((row) => row.querySelector('[data-pid-setting="use_for_key"]')).filter(Boolean);
-  if (keyInputs.some((input) => input.checked && !input.disabled)) {
-    return;
-  }
+  backdrop.querySelector('.pid-modal-apply')?.addEventListener('click', () => {
+    const next = {
+      use_for_key: Boolean(backdrop.querySelector('.pid-modal-key')?.checked),
+      store: Boolean(backdrop.querySelector('.pid-modal-store')?.checked),
+    };
+    if (configurable) {
+      next.options = [...backdrop.querySelectorAll('.pid-option-input')]
+        .map((input) => input.value.trim())
+        .filter(Boolean);
+    }
+    writeFieldState(editorEl, fieldKey, next);
+    closeFieldModal();
+  });
 
-  const fallbackRow = rows.find((row) => row.querySelector('[data-pid-setting="enabled"]')?.checked) || rows[0];
-  const enabledInput = fallbackRow?.querySelector('[data-pid-setting="enabled"]');
-  const keyInput = fallbackRow?.querySelector('[data-pid-setting="use_for_key"]');
+  backdrop._escHandler = (event) => { if (event.key === 'Escape') closeFieldModal(); };
+  document.addEventListener('keydown', backdrop._escHandler);
+}
 
-  if (enabledInput && !enabledInput.checked) {
-    enabledInput.checked = true;
-  }
-  if (keyInput) {
-    keyInput.disabled = false;
-    keyInput.checked = true;
-  }
+function renderOptionRow(value) {
+  return `
+    <div class="pid-option-row">
+      <input type="text" class="fi-input pid-option-input" value="${escapeHtml(value)}">
+      <button type="button" class="pid-option-remove" aria-label="${escapeHtml(t('cards.participant.removeOption', 'Remove option'))}">
+        <i class="iconoir-trash"></i>
+      </button>
+    </div>`;
 }
 
 export function collectConfig(el) {
   const fields = {};
 
   FIELD_ORDER.forEach((fieldKey) => {
-    const enabled = Boolean(el.querySelector(`[data-pid-field="${fieldKey}"][data-pid-setting="enabled"]`)?.checked);
+    const enabled = Boolean(el.querySelector(`.pid-enabled[data-pid-field="${fieldKey}"]`)?.checked);
+    const state = readFieldState(el, fieldKey);
     fields[fieldKey] = {
       enabled,
-      use_for_key: enabled && Boolean(el.querySelector(`[data-pid-field="${fieldKey}"][data-pid-setting="use_for_key"]`)?.checked),
-      store: enabled && Boolean(el.querySelector(`[data-pid-field="${fieldKey}"][data-pid-setting="store"]`)?.checked),
+      use_for_key: enabled && state.use_for_key,
+      store: enabled && state.store,
     };
+    if (isConfigurable(fieldKey)) fields[fieldKey].options = state.options;
   });
 
   if (!FIELD_ORDER.some((fieldKey) => fields[fieldKey].enabled && fields[fieldKey].use_for_key)) {

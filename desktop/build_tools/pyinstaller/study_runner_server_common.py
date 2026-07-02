@@ -22,4 +22,12 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
 
 
 def common_hidden_imports() -> list[str]:
-    return collect_submodules("study_runner.backend") + collect_submodules("study_runner.integrations")
+    return (
+        collect_submodules("study_runner.backend")
+        + collect_submodules("study_runner.integrations")
+        + [
+            "study_runner.update_helper",
+            "study_runner.update_keys",
+            "study_runner.version",
+        ]
+    )

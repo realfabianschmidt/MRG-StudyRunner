@@ -1,3 +1,5 @@
+import { t } from '../i18n.js';
+
 function escapeHtml(v) {
   return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
@@ -154,6 +156,47 @@ export function collectConfig(el) {
 export function collectAnswer(i) {
   const sel = getState(i).selected;
   return sel.size > 0 ? Array.from(sel) : null;
+}
+
+// Max number of selected words shown on an overview tile before "+N more".
+const MAX_TILE_WORDS = 3;
+
+// Reflect the current selection on the overview grid: quadrants with a
+// selection stay in full color and list the chosen words; the rest gray out to
+// their label only (once at least one word is selected anywhere).
+function updateOverview(cardIndex) {
+  const grid = document.getElementById(`mm-grid-${cardIndex}`);
+  if (!grid) return;
+
+  const q = _questions[cardIndex] ?? defaultQuestion;
+  const quads = getWordLists(q);
+  const state = getState(cardIndex);
+  const anySelected = state.selected.size > 0;
+
+  quads.forEach((quad) => {
+    const btn = grid.querySelector(`.mm-quad-btn[data-quadrant="${quad.id}"]`);
+    if (!btn) return;
+
+    const sel = quad.words.filter((w) => state.selected.has(w));
+    const chosen = sel.length > 0;
+    btn.classList.toggle('mm-quad-btn--chosen', chosen);
+    btn.classList.toggle('mm-quad-btn--dimmed', anySelected && !chosen);
+
+    const examplesEl = btn.querySelector('.mm-quad-examples');
+    if (!examplesEl) return;
+
+    if (chosen) {
+      const shown = sel.slice(0, MAX_TILE_WORDS).join(' · ');
+      const extra = sel.length - MAX_TILE_WORDS;
+      examplesEl.textContent = extra > 0
+        ? `${shown}  ${t('cards.moodMeter.more', '+{n} more').replace('{n}', String(extra))}`
+        : shown;
+    } else if (anySelected) {
+      examplesEl.textContent = '';
+    } else {
+      examplesEl.textContent = quad.examples.slice(0, 3).join(' - ');
+    }
+  });
 }
 
 // Called by study-controller's delegated click handler on #q-container
@@ -400,6 +443,9 @@ function closeOverlay(animate) {
 
   if (overlay._escHandler) document.removeEventListener('keydown', overlay._escHandler);
 
+  // Refresh the overview tiles for the card we just left.
+  if (typeof overlay._cardIndex === 'number') updateOverview(overlay._cardIndex);
+
   if (!animate) { overlay.remove(); return; }
 
   overlay.style.transition = 'transform 0.3s cubic-bezier(.4,0,.8,1), opacity 0.22s ease';
@@ -428,6 +474,7 @@ function toggleWord(cardIndex, word, allowMultiple, overlay) {
     const n = state.selected.size;
     counter.textContent = n > 0 ? n + ' selected' : '';
   }
+  updateOverview(cardIndex);
   document.getElementById(`mm-grid-${cardIndex}`)?.dispatchEvent(
     new CustomEvent('moodmeter:changed', { bubbles: true }),
   );

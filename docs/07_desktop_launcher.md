@@ -93,7 +93,17 @@ Native builds should be produced on each target operating system because Python 
 
 ## Auto-Update Model
 
-Study Runner uses the Tauri v2 updater with public GitHub Releases.
+Study Runner currently has two update paths during the transition away from the
+desktop wrapper:
+
+- Installed Tauri desktop apps use the Tauri v2 updater.
+- Python-only packaged server builds use the Admin page update card and the
+  signed Python update manifest.
+
+Both paths use public GitHub Releases. A normal push to `main` does not create
+an app update. Only a release tag named `app-vX.Y.Z` starts the release workflow.
+
+### Tauri Desktop Updater
 
 The app checks this endpoint:
 
@@ -110,6 +120,22 @@ Important rules:
 - The release tag must match the desktop app version.
 - Tauri updater signing is required.
 - Windows and macOS OS code signing are optional for the current setup, but recommended before broad distribution.
+
+### Python-Only Updater
+
+Python-only packaged builds check:
+
+```text
+https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest/download/study-runner-python-latest.json
+```
+
+The Admin page shows the update state. Download and restart require explicit
+user confirmation. The server downloads the matching platform ZIP, verifies its
+SHA-256 hash and Ed25519 signature, stages it in the app-data folder, and then
+restarts into the staged version only for packaged Python builds.
+
+Source checkouts and Tauri desktop sidecars do not self-install through this
+Python path.
 
 ## Official Release Workflow
 
@@ -132,8 +158,11 @@ The workflow does this:
    - Linux x64 AppImage
    - macOS Intel app bundle and DMG
    - macOS Apple Silicon app bundle and DMG
-6. Uploads updater artifacts and `latest.json`.
-7. Publishes the GitHub Release only after all platform builds pass.
+6. Builds Python one-dir ZIP update assets for Windows, Linux, macOS Intel, and
+   macOS Apple Silicon.
+7. Uploads Tauri updater artifacts and `latest.json`.
+8. Uploads Python ZIP assets and `study-runner-python-latest.json`.
+9. Publishes the GitHub Release only after all platform builds pass.
 
 The action is pinned to a known working release:
 
@@ -145,11 +174,12 @@ Do not change this pin unless the new action version exists and has been tested.
 
 ## Versioning Rules
 
-These three version fields must always match:
+These four version fields must always match:
 
 - `desktop/package.json`
 - `desktop/src-tauri/tauri.conf.json`
 - `desktop/src-tauri/Cargo.toml`
+- `software/study_runner/version.py`
 
 The release tag must be:
 
@@ -171,6 +201,11 @@ Required for updater signatures:
 
 - `TAURI_SIGNING_PRIVATE_KEY`
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+- `PYTHON_UPDATER_SIGNING_PRIVATE_KEY`
+
+Required as a GitHub secret or variable:
+
+- `PYTHON_UPDATER_PUBLIC_KEY`
 
 Optional for Windows OS code signing:
 
@@ -188,7 +223,10 @@ Optional for macOS signing and notarization:
 
 If optional Windows or Apple secrets are missing, the workflow still builds unsigned OS packages. Updater signatures are still required.
 
-Private keys and certificates must never be committed. `desktop/.secrets/` is ignored by Git and is only for local key material.
+Private keys and certificates must never be committed. `PYTHON_UPDATER_PUBLIC_KEY`
+is public verification material, but should still be managed through GitHub
+secrets or variables for release builds. `desktop/.secrets/` is ignored by Git
+and is only for local key material.
 
 ## Latest Release
 
@@ -204,7 +242,7 @@ The first successful updater release was `app-v0.2.0`:
 https://github.com/realfabianschmidt/MRG-StudyRunner/actions/runs/27611155278
 ```
 
-Expected release assets for each desktop release:
+Expected release assets for each release:
 
 - `latest.json`
 - `Study.Runner_<version>_x64-setup.exe`
@@ -214,6 +252,11 @@ Expected release assets for each desktop release:
 - `Study.Runner_<version>_x64.dmg`
 - `Study.Runner_<version>_aarch64.dmg`
 - macOS `.app.tar.gz` updater archives and `.sig` files for Intel and Apple Silicon
+- `study-runner-python-latest.json`
+- `study-runner-server-windows-x86_64.zip`
+- `study-runner-server-linux-x86_64.zip`
+- `study-runner-server-macos-x86_64.zip`
+- `study-runner-server-macos-arm64.zip`
 
 The macOS DMG files are for manual installation. The Tauri updater uses the app-bundle updater archives referenced by `latest.json`, so macOS release jobs must build both `app` and `dmg` bundles.
 
@@ -249,7 +292,7 @@ Manual checklist:
 
 1. Change source files, docs, studies, or launcher files.
 2. Keep generated folders out of Git.
-3. Bump all desktop version fields to the same SemVer value.
+3. Bump all desktop and Python version fields to the same SemVer value.
 4. Run fast local checks:
 
 ```bash
@@ -257,6 +300,7 @@ python -m unittest discover software/tests
 node --check desktop/web/main.js
 node --check release_tools/verify-release-version.mjs
 node --check release_tools/release-study-runner.mjs
+python -m py_compile release_tools/package-python-onedir.py release_tools/write-python-update-key.py release_tools/build-python-update-manifest.py
 node release_tools/verify-release-version.mjs app-v0.3.0
 git diff --check
 ```
@@ -273,7 +317,9 @@ The sidecar build is required before `cargo check` in a clean checkout because T
 6. Commit and push `main`.
 7. Create and push the annotated release tag.
 8. Wait for all release jobs to pass.
-9. Verify that the release is published and contains `latest.json`, installers, and signature files.
+9. Verify that the release is published and contains `latest.json`,
+   `study-runner-python-latest.json`, installers, Python ZIPs, and signature
+   files.
 10. Install an older build and confirm that the launcher shows the update.
 
 The one-command helper performs steps 3, 4, 6, and 7 automatically. GitHub Actions performs the platform builds and publishes the release after the tag is pushed.

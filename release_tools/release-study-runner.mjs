@@ -98,6 +98,18 @@ function currentDesktopVersion() {
   return readJson('desktop/package.json').version;
 }
 
+function currentPythonVersion() {
+  return readPythonVersion(readText('software/study_runner/version.py'));
+}
+
+function readPythonVersion(content) {
+  const version = content.match(/^__version__\s*=\s*"(?<version>[^"]+)"/m)?.groups?.version;
+  if (!version) {
+    fail('Could not find __version__ in software/study_runner/version.py.');
+  }
+  return version;
+}
+
 function ensureSemver(value) {
   if (!/^\d+\.\d+\.\d+$/.test(value || '')) {
     fail(`Expected a SemVer version like 0.3.0, got: ${value || '<empty>'}`);
@@ -209,12 +221,23 @@ function replaceCargoLockVersion(nextVersion) {
   writeText(relativePath, output);
 }
 
+function replacePythonVersion(nextVersion) {
+  const relativePath = 'software/study_runner/version.py';
+  const input = readText(relativePath);
+  const output = input.replace(/^__version__\s*=\s*"[^"]+"/m, `__version__ = "${nextVersion}"`);
+  if (output === input) {
+    fail(`Could not update ${relativePath}.`);
+  }
+  writeText(relativePath, output);
+}
+
 function bumpVersions(nextVersion) {
   replacePackageVersion('desktop/package.json', nextVersion);
   replacePackageLockVersion(nextVersion);
   replaceTauriVersion(nextVersion);
   replaceCargoTomlVersion(nextVersion);
   replaceCargoLockVersion(nextVersion);
+  replacePythonVersion(nextVersion);
 }
 
 function ensureToolchain({ full = false } = {}) {
@@ -248,6 +271,7 @@ function runChecks(nextVersion) {
   run('node', ['--check', 'desktop/web/main.js']);
   run('node', ['--check', 'release_tools/verify-release-version.mjs']);
   run('node', ['--check', 'release_tools/release-study-runner.mjs']);
+  run('python', ['-m', 'py_compile', 'release_tools/package-python-onedir.py', 'release_tools/write-python-update-key.py', 'release_tools/build-python-update-manifest.py']);
   run('node', ['release_tools/verify-release-version.mjs', releaseTagName(nextVersion)]);
   run('python', ['-m', 'unittest', 'discover', path.join('software', 'tests')]);
 
@@ -268,7 +292,7 @@ function ensureNoStagedSecrets(files) {
   const blockedExtensions = /\.(pfx|p12|pem|p8|key)$/i;
   const blockedPath = /(^|\/|\\)\.secrets($|\/|\\)/i;
   const privateKeyNeedle = ['BEGIN ', 'PRIVATE KEY'].join('');
-  const secretAssignment = /\b(TAURI_SIGNING_PRIVATE_KEY|WINDOWS_CERTIFICATE|APPLE_CERTIFICATE)\s*=/;
+  const secretAssignment = /\b(TAURI_SIGNING_PRIVATE_KEY|WINDOWS_CERTIFICATE|APPLE_CERTIFICATE|PYTHON_UPDATER_SIGNING_PRIVATE_KEY|PYTHON_UPDATER_PUBLIC_KEY)\s*=/;
 
   for (const file of files) {
     if (blockedExtensions.test(file) || blockedPath.test(file)) {
@@ -316,6 +340,7 @@ function verifyRemoteMainVersion(version) {
     'desktop/package.json': readVersionFromGit('origin/main', 'desktop/package.json', (content) => JSON.parse(content).version),
     'desktop/src-tauri/tauri.conf.json': readVersionFromGit('origin/main', 'desktop/src-tauri/tauri.conf.json', (content) => JSON.parse(content).version),
     'desktop/src-tauri/Cargo.toml': readVersionFromGit('origin/main', 'desktop/src-tauri/Cargo.toml', versionFromCargoToml),
+    'software/study_runner/version.py': readVersionFromGit('origin/main', 'software/study_runner/version.py', readPythonVersion),
   };
 
   const mismatches = Object.entries(versions).filter(([, value]) => value !== version);
@@ -408,6 +433,7 @@ function status() {
   console.log(`Desktop package version: ${readJson('desktop/package.json').version}`);
   console.log(`Tauri config version: ${readJson('desktop/src-tauri/tauri.conf.json').version}`);
   console.log(`Cargo version: ${versionFromCargoToml(readText('desktop/src-tauri/Cargo.toml'))}`);
+  console.log(`Python app version: ${currentPythonVersion()}`);
 }
 
 if (!command || command === '--help' || command === '-h') {

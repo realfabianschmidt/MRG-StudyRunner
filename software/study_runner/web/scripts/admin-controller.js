@@ -46,6 +46,8 @@ const state = {
   draggedElement: null,
   suppressListClick: false,
   accessQrKind: null,
+  updateStatus: null,
+  updatePollTimer: null,
 };
 
 
@@ -100,6 +102,7 @@ async function init() {
     updateHubTitle();
     rebuildAll();
     await loadRecentStudies();
+    await loadUpdateStatus({ silent: true });
     state.loaded = true;
     showToast(t('toast.studyLoaded', 'Study loaded'), 'info');
   } catch (error) {
@@ -216,6 +219,9 @@ function bindEvents() {
   $('btn-participant-qr-url')?.addEventListener('click', () => openAccessQrModal('participant'));
   $('btn-copy-admin-url')?.addEventListener('click', () => copyAccessUrl('admin'));
   $('btn-copy-participant-url')?.addEventListener('click', () => copyAccessUrl('participant'));
+  $('btn-update-check')?.addEventListener('click', () => checkForPythonUpdate());
+  $('btn-update-download')?.addEventListener('click', () => downloadPythonUpdate());
+  $('btn-update-install')?.addEventListener('click', () => installPythonUpdate());
   $('btn-close-access-qr')?.addEventListener('click', closeAccessQrModal);
   $('access-qr-modal')?.addEventListener('click', (event) => {
     if (event.target === $('access-qr-modal')) closeAccessQrModal();
@@ -370,6 +376,255 @@ function copyTextWithFallback(value) {
   input.select();
   document.execCommand('copy');
   input.remove();
+}
+
+async function loadUpdateStatus({ silent = false } = {}) {
+  try {
+    const status = await getJson('/api/admin/update/status');
+    state.updateStatus = status;
+    renderUpdateStatus(status);
+  } catch (error) {
+    console.error('[admin] Could not load update status:', error);
+    renderUpdateStatusError(error);
+    if (!silent) {
+      showToast(t('update.statusFailed', 'Update status failed'), 'error');
+    }
+  }
+}
+
+async function checkForPythonUpdate() {
+  setUpdateBusy(true);
+  try {
+    const status = await postJson('/api/admin/update/check', {});
+    state.updateStatus = status;
+    renderUpdateStatus(status);
+    const available = Boolean(status.update?.available);
+    showToast(available ? t('update.availableToast', 'Update available') : t('update.currentToast', 'Study Runner is current'), available ? 'info' : 'success');
+  } catch (error) {
+    console.error('[admin] Update check failed:', error);
+    showToast(error.message || t('update.checkFailed', 'Update check failed'), 'error');
+    await loadUpdateStatus({ silent: true });
+  } finally {
+    setUpdateBusy(false);
+  }
+}
+
+async function downloadPythonUpdate() {
+  const version = state.updateStatus?.update?.version || '';
+  const message = t('update.downloadConfirm', 'Download and verify update {version}?').replace('{version}', version);
+  if (!confirm(message)) {
+    return;
+  }
+
+  setUpdateBusy(true);
+  startUpdatePolling();
+  try {
+    const status = await postJson('/api/admin/update/download', {});
+    state.updateStatus = status;
+    renderUpdateStatus(status);
+    showToast(t('update.downloadedToast', 'Update downloaded and verified'), 'success');
+  } catch (error) {
+    console.error('[admin] Update download failed:', error);
+    showToast(error.message || t('update.downloadFailed', 'Update download failed'), 'error');
+    await loadUpdateStatus({ silent: true });
+  } finally {
+    stopUpdatePolling();
+    setUpdateBusy(false);
+  }
+}
+
+async function installPythonUpdate() {
+  const message = t('update.restartConfirm', 'Restart Study Runner into the staged update now?');
+  if (!confirm(message)) {
+    return;
+  }
+
+  setUpdateBusy(true);
+  try {
+    const status = await postJson('/api/admin/update/install', {});
+    state.updateStatus = status;
+    renderUpdateStatus(status);
+    showToast(t('update.restartingToast', 'Restarting into update ...'), 'info');
+  } catch (error) {
+    console.error('[admin] Update install failed:', error);
+    showToast(error.message || t('update.installFailed', 'Update restart failed'), 'error');
+    await loadUpdateStatus({ silent: true });
+    setUpdateBusy(false);
+  }
+}
+
+function startUpdatePolling() {
+  stopUpdatePolling();
+  state.updatePollTimer = window.setInterval(() => {
+    void loadUpdateStatus({ silent: true });
+  }, 900);
+}
+
+function stopUpdatePolling() {
+  if (state.updatePollTimer) {
+    window.clearInterval(state.updatePollTimer);
+    state.updatePollTimer = null;
+  }
+}
+
+function setUpdateBusy(isBusy) {
+  ['btn-update-check', 'btn-update-download', 'btn-update-install'].forEach((id) => {
+    const button = $(id);
+    if (button) {
+      button.disabled = Boolean(isBusy);
+    }
+  });
+}
+
+function renderUpdateStatusError(error) {
+  const pill = $('update-status-pill');
+  const versionLine = $('update-version-line');
+  const detail = $('update-detail');
+  if (pill) {
+    pill.className = 'status-pill status-pill--error';
+    pill.textContent = t('update.error', 'Error');
+  }
+  if (versionLine) {
+    versionLine.textContent = t('update.unavailable', 'Unavailable');
+  }
+  if (detail) {
+    detail.textContent = error?.message || t('update.statusFailed', 'Update status failed');
+  }
+  setUpdateActions({});
+  setUpdateProgress(null);
+}
+
+function renderUpdateStatus(status) {
+  const pill = $('update-status-pill');
+  const versionLine = $('update-version-line');
+  const detail = $('update-detail');
+  if (!pill || !versionLine || !detail) {
+    return;
+  }
+
+  const stateName = status.state || 'idle';
+  const available = Boolean(status.update?.available);
+  const version = status.update?.version || status.current_version || '';
+  const staged = Boolean(status.staged?.version);
+  const isDesktopMode = String(status.app_mode || '').toLowerCase() === 'desktop';
+
+  let pillState = 'waiting';
+  let pillText = t('update.idle', 'Idle');
+  let line = t('update.versionLine', 'Installed {version}').replace('{version}', status.current_version || '-');
+  let message = t('update.idleDetail', 'Check GitHub Releases for Python-only updates.');
+
+  if (!status.configured) {
+    pillState = 'disabled';
+    pillText = t('update.disabled', 'Disabled');
+    message = status.configuration_error || t('update.notConfiguredDetail', 'No Python updater public key is configured for this build.');
+  } else if (stateName === 'error' || stateName === 'install_failed') {
+    pillState = 'error';
+    pillText = t('update.error', 'Error');
+    message = status.error || t('update.statusFailed', 'Update status failed');
+  } else if (stateName === 'downloading') {
+    pillState = 'starting';
+    pillText = t('update.downloading', 'Downloading');
+    message = formatUpdateDownload(status.download);
+  } else if (stateName === 'verifying') {
+    pillState = 'starting';
+    pillText = t('update.verifying', 'Verifying');
+    message = t('update.verifyingDetail', 'Checking hash and signature.');
+  } else if (stateName === 'staged' || staged) {
+    pillState = 'ready';
+    pillText = t('update.ready', 'Ready');
+    line = t('update.readyLine', 'Version {version} staged').replace('{version}', status.staged?.version || version);
+    message = status.install_supported
+      ? t('update.readyDetail', 'The update is verified and ready for restart.')
+      : t('update.manualRestartDetail', 'The update is staged. Automatic restart is only available in Python packaged builds.');
+  } else if (stateName === 'installing') {
+    pillState = 'starting';
+    pillText = t('update.restarting', 'Restarting');
+    message = t('update.restartingDetail', 'Study Runner is handing off to the staged update.');
+  } else if (available) {
+    pillState = 'ready';
+    pillText = t('update.available', 'Available');
+    line = t('update.availableLine', 'Version {version} available').replace('{version}', version);
+    message = t('update.availableDetail', 'Download starts only after confirmation.');
+  } else if (stateName === 'current') {
+    pillState = 'running';
+    pillText = t('update.current', 'Current');
+    message = t('update.currentDetail', 'The installed Python app version is current.');
+  }
+
+  if (isDesktopMode) {
+    message = t('update.desktopModeDetail', 'This Tauri desktop build still uses the desktop launcher updater. Python updates can be tested from Python packaged builds.');
+  }
+
+  pill.className = `status-pill status-pill--${pillState}`;
+  pill.textContent = pillText;
+  versionLine.textContent = line;
+  detail.textContent = message;
+  setUpdateActions(status);
+  setUpdateProgress(status.download);
+}
+
+function setUpdateActions(status) {
+  const checkButton = $('btn-update-check');
+  const downloadButton = $('btn-update-download');
+  const installButton = $('btn-update-install');
+  const notesLink = $('update-release-notes');
+  const stateName = status.state || 'idle';
+  const busy = ['downloading', 'verifying', 'installing'].includes(stateName);
+  const hasUpdate = Boolean(status.update?.available);
+  const hasStaged = Boolean(status.staged?.version);
+
+  if (checkButton) {
+    checkButton.disabled = busy;
+  }
+  if (downloadButton) {
+    downloadButton.hidden = !status.configured || !hasUpdate || hasStaged || busy;
+    downloadButton.disabled = busy;
+  }
+  if (installButton) {
+    installButton.hidden = !hasStaged;
+    installButton.disabled = busy || !status.install_supported;
+  }
+  if (notesLink) {
+    const notesUrl = status.update?.notes_url || '';
+    notesLink.hidden = !notesUrl;
+    if (notesUrl) {
+      notesLink.href = notesUrl;
+    }
+  }
+}
+
+function setUpdateProgress(download) {
+  const wrap = $('update-progress');
+  const fill = $('update-progress-fill');
+  if (!wrap || !fill) {
+    return;
+  }
+  const stateName = download?.state || '';
+  const total = Number(download?.total_bytes || 0);
+  const done = Number(download?.bytes_downloaded || 0);
+  const visible = ['downloading', 'verifying', 'staged'].includes(stateName) || (total > 0 && done > 0);
+  wrap.hidden = !visible;
+  const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((done / total) * 100))) : 0;
+  fill.style.width = `${percent}%`;
+}
+
+function formatUpdateDownload(download) {
+  const total = Number(download?.total_bytes || 0);
+  const done = Number(download?.bytes_downloaded || 0);
+  if (!total) {
+    return t('update.downloadingDetailUnknown', 'Downloading update ...');
+  }
+  return t('update.downloadingDetail', 'Downloading {done} of {total}.')
+    .replace('{done}', formatBytes(done))
+    .replace('{total}', formatBytes(total));
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 function handleListClick(event) {

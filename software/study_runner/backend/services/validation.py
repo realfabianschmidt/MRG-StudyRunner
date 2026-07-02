@@ -26,19 +26,31 @@ PARTICIPANT_FIELD_ORDER = [
     "first_name",
     "last_name",
     "age_group",
+    "gender",
     "childhood_area",
     "childhood_nearest_city",
+    "birth_place",
+    "birth_date",
 ]
 
 PARTICIPANT_FIELD_DEFAULTS = {
     "first_name": {"enabled": True, "use_for_key": True, "store": False},
     "last_name": {"enabled": True, "use_for_key": True, "store": False},
     "age_group": {"enabled": True, "use_for_key": True, "store": True},
+    "gender": {"enabled": False, "use_for_key": False, "store": True},
     "childhood_area": {"enabled": True, "use_for_key": True, "store": True},
     "childhood_nearest_city": {"enabled": True, "use_for_key": True, "store": True},
+    "birth_place": {"enabled": False, "use_for_key": False, "store": True},
+    "birth_date": {"enabled": False, "use_for_key": False, "store": True},
 }
 
-AGE_GROUP_OPTIONS = {"18-25", "26-35", "36-45", "46-60", "60+"}
+# Fields whose allowed answers can be configured per study.
+AGE_GROUP_DEFAULT_OPTIONS = ["18-25", "26-35", "36-45", "46-60", "60+"]
+GENDER_DEFAULT_OPTIONS = ["Female", "Male", "Non-binary", "Prefer not to say"]
+CONFIGURABLE_OPTION_DEFAULTS = {
+    "age_group": AGE_GROUP_DEFAULT_OPTIONS,
+    "gender": GENDER_DEFAULT_OPTIONS,
+}
 CHILDHOOD_AREA_OPTIONS = {"urban", "rural"}
 
 
@@ -186,6 +198,7 @@ def _validate_participant_metadata(
         normalized[field_key] = _validate_participant_metadata_value(
             field_key,
             value.get(field_key),
+            _participant_field_options(questions, field_key) if field_key in CONFIGURABLE_OPTION_DEFAULTS else None,
         )
 
     extra_keys = sorted(set(value.keys()) - set(stored_fields))
@@ -214,14 +227,19 @@ def _stored_participant_fields(questions: list[dict[str, Any]]) -> list[str]:
     return stored
 
 
-def _validate_participant_metadata_value(field_key: str, value: Any) -> str:
+def _validate_participant_metadata_value(
+    field_key: str,
+    value: Any,
+    configured_options: list[str] | None = None,
+) -> str:
     normalized = _require_text(value, f"participant_metadata {field_key}")
 
-    if field_key == "age_group":
-        if normalized not in AGE_GROUP_OPTIONS:
+    if field_key in CONFIGURABLE_OPTION_DEFAULTS:
+        allowed = configured_options or CONFIGURABLE_OPTION_DEFAULTS[field_key]
+        if normalized not in allowed:
             raise ValidationError(
-                "participant_metadata age_group must be one of: "
-                + ", ".join(sorted(AGE_GROUP_OPTIONS))
+                f"participant_metadata {field_key} must be one of: "
+                + ", ".join(allowed)
                 + "."
             )
         return normalized
@@ -232,6 +250,15 @@ def _validate_participant_metadata_value(field_key: str, value: Any) -> str:
             raise ValidationError(
                 "participant_metadata childhood_area must be urban or rural."
             )
+        return normalized
+
+    if field_key == "birth_date":
+        try:
+            _parse_iso_timestamp(normalized)
+        except ValueError as exc:
+            raise ValidationError(
+                "participant_metadata birth_date must be a valid ISO date (YYYY-MM-DD)."
+            ) from exc
         return normalized
 
     return normalized
@@ -673,6 +700,10 @@ def _validate_participant_fields(value: Any, question_index: int) -> dict[str, d
             "use_for_key": use_for_key,
             "store": store,
         }
+        if field_key in CONFIGURABLE_OPTION_DEFAULTS:
+            normalized[field_key]["options"] = _normalize_field_options(
+                raw_field.get("options"), field_key
+            )
 
     if not any(field.get("enabled") and field.get("use_for_key") for field in normalized.values()):
         raise ValidationError(
@@ -680,6 +711,32 @@ def _validate_participant_fields(value: Any, question_index: int) -> dict[str, d
         )
 
     return normalized
+
+
+def _normalize_field_options(value: Any, field_key: str) -> list[str]:
+    defaults = CONFIGURABLE_OPTION_DEFAULTS[field_key]
+    if not isinstance(value, list):
+        return list(defaults)
+
+    cleaned: list[str] = []
+    for item in value:
+        text = _normalize_text(item)
+        if text and text not in cleaned:
+            cleaned.append(text)
+    return cleaned or list(defaults)
+
+
+def _participant_field_options(questions: list[dict[str, Any]], field_key: str) -> list[str]:
+    participant_question = next(
+        (question for question in questions if question.get("type") == "participant-id"),
+        None,
+    )
+    fields = (participant_question or {}).get("fields") or {}
+    field_config = fields.get(field_key) or {}
+    options = field_config.get("options")
+    if isinstance(options, list) and options:
+        return [opt for opt in options if isinstance(opt, str) and opt]
+    return list(CONFIGURABLE_OPTION_DEFAULTS.get(field_key, []))
 
 
 def _normalize_trigger_type(value: Any, question_index: int) -> str:

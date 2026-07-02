@@ -58,6 +58,10 @@ jobs:
         run: |
           node --check desktop/web/main.js
           node --check release_tools/verify-release-version.mjs
+          node --check release_tools/release-study-runner.mjs
+
+      - name: Check release Python helpers
+        run: python -m py_compile release_tools/package-python-onedir.py release_tools/write-python-update-key.py release_tools/build-python-update-manifest.py
 
       - name: Verify desktop version fields
         shell: bash

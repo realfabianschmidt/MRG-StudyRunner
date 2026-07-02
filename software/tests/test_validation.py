@@ -103,9 +103,13 @@ class ValidationTests(unittest.TestCase):
         fields = config["questions"][0]["fields"]
         self.assertEqual(fields["first_name"], {"enabled": True, "use_for_key": True, "store": False})
         self.assertEqual(fields["last_name"], {"enabled": True, "use_for_key": True, "store": False})
-        self.assertEqual(fields["age_group"], {"enabled": True, "use_for_key": True, "store": True})
+        self.assertEqual(fields["age_group"], {"enabled": True, "use_for_key": True, "store": True, "options": ["18-25", "26-35", "36-45", "46-60", "60+"]})
         self.assertEqual(fields["childhood_area"], {"enabled": True, "use_for_key": True, "store": True})
         self.assertEqual(fields["childhood_nearest_city"], {"enabled": True, "use_for_key": True, "store": True})
+        # New fields default to disabled so existing studies are unchanged.
+        self.assertEqual(fields["gender"], {"enabled": False, "use_for_key": False, "store": False, "options": ["Female", "Male", "Non-binary", "Prefer not to say"]})
+        self.assertEqual(fields["birth_place"], {"enabled": False, "use_for_key": False, "store": False})
+        self.assertEqual(fields["birth_date"], {"enabled": False, "use_for_key": False, "store": False})
 
     def test_participant_id_needs_at_least_one_key_field(self) -> None:
         with self.assertRaises(ValidationError):
@@ -184,6 +188,137 @@ class ValidationTests(unittest.TestCase):
                         "childhood_area": "urban",
                         "childhood_nearest_city": "Munich",
                     },
+                },
+                config,
+            )
+
+
+    def test_participant_configurable_options_and_new_fields(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Configured Fields",
+                "questions": [
+                    {
+                        "type": "participant-id",
+                        "prompt": "Identify yourself.",
+                        "fields": {
+                            "first_name": {"enabled": True, "use_for_key": True, "store": False},
+                            "age_group": {
+                                "enabled": True,
+                                "use_for_key": False,
+                                "store": True,
+                                "options": ["young", "old", "young", "  "],
+                            },
+                            "gender": {
+                                "enabled": True,
+                                "use_for_key": False,
+                                "store": True,
+                                "options": ["Woman", "Man", "Other"],
+                            },
+                            "birth_place": {"enabled": True, "use_for_key": False, "store": True},
+                            "birth_date": {"enabled": True, "use_for_key": False, "store": True},
+                            "childhood_area": {"enabled": False},
+                            "childhood_nearest_city": {"enabled": False},
+                        },
+                    },
+                    {"type": "finish"},
+                ],
+            }
+        )
+
+        fields = config["questions"][0]["fields"]
+        # Options are cleaned (deduped, blanks dropped).
+        self.assertEqual(fields["age_group"]["options"], ["young", "old"])
+        self.assertEqual(fields["gender"]["options"], ["Woman", "Man", "Other"])
+
+        result = validate_and_normalize_results(
+            {
+                "participant_id": "abc123",
+                "study_id": "Configured Fields",
+                "timestamp_start": "2026-01-01T10:00:00Z",
+                "timestamp_end": "2026-01-01T10:01:00Z",
+                "answers": {},
+                "participant_metadata": {
+                    "age_group": "old",
+                    "gender": "Woman",
+                    "birth_place": "Berlin",
+                    "birth_date": "1990-05-14",
+                },
+            },
+            config,
+        )
+        self.assertEqual(result["participant_metadata"]["gender"], "Woman")
+        self.assertEqual(result["participant_metadata"]["birth_date"], "1990-05-14")
+
+    def test_participant_metadata_rejects_value_outside_configured_options(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Configured Fields",
+                "questions": [
+                    {
+                        "type": "participant-id",
+                        "prompt": "Identify yourself.",
+                        "fields": {
+                            "first_name": {"enabled": True, "use_for_key": True, "store": False},
+                            "gender": {
+                                "enabled": True,
+                                "use_for_key": False,
+                                "store": True,
+                                "options": ["Woman", "Man"],
+                            },
+                            "age_group": {"enabled": False},
+                            "childhood_area": {"enabled": False},
+                            "childhood_nearest_city": {"enabled": False},
+                        },
+                    },
+                    {"type": "finish"},
+                ],
+            }
+        )
+
+        with self.assertRaises(ValidationError):
+            validate_and_normalize_results(
+                {
+                    "participant_id": "abc123",
+                    "study_id": "Configured Fields",
+                    "timestamp_start": "2026-01-01T10:00:00Z",
+                    "timestamp_end": "2026-01-01T10:01:00Z",
+                    "answers": {},
+                    "participant_metadata": {"gender": "Nonbinary"},
+                },
+                config,
+            )
+
+    def test_participant_birth_date_rejects_garbage(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Birth Date Study",
+                "questions": [
+                    {
+                        "type": "participant-id",
+                        "prompt": "Identify yourself.",
+                        "fields": {
+                            "first_name": {"enabled": True, "use_for_key": True, "store": False},
+                            "birth_date": {"enabled": True, "use_for_key": False, "store": True},
+                            "age_group": {"enabled": False},
+                            "childhood_area": {"enabled": False},
+                            "childhood_nearest_city": {"enabled": False},
+                        },
+                    },
+                    {"type": "finish"},
+                ],
+            }
+        )
+
+        with self.assertRaises(ValidationError):
+            validate_and_normalize_results(
+                {
+                    "participant_id": "abc123",
+                    "study_id": "Birth Date Study",
+                    "timestamp_start": "2026-01-01T10:00:00Z",
+                    "timestamp_end": "2026-01-01T10:01:00Z",
+                    "answers": {},
+                    "participant_metadata": {"birth_date": "not-a-date"},
                 },
                 config,
             )

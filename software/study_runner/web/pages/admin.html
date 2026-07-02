@@ -97,6 +97,30 @@
           </div>
           <div class="hub-access-hint" id="access-hint" data-i18n="access.hint">Use the participant link from a tablet or browser on the same private network.</div>
         </div>
+
+        <div class="hub-update-card" id="admin-update-card">
+          <div class="hub-access-header">
+            <div>
+              <div class="hub-active-label" data-i18n="update.label">UPDATE</div>
+              <div class="hub-access-title" data-i18n="update.title">Python app update</div>
+            </div>
+            <i class="iconoir-download-circled-outline"></i>
+          </div>
+          <div class="update-status-row">
+            <span class="status-pill status-pill--waiting" id="update-status-pill" data-i18n="update.loading">Loading</span>
+            <span id="update-version-line">-</span>
+          </div>
+          <div class="hub-access-hint update-detail" id="update-detail" data-i18n="update.loadingDetail">Checking local update state ...</div>
+          <div class="update-progress" id="update-progress" hidden>
+            <div class="update-progress-fill" id="update-progress-fill"></div>
+          </div>
+          <div class="update-actions">
+            <button class="btn-secondary" type="button" id="btn-update-check"><i class="iconoir-refresh"></i> <span data-i18n="update.check">Check</span></button>
+            <button class="btn-primary" type="button" id="btn-update-download" hidden><i class="iconoir-download"></i> <span data-i18n="update.download">Download</span></button>
+            <button class="btn-primary" type="button" id="btn-update-install" hidden><i class="iconoir-play-solid"></i> <span data-i18n="update.restart">Restart</span></button>
+            <a class="btn-secondary update-notes-link" id="update-release-notes" href="#" target="_blank" rel="noreferrer" hidden><i class="iconoir-open-new-window"></i> <span data-i18n="update.releaseNotes">Notes</span></a>
+          </div>
+        </div>
       </div>
     </div>
   </div>

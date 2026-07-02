@@ -18,7 +18,25 @@
         "age_group": {
           "enabled": true,
           "use_for_key": true,
-          "store": true
+          "store": true,
+          "options": [
+            "18-25",
+            "26-35",
+            "36-45",
+            "46-60",
+            "60+"
+          ]
+        },
+        "gender": {
+          "enabled": true,
+          "use_for_key": false,
+          "store": false,
+          "options": [
+            "Female",
+            "Male",
+            "Non-binary",
+            "Prefer not to say"
+          ]
         },
         "childhood_area": {
           "enabled": true,
@@ -29,44 +47,36 @@
           "enabled": true,
           "use_for_key": true,
           "store": true
+        },
+        "birth_place": {
+          "enabled": false,
+          "use_for_key": false,
+          "store": false
+        },
+        "birth_date": {
+          "enabled": false,
+          "use_for_key": false,
+          "store": false
         }
-      }
+      },
+      "code_label": "Your anonymous code",
+      "info_top": "hskdsfkkdkkjkj",
+      "info_bottom": "dsfsdfsd"
     },
     {
-      "type": "stimulus",
-      "title": "Observe the material",
-      "subtitle": "Pay attention to all sensory impressions. The questionnaire will appear automatically.",
-      "warmup_duration_ms": 0,
-      "duration_ms": 30000,
-      "trigger_type": "timer",
-      "trigger_content": "",
-      "send_signal": true,
-      "brainbit_to_lsl": true,
-      "brainbit_to_touchdesigner": true,
-      "camera_capture_enabled": false,
-      "camera_snapshot_interval_ms": 200,
-      "mini_radar_recording_enabled": true
+      "type": "mood-meter",
+      "prompt": "How do you feel right now?",
+      "allow_multiple": true,
+      "word_lists": null
     },
     {
-      "type": "slider",
+      "type": "single",
       "prompt": "",
-      "label_min": "not at all",
-      "label_max": "very strongly"
-    },
-    {
-      "type": "word-cloud",
-      "prompt": "Which words describe how you feel right now?",
-      "words": [
-        "Happy",
-        "Sad",
-        "Excited",
-        "Calm",
-        "Anxious",
-        "Tired",
-        "Focused",
-        "Restless"
-      ],
-      "allow_multiple": true
+      "options": [
+        "Option A",
+        "Option B",
+        "Option C"
+      ]
     },
     {
       "type": "finish",
@@ -76,7 +86,7 @@
   ],
   "study_settings": {
     "sensors_enabled": true,
-    "progress_bar_enabled": false,
+    "progress_bar_enabled": true,
     "notion_enabled": false,
     "notion_parent_page_id": "",
     "notion_database_id": "",
