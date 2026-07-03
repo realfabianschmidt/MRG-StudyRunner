@@ -6,19 +6,25 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import sys
 from urllib.parse import quote
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SOFTWARE_ROOT = REPO_ROOT / "software"
-if str(SOFTWARE_ROOT) not in sys.path:
-    sys.path.insert(0, str(SOFTWARE_ROOT))
+UPDATER_SCHEMA_VERSION = 1
 
-from study_runner.backend.services.update_service import UPDATER_SCHEMA_VERSION, canonical_asset_payload
+
+def canonical_asset_payload(version: str, platform_key: str, asset: dict[str, object]) -> bytes:
+    payload = {
+        "schema": UPDATER_SCHEMA_VERSION,
+        "version": str(version),
+        "platform": str(platform_key),
+        "url": str(asset.get("url") or ""),
+        "sha256": str(asset.get("sha256") or "").lower(),
+        "size": int(asset.get("size") or 0),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def main() -> int:
