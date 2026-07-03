@@ -1,6 +1,6 @@
 [package]
 name = "study-runner-desktop"
-version = "0.2.3"
+version = "0.2.4"
 description = "Desktop launcher for Study Runner"
 authors = ["Materiability Lab"]
 edition = "2021"
