@@ -36,7 +36,10 @@ def get_project_base_dir() -> Path:
 
 
 def get_app_mode() -> str:
-    return os.getenv("STUDY_RUNNER_APP_MODE", "python").strip().lower() or "python"
+    configured_mode = os.getenv("STUDY_RUNNER_APP_MODE", "").strip().lower()
+    if configured_mode:
+        return configured_mode
+    return "packaged" if getattr(sys, "frozen", False) else "python"
 
 
 def read_server_host() -> str:
@@ -95,7 +98,7 @@ def resolve_runtime_paths(base_dir: Path | None = None) -> RuntimePaths:
 
 
 def initialize_runtime_storage(paths: RuntimePaths) -> None:
-    """Create writable runtime folders and seed desktop storage with default files."""
+    """Create writable runtime folders and seed external storage with default files."""
     paths.settings_dir.mkdir(parents=True, exist_ok=True)
     paths.data_dir.mkdir(parents=True, exist_ok=True)
     paths.saved_studies_dir.mkdir(parents=True, exist_ok=True)

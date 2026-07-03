@@ -2,7 +2,7 @@
 
 This folder contains the runnable application code.
 
-- `app_server.py`: internal Flask app module used by browser mode and desktop mode.
+- `app_server.py`: internal Flask app module used by browser mode and packaged mode.
 - `backend/`: Flask routes and backend services.
 - `web/`: admin page, participant page, scripts, styles, cards, fonts, and locales.
 - `integrations/`: built-in integrations such as BrainBit, OSC, LSL, Notion, LabRecorder, MR60, and camera emotion.

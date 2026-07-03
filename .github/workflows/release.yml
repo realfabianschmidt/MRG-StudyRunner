@@ -22,26 +22,25 @@ jobs:
         include:
           - label: Windows x64
             platform: windows-latest
-            args: --bundles nsis
             python_asset: study-runner-server-windows-x86_64.zip
           - label: Linux x64
             platform: ubuntu-24.04
-            args: --bundles appimage
             python_asset: study-runner-server-linux-x86_64.zip
           - label: macOS Intel
             platform: macos-15-intel
-            # DMG is for manual install; app creates the .app.tar.gz updater artifact.
-            args: --bundles app,dmg
             python_asset: study-runner-server-macos-x86_64.zip
           - label: macOS Apple Silicon
             platform: macos-15
-            # DMG is for manual install; app creates the .app.tar.gz updater artifact.
-            args: --bundles app,dmg
             python_asset: study-runner-server-macos-arm64.zip
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
 
       - name: Verify release version
         run: node release_tools/verify-release-version.mjs "$env:GITHUB_REF_NAME"
@@ -51,33 +50,19 @@ jobs:
         run: node release_tools/verify-release-version.mjs "$GITHUB_REF_NAME"
         if: runner.os != 'Windows'
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Linux system dependencies
+      - name: Install Linux packaging dependencies
         if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
-
-      - name: Install Node dependencies
-        run: npm ci
-        working-directory: desktop
+          sudo apt-get install -y patchelf
 
       - name: Install Python build dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r software/requirements.txt -r desktop/build_tools/pyinstaller/requirements-build.txt
+        run: python -m pip install --upgrade pip && python -m pip install -r software/requirements.txt -r release_tools/pyinstaller/requirements-build.txt
 
       - name: Write Python updater public key
         env:
@@ -87,132 +72,15 @@ jobs:
       - name: Verify updater signing secret
         shell: bash
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           PYTHON_UPDATER_SIGNING_PRIVATE_KEY: ${{ secrets.PYTHON_UPDATER_SIGNING_PRIVATE_KEY }}
         run: |
-          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-            echo "TAURI_SIGNING_PRIVATE_KEY is required to create updater signatures." >&2
-            exit 1
-          fi
           if [ -z "$PYTHON_UPDATER_SIGNING_PRIVATE_KEY" ]; then
             echo "PYTHON_UPDATER_SIGNING_PRIVATE_KEY is required to create Python update signatures." >&2
             exit 1
           fi
 
-      - name: Import Windows signing certificate
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
-            Write-Host "WINDOWS_CERTIFICATE or WINDOWS_CERTIFICATE_PASSWORD is not set; building unsigned Windows bundles."
-            exit 0
-          }
-
-          $certificateDir = Join-Path $env:RUNNER_TEMP "study-runner-certificate"
-          New-Item -ItemType Directory -Force -Path $certificateDir | Out-Null
-          $encodedPath = Join-Path $certificateDir "certificate.base64.txt"
-          $pfxPath = Join-Path $certificateDir "certificate.pfx"
-
-          Set-Content -Path $encodedPath -Value $env:WINDOWS_CERTIFICATE -Encoding ascii
-          certutil -f -decode $encodedPath $pfxPath
-          if ($LASTEXITCODE -ne 0) {
-            throw "Could not decode WINDOWS_CERTIFICATE."
-          }
-
-          $securePassword = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
-          $certificate = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword
-          if (-not $certificate.Thumbprint) {
-            throw "Could not import Windows signing certificate."
-          }
-
-          "WINDOWS_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Import Apple signing certificate
-        if: startsWith(matrix.platform, 'macos')
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ] || [ -z "$KEYCHAIN_PASSWORD" ]; then
-            echo "APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, or KEYCHAIN_PASSWORD is not set; building unsigned macOS bundles."
-            exit 0
-          fi
-
-          CERTIFICATE_PATH="$RUNNER_TEMP/study-runner-certificate.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/study-runner-signing.keychain-db"
-
-          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk -F '"' '/Developer ID Application/ { print $2; exit }')"
-          if [ -z "$IDENTITY" ]; then
-            security find-identity -v -p codesigning "$KEYCHAIN_PATH"
-            echo "Could not find a Developer ID Application identity in the imported certificate." >&2
-            exit 1
-          fi
-
-          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
-
-      - name: Prepare Apple notarization key
-        if: startsWith(matrix.platform, 'macos')
-        shell: bash
-        env:
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_PRIVATE_KEY }}
-        run: |
-          if [ -z "$APPLE_API_ISSUER" ] || [ -z "$APPLE_API_KEY" ] || [ -z "$APPLE_API_KEY_PRIVATE_KEY" ]; then
-            echo "APPLE_API_ISSUER, APPLE_API_KEY, or APPLE_API_KEY_PRIVATE_KEY is not set; skipping macOS notarization."
-            exit 0
-          fi
-
-          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
-          if printf '%s' "$APPLE_API_KEY_PRIVATE_KEY" | grep -q "BEGIN PRIVATE KEY"; then
-            printf '%s' "$APPLE_API_KEY_PRIVATE_KEY" > "$KEY_PATH"
-          else
-            printf '%s' "$APPLE_API_KEY_PRIVATE_KEY" | base64 --decode > "$KEY_PATH"
-          fi
-
-          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
-
-      - name: Build Python sidecar
-        run: npm run build:sidecar
-        working-directory: desktop
-
-      - name: Build and upload Tauri bundles
-        uses: tauri-apps/tauri-action@v0.6.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          WINDOWS_CERTIFICATE_THUMBPRINT: ${{ env.WINDOWS_CERTIFICATE_THUMBPRINT }}
-          WINDOWS_DIGEST_ALGORITHM: sha256
-          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL || 'http://timestamp.digicert.com' }}
-        with:
-          projectPath: desktop
-          tauriScript: npm run tauri
-          tagName: ${{ github.ref_name }}
-          releaseName: Study Runner ${{ github.ref_name }}
-          releaseBody: Installers and updater metadata for Study Runner ${{ github.ref_name }}.
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
-          uploadUpdaterJson: true
-          updaterJsonPreferNsis: true
-
       - name: Build Python one-dir package
-        run: npm run build:server:onedir
-        working-directory: desktop
+        run: python release_tools/build-python-onedir.py
 
       - name: Package Python update asset
         run: python release_tools/package-python-onedir.py --source software/dist/study-runner-server --output "${{ matrix.python_asset }}"
@@ -238,7 +106,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install manifest signing dependency
-        run: python -m pip install "cryptography>=42" "requests>=2.31"
+        run: python -m pip install "cryptography>=42"
 
       - name: Download Python update assets
         uses: actions/download-artifact@v4
@@ -252,11 +120,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PYTHON_UPDATER_SIGNING_PRIVATE_KEY: ${{ secrets.PYTHON_UPDATER_SIGNING_PRIVATE_KEY }}
         run: |
-          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq ".[] | select(.tag_name == \"${GITHUB_REF_NAME}\") | .id" | head -n 1)"
-          if [ -z "$release_id" ]; then
-            echo "Could not find a draft release for ${GITHUB_REF_NAME}." >&2
-            exit 1
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --draft \
+              --title "Study Runner $GITHUB_REF_NAME" \
+              --notes "Python-only update assets for Study Runner $GITHUB_REF_NAME."
           fi
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq ".id")"
           gh release upload "$GITHUB_REF_NAME" python-update-assets/*.zip --clobber
           version="${GITHUB_REF_NAME#app-v}"
           python release_tools/build-python-update-manifest.py \

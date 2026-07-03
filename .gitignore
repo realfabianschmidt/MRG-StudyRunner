@@ -20,10 +20,3 @@ software/build/
 software/dist/
 build/
 dist/
-
-# Desktop wrapper build output
-desktop/node_modules/
-desktop/.secrets/
-desktop/src-tauri/gen/
-desktop/src-tauri/target/
-desktop/src-tauri/binaries/study-runner-server-*

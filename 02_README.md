@@ -1,6 +1,7 @@
 # Study Runner
 
-Study Runner is a local app for running small user studies in a lab, classroom, workshop, or design research setting.
+Study Runner is a local app for running small user studies in a lab, classroom,
+workshop, or design research setting.
 
 Start here if you are not developing the code:
 
@@ -8,33 +9,29 @@ Start here if you are not developing the code:
 01_START_HERE.md
 ```
 
-## Project Roles
+## Project Layout
 
-The repository has two clear halves: the **software** you edit, and the **desktop
-wrapper** that packages it. Most people only ever touch `software/`.
+Most work happens in `software/`. Python-only packaging and release helpers live
+in `release_tools/`.
 
 ```text
 MRG-StudyRunner/
 |-- 01_START_HERE.md       German guide for non-coders.
 |-- 02_README.md           This file.
 |-- 03_PROJECT_RULES.md    How we keep the code readable.
-|-- release.ps1            One-command release (run from the repo root).
-|-- software/              THE PROGRAM. Edit Python, UI, sensors and studies here.
+|-- release.ps1            One-command release from the repo root.
+|-- software/              THE PROGRAM.
 |   |-- server.py          Run locally with: cd software && python server.py
 |   |-- requirements.txt   Python dependencies.
-|   |-- study_runner/      Python backend, browser UI, and built-in integrations.
+|   |-- study_runner/      Python backend, browser UI, and integrations.
 |   |-- study_content/     Editable default studies and settings.
-|   `-- tests/             Local automated checks.
-|-- desktop/               THE INSTALLABLE WRAPPER. Rarely edited.
-|   |-- web/               Launcher window UI.
-|   |-- src-tauri/         Rust shell and auto-updater.
-|   |-- scripts/           Sidecar build and signing helpers.
-|   `-- build_tools/       PyInstaller config that bundles software/ into a sidecar.
-|-- release_tools/         Versioning, release checks, tag, and release automation.
+|   `-- tests/             Automated checks.
+|-- release_tools/         Versioning, PyInstaller packaging, manifests, release automation.
 `-- docs/                  Active docs plus docs/archive/ for historical notes.
 ```
 
-Local study results are written to `software/saved_results/` and are ignored by Git.
+Local study results are written to `software/saved_results/` and are ignored by
+Git.
 
 ## Run Locally
 
@@ -58,48 +55,39 @@ STUDY_RUNNER_CONTENT_DIR=/path/to/study-content
 STUDY_RUNNER_DATA_DIR=/path/to/writable/app-data
 ```
 
-## Desktop App
+## Packaged App
 
-The desktop app is a Tauri wrapper. It starts the bundled Python Study Runner server and shows a launcher window. Users do not need to install Python.
-
-Manual installer files are published here:
+Official non-coder builds are PyInstaller one-dir ZIPs from GitHub Releases:
 
 ```text
 https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
 ```
 
-Use:
+Assets:
 
-- Windows: `Study.Runner_<version>_x64-setup.exe`
-- Linux: `Study.Runner_<version>_amd64.AppImage`
-- Mac Apple Silicon: `Study.Runner_<version>_aarch64.dmg`
-- Mac Intel: `Study.Runner_<version>_x64.dmg`
+- `study-runner-server-windows-x86_64.zip`
+- `study-runner-server-linux-x86_64.zip`
+- `study-runner-server-macos-x86_64.zip`
+- `study-runner-server-macos-arm64.zip`
 
-The installed app updates itself through `latest.json` and signed updater artifacts.
+Unpack the ZIP and start `study-runner-server(.exe)`. Packaged builds open the
+Admin page in the default browser automatically.
 
-Python-only server packages are also published during releases. They use the Admin
-page update card instead of the Tauri launcher. This path is available for testing
-the server-only future, while Tauri remains the normal installed-app wrapper.
-
-Note for macOS: the current builds are not Apple-signed, so the first launch needs a
-one-time un-quarantine step. See `01_START_HERE.md` and `docs/07_desktop_launcher.md`.
-
-## Local Desktop Build
+## Local Package Build
 
 From the repository root:
 
 ```bash
-npm --prefix desktop install
-python -m pip install -r software/requirements.txt -r desktop/build_tools/pyinstaller/requirements-build.txt
-npm --prefix desktop run build:sidecar
-npm --prefix desktop run build
+python -m pip install -r software/requirements.txt -r release_tools/pyinstaller/requirements-build.txt
+python release_tools/build-python-onedir.py
+python release_tools/package-python-onedir.py --source software/dist/study-runner-server --output study-runner-server-local.zip
 ```
-
-The build creates a fresh PyInstaller sidecar from `software/` first, then bundles the Tauri app.
 
 ## One-Command Release
 
-GitHub CLI is not required for the normal release helper. The helper pushes `main` and then pushes a tag; GitHub Actions builds the installers after that tag arrives.
+GitHub CLI is not required for the normal release helper. The helper pushes
+`main` and then pushes a tag; GitHub Actions builds the ZIPs after that tag
+arrives.
 
 Windows-friendly release command:
 
@@ -119,34 +107,31 @@ Other supported inputs:
 
 The release helper:
 
-1. bumps all desktop and Python version files,
+1. bumps `software/study_runner/version.py`,
 2. runs fast local checks by default,
 3. commits the version bump on `main`,
 4. pushes `main`,
 5. pushes `app-v<version>` to start the GitHub Release workflow.
 
-Normal commits and pushes do not create installed-app updates. Only tags named
+Normal commits and pushes do not create app updates. Only tags named
 `app-vX.Y.Z` trigger updater releases. After the GitHub Actions release workflow
-finishes, installed Tauri apps can update from the launcher and Python-only builds
-can update from the Admin page update card.
+finishes, packaged builds can update from the Admin page update card.
 
 ## Manual Checks
 
 ```bash
 python -m unittest discover software/tests
-node --check desktop/web/main.js
 node --check release_tools/verify-release-version.mjs
 node --check release_tools/release-study-runner.mjs
-python -m py_compile release_tools/package-python-onedir.py release_tools/write-python-update-key.py release_tools/build-python-update-manifest.py
-node release_tools/verify-release-version.mjs app-v0.2.2
+python -m py_compile release_tools/package-python-onedir.py release_tools/write-python-update-key.py release_tools/build-python-update-manifest.py release_tools/build-python-onedir.py
+node release_tools/verify-release-version.mjs app-v0.2.4
 git diff --check
 ```
 
-Optional full local build checks:
+Optional full local build check:
 
 ```bash
-npm --prefix desktop run build:sidecar
-cargo check -q --manifest-path desktop/src-tauri/Cargo.toml
+python release_tools/build-python-onedir.py
 ```
 
 ## Source Of Truth
@@ -154,11 +139,11 @@ cargo check -q --manifest-path desktop/src-tauri/Cargo.toml
 - Non-coder start: `01_START_HERE.md`
 - Editable study defaults: `software/study_content/`
 - Runtime app code: `software/study_runner/`
-- Desktop shell: `desktop/`
 - Release automation: `release_tools/`
+- Packaging details: `docs/07_desktop_launcher.md`
+- Python update details: `docs/09_python_auto_update.md`
 - Docs index: `docs/README.md`
-- Desktop/release details: `docs/07_desktop_launcher.md`
-- Python-only update details: `docs/09_python_auto_update.md`
 - Historical plans and audits: `docs/archive/`
 
-Never commit local study results, generated build output, private keys, certificates, passwords, `.pfx`, `.p12`, `.key`, `.pem`, `.p8`, or `desktop/.secrets/`.
+Never commit local study results, generated build output, private keys,
+certificates, passwords, `.pfx`, `.p12`, `.key`, `.pem`, or `.p8`.

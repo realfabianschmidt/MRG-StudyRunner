@@ -506,7 +506,6 @@ function renderUpdateStatus(status) {
   const available = Boolean(status.update?.available);
   const version = status.update?.version || status.current_version || '';
   const staged = Boolean(status.staged?.version);
-  const isDesktopMode = String(status.app_mode || '').toLowerCase() === 'desktop';
 
   let pillState = 'waiting';
   let pillText = t('update.idle', 'Idle');
@@ -549,10 +548,6 @@ function renderUpdateStatus(status) {
     pillState = 'running';
     pillText = t('update.current', 'Current');
     message = t('update.currentDetail', 'The installed Python app version is current.');
-  }
-
-  if (isDesktopMode) {
-    message = t('update.desktopModeDetail', 'This Tauri desktop build still uses the desktop launcher updater. Python updates can be tested from Python packaged builds.');
   }
 
   pill.className = `status-pill status-pill--${pillState}`;

@@ -167,7 +167,7 @@ def download_and_stage_update(app_config: dict[str, Any]) -> dict[str, Any]:
 
 def request_update_install(app_config: dict[str, Any]) -> dict[str, Any]:
     if not is_install_supported(app_config):
-        raise UpdateError("Install/restart is only available in Python packaged builds, not source mode or Tauri desktop mode.")
+        raise UpdateError("Install/restart is only available in Python packaged builds, not source mode or legacy desktop mode.")
 
     paths = resolve_update_paths(app_config)
     state = _read_state(paths.state_file)

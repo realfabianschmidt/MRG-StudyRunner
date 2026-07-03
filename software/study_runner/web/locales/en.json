@@ -58,7 +58,6 @@
   "update.availableDetail": "Download starts only after confirmation.",
   "update.current": "Current",
   "update.currentDetail": "The installed Python app version is current.",
-  "update.desktopModeDetail": "This Tauri desktop build still uses the desktop launcher updater. Python updates can be tested from Python packaged builds.",
   "update.downloadingDetailUnknown": "Downloading update ...",
   "update.downloadingDetail": "Downloading {done} of {total}.",
 

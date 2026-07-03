@@ -12,10 +12,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.runtime_config import initialize_runtime_storage, resolve_runtime_paths
+from study_runner.backend.services.runtime_config import get_app_mode, initialize_runtime_storage, resolve_runtime_paths
 
 
 class RuntimeConfigTests(unittest.TestCase):
+    def test_frozen_runtime_defaults_to_packaged_mode(self) -> None:
+        with patch.dict(os.environ, {}, clear=True), patch.object(sys, "frozen", True, create=True):
+            self.assertEqual(get_app_mode(), "packaged")
+
     def test_default_paths_stay_inside_project(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             paths = resolve_runtime_paths(PROJECT_ROOT)

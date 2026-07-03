@@ -5,10 +5,6 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
-const desktopRoot = path.join(repoRoot, 'desktop');
-const tauriRoot = path.join(desktopRoot, 'src-tauri');
-const isWindows = process.platform === 'win32';
-const npmCommand = isWindows ? 'npm.cmd' : 'npm';
 
 const command = process.argv[2];
 const versionInput = process.argv[3];
@@ -28,11 +24,11 @@ Recommended non-coder command on Windows:
   .\\release.ps1 patch
 
 Requirements on the machine that runs a release:
-  Git, Node.js, and Python 3.12. Full local checks also need npm and Rust (cargo).
-  GitHub CLI is not required. GitHub Actions builds the installer artifacts after the tag is pushed.
+  Git, Node.js, and Python 3.12. Full local checks also need PyInstaller.
+  GitHub CLI is not required. GitHub Actions builds the Python update ZIP assets after the tag is pushed.
 
-The release command bumps versions on main, runs fast local checks, commits,
-pushes main, then pushes app-v<version> to start the release workflow.
+The release command bumps the Python app version on main, runs fast local checks,
+commits, pushes main, then pushes app-v<version> to start the release workflow.
 `);
 }
 
@@ -86,18 +82,6 @@ function writeText(relativePath, value) {
   writeFileSync(path.join(repoRoot, relativePath), value, 'utf8');
 }
 
-function readJson(relativePath) {
-  return JSON.parse(readText(relativePath));
-}
-
-function writeJson(relativePath, value) {
-  writeText(relativePath, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-function currentDesktopVersion() {
-  return readJson('desktop/package.json').version;
-}
-
 function currentPythonVersion() {
   return readPythonVersion(readText('software/study_runner/version.py'));
 }
@@ -117,7 +101,7 @@ function ensureSemver(value) {
 }
 
 function resolveNextVersion(input) {
-  const current = currentDesktopVersion();
+  const current = currentPythonVersion();
   const [major, minor, patch] = current.split('.').map((part) => Number.parseInt(part, 10));
   if (input === 'patch') return `${major}.${minor}.${patch + 1}`;
   if (input === 'minor') return `${major}.${minor + 1}.0`;
@@ -174,53 +158,6 @@ function ensureDirectReleaseStartingPoint() {
   }
 }
 
-function replacePackageVersion(relativePath, nextVersion) {
-  const pkg = readJson(relativePath);
-  pkg.version = nextVersion;
-  writeJson(relativePath, pkg);
-}
-
-function replacePackageLockVersion(nextVersion) {
-  const lock = readJson('desktop/package-lock.json');
-  lock.version = nextVersion;
-  if (lock.packages?.['']) {
-    lock.packages[''].version = nextVersion;
-  }
-  writeJson('desktop/package-lock.json', lock);
-}
-
-function replaceTauriVersion(nextVersion) {
-  const config = readJson('desktop/src-tauri/tauri.conf.json');
-  config.version = nextVersion;
-  writeJson('desktop/src-tauri/tauri.conf.json', config);
-}
-
-function replaceCargoTomlVersion(nextVersion) {
-  const relativePath = 'desktop/src-tauri/Cargo.toml';
-  const input = readText(relativePath);
-  const output = input.replace(
-    /(^\[package\][\s\S]*?^version\s*=\s*")[^"]+(")/m,
-    `$1${nextVersion}$2`,
-  );
-  if (output === input) {
-    fail(`Could not update ${relativePath}.`);
-  }
-  writeText(relativePath, output);
-}
-
-function replaceCargoLockVersion(nextVersion) {
-  const relativePath = 'desktop/src-tauri/Cargo.lock';
-  const input = readText(relativePath);
-  const output = input.replace(
-    /(\[\[package\]\]\r?\nname = "study-runner-desktop"\r?\nversion = ")[^"]+(")/,
-    `$1${nextVersion}$2`,
-  );
-  if (output === input) {
-    fail(`Could not update ${relativePath}.`);
-  }
-  writeText(relativePath, output);
-}
-
 function replacePythonVersion(nextVersion) {
   const relativePath = 'software/study_runner/version.py';
   const input = readText(relativePath);
@@ -232,26 +169,15 @@ function replacePythonVersion(nextVersion) {
 }
 
 function bumpVersions(nextVersion) {
-  replacePackageVersion('desktop/package.json', nextVersion);
-  replacePackageLockVersion(nextVersion);
-  replaceTauriVersion(nextVersion);
-  replaceCargoTomlVersion(nextVersion);
-  replaceCargoLockVersion(nextVersion);
   replacePythonVersion(nextVersion);
 }
 
-function ensureToolchain({ full = false } = {}) {
+function ensureToolchain() {
   const tools = [
     { cmd: 'node', args: ['--version'], hint: 'Install Node.js from https://nodejs.org' },
     { cmd: 'python', args: ['--version'], hint: 'Install Python 3.12 from https://python.org' },
     { cmd: 'git', args: ['--version'], hint: 'Install Git from https://git-scm.com' },
   ];
-  if (full) {
-    tools.push(
-      { cmd: npmCommand, args: ['--version'], hint: 'npm ships with Node.js' },
-      { cmd: 'cargo', args: ['--version'], hint: 'Install Rust from https://rustup.rs' },
-    );
-  }
 
   const missing = [];
   for (const tool of tools) {
@@ -267,17 +193,22 @@ function ensureToolchain({ full = false } = {}) {
 
 function runChecks(nextVersion) {
   const fullChecks = flags.has('--full-checks');
-  ensureToolchain({ full: fullChecks });
-  run('node', ['--check', 'desktop/web/main.js']);
+  ensureToolchain();
   run('node', ['--check', 'release_tools/verify-release-version.mjs']);
   run('node', ['--check', 'release_tools/release-study-runner.mjs']);
-  run('python', ['-m', 'py_compile', 'release_tools/package-python-onedir.py', 'release_tools/write-python-update-key.py', 'release_tools/build-python-update-manifest.py']);
+  run('python', [
+    '-m',
+    'py_compile',
+    'release_tools/package-python-onedir.py',
+    'release_tools/write-python-update-key.py',
+    'release_tools/build-python-update-manifest.py',
+    'release_tools/build-python-onedir.py',
+  ]);
   run('node', ['release_tools/verify-release-version.mjs', releaseTagName(nextVersion)]);
   run('python', ['-m', 'unittest', 'discover', path.join('software', 'tests')]);
 
   if (fullChecks) {
-    run(npmCommand, ['--prefix', 'desktop', 'run', 'build:sidecar']);
-    run('cargo', ['check', '-q'], { cwd: tauriRoot });
+    run('python', ['release_tools/build-python-onedir.py']);
   }
 
   git(['diff', '--check']);
@@ -292,7 +223,7 @@ function ensureNoStagedSecrets(files) {
   const blockedExtensions = /\.(pfx|p12|pem|p8|key)$/i;
   const blockedPath = /(^|\/|\\)\.secrets($|\/|\\)/i;
   const privateKeyNeedle = ['BEGIN ', 'PRIVATE KEY'].join('');
-  const secretAssignment = /\b(TAURI_SIGNING_PRIVATE_KEY|WINDOWS_CERTIFICATE|APPLE_CERTIFICATE|PYTHON_UPDATER_SIGNING_PRIVATE_KEY|PYTHON_UPDATER_PUBLIC_KEY)\s*=/;
+  const secretAssignment = /\b(PYTHON_UPDATER_SIGNING_PRIVATE_KEY|PYTHON_UPDATER_PUBLIC_KEY)\s*=/;
 
   for (const file of files) {
     if (blockedExtensions.test(file) || blockedPath.test(file)) {
@@ -324,31 +255,16 @@ function commitVersionChanges(version, message) {
   git(['commit', '-m', message || `Release Study Runner ${version}`]);
 }
 
-function versionFromCargoToml(content) {
-  const packageSection = content.match(/^\[package\]$(?<body>[\s\S]*?)(?=^\[|$)/m);
-  const body = packageSection?.groups?.body || content;
-  return body.match(/^version\s*=\s*"(?<version>[^"]+)"/m)?.groups?.version;
-}
-
 function readVersionFromGit(ref, relativePath, reader) {
   const content = git(['show', `${ref}:${relativePath}`], { capture: true });
   return reader(content);
 }
 
 function verifyRemoteMainVersion(version) {
-  const versions = {
-    'desktop/package.json': readVersionFromGit('origin/main', 'desktop/package.json', (content) => JSON.parse(content).version),
-    'desktop/src-tauri/tauri.conf.json': readVersionFromGit('origin/main', 'desktop/src-tauri/tauri.conf.json', (content) => JSON.parse(content).version),
-    'desktop/src-tauri/Cargo.toml': readVersionFromGit('origin/main', 'desktop/src-tauri/Cargo.toml', versionFromCargoToml),
-    'software/study_runner/version.py': readVersionFromGit('origin/main', 'software/study_runner/version.py', readPythonVersion),
-  };
-
-  const mismatches = Object.entries(versions).filter(([, value]) => value !== version);
-  if (mismatches.length > 0) {
+  const pythonVersion = readVersionFromGit('origin/main', 'software/study_runner/version.py', readPythonVersion);
+  if (pythonVersion !== version) {
     console.error('origin/main does not contain the requested release version yet:');
-    for (const [file, value] of Object.entries(versions)) {
-      console.error(`- ${file}: ${value || '<missing>'}`);
-    }
+    console.error(`- software/study_runner/version.py: ${pythonVersion || '<missing>'}`);
     fail('Push the release version commit to main first, then run publish again.');
   }
 }
@@ -368,7 +284,7 @@ function printReleaseLinks(tagName) {
   console.log('https://github.com/realfabianschmidt/MRG-StudyRunner/actions/workflows/release.yml');
   console.log('\nRelease page:');
   console.log(`https://github.com/realfabianschmidt/MRG-StudyRunner/releases/tag/${tagName}`);
-  console.log('\nGitHub Actions will build the installers and publish the release when all platform builds pass.');
+  console.log('\nGitHub Actions will build and publish the Python update ZIPs when all platform builds pass.');
 }
 
 function prepare(version) {
@@ -406,7 +322,7 @@ async function release(input) {
 
   if (flags.has('--dry-run')) {
     console.log('\nDry run only. No files, commits, pushes, tags, or releases were changed.');
-    console.log('\nA real release would bump versions, run local checks, commit on main, push main, and push the release tag.');
+    console.log('\nA real release would bump the Python app version, run local checks, commit on main, push main, and push the release tag.');
     return;
   }
 
@@ -430,9 +346,6 @@ async function release(input) {
 function status() {
   console.log(`Branch: ${currentBranch() || '<detached>'}`);
   console.log(`Git status:\n${git(['status', '--short'], { capture: true }) || '<clean>'}`);
-  console.log(`Desktop package version: ${readJson('desktop/package.json').version}`);
-  console.log(`Tauri config version: ${readJson('desktop/src-tauri/tauri.conf.json').version}`);
-  console.log(`Cargo version: ${versionFromCargoToml(readText('desktop/src-tauri/Cargo.toml'))}`);
   console.log(`Python app version: ${currentPythonVersion()}`);
 }
 

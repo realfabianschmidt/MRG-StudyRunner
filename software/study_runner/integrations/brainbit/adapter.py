@@ -59,6 +59,8 @@ def _default_python_executable(python_executable: str | None) -> str:
         return python_executable
 
     app_mode = os.getenv("STUDY_RUNNER_APP_MODE", "").strip().lower()
+    if not app_mode:
+        app_mode = "packaged" if getattr(sys, "frozen", False) else "python"
     if getattr(sys, "frozen", False) and app_mode in {"desktop", "packaged"}:
         return ""
 
@@ -158,7 +160,7 @@ def start() -> None:
 
         if not _config.get("python_executable"):
             message = (
-                "BrainBit needs a normal Python interpreter path in desktop builds. "
+                "BrainBit needs a normal Python interpreter path in packaged builds. "
                 "Set brainbit.python_executable in hardware settings."
             )
             print(f"[BrainBit] {message}")

@@ -19,7 +19,7 @@ class RuntimeRoutesTests(unittest.TestCase):
     def test_health_and_runtime_info_routes(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
-                "STUDY_RUNNER_APP_MODE": "desktop",
+                "STUDY_RUNNER_APP_MODE": "packaged",
                 "STUDY_RUNNER_DATA_DIR": data_dir,
                 "STUDY_RUNNER_DISABLE_HARDWARE": "1",
                 "STUDY_RUNNER_PORT": "3123",
@@ -37,16 +37,16 @@ class RuntimeRoutesTests(unittest.TestCase):
         health_payload = health.get_json()
         info_payload = runtime_info.get_json()
         self.assertEqual(health_payload["status"], "running")
-        self.assertEqual(health_payload["app_mode"], "desktop")
+        self.assertEqual(health_payload["app_mode"], "packaged")
         self.assertEqual(info_payload["port"], 3123)
         self.assertEqual(info_payload["admin_url"], "http://localhost:3123/admin")
         self.assertTrue(info_payload["participant_url"].startswith("http://"))
         self.assertTrue(info_payload["uses_external_storage"])
 
-    def test_desktop_restart_returns_sidecar_message(self) -> None:
+    def test_packaged_restart_returns_packaged_message(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
-                "STUDY_RUNNER_APP_MODE": "desktop",
+                "STUDY_RUNNER_APP_MODE": "packaged",
                 "STUDY_RUNNER_DATA_DIR": data_dir,
                 "STUDY_RUNNER_DISABLE_HARDWARE": "1",
             }
@@ -58,7 +58,7 @@ class RuntimeRoutesTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(response.status_code, 503)
         self.assertFalse(payload["ok"])
-        self.assertIn("bundled desktop sidecar", payload["error"])
+        self.assertIn("packaged builds", payload["error"])
 
 
 if __name__ == "__main__":

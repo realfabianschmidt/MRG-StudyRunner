@@ -6,12 +6,12 @@ from PyInstaller.utils.hooks import collect_submodules
 
 
 def software_root(spec_path: str) -> Path:
-    """Return the Python software folder that holds study_runner and study_content.
-
-    The PyInstaller specs live in desktop/build_tools/pyinstaller/, so the editable
-    Python software is a sibling of the desktop wrapper: <repo>/software.
-    """
-    return Path(spec_path).resolve().parents[2] / "software"
+    """Return the Python software folder that holds study_runner and study_content."""
+    for candidate in Path(spec_path).resolve().parents:
+        root = candidate / "software"
+        if (root / "server.py").exists() and (root / "study_runner").exists():
+            return root
+    raise RuntimeError("Could not locate the repository software/ folder.")
 
 
 def common_datas(root: Path) -> list[tuple[str, str]]:

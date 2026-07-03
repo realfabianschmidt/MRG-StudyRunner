@@ -229,7 +229,7 @@ def _analyze_frame(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _forward_to_emotion_worker(payload: dict[str, Any]) -> dict[str, Any] | None:
-    """Forward frame to the desktop Emotion Worker and return its result."""
+    """Forward frame to the local Emotion Worker and return its result."""
     import urllib.error
     import urllib.request
 

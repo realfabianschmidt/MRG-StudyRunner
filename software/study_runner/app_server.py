@@ -4,9 +4,18 @@ Use ``software/server.py`` as the local development entrypoint.
 """
 
 import os
+import sys
+import threading
+import time
+import webbrowser
 
 from study_runner.backend import create_app
-from study_runner.backend.services.runtime_config import get_local_private_ips, read_server_host, read_server_port
+from study_runner.backend.services.runtime_config import (
+    get_app_mode,
+    get_local_private_ips,
+    read_server_host,
+    read_server_port,
+)
 
 
 app = create_app()
@@ -33,16 +42,34 @@ def get_ssl_context():
     return "adhoc"
 
 
+def should_open_admin_browser() -> bool:
+    if os.getenv("STUDY_RUNNER_NO_BROWSER", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return False
+    return bool(getattr(sys, "frozen", False) or get_app_mode() == "packaged")
+
+
+def open_admin_browser_later(url: str) -> None:
+    def _open() -> None:
+        time.sleep(0.8)
+        try:
+            webbrowser.open(url, new=2)
+        except Exception as error:
+            print(f"  Could not open browser automatically: {error}")
+
+    threading.Thread(target=_open, daemon=True).start()
+
+
 def run_app() -> None:
     host = read_server_host()
     port = read_server_port()
     local_ips = get_local_private_ips()
     ssl_context = get_ssl_context()
     scheme = "https" if ssl_context else "http"
+    admin_url = f"{scheme}://localhost:{port}/admin"
 
     print("\n" + "-" * 50)
     print("  Study Runner is running")
-    print(f"  Admin page:  {scheme}://localhost:{port}/admin")
+    print(f"  Admin page:  {admin_url}")
     print(f"  Open on tablet: {scheme}://{local_ips[0]}:{port}")
     if len(local_ips) > 1:
         print(f"  Other local addresses: {', '.join(local_ips[1:])}")
@@ -50,6 +77,9 @@ def run_app() -> None:
     if ssl_context:
         print("  HTTPS enabled for browser camera access.")
     print("-" * 50 + "\n")
+
+    if should_open_admin_browser():
+        open_admin_browser_later(admin_url)
 
     app.run(host=host, port=port, debug=is_debug_enabled(), ssl_context=ssl_context)
 

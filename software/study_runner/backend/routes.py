@@ -198,7 +198,7 @@ def register_routes(app: Flask) -> None:
             return jsonify(
                 {
                     "ok": False,
-                    "error": "Server restart is unavailable inside the bundled desktop sidecar. Restart Study Runner from the desktop launcher.",
+                    "error": "Server restart is unavailable in packaged builds. Close and reopen Study Runner, or use the update restart action after staging an update.",
                 }
             ), 503
 

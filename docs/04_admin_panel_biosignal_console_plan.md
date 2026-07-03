@@ -5,7 +5,7 @@ control.
 
 ## Current model
 
-Study Runner is a desktop-only server runtime for Windows, macOS, and Linux. The dashboard is the
+Study Runner is a local server runtime for Windows, macOS, and Linux. The dashboard is the
 operator-facing control room for optional integrations:
 
 - BrainBit

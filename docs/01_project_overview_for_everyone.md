@@ -4,7 +4,7 @@ Study Runner is a local study tool with one admin page, one participant page, an
 
 ## Main Parts
 
-The editable program lives in `software/`; the installable wrapper lives in `desktop/`.
+The editable program lives in `software/`; Python-only release tooling lives in `release_tools/`.
 
 - `software/server.py`: starts the local server.
 - `software/study_runner/backend/`: backend app and backend services.
@@ -13,8 +13,8 @@ The editable program lives in `software/`; the installable wrapper lives in `des
 - `software/study_content/settings/`: editable local settings for the active study and plugins.
 - `software/study_content/studies/`: saved study presets.
 - `software/saved_results/`: participant results and optional sensor sidecar files.
-- `desktop/`: optional Tauri desktop launcher for one-click startup.
-- `desktop/build_tools/pyinstaller/`: PyInstaller build files for the Python server sidecar.
+- `release_tools/pyinstaller/`: PyInstaller build files for the packaged Python app.
+- `release_tools/`: release checks, version bumping, ZIP packaging, and update manifest tools.
 - `docs/`: explanations and project notes.
 
 ## How A Study Run Works
@@ -41,4 +41,4 @@ The registry is explicit. A plugin only becomes active when it is imported and l
 - Change plugin settings: use the dashboard controls or edit `software/study_content/settings/hardware_settings.json`.
 - Add a question card type: add a module in `software/study_runner/web/scripts/cards/` and register it in the card index.
 - Add a plugin: add a folder in `software/study_runner/integrations/`, export `PLUGIN` from `plugin.py`, and list it in `software/study_runner/integrations/registry.py`.
-- Build the desktop launcher: see `docs/07_desktop_launcher.md`.
+- Build the packaged Python app: see `docs/07_desktop_launcher.md`.
