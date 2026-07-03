@@ -1,4 +1,5 @@
 import { t } from '../i18n.js';
+import { renderCardInstruction } from './card-info.js';
 
 // Field metadata: render kind, label, and (for choice fields) default options.
 // `configurable: true` fields expose an editable option list in the settings modal.
@@ -128,6 +129,7 @@ export function renderStudy(q, _i) {
   return `
     <div class="q-type-tag"><i class="iconoir-user-badge-check"></i> ${escapeHtml(t('cards.participant.tag', 'Participant ID'))}</div>
     <p class="q-prompt">${escapeHtml(prompt)}</p>
+    ${renderCardInstruction(q)}
     <div class="pid-card-body">
       <div class="pid-fields">
         ${activeFieldMarkup}

@@ -1,3 +1,5 @@
+import { renderCardInstruction } from './card-info.js';
+
 function escapeHtml(v) {
   return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
@@ -42,6 +44,7 @@ export function renderStudy(q, i) {
   return `
     <div class="q-type-tag"><i class="iconoir-sliders-vertical"></i> Multi-Slider</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
+    ${renderCardInstruction(q)}
     <div class="ms-stack">${rows}</div>`;
 }
 

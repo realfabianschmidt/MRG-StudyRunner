@@ -1,7 +1,7 @@
 import { getJson, postJson } from './api-client.js';
 import { startCameraCaptureSession } from './camera-capture.js';
 import { CARDS } from './cards/index.js';
-import { renderInfoTop, renderInfoBottom } from './cards/card-info.js';
+import { renderInfoBottom } from './cards/card-info.js';
 import { onInput as sliderInput } from './cards/card-slider.js';
 import { bindDrag as rankBindDrag } from './cards/card-ranking.js';
 import { onClick as moodMeterClick } from './cards/card-mood-meter.js';
@@ -294,7 +294,7 @@ function buildQuestions() {
     const cardElement = document.createElement('div');
     cardElement.className = 'q-card-study';
     cardElement.id = `card-q-${questionIndex}`;
-    cardElement.innerHTML = renderInfoTop(question) + cardModule.renderStudy(question, questionIndex) + renderInfoBottom(question);
+    cardElement.innerHTML = cardModule.renderStudy(question, questionIndex) + renderInfoBottom(question);
     container.appendChild(cardElement);
 
     if (question.type === 'ranking') {

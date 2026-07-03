@@ -2,7 +2,7 @@
 import { initializeAdminDashboard } from './admin-dashboard-controller.js';
 import { initializeNotionSettings } from './notion-settings-controller.js';
 import { CARDS, CARD_TYPES, defaultFor } from './cards/index.js';
-import { renderInfoTop, renderInfoBottom, renderInfoEditor, collectInfo } from './cards/card-info.js';
+import { renderInfoBottom, renderInfoEditor, collectInfo } from './cards/card-info.js';
 import { initI18n, setLanguage, getLanguage, t } from './i18n.js';
 import { createQrSvg } from './qr-code.js';
 
@@ -848,7 +848,7 @@ function rebuildPreview() {
     wrap.className = `preview-card-wrap${questionIndex === state.selectedIndex ? ' selected' : ''}`;
     wrap.id = `pc-${questionIndex}`;
     wrap.innerHTML = `
-      <div class="q-card-study">${renderInfoTop(question)}${cardModule.renderStudy(question, questionIndex)}${renderInfoBottom(question)}</div>
+      <div class="q-card-study">${cardModule.renderStudy(question, questionIndex)}${renderInfoBottom(question)}</div>
       <div class="preview-card-overlay">
         <button type="button" data-role="select-card" data-index="${questionIndex}">
           <i class="iconoir-edit-pencil"></i> ${escapeHtml(t('question.edit', 'Edit'))}
@@ -917,7 +917,7 @@ function liveUpdate(index) {
 
   const previewWrap = $(`pc-${index}`);
   if (previewWrap) {
-    previewWrap.querySelector('.q-card-study').innerHTML = renderInfoTop(updated) + cardModule.renderStudy(updated, index) + renderInfoBottom(updated);
+    previewWrap.querySelector('.q-card-study').innerHTML = cardModule.renderStudy(updated, index) + renderInfoBottom(updated);
   }
 
   const label = $('admin-q-list').querySelector(`.admin-q-item[data-index="${index}"] .admin-q-label`);

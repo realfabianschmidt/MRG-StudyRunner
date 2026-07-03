@@ -8,12 +8,13 @@ export const meta = {
   type: 'stimulus',
   icon: 'timer',
   label: 'Stimulus / Countdown',
+  suppressSharedInfoTop: true,
 };
 
 export const defaultQuestion = {
   type: 'stimulus',
   title: 'Observe the material',
-  subtitle: 'Pay attention to all sensory impressions. The questionnaire will appear automatically.',
+  info_top: 'Pay attention to all sensory impressions. The questionnaire will appear automatically.',
   warmup_duration_ms: 0,
   duration_ms: 30000,
   trigger_type: 'timer',
@@ -41,7 +42,7 @@ export function renderStudy(q, i) {
         <div class="q-type-tag"><i class="iconoir-spark"></i> ${escapeHtml(t('stimulus.prepare', 'Prepare'))}</div>
         <div class="stimulus-copy-wrap">
           <h1 class="stimulus-hero-title">${escapeHtml(q.title || 'Observe the material')}</h1>
-          <p class="stimulus-hero-sub">${escapeHtml(q.subtitle || '')}</p>
+          <p class="stimulus-hero-sub">${escapeHtml(q.info_top || q.subtitle || '')}</p>
         </div>
         <div class="stimulus-mini-timer" id="stimulus-mini-timer-${i}">
           <span class="stimulus-mini-label">${escapeHtml(t('stimulus.startsIn', 'Starts in'))}</span>
@@ -53,7 +54,7 @@ export function renderStudy(q, i) {
         <div class="q-type-tag"><i class="iconoir-timer"></i> ${escapeHtml(t('stimulus.active', 'Stimulus active'))}</div>
         <div class="stimulus-active-copy">
           <h1 class="screen-title">${escapeHtml(q.title || 'Observe the material')}</h1>
-          <p class="screen-sub">${escapeHtml(q.subtitle || '')}</p>
+          <p class="screen-sub">${escapeHtml(q.info_top || q.subtitle || '')}</p>
         </div>
         <div class="stimulus-content" id="stimulus-content-${i}" hidden></div>
         <svg class="cd-ring" viewBox="0 0 120 120" aria-hidden="true">
@@ -86,15 +87,12 @@ export function renderEditor(q) {
   const triggerTypes = ['timer', 'image', 'video', 'audio', 'html', 'js'];
   const isContentHidden = triggerType === 'timer';
   const isCode = triggerType === 'html' || triggerType === 'js';
+  const cameraInterval = Number(q.camera_snapshot_interval_ms || 200);
 
   return `
     <div class="field">
       <label>${escapeHtml(t('stimulus.titleLabel', 'Title'))}</label>
       <input type="text" class="se-title" value="${escapeHtml(q.title || '')}">
-    </div>
-    <div class="field">
-      <label>${escapeHtml(t('stimulus.subtitleLabel', 'Subtitle / instruction'))}</label>
-      <textarea class="se-subtitle" rows="3">${escapeHtml(q.subtitle || '')}</textarea>
     </div>
     <div class="row2">
       <div class="field">
@@ -124,49 +122,149 @@ export function renderEditor(q) {
       }
     </div>
     <div class="field">
-      <label class="checkbox-row">
-        <input type="checkbox" class="se-send-signal"${q.send_signal !== false ? ' checked' : ''}>
-        <span>${escapeHtml(t('stimulus.sendSignalLabel', 'Send Study Runner start/stop signals when the active phase begins and ends'))}</span>
-      </label>
-    </div>
-    <div class="field">
-      <label class="checkbox-row">
-        <input type="checkbox" class="se-brainbit-lsl"${q.brainbit_to_lsl !== false ? ' checked' : ''}>
-        <span>${escapeHtml(t('stimulus.brainbitLslLabel', 'Forward BrainBit data to LSL during this active phase'))}</span>
-      </label>
-    </div>
-    <div class="field">
-      <label class="checkbox-row">
-        <input type="checkbox" class="se-brainbit-touchdesigner"${q.brainbit_to_touchdesigner !== false ? ' checked' : ''}>
-        <span>${escapeHtml(t('stimulus.touchdesignerLabel', 'Forward BrainBit data to TouchDesigner during this active phase'))}</span>
-      </label>
-    </div>
-    <div class="field">
-      <label class="checkbox-row">
-        <input type="checkbox" class="se-mini-radar-recording"${q.mini_radar_recording_enabled !== false ? ' checked' : ''}>
-        <span>${escapeHtml(t('stimulus.radarRecordingLabel', 'Record Mini-radar pulse and breathing during this active phase'))}</span>
-      </label>
-    </div>
-    <div class="field">
-      <label class="checkbox-row">
-        <input type="checkbox" class="se-camera-capture"${q.camera_capture_enabled === true ? ' checked' : ''}>
-        <span>${escapeHtml(t('stimulus.cameraCaptureLabel', 'Capture tablet selfie-camera snapshots for camera emotion analysis during this active phase'))}</span>
-      </label>
-    </div>
-    <div class="field">
-      <label>${escapeHtml(t('stimulus.cameraIntervalLabel', 'Camera snapshot interval (ms)'))}</label>
-      <input type="number" class="se-camera-interval" min="200" max="60000" step="50" value="${Number(q.camera_snapshot_interval_ms || 200)}">
+      <label>${escapeHtml(t('stimulus.signalSettingsLabel', 'Signals and recordings'))}</label>
+      <div class="stimulus-toggle-list">
+        ${renderToggleRow({
+          inputClass: 'se-send-signal',
+          checked: q.send_signal !== false,
+          label: t('stimulus.sendSignalLabel', 'Send Study Runner start/stop signals when the active phase begins and ends'),
+        })}
+        ${renderToggleRow({
+          inputClass: 'se-brainbit-lsl',
+          checked: q.brainbit_to_lsl !== false,
+          label: t('stimulus.brainbitLslLabel', 'Forward BrainBit data to LSL during this active phase'),
+        })}
+        ${renderToggleRow({
+          inputClass: 'se-brainbit-touchdesigner',
+          checked: q.brainbit_to_touchdesigner !== false,
+          label: t('stimulus.touchdesignerLabel', 'Forward BrainBit data to TouchDesigner during this active phase'),
+        })}
+        ${renderToggleRow({
+          inputClass: 'se-mini-radar-recording',
+          checked: q.mini_radar_recording_enabled !== false,
+          label: t('stimulus.radarRecordingLabel', 'Record Mini-radar pulse and breathing during this active phase'),
+        })}
+        ${renderToggleRow({
+          inputClass: 'se-camera-capture',
+          checked: q.camera_capture_enabled === true,
+          label: t('stimulus.cameraCaptureLabel', 'Capture tablet selfie-camera snapshots for camera emotion analysis during this active phase'),
+          settings: 'camera',
+        })}
+      </div>
+      <input type="hidden" class="se-camera-interval" value="${cameraInterval}">
     </div>
     <p class="stimulus-editor-note">
       ${escapeHtml(t('stimulus.editorNote', 'Warm-up only shows the instruction view. Study signals, BrainBit routing, Mini-radar recording, camera snapshots, media triggers, and custom JS start when the active timer begins. HTML and JS trigger types stay blocked unless the server explicitly enables STUDY_RUNNER_ALLOW_UNSAFE_STIMULUS_CODE=1.'))}
     </p>`;
 }
 
+function renderToggleRow({ inputClass, checked, label, settings = '' }) {
+  const settingsLabel = escapeHtml(t('stimulus.settingsLabel', 'Settings'));
+  const rowOffClass = checked ? '' : ' stimulus-toggle-row--off';
+  const settingsButton = settings
+    ? `<button type="button" class="stimulus-toggle-settings" data-stimulus-settings="${escapeHtml(settings)}" title="${settingsLabel}" aria-label="${settingsLabel}" ${checked ? '' : 'disabled'}>
+        <i class="iconoir-settings"></i>
+      </button>`
+    : '';
+
+  return `
+    <div class="stimulus-toggle-row${rowOffClass}">
+      <span class="stimulus-toggle-text">${escapeHtml(label)}</span>
+      <div class="stimulus-toggle-controls">
+        <label class="switch" aria-label="${escapeHtml(label)}">
+          <input type="checkbox" class="stimulus-toggle-input ${escapeHtml(inputClass)}" ${checked ? 'checked' : ''}>
+          <span class="switch-slider"></span>
+        </label>
+        ${settingsButton}
+      </div>
+    </div>`;
+}
+
+export function bindEditorEvents(editorEl) {
+  if (editorEl.dataset.stimulusBound === '1') return;
+  editorEl.dataset.stimulusBound = '1';
+
+  editorEl.addEventListener('change', (event) => {
+    const toggle = event.target.closest?.('.stimulus-toggle-input');
+    if (toggle) syncStimulusToggleRow(toggle.closest('.stimulus-toggle-row'));
+  });
+
+  editorEl.addEventListener('click', (event) => {
+    const settingsButton = event.target.closest?.('.stimulus-toggle-settings[data-stimulus-settings="camera"]');
+    if (!settingsButton || settingsButton.disabled) return;
+    event.preventDefault();
+    openCameraSettingsModal(editorEl);
+  });
+}
+
+function syncStimulusToggleRow(row) {
+  if (!row) return;
+  const checked = Boolean(row.querySelector('.stimulus-toggle-input')?.checked);
+  row.classList.toggle('stimulus-toggle-row--off', !checked);
+  const settingsButton = row.querySelector('.stimulus-toggle-settings');
+  if (settingsButton) settingsButton.disabled = !checked;
+}
+
+let _activeStimulusModal = null;
+
+function closeStimulusModal() {
+  if (!_activeStimulusModal) return;
+  if (_activeStimulusModal._escHandler) document.removeEventListener('keydown', _activeStimulusModal._escHandler);
+  _activeStimulusModal.remove();
+  _activeStimulusModal = null;
+}
+
+function openCameraSettingsModal(editorEl) {
+  closeStimulusModal();
+  const intervalInput = editorEl.querySelector('.se-camera-interval');
+  const currentInterval = Number.parseInt(intervalInput?.value || '200', 10) || 200;
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="settings-modal" role="dialog" aria-modal="true" style="max-width: 420px;">
+      <div class="settings-modal-header">
+        <h2>${escapeHtml(t('stimulus.cameraSettingsTitle', 'Camera snapshot settings'))}</h2>
+        <button class="overlay-close stimulus-modal-close" type="button" aria-label="${escapeHtml(t('settings.close', 'Close'))}">
+          <i class="iconoir-xmark"></i>
+        </button>
+      </div>
+      <div class="settings-modal-body">
+        <div class="field">
+          <label>${escapeHtml(t('stimulus.cameraIntervalLabel', 'Camera snapshot interval (ms)'))}</label>
+          <input type="number" class="fi-input stimulus-modal-camera-interval" min="200" max="60000" step="50" value="${currentInterval}">
+        </div>
+        <button class="btn-primary stimulus-modal-apply" type="button" style="width:100%; justify-content:center; margin-top:16px;">
+          ${escapeHtml(t('settings.apply', 'Apply'))}
+        </button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(backdrop);
+  _activeStimulusModal = backdrop;
+
+  backdrop.addEventListener('click', (event) => {
+    if (event.target === backdrop) closeStimulusModal();
+  });
+  backdrop.querySelector('.stimulus-modal-close')?.addEventListener('click', closeStimulusModal);
+  backdrop.querySelector('.stimulus-modal-apply')?.addEventListener('click', () => {
+    const nextValue = Number.parseInt(backdrop.querySelector('.stimulus-modal-camera-interval')?.value || '200', 10) || 200;
+    if (intervalInput) {
+      intervalInput.value = String(Math.max(200, Math.min(60000, nextValue)));
+      intervalInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    closeStimulusModal();
+  });
+
+  backdrop._escHandler = (event) => { if (event.key === 'Escape') closeStimulusModal(); };
+  document.addEventListener('keydown', backdrop._escHandler);
+  backdrop.querySelector('.stimulus-modal-camera-interval')?.focus();
+}
+
 export function collectConfig(el) {
   return {
     type: 'stimulus',
     title: el.querySelector('.se-title')?.value.trim() || '',
-    subtitle: el.querySelector('.se-subtitle')?.value.trim() || '',
     warmup_duration_ms: Number.parseInt(el.querySelector('.se-warmup-duration')?.value || '0', 10) * 1000,
     duration_ms: Number.parseInt(el.querySelector('.se-duration')?.value || '30', 10) * 1000,
     trigger_type: el.querySelector('.se-trigger-type')?.value || 'timer',

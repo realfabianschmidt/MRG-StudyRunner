@@ -1,4 +1,5 @@
 import { t } from '../i18n.js';
+import { renderCardInstruction } from './card-info.js';
 
 export function escapeHtml(v) {
   return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -23,6 +24,7 @@ export function renderStudy(q, _i) {
     <div class="done-icon" style="margin-top: 40px; margin-bottom: 24px;"><i class="iconoir-check"></i></div>
     <h1 class="screen-title" style="text-align: center;">${escapeHtml(q.title || defaultQuestion.title)}</h1>
     <p class="screen-sub" style="text-align: center; white-space: pre-wrap;">${escapeHtml(q.prompt || defaultQuestion.prompt)}</p>
+    ${renderCardInstruction(q)}
   `;
 }
 
