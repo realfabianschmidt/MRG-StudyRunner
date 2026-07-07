@@ -125,14 +125,6 @@ jobs:
             echo "Release tag is empty." >&2
             exit 1
           fi
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" \
-              --draft \
-              --title "Study Runner $RELEASE_TAG" \
-              --notes "Python-only update assets for Study Runner $RELEASE_TAG."
-          fi
-          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq ".id")"
-          gh release upload "$RELEASE_TAG" python-update-assets/*.zip --clobber
           version="${RELEASE_TAG#app-v}"
           python release_tools/build-python-update-manifest.py \
             --version "$version" \
@@ -140,9 +132,19 @@ jobs:
             --tag "$RELEASE_TAG" \
             --asset-dir python-update-assets \
             --output study-runner-python-latest.json
-          gh release upload "$RELEASE_TAG" study-runner-python-latest.json --clobber
-          gh api \
-            --method PATCH \
-            "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
-            -f draft=false \
-            -f make_latest=true
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" python-update-assets/*.zip study-runner-python-latest.json --clobber
+            gh release edit "$RELEASE_TAG" \
+              --draft=false \
+              --latest \
+              --title "Study Runner $RELEASE_TAG" \
+              --notes "Python-only update assets for Study Runner $RELEASE_TAG."
+          else
+            gh release create "$RELEASE_TAG" \
+              python-update-assets/*.zip \
+              study-runner-python-latest.json \
+              --verify-tag \
+              --latest \
+              --title "Study Runner $RELEASE_TAG" \
+              --notes "Python-only update assets for Study Runner $RELEASE_TAG."
+          fi
