@@ -120,6 +120,9 @@ def initialize(
         "raw_log_path": str(resolved_log_dir / "brainbit_runtime.log"),
         "state_path": str(resolved_log_dir / "brainbit_state.json"),
     }
+    with _routing_lock:
+        _routing_state["forward_to_lsl"] = bool(lsl_enabled)
+        _routing_state["forward_to_touchdesigner"] = False
 
     _set_state(
         {
@@ -299,7 +302,8 @@ def get_status() -> dict[str, Any]:
         "status": status_value,
         "pid": pid,
         "lsl_enabled": bool(_config.get("lsl_enabled", False)),
-        "recording_enabled": bool(_routing_state.get("forward_to_lsl", False)),
+        "recording_enabled": bool(_config.get("lsl_enabled", False) and _lsl_outlets),
+        "touchdesigner_forwarding_enabled": bool(_routing_state.get("forward_to_touchdesigner", False)),
         "scan_timeout_seconds": int(_config.get("scan_seconds", 5)) if _config else None,
         "last_scan_started_at": latest.get("last_scan_started_at"),
         "last_scan_finished_at": latest.get("last_scan_finished_at"),
@@ -460,7 +464,7 @@ def _close_log_handle() -> None:
 
 
 def _mirror_line_to_lsl(line: str) -> None:
-    if not _lsl_outlets or not _is_routing_enabled("forward_to_lsl"):
+    if not _lsl_outlets:
         return
 
     parsed = _parse_json_line(line)

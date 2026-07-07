@@ -198,13 +198,13 @@ def ingest_sample(payload: dict[str, Any], *, source: str = "manual") -> dict[st
             "last_message": "Mini-radar sample received.",
         }
     )
-    if _recording_enabled:
+    if _config.get("lsl_enabled"):
         _push_lsl_sample(sample)
     return sample
 
 
 def set_recording(enabled: bool) -> None:
-    """Control whether radar samples are mirrored to LSL during the active phase."""
+    """Track the active stimulus phase without gating continuous LSL output."""
     global _recording_enabled
     _recording_enabled = bool(enabled)
     _set_state(

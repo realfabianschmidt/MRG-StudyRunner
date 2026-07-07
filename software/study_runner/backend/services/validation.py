@@ -102,6 +102,10 @@ def validate_and_normalize_results(
         result_payload.get("answer_events"),
         study_config.get("questions", []),
     )
+    card_events = _validate_card_events(
+        result_payload.get("card_events"),
+        study_config.get("questions", []),
+    )
     participant_metadata = _validate_participant_metadata(
         result_payload.get("participant_metadata"),
         study_config.get("questions", []),
@@ -115,6 +119,7 @@ def validate_and_normalize_results(
         "answers": _validate_answers(answers, study_config.get("questions", [])),
         "participant_metadata": participant_metadata,
         "answer_events": answer_events,
+        "card_events": card_events,
     }
 
 
@@ -147,6 +152,24 @@ def validate_and_normalize_trial_options(payload: Any) -> dict[str, Any]:
             maximum=3_600_000.0,
             allow_none=True,
         ),
+        "client_trigger_epoch_ms": _normalize_float(
+            payload.get("client_trigger_epoch_ms"),
+            field_name="client_trigger_epoch_ms",
+            minimum=0.0,
+            maximum=10_000_000_000_000.0,
+            allow_none=True,
+        ),
+        "study_id": _normalize_text(payload.get("study_id")),
+        "participant_id": _normalize_text(payload.get("participant_id")),
+        "question_index": _normalize_optional_integer(
+            payload.get("question_index"),
+            field_name="question_index",
+            minimum=0,
+            maximum=10_000,
+        ),
+        "question_type": _normalize_question_type(payload.get("question_type")),
+        "phase": _normalize_text(payload.get("phase")),
+        "marker_event": _normalize_text(payload.get("marker_event") or payload.get("event")),
     }
 
 
@@ -306,6 +329,87 @@ def _validate_answer_events(
                 "answer_key": normalized_answer_key,
                 "shown_at": _require_iso_timestamp(raw_event.get("shown_at"), "answer_event shown_at"),
                 "answered_at": _require_iso_timestamp(raw_event.get("answered_at"), "answer_event answered_at"),
+            }
+        )
+
+    return normalized_events
+
+
+def _validate_card_events(
+    value: Any,
+    questions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValidationError("card_events must be a list.")
+
+    normalized_events: list[dict[str, Any]] = []
+    seen_indexes: set[int] = set()
+
+    for raw_event in value:
+        if not isinstance(raw_event, dict):
+            raise ValidationError("Each card_event must be an object.")
+
+        question_index = _normalize_integer(
+            raw_event.get("question_index"),
+            field_name="card_event question_index",
+            minimum=0,
+            maximum=max(0, len(questions) - 1),
+        )
+        if question_index in seen_indexes:
+            raise ValidationError(f"Duplicate card_event for question index {question_index}.")
+        seen_indexes.add(question_index)
+
+        question = questions[question_index] if question_index < len(questions) else {}
+        expected_type = _normalize_text(question.get("type"))
+        question_type = _normalize_text(raw_event.get("question_type"), default=expected_type)
+        if expected_type and question_type and question_type != expected_type:
+            raise ValidationError(
+                f"card_event for question index {question_index} has an unexpected question_type."
+            )
+
+        normalized_events.append(
+            {
+                "question_index": question_index,
+                "question_type": question_type,
+                "shown_at": _require_iso_timestamp(raw_event.get("shown_at"), "card_event shown_at"),
+                "answered_at": _optional_iso_timestamp(raw_event.get("answered_at"), "card_event answered_at"),
+                "completed_at": _optional_iso_timestamp(raw_event.get("completed_at"), "card_event completed_at"),
+                "active_started_at": _optional_iso_timestamp(raw_event.get("active_started_at"), "card_event active_started_at"),
+                "active_ended_at": _optional_iso_timestamp(raw_event.get("active_ended_at"), "card_event active_ended_at"),
+                "server_start_received_at": _optional_iso_timestamp(raw_event.get("server_start_received_at"), "card_event server_start_received_at"),
+                "server_stop_received_at": _optional_iso_timestamp(raw_event.get("server_stop_received_at"), "card_event server_stop_received_at"),
+                "server_start_received_epoch_ms": _normalize_float(
+                    raw_event.get("server_start_received_epoch_ms"),
+                    field_name="card_event server_start_received_epoch_ms",
+                    minimum=0.0,
+                    maximum=10_000_000_000_000.0,
+                    allow_none=True,
+                ),
+                "server_stop_received_epoch_ms": _normalize_float(
+                    raw_event.get("server_stop_received_epoch_ms"),
+                    field_name="card_event server_stop_received_epoch_ms",
+                    minimum=0.0,
+                    maximum=10_000_000_000_000.0,
+                    allow_none=True,
+                ),
+                "client_start_trigger_epoch_ms": _normalize_float(
+                    raw_event.get("client_start_trigger_epoch_ms"),
+                    field_name="card_event client_start_trigger_epoch_ms",
+                    minimum=0.0,
+                    maximum=10_000_000_000_000.0,
+                    allow_none=True,
+                ),
+                "client_stop_trigger_epoch_ms": _normalize_float(
+                    raw_event.get("client_stop_trigger_epoch_ms"),
+                    field_name="card_event client_stop_trigger_epoch_ms",
+                    minimum=0.0,
+                    maximum=10_000_000_000_000.0,
+                    allow_none=True,
+                ),
+                "start_marker": _normalize_text(raw_event.get("start_marker")),
+                "stop_marker": _normalize_text(raw_event.get("stop_marker")),
             }
         )
 
@@ -795,6 +899,18 @@ def _normalize_integer(
     return normalized
 
 
+def _normalize_optional_integer(
+    value: Any,
+    *,
+    field_name: str,
+    minimum: int,
+    maximum: int,
+) -> int | None:
+    if value in (None, ""):
+        return None
+    return _normalize_integer(value, field_name=field_name, minimum=minimum, maximum=maximum)
+
+
 def _normalize_float(
     value: Any,
     *,
@@ -839,6 +955,15 @@ def _normalize_text(value: Any, default: str = "") -> str:
     return str(value).strip()
 
 
+def _normalize_question_type(value: Any) -> str:
+    normalized = _normalize_text(value)
+    if not normalized:
+        return ""
+    if normalized not in ALLOWED_QUESTION_TYPES:
+        raise ValidationError(f"question_type must be one of: {', '.join(sorted(ALLOWED_QUESTION_TYPES))}.")
+    return normalized
+
+
 def _require_text(value: Any, field_name: str) -> str:
     normalized = _normalize_text(value)
     if not normalized:
@@ -853,6 +978,12 @@ def _require_iso_timestamp(value: Any, field_name: str) -> str:
     except ValueError as exc:
         raise ValidationError(f"{field_name} must be a valid ISO timestamp.") from exc
     return timestamp
+
+
+def _optional_iso_timestamp(value: Any, field_name: str) -> str | None:
+    if value in (None, ""):
+        return None
+    return _require_iso_timestamp(value, field_name)
 
 
 def _parse_iso_timestamp(value: str) -> datetime:

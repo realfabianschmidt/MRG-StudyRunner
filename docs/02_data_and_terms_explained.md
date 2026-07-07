@@ -24,9 +24,24 @@ The main result file contains:
 - `timestamp_end`
 - `answers`
 - `answer_events`
+- `card_events`
 - `answer_details`
 
 Optional plugin sidecar files may be saved next to the main result file, for example BrainBit or MR60 samples.
+
+## Biosignal raw data
+
+The canonical raw biosignal recording format is XDF, written by LabRecorder from continuous LSL
+streams during the whole survey session:
+
+- BrainBit EEG and derived streams
+- MR60 heart, breath, distance, phase, sequence/drop, and jitter streams
+- Study Runner LSL markers for study, question, and stimulus timing
+
+Compact JSON sidecars are secondary exports. They keep sensor-near samples with server timestamps
+and copy `card_events` so question and stimulus intervals can be reconstructed without opening XDF.
+Question summaries use the card's `shown_at` to `answered_at` interval. Stimulus summaries use
+`active_started_at` to `active_ended_at`.
 
 ## Browser Cards
 

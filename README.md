@@ -6,28 +6,34 @@ workshop, or design research setting.
 Start here if you are not developing the code:
 
 ```text
-01_START_HERE.md
+docs/start-here-noncoder.md
 ```
 
 ## Project Layout
 
-Most work happens in `software/`. Python-only packaging and release helpers live
-in `release_tools/`.
+Most app work happens in `software/`. Python-only packaging and release helpers
+live in `release_tools/`.
+
+In the local lab workspace, `../Sensorik/` is intentionally kept next to this
+repo as the hardware reference and experiment folder. Runtime-ready copies live
+inside `software/study_runner/integrations/`.
 
 ```text
-MRG-StudyRunner/
-|-- 01_START_HERE.md       German guide for non-coders.
-|-- 02_README.md           This file.
-|-- 03_PROJECT_RULES.md    How we keep the code readable.
+Software/
+|-- README.md              This file.
+|-- CONTRIBUTING.md        How we keep the code readable.
 |-- release.ps1            One-command release from the repo root.
+|-- docs/
+|   |-- start-here-noncoder.md  German guide for non-coders.
+|   |-- README.md               Documentation index.
+|   `-- archive/                Historical notes and audits.
 |-- software/              THE PROGRAM.
 |   |-- server.py          Run locally with: cd software && python server.py
 |   |-- requirements.txt   Python dependencies.
 |   |-- study_runner/      Python backend, browser UI, and integrations.
 |   |-- study_content/     Editable default studies and settings.
 |   `-- tests/             Automated checks.
-|-- release_tools/         Versioning, PyInstaller packaging, manifests, release automation.
-`-- docs/                  Active docs plus docs/archive/ for historical notes.
+`-- release_tools/         Versioning, PyInstaller packaging, manifests, release automation.
 ```
 
 Local study results are written to `software/saved_results/` and are ignored by
@@ -136,10 +142,11 @@ python release_tools/build-python-onedir.py
 
 ## Source Of Truth
 
-- Non-coder start: `01_START_HERE.md`
+- Non-coder start: `docs/start-here-noncoder.md`
 - Editable study defaults: `software/study_content/`
 - Runtime app code: `software/study_runner/`
 - Release automation: `release_tools/`
+- Local hardware references in the lab workspace: `../Sensorik/`
 - Packaging details: `docs/07_desktop_launcher.md`
 - Python update details: `docs/09_python_auto_update.md`
 - Docs index: `docs/README.md`

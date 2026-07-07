@@ -142,6 +142,16 @@ def run_trial_stop(options: dict[str, Any], context: IntegrationContext) -> None
             print(f"[INTEGRATION] {plugin.key} trial stop failed: {error}")
 
 
+def run_trial_marker(options: dict[str, Any], context: IntegrationContext) -> None:
+    for plugin in PLUGINS:
+        if plugin.on_trial_marker is None or not _is_config_enabled(context, plugin):
+            continue
+        try:
+            plugin.on_trial_marker(context, options)
+        except Exception as error:
+            print(f"[INTEGRATION] {plugin.key} trial marker failed: {error}")
+
+
 def build_interval_summary(
     context: IntegrationContext,
     start_epoch: float,

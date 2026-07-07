@@ -36,19 +36,23 @@ def _status(context: IntegrationContext) -> dict[str, Any]:
 
 
 def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
-    if not options.get("send_signal", True):
-        return
-    from . import adapter
-
-    adapter.send_marker(str(options.get("marker_value") or "study:start"))
+    _send_marker(options, "study:start")
 
 
 def _trial_stop(context: IntegrationContext, options: dict[str, Any]) -> None:
+    _send_marker(options, "study:stop")
+
+
+def _trial_marker(context: IntegrationContext, options: dict[str, Any]) -> None:
+    _send_marker(options, "study:marker")
+
+
+def _send_marker(options: dict[str, Any], fallback: str) -> None:
     if not options.get("send_signal", True):
         return
     from . import adapter
 
-    adapter.send_marker(str(options.get("marker_value") or "study:stop"))
+    adapter.send_marker(str(options.get("marker_value") or fallback))
 
 
 PLUGIN = IntegrationPlugin(
@@ -61,4 +65,5 @@ PLUGIN = IntegrationPlugin(
     get_status=_status,
     on_trial_start=_trial_start,
     on_trial_stop=_trial_stop,
+    on_trial_marker=_trial_marker,
 )

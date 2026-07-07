@@ -13,6 +13,7 @@ from study_runner.backend.services.validation import (
     ValidationError,
     validate_and_normalize_config,
     validate_and_normalize_results,
+    validate_and_normalize_trial_options,
 )
 
 
@@ -191,6 +192,75 @@ class ValidationTests(unittest.TestCase):
                 },
                 config,
             )
+
+    def test_result_accepts_card_events_for_questions_and_stimuli(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Biosignal Events",
+                "questions": [
+                    {"type": "stimulus", "title": "Look", "duration_ms": 1000},
+                    {"type": "likert", "prompt": "How calm?", "scale": 7},
+                    {"type": "finish"},
+                ],
+            }
+        )
+
+        result = validate_and_normalize_results(
+            {
+                "participant_id": "abc123",
+                "study_id": "Biosignal Events",
+                "timestamp_start": "2026-01-01T10:00:00Z",
+                "timestamp_end": "2026-01-01T10:01:00Z",
+                "answers": {"q1": 5},
+                "participant_metadata": {},
+                "answer_events": [
+                    {
+                        "question_index": 1,
+                        "question_type": "likert",
+                        "answer_key": "q1",
+                        "shown_at": "2026-01-01T10:00:10Z",
+                        "answered_at": "2026-01-01T10:00:20Z",
+                    }
+                ],
+                "card_events": [
+                    {
+                        "question_index": 0,
+                        "question_type": "stimulus",
+                        "shown_at": "2026-01-01T10:00:01Z",
+                        "active_started_at": "2026-01-01T10:00:02Z",
+                        "active_ended_at": "2026-01-01T10:00:09Z",
+                    },
+                    {
+                        "question_index": 1,
+                        "question_type": "likert",
+                        "shown_at": "2026-01-01T10:00:10Z",
+                        "answered_at": "2026-01-01T10:00:20Z",
+                    },
+                ],
+            },
+            config,
+        )
+
+        self.assertEqual(len(result["card_events"]), 2)
+        self.assertEqual(result["card_events"][0]["active_started_at"], "2026-01-01T10:00:02Z")
+
+    def test_trial_options_accept_marker_metadata_and_epoch_trigger(self) -> None:
+        options = validate_and_normalize_trial_options(
+            {
+                "study_id": "Study A",
+                "participant_id": "p01",
+                "question_index": 2,
+                "question_type": "stimulus",
+                "phase": "stimulus_active_start",
+                "marker_event": "stimulus_active_start",
+                "client_trigger_epoch_ms": 1760000000123.4,
+            }
+        )
+
+        self.assertEqual(options["study_id"], "Study A")
+        self.assertEqual(options["question_index"], 2)
+        self.assertEqual(options["question_type"], "stimulus")
+        self.assertEqual(options["marker_event"], "stimulus_active_start")
 
 
     def test_participant_configurable_options_and_new_fields(self) -> None:

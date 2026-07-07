@@ -11,6 +11,25 @@ Study Runner uses built-in integration plugins. A plugin is a normal Python fold
 - `software/study_runner/backend/services/results_service.py`: asks plugins for interval summaries and sidecar samples.
 - `software/study_runner/backend/services/admin_status_service.py`: builds dashboard status from the registry.
 
+## Sensor Hardware Source Files
+
+In the local lab workspace, `../../Sensorik/` is the hardware and vendor/reference
+area. It is kept separate from the runtime app so experimental files can stay
+visible without becoming app code by accident.
+
+Runtime-ready files that have already been copied into the app integration
+folders:
+
+- `../../Sensorik/MR60BHA2/GP_mmwaveBreath_and_Pulse_02.ino` -> `software/study_runner/integrations/mr60_mini_radar/firmware/GP_mmwaveBreath_and_Pulse_02.ino`
+- `../../Sensorik/MR60BHA2/README.md` -> `software/study_runner/integrations/mr60_mini_radar/firmware/README.md`
+- `../../Sensorik/BrainBit/brainbit_realtime_cli_OSC_15.py` -> `software/study_runner/integrations/brainbit/brainbit_realtime_cli_OSC_15.py`
+- `../../Sensorik/BrainBit/README_ENHANCED.md` -> `software/study_runner/integrations/brainbit/README_ENHANCED.md`
+- `../../Sensorik/BrainBit/OUTPUT_REFERENCE.md` -> `software/study_runner/integrations/brainbit/OUTPUT_REFERENCE.md`
+- `../../Sensorik/BrainBit/HelloEEG_HelloMYO_01.3.toe` -> `software/study_runner/integrations/brainbit/HelloEEG_HelloMYO_01.3.toe`
+
+Do not delete `../../Sensorik/` as part of app cleanup. Delete only generated
+runtime artifacts, logs, build output, or explicitly obsolete app folders.
+
 ## Required Plugin Shape
 
 ```text
@@ -18,6 +37,8 @@ software/study_runner/integrations/my_new_sensor/
   __init__.py
   plugin.py
   adapter.py
+  tools/       # optional manual diagnostics
+  firmware/    # optional microcontroller firmware
 ```
 
 `plugin.py` must export one object:
@@ -43,6 +64,7 @@ A plugin can implement only the callbacks it needs:
 - `get_status(context)`: return dashboard status.
 - `start(context)`, `stop(context)`, `restart(context)`: optional runtime actions.
 - `on_trial_start(context, options)`, `on_trial_stop(context, options)`: active stimulus callbacks.
+- `on_trial_marker(context, options)`: marker-only lifecycle events such as study start, question shown, or question answered.
 - `get_interval_summary(context, start, end)`: compact answer-level sensor summary.
 - `export_interval_samples(context, start, end)`: raw or sensor-near sidecar export.
 

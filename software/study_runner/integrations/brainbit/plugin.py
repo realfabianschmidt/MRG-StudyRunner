@@ -126,7 +126,7 @@ def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
     from . import adapter
 
     adapter.set_routing(
-        forward_to_lsl=bool(options.get("brainbit_to_lsl", True)),
+        forward_to_lsl=None,
         forward_to_touchdesigner=bool(options.get("brainbit_to_touchdesigner", False)),
     )
 
@@ -134,7 +134,7 @@ def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
 def _trial_stop(context: IntegrationContext, options: dict[str, Any]) -> None:
     from . import adapter
 
-    adapter.set_routing(forward_to_lsl=False, forward_to_touchdesigner=False)
+    adapter.set_routing(forward_to_lsl=None, forward_to_touchdesigner=False)
 
 
 def _interval(context: IntegrationContext, start_epoch: float, end_epoch: float) -> dict[str, Any]:

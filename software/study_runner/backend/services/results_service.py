@@ -123,9 +123,12 @@ def _write_signal_sidecar(
     sidecar_path = _build_unique_output_path(participant_dir, base_name, ".json")
     payload = {
         "sensor": sensor,
+        "raw_format": "xdf_primary_json_sidecar",
+        "study_id": result_payload.get("study_id"),
         "participant_id": result_payload.get("participant_id"),
         "timestamp_start": result_payload.get("timestamp_start"),
         "timestamp_end": result_payload.get("timestamp_end"),
+        "card_events": result_payload.get("card_events") or [],
         "sample_count": len(samples),
         "samples": samples,
     }
@@ -286,46 +289,77 @@ def build_answer_details(
         for event in (result_payload.get("answer_events") or [])
         if isinstance(event, dict) and str(event.get("question_index", "")).isdigit()
     }
+    card_events = {
+        int(event.get("question_index")): event
+        for event in (result_payload.get("card_events") or [])
+        if isinstance(event, dict) and str(event.get("question_index", "")).isdigit()
+    }
 
     entries: list[dict[str, Any]] = []
     for question_index, question in enumerate(questions):
         question_type = question.get("type")
-        if question_type in {"stimulus", "finish"}:
+        if question_type == "finish":
             continue
 
-        answer_key = None if question_type == "participant-id" else f"q{question_index}"
-        answer_value = participant_id if question_type == "participant-id" else answers.get(answer_key)
-        if answer_value is None and question_type != "participant-id":
-            continue
+        card_event = card_events.get(question_index, {})
+        answer_event = answer_events.get(question_index, {})
+        event = {**card_event, **{key: value for key, value in answer_event.items() if value not in (None, "")}}
+        is_stimulus = question_type == "stimulus"
+        answer_key = None if question_type in {"participant-id", "stimulus"} else f"q{question_index}"
+        if is_stimulus:
+            answer_value = "stimulus"
+            interval_start = event.get("active_started_at") or event.get("shown_at") or result_payload.get("timestamp_start")
+            interval_end = (
+                event.get("active_ended_at")
+                or event.get("completed_at")
+                or result_payload.get("timestamp_end")
+            )
+            interval_kind = "stimulus_active"
+        else:
+            answer_value = participant_id if question_type == "participant-id" else answers.get(answer_key)
+            if answer_value is None and question_type != "participant-id":
+                continue
+            interval_start = event.get("shown_at") or result_payload.get("timestamp_start")
+            interval_end = (
+                event.get("answered_at")
+                or event.get("completed_at")
+                or result_payload.get("timestamp_end")
+            )
+            interval_kind = "question_visible"
 
-        event = answer_events.get(question_index, {})
+        interval_seconds = _seconds_between(interval_start, interval_end)
         entries.append(
             {
                 "question_index": question_index,
                 "question_number": question_index + 1,
-                "question_key": answer_key or "participant_id",
+                "question_key": answer_key or ("stimulus" if is_stimulus else "participant_id"),
                 "question_type": question_type,
                 "question_prompt": _question_prompt(question),
                 "answer": answer_value,
                 "shown_at": event.get("shown_at") or result_payload.get("timestamp_start"),
-                "answered_at": event.get("answered_at") or result_payload.get("timestamp_end"),
+                "answered_at": event.get("answered_at") or event.get("completed_at") or result_payload.get("timestamp_end"),
+                "active_started_at": event.get("active_started_at"),
+                "active_ended_at": event.get("active_ended_at"),
+                "server_start_received_at": event.get("server_start_received_at"),
+                "server_stop_received_at": event.get("server_stop_received_at"),
+                "server_start_received_epoch_ms": event.get("server_start_received_epoch_ms"),
+                "server_stop_received_epoch_ms": event.get("server_stop_received_epoch_ms"),
+                "client_start_trigger_epoch_ms": event.get("client_start_trigger_epoch_ms"),
+                "client_stop_trigger_epoch_ms": event.get("client_stop_trigger_epoch_ms"),
+                "start_marker": event.get("start_marker"),
+                "stop_marker": event.get("stop_marker"),
+                "biosignal_interval_start": interval_start,
+                "biosignal_interval_end": interval_end,
+                "biosignal_interval_kind": interval_kind,
+                "interval_seconds": interval_seconds,
+                "seconds_since_previous_answer": interval_seconds,
+                "biosignal_interval": build_interval_biosignal_summary(
+                    hardware_config,
+                    interval_start,
+                    interval_end,
+                ),
             }
         )
-
-    entries.sort(key=lambda item: item.get("answered_at") or "")
-    previous_answered_at = result_payload.get("timestamp_start")
-    for entry in entries:
-        interval_start = previous_answered_at or result_payload.get("timestamp_start")
-        interval_end = entry.get("answered_at") or result_payload.get("timestamp_end")
-        delta_seconds = _seconds_between(interval_start, interval_end)
-        entry["previous_answered_at"] = previous_answered_at
-        entry["seconds_since_previous_answer"] = delta_seconds
-        entry["biosignal_interval"] = build_interval_biosignal_summary(
-            hardware_config,
-            interval_start,
-            interval_end,
-        )
-        previous_answered_at = interval_end
 
     return entries
 

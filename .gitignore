@@ -1,14 +1,29 @@
 # Python caches
 __pycache__/
+.pytest_cache/
 *.pyc
+/packaging/
+/server_app/
+/tests/
+
+# Legacy desktop/Rust/Tauri worktrees and build outputs
+desktop_app/
+node_modules/
+src-tauri/target/
+target/
+*.pdb
 
 # Local study results and secrets (never commit these)
 software/saved_results/
 saved_results/
 software/study_content/settings/local_secrets.json
+software/study_content/settings/*.local.json
 software/study_runner/integrations/brainbit_assets_to_copy/
 software/study_runner/integrations/brainbit/logs/
 software/study_runner/integrations/brainbit/recordings/
+software/study_runner/integrations/**/logs/
+software/study_runner/integrations/**/*.log
+.secrets/
 
 # Environment and editor tooling
 .env

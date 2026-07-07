@@ -15,7 +15,7 @@ const state = {
   currentIndex: 0,
   activeStimulus: null,
   cameraPermission: 'not_requested',
-  clockOffsetMs: null,  // estimated offset between tablet performance.now() and Study Runner server clock
+  clockOffsetMs: null,  // estimated server epoch ms minus tablet performance.now()
   touchedFields: {},
   questionMetrics: {},
 };
@@ -51,9 +51,9 @@ async function init() {
 }
 
 /**
- * Estimate clock offset between tablet performance.now() and Study Runner server clock.
+ * Estimate server epoch ms from tablet performance.now().
  * Runs 3 ping-pong rounds and uses the median offset.
- * Algorithm: offset = ((srv_recv - cli_send) + (srv_send - cli_recv)) / 2
+ * Algorithm: server_minus_perf = ((srv_recv - cli_send) + (srv_send - cli_recv)) / 2
  */
 async function syncClock() {
   const ROUNDS = 3;
@@ -66,12 +66,7 @@ async function syncClock() {
       const clientRecvMs = performance.now();
       const srvRecv = resp.server_receive_ms;
       const srvSend = resp.server_send_ms;
-      // Convert server timestamps (epoch ms) to performance.now() domain via Date.now()
-      const nowEpoch = Date.now();
-      const nowPerf = performance.now();
-      const srvRecvPerf = srvRecv - nowEpoch + nowPerf;
-      const srvSendPerf = srvSend - nowEpoch + nowPerf;
-      const offset = ((srvRecvPerf - clientSendMs) + (srvSendPerf - clientRecvMs)) / 2;
+      const offset = ((srvRecv - clientSendMs) + (srvSend - clientRecvMs)) / 2;
       offsets.push(offset);
     } catch {
       // Server unreachable; skip this round.
@@ -85,6 +80,13 @@ async function syncClock() {
     state.clockOffsetMs = offsets[Math.floor(offsets.length / 2)];
     console.debug('[study] Clock offset estimated:', state.clockOffsetMs.toFixed(2), 'ms');
   }
+}
+
+function estimateServerEpochMs(clientPerfMs = performance.now()) {
+  if (Number.isFinite(state.clockOffsetMs)) {
+    return clientPerfMs + state.clockOffsetMs;
+  }
+  return Date.now();
 }
 
 function bindEvents() {
@@ -248,6 +250,35 @@ function collectParticipantMetadata() {
   return {};
 }
 
+function buildEventPayload(questionIndex, question, phase, clientTriggerMs = performance.now()) {
+  return {
+    study_id: state.config.study_id || '',
+    participant_id: resolveParticipantId(),
+    question_index: Number.isInteger(questionIndex) ? questionIndex : null,
+    question_type: question?.type || '',
+    phase,
+    client_trigger_ms: clientTriggerMs,
+    client_trigger_epoch_ms: estimateServerEpochMs(clientTriggerMs),
+    clock_offset_ms: state.clockOffsetMs,
+  };
+}
+
+async function sendMarker(markerEvent, questionIndex, question, phase = markerEvent) {
+  try {
+    const payload = buildEventPayload(questionIndex, question, phase);
+    await postJson('/api/marker', {
+      ...payload,
+      marker_event: markerEvent,
+      send_signal: true,
+      brainbit_to_lsl: false,
+      brainbit_to_touchdesigner: false,
+      mini_radar_recording_enabled: false,
+    });
+  } catch (error) {
+    console.error('[study] Could not send /api/marker:', error);
+  }
+}
+
 function showScreen(screenName) {
   document.querySelectorAll('.screen').forEach((screenElement) => {
     screenElement.classList.remove('active');
@@ -266,6 +297,7 @@ async function startTrial() {
   }
 
   state.startTime = Date.now();
+  await sendMarker('study_start', null, null, 'study_start');
   buildQuestions();
 
   if (!state.config.questions.length) {
@@ -365,7 +397,7 @@ async function goTo(targetIndex) {
     return;
   }
 
-  recordQuestionCompletion(state.currentIndex);
+  await recordQuestionCompletion(state.currentIndex);
 
   const goingForward = targetIndex > state.currentIndex;
 
@@ -450,14 +482,26 @@ async function startActiveStimulusPhase(stimulusRun) {
   if (shouldActivateHardware(question)) {
     try {
       const clientTriggerMs = performance.now();
-      await postJson('/api/start', {
+      const currentMetrics = state.questionMetrics[index] || {};
+      state.questionMetrics[index] = {
+        ...currentMetrics,
+        active_started_at: new Date().toISOString(),
+        client_start_trigger_epoch_ms: estimateServerEpochMs(clientTriggerMs),
+      };
+      const response = await postJson('/api/start', {
+        ...buildEventPayload(index, question, 'stimulus_active_start', clientTriggerMs),
+        marker_event: 'stimulus_active_start',
         send_signal: question.send_signal !== false,
         brainbit_to_lsl: question.brainbit_to_lsl !== false,
         brainbit_to_touchdesigner: question.brainbit_to_touchdesigner !== false,
         mini_radar_recording_enabled: question.mini_radar_recording_enabled !== false,
-        client_trigger_ms: clientTriggerMs,
-        clock_offset_ms: state.clockOffsetMs,
       });
+      state.questionMetrics[index] = {
+        ...state.questionMetrics[index],
+        server_start_received_at: response.server_received_at || null,
+        server_start_received_epoch_ms: response.server_received_epoch_ms || null,
+        start_marker: response.marker_value || null,
+      };
       stimulusRun.signalStarted = true;
     } catch (error) {
       console.error('[study] Could not send /api/start:', error);
@@ -561,17 +605,36 @@ async function stopActiveStimulus({ shouldSendStop }) {
   if (shouldSendStop && stimulusRun.signalStarted && shouldActivateHardware(stimulusRun.question)) {
     try {
       const clientTriggerMs = performance.now();
-      await postJson('/api/stop', {
+      const currentMetrics = state.questionMetrics[stimulusRun.index] || {};
+      state.questionMetrics[stimulusRun.index] = {
+        ...currentMetrics,
+        active_ended_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        client_stop_trigger_epoch_ms: estimateServerEpochMs(clientTriggerMs),
+      };
+      const response = await postJson('/api/stop', {
+        ...buildEventPayload(stimulusRun.index, stimulusRun.question, 'stimulus_active_stop', clientTriggerMs),
+        marker_event: 'stimulus_active_stop',
         send_signal: stimulusRun.question.send_signal !== false,
         brainbit_to_lsl: stimulusRun.question.brainbit_to_lsl !== false,
         brainbit_to_touchdesigner: stimulusRun.question.brainbit_to_touchdesigner !== false,
         mini_radar_recording_enabled: false,
-        client_trigger_ms: clientTriggerMs,
-        clock_offset_ms: state.clockOffsetMs,
       });
+      state.questionMetrics[stimulusRun.index] = {
+        ...state.questionMetrics[stimulusRun.index],
+        server_stop_received_at: response.server_received_at || null,
+        server_stop_received_epoch_ms: response.server_received_epoch_ms || null,
+        stop_marker: response.marker_value || null,
+      };
     } catch (error) {
       console.error('[study] Could not send /api/stop:', error);
     }
+  } else if (stimulusRun.question?.type === 'stimulus') {
+    const currentMetrics = state.questionMetrics[stimulusRun.index] || {};
+    state.questionMetrics[stimulusRun.index] = {
+      ...currentMetrics,
+      completed_at: currentMetrics.completed_at || new Date().toISOString(),
+    };
   }
 
   prepareStimulusCard(stimulusRun.index, stimulusRun.question);
@@ -785,26 +848,41 @@ function markQuestionField(questionIndex, fieldKey) {
 }
 
 function markQuestionShown(questionIndex) {
+  const questions = state.config.questions || [];
+  const question = questions[questionIndex];
   const nowIso = new Date().toISOString();
   const current = state.questionMetrics[questionIndex] || {};
   state.questionMetrics[questionIndex] = {
     ...current,
-    shown_at: nowIso,
+    shown_at: current.shown_at || nowIso,
   };
+  if (question?.type !== 'finish' && !current.shown_marker_sent) {
+    state.questionMetrics[questionIndex].shown_marker_sent = true;
+    void sendMarker(
+      question?.type === 'stimulus' ? 'stimulus_shown' : 'question_shown',
+      questionIndex,
+      question,
+      'shown',
+    );
+  }
 }
 
 function recordQuestionCompletion(questionIndex) {
   const questions = state.config.questions || [];
   const question = questions[questionIndex];
   if (!question || question.type === 'stimulus' || question.type === 'finish') {
-    return;
+    return Promise.resolve();
   }
 
   const current = state.questionMetrics[questionIndex] || {};
+  if (current.answered_at) {
+    return Promise.resolve();
+  }
   state.questionMetrics[questionIndex] = {
     ...current,
     answered_at: new Date().toISOString(),
   };
+  return sendMarker('question_answered', questionIndex, question, 'answered');
 }
 
 function getTouchedFieldCount(questionIndex) {
@@ -996,6 +1074,45 @@ function collectAnswerEvents() {
   return events;
 }
 
+function collectCardEvents() {
+  const events = [];
+  const questions = state.config.questions || [];
+
+  questions.forEach((question, questionIndex) => {
+    if (!question || question.type === 'finish') {
+      return;
+    }
+
+    const metrics = state.questionMetrics[questionIndex] || {};
+    const event = {
+      question_index: questionIndex,
+      question_type: question.type,
+      shown_at: metrics.shown_at || new Date(state.startTime || Date.now()).toISOString(),
+    };
+
+    if (question.type === 'stimulus') {
+      event.active_started_at = metrics.active_started_at || null;
+      event.active_ended_at = metrics.active_ended_at || metrics.completed_at || null;
+      event.completed_at = metrics.completed_at || metrics.active_ended_at || null;
+      event.server_start_received_at = metrics.server_start_received_at || null;
+      event.server_stop_received_at = metrics.server_stop_received_at || null;
+      event.server_start_received_epoch_ms = metrics.server_start_received_epoch_ms || null;
+      event.server_stop_received_epoch_ms = metrics.server_stop_received_epoch_ms || null;
+      event.client_start_trigger_epoch_ms = metrics.client_start_trigger_epoch_ms || null;
+      event.client_stop_trigger_epoch_ms = metrics.client_stop_trigger_epoch_ms || null;
+      event.start_marker = metrics.start_marker || '';
+      event.stop_marker = metrics.stop_marker || '';
+    } else {
+      event.answered_at = metrics.answered_at || new Date().toISOString();
+      event.completed_at = metrics.answered_at || null;
+    }
+
+    events.push(event);
+  });
+
+  return events;
+}
+
 async function submitResults() {
   const btn = getElement('btn-next');
   if (btn) {
@@ -1004,15 +1121,19 @@ async function submitResults() {
   }
 
   try {
-    recordQuestionCompletion(state.currentIndex);
+    await recordQuestionCompletion(state.currentIndex);
+    const timestampEnd = new Date().toISOString();
+    const currentQuestion = (state.config.questions || [])[state.currentIndex] || null;
+    await sendMarker('study_end', state.currentIndex, currentQuestion, 'study_end');
     await postJson('/api/results', {
       participant_id: resolveParticipantId(),
       study_id: state.config.study_id,
       timestamp_start: new Date(state.startTime).toISOString(),
-      timestamp_end: new Date().toISOString(),
+      timestamp_end: timestampEnd,
       answers: collectAnswers(),
       participant_metadata: collectParticipantMetadata(),
       answer_events: collectAnswerEvents(),
+      card_events: collectCardEvents(),
     });
 
     const finishIndex = (state.config.questions || []).findIndex(q => q.type === 'finish');

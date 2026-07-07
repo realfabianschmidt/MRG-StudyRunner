@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import datetime as dt
+import time
 from pathlib import Path
 from typing import Any
 
-from study_runner.integrations.registry import build_context, run_trial_start, run_trial_stop
+from study_runner.integrations.registry import (
+    build_context,
+    run_trial_marker,
+    run_trial_start,
+    run_trial_stop,
+)
 
 
 _RUNTIME = {
@@ -36,17 +43,24 @@ def configure_runtime(
 
 
 def start_trial_session(options=None):
-    options = dict(options or {})
-    options["marker_value"] = _build_marker("start", options)
+    options = _prepare_event_options("start", options)
     run_trial_start(options, _runtime_context())
     print("[SERVER] Trial started")
+    return _public_event_response(options)
 
 
 def stop_trial_session(options=None):
-    options = dict(options or {})
-    options["marker_value"] = _build_marker("stop", options)
+    options = _prepare_event_options("stop", options)
     run_trial_stop(options, _runtime_context())
     print("[SERVER] Trial stopped")
+    return _public_event_response(options)
+
+
+def send_trial_marker(event: str, options=None):
+    options = _prepare_event_options(event, options)
+    run_trial_marker(options, _runtime_context())
+    print(f"[SERVER] Trial marker: {event}")
+    return _public_event_response(options)
 
 
 def _runtime_context():
@@ -69,4 +83,43 @@ def _build_marker(event: str, options: dict) -> str:
     participant_id = options.get("participant_id") or "participant"
     card_index = options.get("question_index")
     card_type = options.get("question_type") or "stimulus"
-    return f"{event}|study={study_id}|participant={participant_id}|card={card_index}|type={card_type}"
+    phase = options.get("phase") or event
+    parts = [
+        event,
+        f"study={_marker_value(study_id)}",
+        f"participant={_marker_value(participant_id)}",
+        f"card={_marker_value(card_index)}",
+        f"type={_marker_value(card_type)}",
+        f"phase={_marker_value(phase)}",
+        f"server_ms={_marker_value(options.get('server_received_epoch_ms'))}",
+    ]
+    if options.get("client_trigger_epoch_ms") is not None:
+        parts.append(f"client_ms={_marker_value(options.get('client_trigger_epoch_ms'))}")
+    return "|".join(parts)
+
+
+def _prepare_event_options(event: str, options: dict[str, Any] | None) -> dict[str, Any]:
+    event_options = dict(options or {})
+    normalized_event = str(event_options.get("marker_event") or event or "marker").strip() or "marker"
+    now = time.time()
+    event_options["event"] = normalized_event
+    event_options["server_received_epoch_ms"] = round(now * 1000.0, 3)
+    event_options["server_received_at"] = dt.datetime.fromtimestamp(
+        now,
+        tz=dt.timezone.utc,
+    ).isoformat().replace("+00:00", "Z")
+    event_options["marker_value"] = _build_marker(normalized_event, event_options)
+    return event_options
+
+
+def _public_event_response(options: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "server_received_epoch_ms": options.get("server_received_epoch_ms"),
+        "server_received_at": options.get("server_received_at"),
+        "marker_value": options.get("marker_value"),
+    }
+
+
+def _marker_value(value: Any) -> str:
+    text = "" if value is None else str(value)
+    return text.replace("|", "_").replace("\n", " ").replace("\r", " ").strip()

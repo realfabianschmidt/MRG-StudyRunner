@@ -35,7 +35,12 @@ from .services.secrets_service import (
     save_local_secrets,
 )
 from .services.study_client_service import register_heartbeat
-from .services.trial_service import configure_runtime, start_trial_session, stop_trial_session
+from .services.trial_service import (
+    configure_runtime,
+    send_trial_marker,
+    start_trial_session,
+    stop_trial_session,
+)
 from .services.update_service import (
     UpdateError,
     build_update_status,
@@ -182,14 +187,23 @@ def register_routes(app: Flask) -> None:
     @app.route("/api/start", methods=["POST"])
     def start_trial():
         _refresh_trial_runtime()
-        start_trial_session(validate_and_normalize_trial_options(request.get_json()))
-        return jsonify({"ok": True})
+        result = start_trial_session(validate_and_normalize_trial_options(request.get_json()))
+        return jsonify({"ok": True, **result})
 
     @app.route("/api/stop", methods=["POST"])
     def stop_trial():
         _refresh_trial_runtime()
-        stop_trial_session(validate_and_normalize_trial_options(request.get_json()))
-        return jsonify({"ok": True})
+        result = stop_trial_session(validate_and_normalize_trial_options(request.get_json()))
+        return jsonify({"ok": True, **result})
+
+    @app.route("/api/marker", methods=["POST"])
+    def trial_marker():
+        _refresh_trial_runtime()
+        payload = request.get_json() or {}
+        options = validate_and_normalize_trial_options(payload)
+        event = options.get("marker_event") or payload.get("event") or payload.get("phase") or "marker"
+        result = send_trial_marker(str(event), options)
+        return jsonify({"ok": True, **result})
 
     @app.route("/api/admin/restart", methods=["POST"])
     def admin_restart():

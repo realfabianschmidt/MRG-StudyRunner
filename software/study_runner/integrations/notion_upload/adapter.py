@@ -482,11 +482,13 @@ def _format_answer_details(answer_details: list[dict[str, Any]]) -> list[str]:
         question_type = detail.get("question_type") or "question"
         prompt = str(detail.get("question_prompt") or "").replace("\n", " ").strip()
         answer_text = _format_answer_value(detail.get("answer"))
-        delta = detail.get("seconds_since_previous_answer")
-        delta_text = f"{delta:.1f}s" if isinstance(delta, (int, float)) else "n/a"
+        interval_seconds = detail.get("interval_seconds", detail.get("seconds_since_previous_answer"))
+        interval_text = f"{interval_seconds:.1f}s" if isinstance(interval_seconds, (int, float)) else "n/a"
+        interval_kind = detail.get("biosignal_interval_kind") or "question_visible"
         biomarker_text = _format_interval_biomarkers(detail.get("biosignal_interval") or {})
+        answer_label = "Stimulus" if question_type == "stimulus" else f"Antwort: {answer_text}"
         lines.append(
-            f"Q{question_number} [{question_type}] {prompt or '(ohne Prompt)'} | Antwort: {answer_text} | Seit letzter Antwort: {delta_text} | Biomarker: {biomarker_text}"
+            f"Q{question_number} [{question_type}] {prompt or '(ohne Prompt)'} | {answer_label} | Intervall: {interval_kind}, {interval_text} | Biomarker: {biomarker_text}"
         )
     return lines
 
@@ -496,15 +498,17 @@ def _format_biosignals(hardware_config: dict[str, Any], saved_output: dict[str, 
     bio = saved_output.get("biosignal_summary") or {}
 
     brainbit = bio.get("brainbit") or {}
+    brainbit_sidecar = saved_output.get("brainbit_file")
     if brainbit.get("active"):
         xdf = brainbit.get("xdf_path") or "—"
-        lines.append(f"BrainBit EEG: aktiv | Rohdaten: {xdf}")
+        lines.append(f"BrainBit EEG: aktiv | XDF: {xdf} | Sidecar: {brainbit_sidecar or 'n/a'}")
     elif hardware_config.get("brainbit", {}).get("enabled"):
         lines.append("BrainBit EEG: konfiguriert (kein XDF dieser Session)")
 
     radar = bio.get("mini_radar") or {}
+    radar_sidecar = saved_output.get("mr60_file")
     if radar.get("active"):
-        lines.append("Mini-Radar: aktiv")
+        lines.append(f"Mini-Radar: aktiv | Sidecar: {radar_sidecar or 'n/a'}")
     elif hardware_config.get("mini_radar", {}).get("enabled"):
         lines.append("Mini-Radar: konfiguriert")
 
@@ -526,8 +530,11 @@ def _format_interval_biomarkers(interval_summary: dict[str, Any]) -> str:
             "BrainBit "
             f"att={_fmt_metric(brainbit.get('avg_attention'))}, "
             f"rel={_fmt_metric(brainbit.get('avg_relaxation'))}, "
+            f"delta={_fmt_metric(brainbit.get('avg_delta'))}, "
+            f"theta={_fmt_metric(brainbit.get('avg_theta'))}, "
             f"alpha={_fmt_metric(brainbit.get('avg_alpha'))}, "
-            f"beta={_fmt_metric(brainbit.get('avg_beta'))}"
+            f"beta={_fmt_metric(brainbit.get('avg_beta'))}, "
+            f"gamma={_fmt_metric(brainbit.get('avg_gamma'))}"
         )
     else:
         parts.append("BrainBit n/a")
@@ -538,7 +545,8 @@ def _format_interval_biomarkers(interval_summary: dict[str, Any]) -> str:
             "Radar "
             f"hr={_fmt_metric(radar.get('avg_heart_rate'))}, "
             f"br={_fmt_metric(radar.get('avg_breath_rate'))}, "
-            f"q={_fmt_metric(radar.get('avg_quality'))}"
+            f"q={_fmt_metric(radar.get('avg_quality'))}, "
+            f"dist={_fmt_metric(radar.get('avg_distance'))}"
         )
     else:
         parts.append("Radar n/a")

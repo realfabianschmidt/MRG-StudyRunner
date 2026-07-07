@@ -11,6 +11,7 @@ StatusPayload = dict[str, Any]
 InitializeHandler = Callable[["IntegrationContext"], None]
 RuntimeActionHandler = Callable[["IntegrationContext"], Any]
 TrialHandler = Callable[["IntegrationContext", dict[str, Any]], None]
+MarkerHandler = Callable[["IntegrationContext", dict[str, Any]], None]
 IntervalSummaryHandler = Callable[["IntegrationContext", float, float], dict[str, Any]]
 IntervalExportHandler = Callable[["IntegrationContext", float, float], list[dict[str, Any]]]
 StatusHandler = Callable[["IntegrationContext"], StatusPayload]
@@ -91,6 +92,7 @@ class IntegrationPlugin:
     restart: RuntimeActionHandler | None = None
     on_trial_start: TrialHandler | None = None
     on_trial_stop: TrialHandler | None = None
+    on_trial_marker: MarkerHandler | None = None
     get_interval_summary: IntervalSummaryHandler | None = None
     export_interval_samples: IntervalExportHandler | None = None
     sidecar_sensor: str | None = None

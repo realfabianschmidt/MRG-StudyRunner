@@ -88,7 +88,9 @@ returned to the browser.
 
 ## Recording model
 
-LSL/XDF remains the primary synchronization path. Completed participant output can also include
+LSL/XDF is the primary raw-data path and is intended to run continuously for the full survey
+session when sensor LSL is enabled. Stimulus start/stop gates only stimulus-specific forwarding
+such as TouchDesigner, not the raw LSL streams. Completed participant output can also include
 compact JSON sidecars when sensor history exists:
 
 - `<participant>_mr60_signals.json`
@@ -96,6 +98,10 @@ compact JSON sidecars when sensor history exists:
 
 Sidecars are exported through plugin callbacks. BrainBit, MR60, and camera emotion stay
 sensor-near and separate; this dashboard does not create an early combined emotion score.
+
+Study Runner writes `card_events` into the main result JSON and the sensor sidecars. Normal
+question biomarker summaries use `shown_at` to `answered_at`. Stimulus summaries use
+`active_started_at` to `active_ended_at`.
 
 ## Camera emotion defaults
 
@@ -114,5 +120,5 @@ Browser camera access usually requires HTTPS on a real tablet.
 
 - `docs/05_integration_plugin_guide.md` explains the registry lifecycle and how to add a sensor.
 - `docs/01_project_overview_for_everyone.md` gives the high-level project overview.
-- `02_README.md` contains the operator workflow and config examples.
+- `README.md` contains the operator workflow and config examples.
 

@@ -61,6 +61,44 @@ class NotionParticipantMetadataTests(unittest.TestCase):
             "Munich",
         )
 
+    def test_answer_detail_format_includes_stimulus_interval_and_biomarkers(self) -> None:
+        lines = adapter._format_answer_details(
+            [
+                {
+                    "question_number": 1,
+                    "question_type": "stimulus",
+                    "question_prompt": "Observe",
+                    "answer": "stimulus",
+                    "biosignal_interval_kind": "stimulus_active",
+                    "interval_seconds": 7.0,
+                    "biosignal_interval": {
+                        "brainbit": {
+                            "available": True,
+                            "avg_attention": 0.4,
+                            "avg_relaxation": 0.6,
+                            "avg_delta": 1.0,
+                            "avg_theta": 2.0,
+                            "avg_alpha": 3.0,
+                            "avg_beta": 4.0,
+                            "avg_gamma": 5.0,
+                        },
+                        "mini_radar": {
+                            "available": True,
+                            "avg_heart_rate": 72.0,
+                            "avg_breath_rate": 12.0,
+                            "avg_quality": 0.8,
+                            "avg_distance": 150.0,
+                        },
+                    },
+                }
+            ]
+        )
+
+        self.assertIn("Stimulus", lines[0])
+        self.assertIn("stimulus_active", lines[0])
+        self.assertIn("gamma=5.00", lines[0])
+        self.assertIn("dist=150.00", lines[0])
+
 
 if __name__ == "__main__":
     unittest.main()
