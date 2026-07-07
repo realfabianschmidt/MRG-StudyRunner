@@ -119,23 +119,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PYTHON_UPDATER_SIGNING_PRIVATE_KEY: ${{ secrets.PYTHON_UPDATER_SIGNING_PRIVATE_KEY }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" \
-              --draft \
-              --title "Study Runner $GITHUB_REF_NAME" \
-              --notes "Python-only update assets for Study Runner $GITHUB_REF_NAME."
+          if [ -z "$RELEASE_TAG" ]; then
+            echo "Release tag is empty." >&2
+            exit 1
           fi
-          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq ".id")"
-          gh release upload "$GITHUB_REF_NAME" python-update-assets/*.zip --clobber
-          version="${GITHUB_REF_NAME#app-v}"
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --draft \
+              --title "Study Runner $RELEASE_TAG" \
+              --notes "Python-only update assets for Study Runner $RELEASE_TAG."
+          fi
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq ".id")"
+          gh release upload "$RELEASE_TAG" python-update-assets/*.zip --clobber
+          version="${RELEASE_TAG#app-v}"
           python release_tools/build-python-update-manifest.py \
             --version "$version" \
             --repo "$GITHUB_REPOSITORY" \
-            --tag "$GITHUB_REF_NAME" \
+            --tag "$RELEASE_TAG" \
             --asset-dir python-update-assets \
             --output study-runner-python-latest.json
-          gh release upload "$GITHUB_REF_NAME" study-runner-python-latest.json --clobber
+          gh release upload "$RELEASE_TAG" study-runner-python-latest.json --clobber
           gh api \
             --method PATCH \
             "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
