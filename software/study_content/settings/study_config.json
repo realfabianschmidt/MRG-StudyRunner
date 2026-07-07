@@ -60,7 +60,7 @@
         }
       },
       "code_label": "Your anonymous code",
-      "info_top": "hskdsfkkdkkjkj",
+      "info_top": "tesr",
       "info_bottom": "dsfsdfsd"
     },
     {
@@ -71,12 +71,14 @@
     },
     {
       "type": "single",
-      "prompt": "",
+      "prompt": "Question",
       "options": [
         "Option A",
         "Option B",
         "Option C"
-      ]
+      ],
+      "info_top": "Info",
+      "info_bottom": "Note"
     },
     {
       "type": "finish",
