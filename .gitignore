@@ -18,6 +18,7 @@ software/saved_results/
 saved_results/
 software/study_content/settings/local_secrets.json
 software/study_content/settings/*.local.json
+software/study_content/settings/ssl/
 software/study_runner/integrations/brainbit_assets_to_copy/
 software/study_runner/integrations/brainbit/logs/
 software/study_runner/integrations/brainbit/recordings/

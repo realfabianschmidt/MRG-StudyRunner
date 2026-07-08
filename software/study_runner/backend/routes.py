@@ -4,6 +4,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 
 from flask import Flask, current_app, jsonify, request, send_from_directory
 
@@ -35,9 +36,11 @@ from .services.secrets_service import (
     save_local_secrets,
 )
 from .services.study_sensor_runtime import (
+    SESSION_OVERRIDE_KEYS,
     STUDY_SENSOR_KEYS,
     build_effective_hardware_config,
-    normalize_study_sensors,
+    build_sensor_runtime_state,
+    normalize_session_overrides,
 )
 from .services.study_client_service import register_heartbeat
 from .services.trial_service import (
@@ -64,7 +67,7 @@ ACTIVE_RUNTIME_TOGGLE_KEYS = {"lsl", "labrecorder"}
 
 
 def _runtime_hardware_config() -> dict:
-    return current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG") or current_app.config.get("HARDWARE_CONFIG", {})
+    return current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG") or _effective_hardware_config_for_current_study()
 
 
 def _integration_context(hardware_config: dict | None = None):
@@ -91,6 +94,49 @@ def _copy_config(config_data: dict | None) -> dict:
     return json.loads(json.dumps(config_data or {}))
 
 
+def _current_config_data() -> dict:
+    return validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
+
+
+def _current_study_settings() -> dict:
+    return _current_config_data().get("study_settings", {})
+
+
+def _session_overrides() -> dict[str, bool]:
+    return normalize_session_overrides(current_app.config.get("SESSION_SENSOR_OVERRIDES", {}))
+
+
+def _set_session_override(integration_key: str, enabled: bool) -> dict[str, bool]:
+    if integration_key not in SESSION_OVERRIDE_KEYS:
+        raise ValueError(f"Integration '{integration_key}' cannot be used as a session override.")
+    overrides = _session_overrides()
+    overrides[integration_key] = bool(enabled)
+    current_app.config["SESSION_SENSOR_OVERRIDES"] = overrides
+    return overrides
+
+
+def _clear_session_overrides() -> None:
+    current_app.config["SESSION_SENSOR_OVERRIDES"] = {}
+
+
+def _sensor_runtime_state(study_settings: dict | None = None) -> dict:
+    settings = study_settings if isinstance(study_settings, dict) else _current_study_settings()
+    return build_sensor_runtime_state(
+        current_app.config.get("HARDWARE_CONFIG", {}),
+        settings,
+        _session_overrides(),
+    )
+
+
+def _effective_hardware_config_for_current_study(study_settings: dict | None = None) -> dict:
+    settings = study_settings if isinstance(study_settings, dict) else _current_study_settings()
+    return build_effective_hardware_config(
+        current_app.config.get("HARDWARE_CONFIG", {}),
+        settings,
+        _session_overrides(),
+    )
+
+
 def _set_runtime_enabled(config_data: dict, integration_key: str, enabled: bool) -> None:
     set_integration_enabled(config_data, integration_key, enabled)
 
@@ -105,6 +151,50 @@ def _apply_integration_toggle_to_active_runtime(integration_key: str, enabled: b
     current_app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = active_copy
     _refresh_trial_runtime()
     return True
+
+
+def _rebuild_active_study_runtime_config(study_settings: dict | None = None) -> dict | None:
+    if not isinstance(current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"), dict):
+        return None
+    active_config = _effective_hardware_config_for_current_study(study_settings)
+    current_app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = active_config
+    _refresh_trial_runtime()
+    return active_config
+
+
+def _apply_session_override_runtime(integration_key: str, enabled: bool) -> dict:
+    active_config = _rebuild_active_study_runtime_config()
+    context = _integration_context(active_config) if isinstance(active_config, dict) else _integration_context()
+    result: dict = {}
+
+    if integration_key in STUDY_SENSOR_KEYS:
+        try:
+            if enabled:
+                initialize_plugin(integration_key, context)
+                result = run_runtime_action(integration_key, "start", context)
+                active_plugins = list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or [])
+                if isinstance(active_config, dict) and integration_key not in active_plugins:
+                    active_plugins.append(integration_key)
+                    current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = active_plugins
+            else:
+                result = run_runtime_action(integration_key, "stop", context)
+                if integration_key == "camera_emotion":
+                    current_app.config["CAMERA_PREVIEW_ACTIVE"] = False
+                active_plugins = [
+                    key for key in list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or [])
+                    if key != integration_key
+                ]
+                current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = active_plugins
+        except Exception as error:
+            result = {"ok": False, "error": str(error)}
+        return result
+
+    try:
+        apply_enabled_runtime(integration_key, enabled, context)
+        result = {"ok": True, "integration": integration_key, "enabled": enabled}
+    except Exception as error:
+        result = {"ok": False, "error": str(error)}
+    return result
 
 
 def _valid_participant_id(value: object) -> bool:
@@ -174,8 +264,9 @@ def _save_notion_secret_payload(config_data: dict) -> tuple[dict, bool]:
 
 def _start_study_sensor_runtime(study_settings: dict) -> dict:
     base_hardware_config = current_app.config.get("HARDWARE_CONFIG", {})
-    effective_hardware_config = build_effective_hardware_config(base_hardware_config, study_settings)
-    selected_sensors = normalize_study_sensors(study_settings)
+    effective_hardware_config = build_effective_hardware_config(base_hardware_config, study_settings, _session_overrides())
+    runtime_state = build_sensor_runtime_state(base_hardware_config, study_settings, _session_overrides())
+    selected_sensors = runtime_state["effective"]
     current_app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = effective_hardware_config
     current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = []
     _refresh_trial_runtime()
@@ -199,6 +290,7 @@ def _start_study_sensor_runtime(study_settings: dict) -> dict:
 
     return {
         "sensors": selected_sensors,
+        "sensor_runtime": runtime_state,
         "active_plugins": list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS", [])),
         "runtime": results,
     }
@@ -221,37 +313,25 @@ def _stop_study_sensor_runtime() -> dict:
     return {"stopped_plugins": active_plugins, "runtime": results}
 
 
-def _start_camera_preview_runtime() -> dict:
-    if current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"):
-        raise RuntimeError("Camera preview cannot be started while a study session is active.")
-
-    preview_config = json.loads(json.dumps(current_app.config.get("HARDWARE_CONFIG", {})))
-    camera_config = preview_config.setdefault("camera_emotion", {})
-    if not isinstance(camera_config, dict):
-        camera_config = {}
-        preview_config["camera_emotion"] = camera_config
-    camera_config["enabled"] = True
-    current_app.config["CAMERA_PREVIEW_HARDWARE_CONFIG"] = preview_config
-    context = _integration_context(preview_config)
-    initialize_plugin("camera_emotion", context)
-    result = run_runtime_action("camera_emotion", "start", context)
-    current_app.config["CAMERA_PREVIEW_ACTIVE"] = True
-    return result
-
-
 def _start_study_camera_monitor_runtime() -> dict:
-    config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
-    selected_sensors = normalize_study_sensors(config_data.get("study_settings", {}))
-    if not selected_sensors.get("camera_emotion"):
-        return {"ok": True, "skipped": True, "reason": "camera_emotion_not_enabled_for_study"}
+    config_data = _current_config_data()
+    runtime_state = _sensor_runtime_state(config_data.get("study_settings", {}))
+    if not runtime_state["effective"].get("camera_emotion"):
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "camera_emotion_not_effective",
+            "sensor_runtime": runtime_state,
+        }
 
     active_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
     if isinstance(active_config, dict):
         context = _integration_context(active_config)
         initialize_plugin("camera_emotion", context)
+        current_app.config["CAMERA_PREVIEW_ACTIVE"] = True
         return run_runtime_action("camera_emotion", "start", context)
 
-    monitor_config = _copy_config(current_app.config.get("HARDWARE_CONFIG", {}))
+    monitor_config = _effective_hardware_config_for_current_study(config_data.get("study_settings", {}))
     camera_config = monitor_config.setdefault("camera_emotion", {})
     if not isinstance(camera_config, dict):
         camera_config = {}
@@ -264,24 +344,123 @@ def _start_study_camera_monitor_runtime() -> dict:
     return run_runtime_action("camera_emotion", "start", context)
 
 
-def _stop_camera_preview_runtime() -> dict:
-    if current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"):
-        return {"ok": True, "skipped": True, "reason": "study_session_active"}
-
-    preview_config = current_app.config.get("CAMERA_PREVIEW_HARDWARE_CONFIG") or current_app.config.get("HARDWARE_CONFIG", {})
-    context = _integration_context(preview_config)
-    try:
-        result = run_runtime_action("camera_emotion", "stop", context)
-    finally:
-        current_app.config.pop("CAMERA_PREVIEW_HARDWARE_CONFIG", None)
-        current_app.config["CAMERA_PREVIEW_ACTIVE"] = False
-    return result
+def _study_sessions() -> dict:
+    sessions = current_app.config.setdefault("STUDY_SESSIONS", {})
+    return sessions if isinstance(sessions, dict) else {}
 
 
-def _camera_preview_url() -> str:
-    runtime_info = build_runtime_info(current_app.config, request.scheme)
-    participant_url = str(runtime_info.get("participant_url") or request.host_url).rstrip("/")
-    return f"{participant_url}/camera-preview"
+def _find_active_study_session(study_id: str, participant_id: str, client_id: str = "") -> dict | None:
+    for session in _study_sessions().values():
+        if session.get("status") != "active":
+            continue
+        if session.get("study_id") != study_id or session.get("participant_id") != participant_id:
+            continue
+        if client_id and session.get("client_id") != client_id:
+            continue
+        return session
+    return None
+
+
+def _start_or_reuse_study_session(payload: dict) -> dict:
+    study_id = str(payload.get("study_id") or "").strip()
+    participant_id = str(payload.get("participant_id") or "").strip()
+    client_id = str(payload.get("client_id") or "").strip()
+    existing = _find_active_study_session(study_id, participant_id, client_id)
+    now = time.time()
+    if existing:
+        existing["last_seen"] = now
+        existing["last_seen_at"] = _format_server_time(now)
+        return {**existing, "reused": True}
+
+    session_id = str(payload.get("session_id") or f"study-session-{uuid.uuid4()}").strip()
+    session = {
+        "session_id": session_id,
+        "client_id": client_id,
+        "study_id": study_id,
+        "participant_id": participant_id,
+        "current_index": payload.get("current_index"),
+        "current_type": payload.get("current_type"),
+        "status": "active",
+        "started_at": _format_server_time(now),
+        "last_seen": now,
+        "last_seen_at": _format_server_time(now),
+        "events": [],
+    }
+    _study_sessions()[session_id] = session
+    return {**session, "reused": False}
+
+
+def _resume_study_session(payload: dict) -> dict | None:
+    session_id = str(payload.get("session_id") or "").strip()
+    study_id = str(payload.get("study_id") or "").strip()
+    participant_id = str(payload.get("participant_id") or "").strip()
+    client_id = str(payload.get("client_id") or "").strip()
+    session = _study_sessions().get(session_id) if session_id else None
+    if not session:
+        session = _find_active_study_session(study_id, participant_id, client_id)
+    if not session:
+        return None
+    now = time.time()
+    session["status"] = "active"
+    session["last_seen"] = now
+    session["last_seen_at"] = _format_server_time(now)
+    _append_session_event(session, payload.get("event") or "study_resume_after_reload", payload)
+    return session
+
+
+def _record_study_client_event(payload: dict) -> dict:
+    session_id = str(payload.get("session_id") or "").strip()
+    study_id = str(payload.get("study_id") or "").strip()
+    participant_id = str(payload.get("participant_id") or "").strip()
+    client_id = str(payload.get("client_id") or "").strip()
+    session = _study_sessions().get(session_id) if session_id else None
+    if not session:
+        session = _find_active_study_session(study_id, participant_id, client_id)
+    if session is None:
+        return {"recorded": False, "reason": "session_not_found"}
+    _append_session_event(session, payload.get("event") or "client_event", payload)
+    return {"recorded": True, "session": _public_study_session(session)}
+
+
+def _append_session_event(session: dict, event: object, payload: dict) -> None:
+    events = session.setdefault("events", [])
+    event_name = str(event or "client_event").strip() or "client_event"
+    session["current_index"] = payload.get("current_index", session.get("current_index"))
+    session["current_type"] = payload.get("current_type", session.get("current_type"))
+    item = {
+        "event": event_name,
+        "received_at": _format_server_time(time.time()),
+        "current_index": payload.get("current_index"),
+        "current_type": payload.get("current_type"),
+        "is_stimulus_active": bool(payload.get("is_stimulus_active", False)),
+    }
+    if event_name in {"client_reload_or_leave", "pagehide", "beforeunload"} and item["is_stimulus_active"]:
+        item["interrupted_by_reload"] = True
+        session["last_interruption"] = item
+    events.append(item)
+    if len(events) > 50:
+        del events[:-50]
+
+
+def _public_study_session(session: dict | None) -> dict | None:
+    if not session:
+        return None
+    return {
+        "session_id": session.get("session_id"),
+        "client_id": session.get("client_id"),
+        "study_id": session.get("study_id"),
+        "participant_id": session.get("participant_id"),
+        "current_index": session.get("current_index"),
+        "current_type": session.get("current_type"),
+        "status": session.get("status"),
+        "started_at": session.get("started_at"),
+        "last_seen_at": session.get("last_seen_at"),
+        "last_interruption": session.get("last_interruption"),
+    }
+
+
+def _format_server_time(timestamp: float) -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
 
 
 def register_routes(app: Flask) -> None:
@@ -305,10 +484,6 @@ def register_routes(app: Flask) -> None:
     def audit_page():
         return send_from_directory(current_app.static_folder, "pages/audit.html")
 
-    @app.route("/camera-preview")
-    def camera_preview_page():
-        return send_from_directory(current_app.static_folder, "pages/camera-preview.html")
-
     @app.route("/api/health")
     def health():
         return jsonify(
@@ -321,13 +496,17 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/api/runtime-info")
     def runtime_info():
-        return jsonify(build_runtime_info(current_app.config, request.scheme))
+        return jsonify(build_runtime_info(current_app.config))
 
     @app.route("/api/config")
     def get_config():
         config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
         config_data["_capabilities"] = {
             "unsafe_stimulus_code": bool(current_app.config.get("ALLOW_UNSAFE_STIMULUS_CODE", False))
+        }
+        config_data["_runtime"] = {
+            "sensor_runtime": _sensor_runtime_state(config_data.get("study_settings", {})),
+            "session_overrides": _session_overrides(),
         }
         return jsonify(config_data)
 
@@ -345,20 +524,52 @@ def register_routes(app: Flask) -> None:
         payload = request.get_json() or {}
         if not _valid_participant_id(payload.get("participant_id")):
             return jsonify({"ok": False, "error": "Participant ID is required before a study can start."}), 400
-        config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
+        config_data = _current_config_data()
+        session = _start_or_reuse_study_session(payload)
         result = _start_study_sensor_runtime(config_data.get("study_settings", {}))
-        return jsonify({"ok": True, **result})
+        return jsonify({"ok": True, "session": _public_study_session(session), **result})
 
     @app.route("/api/study/session/stop", methods=["POST"])
     def stop_study_session():
+        payload = request.get_json() or {}
+        session_id = str(payload.get("session_id") or "").strip()
+        if session_id and session_id in _study_sessions():
+            _study_sessions()[session_id]["status"] = "completed"
         result = _stop_study_sensor_runtime()
         return jsonify({"ok": True, **result})
+
+    @app.route("/api/study/session/resume", methods=["POST"])
+    def resume_study_session():
+        payload = request.get_json() or {}
+        if not _valid_participant_id(payload.get("participant_id")):
+            return jsonify({"ok": False, "error": "Participant ID is required before a study can resume."}), 400
+        session = _resume_study_session(payload)
+        if session is None:
+            return jsonify({"ok": False, "error": "No active study session was found for this tablet."}), 404
+        return jsonify({"ok": True, "session": _public_study_session(session), "sensor_runtime": _sensor_runtime_state()})
+
+    @app.route("/api/study/session/client-event", methods=["POST"])
+    def study_session_client_event():
+        payload = request.get_json() or {}
+        return jsonify({"ok": True, **_record_study_client_event(payload)})
+
+    @app.route("/api/study/runtime")
+    def study_runtime():
+        return jsonify(
+            {
+                "ok": True,
+                "sensor_runtime": _sensor_runtime_state(),
+                "session_overrides": _session_overrides(),
+                "active_study_session": bool(current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")),
+                "camera_live_active": bool(current_app.config.get("CAMERA_PREVIEW_ACTIVE", False)),
+            }
+        )
 
     @app.route("/api/study/camera-monitor/start", methods=["POST"])
     def start_study_camera_monitor():
         try:
             result = _start_study_camera_monitor_runtime()
-            return jsonify({"ok": True, "preview_url": _camera_preview_url(), "runtime": result})
+            return jsonify({"ok": True, "runtime": result})
         except Exception as error:
             return jsonify({"ok": False, "error": str(error)}), 400
 
@@ -410,7 +621,7 @@ def register_routes(app: Flask) -> None:
     def study_client_heartbeat():
         payload = request.get_json() or {}
         heartbeat_result = register_heartbeat(payload, request.remote_addr, request.headers.get("User-Agent", ""))
-        return jsonify({"ok": True, **heartbeat_result})
+        return jsonify({"ok": True, **heartbeat_result, "sensor_runtime": _sensor_runtime_state()})
 
     @app.route("/api/admin/studies", methods=["GET"])
     def admin_list_studies():
@@ -449,7 +660,28 @@ def register_routes(app: Flask) -> None:
         payload = build_admin_status(_integration_context())
         payload["active_study_session"] = bool(current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"))
         payload["study_controlled_sensor_keys"] = list(STUDY_SENSOR_KEYS)
+        payload["sensor_runtime"] = _sensor_runtime_state()
+        payload["session_sensor_overrides"] = _session_overrides()
         return jsonify(payload)
+
+    @app.route("/api/admin/session-overrides/reset", methods=["POST"])
+    def reset_session_overrides():
+        _clear_session_overrides()
+        active_config = _rebuild_active_study_runtime_config()
+        context = _integration_context(active_config) if isinstance(active_config, dict) else _integration_context()
+        for sensor_key in STUDY_SENSOR_KEYS:
+            effective = _sensor_runtime_state()["effective"].get(sensor_key, False)
+            try:
+                if effective:
+                    initialize_plugin(sensor_key, context)
+                    run_runtime_action(sensor_key, "start", context)
+                else:
+                    run_runtime_action(sensor_key, "stop", context)
+                    if sensor_key == "camera_emotion":
+                        current_app.config["CAMERA_PREVIEW_ACTIVE"] = False
+            except Exception:
+                pass
+        return jsonify({"ok": True, "sensor_runtime": _sensor_runtime_state()})
 
     @app.route("/api/admin/update/status")
     def admin_update_status():
@@ -515,23 +747,29 @@ def register_routes(app: Flask) -> None:
         if not isinstance(enabled, bool):
             return jsonify({"ok": False, "error": "enabled must be true or false."}), 400
 
-        active_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
-        if isinstance(active_config, dict) and integration_key in STUDY_SENSOR_KEYS:
-            active_section = active_config.get(integration_key)
-            active_section = active_section if isinstance(active_section, dict) else {}
+        if integration_key in SESSION_OVERRIDE_KEYS:
+            try:
+                _set_session_override(integration_key, enabled)
+            except ValueError as error:
+                return jsonify({"ok": False, "error": str(error)}), 400
+            runtime_result = _apply_session_override_runtime(integration_key, enabled)
             return jsonify(
                 {
                     "ok": True,
                     "integration": integration_key,
-                    "enabled": bool(active_section.get("enabled", False)),
+                    "enabled": enabled,
                     "restart_required": False,
-                    "active_runtime_updated": False,
-                    "study_controlled": True,
-                    "message": "Sensor integrations are controlled by the active study settings while a study is running.",
+                    "active_runtime_updated": isinstance(current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"), dict),
+                    "study_controlled": False,
+                    "temporary_override": True,
+                    "session_overrides": _session_overrides(),
+                    "sensor_runtime": _sensor_runtime_state(),
+                    "runtime": runtime_result,
                     "runtime_status": get_plugin_status(integration_key, _integration_context()),
                 }
             )
 
+        active_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
         hardware_config = _copy_config(current_app.config.get("HARDWARE_CONFIG", {}))
         try:
             _set_runtime_enabled(hardware_config, integration_key, enabled)
@@ -568,19 +806,16 @@ def register_routes(app: Flask) -> None:
         return _run_integration_action_json(integration_key, action)
 
     def _run_integration_action_json(integration_key: str, action: str):
-        if current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG") and integration_key in STUDY_SENSOR_KEYS:
-            return jsonify(
-                {
-                    "ok": True,
-                    "integration": integration_key,
-                    "action": action,
-                    "study_controlled": True,
-                    "message": "Sensor runtime actions are controlled by the active study settings while a study is running.",
-                    "status": get_plugin_status(integration_key, _integration_context()),
-                }
-            )
         try:
+            normalized_action = str(action or "").strip().lower()
+            if integration_key in STUDY_SENSOR_KEYS and normalized_action in {"start", "stop", "restart"}:
+                _set_session_override(integration_key, normalized_action != "stop")
+                _rebuild_active_study_runtime_config()
             result = run_runtime_action(integration_key, action, _integration_context())
+            if integration_key == "camera_emotion" and str(action).strip().lower() == "stop":
+                current_app.config["CAMERA_PREVIEW_ACTIVE"] = False
+            result["temporary_override"] = integration_key in STUDY_SENSOR_KEYS
+            result["sensor_runtime"] = _sensor_runtime_state()
             return jsonify(result)
         except ValueError as error:
             return jsonify({"ok": False, "error": str(error)}), 400
@@ -723,30 +958,13 @@ def register_routes(app: Flask) -> None:
         except Exception as error:
             return jsonify({"ok": False, "error": str(error)}), 500
 
-    @app.route("/api/admin/camera/preview/start", methods=["POST"])
-    def start_camera_preview():
-        try:
-            result = _start_camera_preview_runtime()
-            return jsonify({"ok": True, "preview_url": _camera_preview_url(), "runtime": result})
-        except Exception as error:
-            return jsonify({"ok": False, "error": str(error)}), 400
-
-    @app.route("/api/admin/camera/preview/stop", methods=["POST"])
-    def stop_camera_preview():
-        try:
-            result = _stop_camera_preview_runtime()
-            return jsonify({"ok": True, "preview_url": _camera_preview_url(), "runtime": result})
-        except Exception as error:
-            return jsonify({"ok": False, "error": str(error)}), 400
-
-    @app.route("/api/admin/camera/preview/status")
-    def camera_preview_status():
+    @app.route("/api/admin/camera/live/status")
+    def camera_live_status():
         from study_runner.integrations.tablet_camera_emotion import adapter as camera_affect_adapter
 
         return jsonify(
             {
                 "ok": True,
-                "preview_url": _camera_preview_url(),
                 "active": bool(current_app.config.get("CAMERA_PREVIEW_ACTIVE", False)),
                 **camera_affect_adapter.get_preview_status(),
             }

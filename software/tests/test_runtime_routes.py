@@ -39,8 +39,8 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertEqual(health_payload["status"], "running")
         self.assertEqual(health_payload["app_mode"], "packaged")
         self.assertEqual(info_payload["port"], 3123)
-        self.assertEqual(info_payload["admin_url"], "http://localhost:3123/admin")
-        self.assertTrue(info_payload["participant_url"].startswith("http://"))
+        self.assertEqual(info_payload["admin_url"], "https://localhost:3123/admin")
+        self.assertTrue(info_payload["participant_url"].startswith("https://"))
         self.assertTrue(info_payload["uses_external_storage"])
 
     def test_packaged_restart_returns_packaged_message(self) -> None:
@@ -79,7 +79,7 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertIn("Participant ID", payload["error"])
 
-    def test_active_study_sensor_toggle_is_study_controlled(self) -> None:
+    def test_active_study_sensor_toggle_sets_temporary_override(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
                 "STUDY_RUNNER_DATA_DIR": data_dir,
@@ -98,8 +98,10 @@ class RuntimeRoutesTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(response.status_code, 200)
         self.assertTrue(payload["ok"])
-        self.assertTrue(payload["study_controlled"])
-        self.assertTrue(payload["enabled"])
+        self.assertFalse(payload["study_controlled"])
+        self.assertTrue(payload["temporary_override"])
+        self.assertFalse(payload["enabled"])
+        self.assertFalse(payload["session_overrides"]["brainbit"])
 
     def test_active_study_lsl_toggle_updates_active_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
@@ -123,7 +125,26 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["active_runtime_updated"])
+        self.assertTrue(payload["temporary_override"])
         self.assertFalse(active_config["lsl"]["enabled"])
+
+    def test_study_runtime_reports_session_override_effective_sensor(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            app.config["SESSION_SENSOR_OVERRIDES"] = {"camera_emotion": True}
+            response = app.test_client().get("/api/study/runtime")
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["sensor_runtime"]["override_active"]["camera_emotion"])
+        self.assertTrue(payload["sensor_runtime"]["effective"]["camera_emotion"])
 
     def test_emotion_worker_repair_runtime_route_reports_package_and_model_state(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
@@ -148,6 +169,25 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["dependency_install"]["status"], "running")
         self.assertEqual(payload["model_asset_install"]["status"], "queued")
+
+    def test_camera_live_status_replaces_separate_preview_page(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            client = app.test_client()
+            live_status = client.get("/api/admin/camera/live/status")
+            preview_page = client.get("/camera-preview")
+
+        payload = live_status.get_json()
+        self.assertEqual(live_status.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertIn("available", payload)
+        self.assertEqual(preview_page.status_code, 404)
 
 
 if __name__ == "__main__":

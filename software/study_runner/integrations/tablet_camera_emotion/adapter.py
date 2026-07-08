@@ -25,7 +25,7 @@ _face_cascade: Any = None
 _history: deque[dict[str, Any]] = deque(maxlen=2048)
 _preview_state: dict[str, Any] = {
     "available": False,
-    "last_message": "No camera preview frame received yet.",
+    "last_message": "No tablet camera live frame received yet.",
 }
 _latest_state: dict[str, Any] = {
     "status": "not_configured",
@@ -553,7 +553,7 @@ def _set_preview_state(result: dict[str, Any], payload: dict[str, Any]) -> None:
         _preview_state = {
             "available": True,
             "status": "failed" if analysis.get("error") else "connected",
-            "last_message": analysis.get("error") or "Camera preview frame processed.",
+            "last_message": analysis.get("error") or "Tablet camera live frame processed.",
             "updated_at": result.get("processed_at"),
             "latest": result,
             "image": image_data,

@@ -10,10 +10,11 @@ export function startStudyClientHeartbeat(getPayload, options = {}) {
   stopStudyClientHeartbeat();
 
   const intervalMs = Math.max(1000, Number(options.intervalMs || DEFAULT_INTERVAL_MS));
+  const onHeartbeat = typeof options.onHeartbeat === 'function' ? options.onHeartbeat : () => {};
 
   const sendHeartbeat = () => {
     void postJson('/api/study-client/heartbeat', {
-      client_id: getOrCreateClientId(),
+      client_id: getStudyClientId(),
       client_timestamp: new Date().toISOString(),
       sequence_number: sequenceNumber,
       viewport: {
@@ -21,9 +22,11 @@ export function startStudyClientHeartbeat(getPayload, options = {}) {
         height: window.innerHeight,
       },
       ...safePayload(getPayload),
-    }).catch((error) => {
-      console.debug('[study] Heartbeat failed:', error);
-    });
+    })
+      .then((response) => onHeartbeat(response || {}))
+      .catch((error) => {
+        console.debug('[study] Heartbeat failed:', error);
+      });
     sequenceNumber += 1;
   };
 
@@ -50,15 +53,15 @@ function safePayload(getPayload) {
   }
 }
 
-function getOrCreateClientId() {
+export function getStudyClientId() {
   try {
-    const existing = window.localStorage.getItem(CLIENT_ID_KEY);
+    const existing = window.sessionStorage.getItem(CLIENT_ID_KEY);
     if (existing) {
       return existing;
     }
 
     const created = `study-client-${createRandomId()}`;
-    window.localStorage.setItem(CLIENT_ID_KEY, created);
+    window.sessionStorage.setItem(CLIENT_ID_KEY, created);
     return created;
   } catch {
     return `study-client-${createRandomId()}`;

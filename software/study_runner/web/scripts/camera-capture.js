@@ -19,7 +19,7 @@ export async function startCameraCaptureSession(options) {
   if (!window.isSecureContext) {
     onState({
       permission: 'insecure_context',
-      message: 'Camera access needs HTTPS on tablets. Start the server with STUDY_RUNNER_HTTPS=1 and open the https:// URL.',
+      message: 'Camera access needs trusted HTTPS on tablets. Install and fully trust the Study Runner local Root CA on the iPad, then open the https:// URL.',
     });
     return () => {};
   }
@@ -49,7 +49,7 @@ export async function startCameraCaptureSession(options) {
   video.playsInline = true;
   video.srcObject = stream;
   if (previewContainer) {
-    video.className = 'camera-preview-video';
+    video.className = 'camera-live-video';
     previewContainer.replaceChildren(video);
   }
 

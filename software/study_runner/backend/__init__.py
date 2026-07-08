@@ -84,6 +84,8 @@ def create_app() -> Flask:
     local_secrets = load_local_secrets(app.config["LOCAL_SECRETS_FILE"])
     app.config["HARDWARE_CONFIG"] = hardware_config
     app.config["LOCAL_SECRETS"] = local_secrets
+    app.config["SESSION_SENSOR_OVERRIDES"] = {}
+    app.config["STUDY_SESSIONS"] = {}
 
     if not _hardware_disabled():
         initialize_plugins(_integration_context(app))

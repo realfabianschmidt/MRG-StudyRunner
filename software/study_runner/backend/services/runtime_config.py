@@ -58,7 +58,7 @@ def read_server_port() -> int:
 
 
 def is_https_enabled() -> bool:
-    return os.getenv("STUDY_RUNNER_HTTPS", "").strip().lower() in {"1", "true", "yes", "on"}
+    return os.getenv("STUDY_RUNNER_HTTPS", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
 def get_server_scheme() -> str:
@@ -158,6 +158,7 @@ def build_runtime_info(app_config: dict[str, Any], scheme: str | None = None) ->
         "content_dir": str(app_config.get("CONTENT_DIR", "")),
         "settings_dir": str(app_config.get("SETTINGS_DIR", "")),
         "uses_external_storage": bool(app_config.get("USES_EXTERNAL_STORAGE", False)),
+        "https_certificate": app_config.get("HTTPS_CERTIFICATE", {}),
     }
 
 

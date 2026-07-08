@@ -49,7 +49,7 @@ class CameraEmotionWorkerTests(unittest.TestCase):
         camera_adapter._history.clear()
         camera_adapter._preview_state = {
             "available": False,
-            "last_message": "No camera preview frame received yet.",
+            "last_message": "No tablet camera live frame received yet.",
         }
         camera_adapter._latest_state = {
             "status": "not_configured",

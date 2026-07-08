@@ -6,22 +6,32 @@ import { onInput as sliderInput } from './cards/card-slider.js';
 import { bindDrag as rankBindDrag } from './cards/card-ranking.js';
 import { onClick as moodMeterClick } from './cards/card-mood-meter.js';
 import { bindCardEvents as bindWordCloudEvents } from './cards/card-word-cloud.js';
-import { startStudyClientHeartbeat } from './study-client-heartbeat.js';
+import { getStudyClientId, startStudyClientHeartbeat } from './study-client-heartbeat.js';
 import { initI18n, t } from './i18n.js';
 
 const state = {
   config: {},
+  sensorRuntime: {},
   startTime: null,
+  sessionId: '',
+  participantIdOverride: '',
+  participantMetadataOverride: {},
   currentIndex: 0,
   activeStimulus: null,
   cameraPermission: 'not_requested',
+  cameraLastError: '',
+  cameraMonitorActive: false,
   clockOffsetMs: null,  // estimated server epoch ms minus tablet performance.now()
   touchedFields: {},
   questionMetrics: {},
   sensorSessionStarted: false,
   cameraMonitorCleanup: null,
   cameraMonitorStarting: false,
+  runtimePollTimer: null,
 };
+
+const STUDY_SESSION_STATE_KEY = 'study-runner-active-session';
+const RUNTIME_POLL_INTERVAL_MS = 1500;
 
 function getElement(id) {
   return document.getElementById(id);
@@ -45,10 +55,12 @@ async function init() {
   }
   bindEvents();
   initFullscreenUi();
-  startStudyClientHeartbeat(getStudyClientHeartbeatPayload);
+  startStudyClientHeartbeat(getStudyClientHeartbeatPayload, { onHeartbeat: handleHeartbeatResponse });
+  bindPageLifecycleEvents();
 
   try {
     state.config = await getJson('/api/config');
+    updateSensorRuntime(state.config._runtime?.sensor_runtime || {});
     if (!hasParticipantIdStartCard()) {
       renderParticipantIdRequiredBlock();
       showScreen('questions');
@@ -56,7 +68,11 @@ async function init() {
     }
     buildQuestions({ markInitialShown: false, startFirstStimulus: false });
     showScreen('questions');
-    void startCameraMonitorIfNeeded();
+    const recoveryVisible = renderRecoveryBlockIfNeeded();
+    if (!recoveryVisible) {
+      void startCameraMonitorIfNeeded();
+    }
+    startRuntimePolling();
     if (shouldStartStudyImmediately()) {
       void startTrial({ rebuild: false });
     }
@@ -108,6 +124,197 @@ function estimateServerEpochMs(clientPerfMs = performance.now()) {
     return clientPerfMs + state.clockOffsetMs;
   }
   return Date.now();
+}
+
+function handleHeartbeatResponse(response) {
+  if (response?.sensor_runtime) {
+    updateSensorRuntime(response.sensor_runtime);
+  }
+}
+
+function updateSensorRuntime(sensorRuntime) {
+  const previousCameraEnabled = isStudySensorEnabled('camera_emotion');
+  state.sensorRuntime = sensorRuntime && typeof sensorRuntime === 'object' ? sensorRuntime : {};
+  const nextCameraEnabled = isStudySensorEnabled('camera_emotion');
+  if (nextCameraEnabled && !state.cameraMonitorCleanup && !state.cameraMonitorStarting) {
+    void startCameraMonitorIfNeeded();
+  }
+  if (!nextCameraEnabled && previousCameraEnabled && state.cameraMonitorCleanup) {
+    stopCameraMonitor();
+  }
+}
+
+function startRuntimePolling() {
+  if (state.runtimePollTimer !== null) {
+    window.clearInterval(state.runtimePollTimer);
+  }
+  const poll = async () => {
+    try {
+      const runtime = await getJson('/api/study/runtime');
+      updateSensorRuntime(runtime?.sensor_runtime || {});
+    } catch (error) {
+      console.debug('[study] Runtime poll failed:', error);
+    }
+  };
+  void poll();
+  state.runtimePollTimer = window.setInterval(poll, RUNTIME_POLL_INTERVAL_MS);
+}
+
+function bindPageLifecycleEvents() {
+  const sendLeaveEvent = () => {
+    saveSessionSnapshot();
+    const payload = {
+      event: 'client_reload_or_leave',
+      ...getSessionPayload(),
+      current_index: state.currentIndex,
+      current_type: (state.config.questions || [])[state.currentIndex]?.type || null,
+      is_stimulus_active: Boolean(state.activeStimulus),
+    };
+    try {
+      const body = JSON.stringify(payload);
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/study/session/client-event', new Blob([body], { type: 'application/json' }));
+        return;
+      }
+    } catch {
+      // Fall through to fetch.
+    }
+    void postJson('/api/study/session/client-event', payload).catch(() => {});
+  };
+  window.addEventListener('pagehide', sendLeaveEvent);
+  window.addEventListener('beforeunload', sendLeaveEvent);
+}
+
+function getSessionPayload() {
+  return {
+    session_id: state.sessionId,
+    client_id: getStudyClientId(),
+    study_id: state.config.study_id || '',
+    participant_id: resolveParticipantId(),
+  };
+}
+
+function saveSessionSnapshot() {
+  if (!state.startTime || !state.sessionId) {
+    return;
+  }
+  try {
+    window.sessionStorage.setItem(STUDY_SESSION_STATE_KEY, JSON.stringify({
+      session_id: state.sessionId,
+      client_id: getStudyClientId(),
+      study_id: state.config.study_id || '',
+      participant_id: resolveParticipantId(),
+      participant_metadata: collectParticipantMetadata(),
+      current_index: state.currentIndex,
+      current_type: (state.config.questions || [])[state.currentIndex]?.type || '',
+      study_started_at: new Date(state.startTime).toISOString(),
+      sensor_session_started: state.sensorSessionStarted,
+    }));
+  } catch {
+    // Session recovery is best-effort.
+  }
+}
+
+function loadSessionSnapshot() {
+  try {
+    const raw = window.sessionStorage.getItem(STUDY_SESSION_STATE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearSessionSnapshot() {
+  try {
+    window.sessionStorage.removeItem(STUDY_SESSION_STATE_KEY);
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function renderRecoveryBlockIfNeeded() {
+  const snapshot = loadSessionSnapshot();
+  if (!snapshot || snapshot.study_id !== (state.config.study_id || '') || snapshot.client_id !== getStudyClientId()) {
+    return false;
+  }
+
+  const container = getElement('q-container');
+  if (!container) {
+    return false;
+  }
+  container.innerHTML = `
+    <div class="q-card-study active">
+      <div class="q-type-tag"><i class="iconoir-refresh"></i> ${escapeHtml(t('study.recoveryTag', 'Session recovery'))}</div>
+      <p class="q-prompt">${escapeHtml(t('study.recoveryTitle', 'Study page was reloaded'))}</p>
+      <p class="screen-sub">${escapeHtml(t('study.recoveryBody', 'A running study session was found for this tablet. Continue only if this was an accidental reload. Active stimulus timing is marked as interrupted.'))}</p>
+      <div class="dashboard-actions">
+        <button class="btn-secondary" type="button" id="btn-recover-session">${escapeHtml(t('study.recoveryContinue', 'Continue study'))}</button>
+        <button class="btn-secondary" type="button" id="btn-recover-discard">${escapeHtml(t('study.recoveryRestart', 'Start over'))}</button>
+      </div>
+    </div>`;
+  getElement('btn-prev').disabled = true;
+  getElement('btn-next').disabled = true;
+  getElement('btn-next-label').textContent = t('study.next', 'Next');
+  getElement('btn-next-icon').className = 'iconoir-lock';
+  getElement('btn-recover-session')?.addEventListener('click', () => void resumeAfterReload(snapshot));
+  getElement('btn-recover-discard')?.addEventListener('click', () => {
+    clearSessionSnapshot();
+    buildQuestions({ markInitialShown: false, startFirstStimulus: false });
+  });
+  return true;
+}
+
+async function resumeAfterReload(snapshot) {
+  try {
+    const response = await postJson('/api/study/session/resume', {
+      event: 'study_resume_after_reload',
+      session_id: snapshot.session_id,
+      client_id: getStudyClientId(),
+      study_id: snapshot.study_id,
+      participant_id: snapshot.participant_id,
+      current_index: snapshot.current_index,
+      current_type: snapshot.current_type,
+    });
+    state.sessionId = response.session?.session_id || snapshot.session_id || '';
+    state.participantIdOverride = snapshot.participant_id || '';
+    state.participantMetadataOverride = snapshot.participant_metadata || {};
+    state.startTime = Date.parse(snapshot.study_started_at) || Date.now();
+    state.sensorSessionStarted = Boolean(snapshot.sensor_session_started);
+    updateSensorRuntime(response.sensor_runtime || state.sensorRuntime);
+    buildQuestions({ markInitialShown: false, startFirstStimulus: false });
+    const targetIndex = Number.isInteger(Number(snapshot.current_index)) ? Number(snapshot.current_index) : 0;
+    const safeIndex = Math.max(0, Math.min(targetIndex, (state.config.questions || []).length - 1));
+    if (safeIndex === 0) {
+      markQuestionShown(0);
+      updateNavigation();
+    } else {
+      showRecoveredCard(safeIndex);
+    }
+    saveSessionSnapshot();
+    void startCameraMonitorIfNeeded();
+  } catch (error) {
+    console.error('[study] Could not resume study session:', error);
+    alert(error.message || t('study.recoveryFailed', 'Could not resume the study session.'));
+  }
+}
+
+function showRecoveredCard(targetIndex) {
+  const currentCard = getElement(`card-q-${state.currentIndex}`);
+  const targetCard = getElement(`card-q-${targetIndex}`);
+  if (!targetCard) {
+    return;
+  }
+  if (currentCard && currentCard !== targetCard) {
+    currentCard.classList.remove('active');
+  }
+  playCardEntrance(targetCard, 'card-enter-initial');
+  state.currentIndex = targetIndex;
+  markQuestionShown(targetIndex);
+  const targetQuestion = (state.config.questions || [])[targetIndex];
+  if (targetQuestion?.type === 'stimulus') {
+    prepareStimulusCard(targetIndex, targetQuestion);
+  }
+  updateNavigation();
 }
 
 function bindEvents() {
@@ -233,6 +440,7 @@ function handleQuestionInput(event) {
     CARDS['participant-id']?.onInput(event);
   }
   updateNavigation();
+  saveSessionSnapshot();
 }
 
 function handleQuestionChange(event) {
@@ -251,24 +459,26 @@ function handleQuestionChange(event) {
     CARDS['participant-id']?.onInput(event);
   }
   updateNavigation();
+  saveSessionSnapshot();
 }
 
 function resolveParticipantId() {
   const questions = state.config.questions || [];
   const pidIdx = questions.findIndex(q => q.type === 'participant-id');
   if (pidIdx >= 0) {
-    return CARDS['participant-id'].collectAnswer() || '';
+    return CARDS['participant-id'].collectAnswer() || state.participantIdOverride || '';
   }
-  return 'unknown';
+  return state.participantIdOverride || 'unknown';
 }
 
 function collectParticipantMetadata() {
   const questions = state.config.questions || [];
   const pidIdx = questions.findIndex(q => q.type === 'participant-id');
   if (pidIdx >= 0) {
-    return CARDS['participant-id'].collectMetadata?.() || {};
+    const metadata = CARDS['participant-id'].collectMetadata?.() || {};
+    return Object.keys(metadata).length ? metadata : state.participantMetadataOverride || {};
   }
-  return {};
+  return state.participantMetadataOverride || {};
 }
 
 function buildEventPayload(questionIndex, question, phase, clientTriggerMs = performance.now()) {
@@ -359,6 +569,8 @@ async function startTrial(options = {}) {
   }
 
   const rebuild = options.rebuild !== false;
+  state.participantIdOverride = resolveParticipantId();
+  state.participantMetadataOverride = collectParticipantMetadata();
   state.startTime = Date.now();
   const sessionStarted = await startStudySensorSession();
   if (!sessionStarted) {
@@ -366,6 +578,7 @@ async function startTrial(options = {}) {
     updateNavigation();
     return;
   }
+  saveSessionSnapshot();
   await sendMarker('study_start', null, null, 'study_start');
   if (rebuild) {
     buildQuestions();
@@ -492,6 +705,7 @@ async function goTo(targetIndex) {
   state.currentIndex = targetIndex;
   markQuestionShown(targetIndex);
   updateNavigation();
+  saveSessionSnapshot();
 
   const targetQuestion = (state.config.questions || [])[targetIndex];
   if (targetQuestion?.type === 'stimulus') {
@@ -669,7 +883,7 @@ async function maybeStartCameraCapture(stimulusRun) {
 }
 
 async function startCameraMonitorIfNeeded() {
-  if (!isStudySensorEnabled('camera_emotion') || state.cameraMonitorStarting || typeof state.cameraMonitorCleanup === 'function') {
+  if (!Array.isArray(state.config.questions) || !isStudySensorEnabled('camera_emotion') || state.cameraMonitorStarting || typeof state.cameraMonitorCleanup === 'function') {
     return;
   }
 
@@ -686,6 +900,10 @@ async function startCameraMonitorIfNeeded() {
       getPayload: getCameraMonitorPayload,
       onState: (cameraState) => {
         state.cameraPermission = cameraState.permission || state.cameraPermission;
+        state.cameraMonitorActive = ['granted', 'uploading'].includes(cameraState.permission);
+        state.cameraLastError = state.cameraMonitorActive || cameraState.permission === 'stopped'
+          ? ''
+          : (cameraState.message || state.cameraLastError || '');
         if (!['granted', 'uploading', 'stopped'].includes(cameraState.permission)) {
           console.warn('[camera]', cameraState.message || cameraState.permission);
         }
@@ -711,6 +929,7 @@ function stopCameraMonitor() {
     console.warn('[camera] Could not stop camera monitor:', error);
   } finally {
     state.cameraMonitorCleanup = null;
+    state.cameraMonitorActive = false;
   }
 }
 
@@ -992,11 +1211,15 @@ function getStudyClientHeartbeatPayload() {
   return {
     participant_id: resolveParticipantId(),
     study_id: state.config.study_id || '',
+    session_id: state.sessionId,
     current_index: Number.isInteger(state.currentIndex) ? state.currentIndex : null,
     current_type: currentQuestion?.type || null,
     is_stimulus_active: Boolean(state.activeStimulus),
     signal_started: Boolean(state.activeStimulus?.signalStarted),
     camera_permission: state.cameraPermission,
+    camera_monitor_requested: isStudySensorEnabled('camera_emotion'),
+    camera_monitor_active: state.cameraMonitorActive,
+    camera_last_error: state.cameraLastError,
     study_started: Boolean(state.startTime),
   };
 }
@@ -1090,6 +1313,14 @@ function shouldActivateHardware(question) {
 }
 
 function getStudySensorSettings() {
+  const effective = state.sensorRuntime?.effective;
+  if (effective && typeof effective === 'object') {
+    return {
+      brainbit: effective.brainbit === true,
+      mini_radar: effective.mini_radar === true,
+      camera_emotion: effective.camera_emotion === true,
+    };
+  }
   const settings = state.config.study_settings || {};
   if (settings.sensors_enabled === false) {
     return { brainbit: false, mini_radar: false, camera_emotion: false };
@@ -1112,10 +1343,15 @@ function hasAnyStudySensorEnabled() {
 
 async function startStudySensorSession() {
   try {
-    await postJson('/api/study/session/start', {
+    const response = await postJson('/api/study/session/start', {
+      session_id: state.sessionId,
+      client_id: getStudyClientId(),
       study_id: state.config.study_id || '',
       participant_id: resolveParticipantId(),
+      current_index: state.currentIndex,
+      current_type: (state.config.questions || [])[state.currentIndex]?.type || null,
     });
+    state.sessionId = response.session?.session_id || state.sessionId;
     state.sensorSessionStarted = true;
     return true;
   } catch (error) {
@@ -1132,6 +1368,8 @@ async function stopStudySensorSession() {
   }
   try {
     await postJson('/api/study/session/stop', {
+      session_id: state.sessionId,
+      client_id: getStudyClientId(),
       study_id: state.config.study_id || '',
       participant_id: resolveParticipantId(),
     });
@@ -1139,6 +1377,7 @@ async function stopStudySensorSession() {
     console.error('[study] Could not stop study sensor session:', error);
   } finally {
     state.sensorSessionStarted = false;
+    clearSessionSnapshot();
   }
 }
 

@@ -1500,46 +1500,26 @@ body.admin::before { display: none; }
 .brainbit-band-meta {
   color: var(--ink-60);
 }
-.camera-preview-dashboard {
+.camera-live-monitor {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--ink-06);
 }
-.camera-preview-dashboard-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: start;
-}
-.camera-preview-dashboard-main strong,
-.camera-preview-dashboard-main a,
-.camera-preview-dashboard-main span {
+.camera-live-monitor-main {
   display: block;
 }
-.camera-preview-dashboard-main a {
-  color: var(--accent);
-  overflow-wrap: anywhere;
+.camera-live-monitor-main strong,
+.camera-live-monitor-main span {
+  display: block;
 }
-.camera-preview-dashboard-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 4px;
-}
-.camera-preview-dashboard-body {
+.camera-live-monitor-body {
   display: grid;
-  grid-template-columns: 112px minmax(120px, 180px) minmax(0, 1fr);
+  grid-template-columns: minmax(120px, 220px) minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   margin-top: 10px;
 }
-.camera-preview-qr svg {
-  width: 112px;
-  height: 112px;
-  border: 1px solid var(--ink-06);
-  border-radius: var(--r-surface);
-}
-.camera-preview-thumb {
+.camera-live-thumb {
   min-height: 88px;
   display: flex;
   align-items: center;
@@ -1550,41 +1530,23 @@ body.admin::before { display: none; }
   color: var(--ink-40);
   overflow: hidden;
 }
-.camera-preview-thumb img {
+.camera-live-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-.camera-preview-metrics {
+.camera-live-metrics {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.camera-preview-page {
-  width: min(760px, calc(100vw - 32px));
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-.camera-preview-video-shell {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-sunken);
-  border: 1px solid var(--ink-06);
-  border-radius: var(--r-surface);
-  overflow: hidden;
-}
-.camera-preview-video {
+.camera-live-video {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-.camera-preview-result {
-  min-height: 24px;
-  color: var(--ink-60);
+.status-warning {
+  color: var(--neg);
 }
 .is-disabled {
   opacity: .58;
@@ -1640,6 +1602,10 @@ body.admin::before { display: none; }
   font-size: .78rem;
   line-height: 1.35;
 }
+.integration-control-reset {
+  display: flex;
+  justify-content: flex-end;
+}
 .integration-control-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1668,6 +1634,11 @@ body.admin::before { display: none; }
   color: var(--ink-40);
   font-size: .75rem;
   overflow-wrap: anywhere;
+}
+.integration-runtime-detail em {
+  display: inline;
+  color: #7a4a05;
+  font-style: normal;
 }
 .integration-control-actions {
   display: flex;

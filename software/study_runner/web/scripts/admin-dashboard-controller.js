@@ -1,6 +1,5 @@
 ﻿import { getJson, postJson } from './api-client.js';
 
-import { createQrSvg } from './qr-code.js';
 import { t } from './i18n.js';
 
 const POLL_INTERVAL_MS = 2000;
@@ -41,12 +40,10 @@ async function runDashboardAction(actionSource, elements, showToast) {
     await repairEmotionWorkerRuntime(elements, showToast);
     return;
   }
-  const previewMatch = action.match(/^camera_preview_(start|stop)$/);
-  if (previewMatch) {
-    await updateCameraPreview(previewMatch[1], elements, showToast);
+  if (action === 'reset_sensor_overrides') {
+    await resetSensorOverrides(elements, showToast);
     return;
   }
-
   const toggleMatch = action.match(/^toggle_(.+)_(on|off)$/);
   if (toggleMatch) {
     const [, integrationKey, state] = toggleMatch;
@@ -63,7 +60,7 @@ async function runDashboardAction(actionSource, elements, showToast) {
   try {
     const response = await postJson(`/api/admin/integrations/${encodeURIComponent(integrationKey)}/${runtimeAction}`, {});
     if (response?.study_controlled) {
-      showToast?.(t('dashboard.studyControlledWarning', 'This sensor is controlled by the active study settings.'), 'warning');
+      showToast?.(t('dashboard.studyControlledWarning', 'Temporary dashboard overrides can overrule the study settings during this server session.'), 'warning');
       await refreshAdminStatus(elements, showToast);
       return;
     }
@@ -87,7 +84,7 @@ async function selectBrainBitCandidate(button, elements, showToast) {
   try {
     const response = await postJson('/api/admin/brainbit/select-device', payload);
     if (response?.study_controlled) {
-      showToast?.(t('dashboard.studyControlledWarning', 'This sensor is controlled by the active study settings.'), 'warning');
+      showToast?.(t('dashboard.studyControlledWarning', 'Temporary dashboard overrides can overrule the study settings during this server session.'), 'warning');
       await refreshAdminStatus(elements, showToast);
       return;
     }
@@ -96,17 +93,6 @@ async function selectBrainBitCandidate(button, elements, showToast) {
   } catch (error) {
     console.error('[admin] BrainBit band selection failed:', error);
     showToast?.(t('dashboard.brainbitBandSaveFailed', 'BrainBit band selection failed'), 'error');
-  }
-}
-
-async function updateCameraPreview(action, elements, showToast) {
-  try {
-    await postJson(`/api/admin/camera/preview/${action}`, {});
-    showToast?.(t('dashboard.actionSent', 'Dashboard action sent'), 'success');
-    await refreshAdminStatus(elements, showToast);
-  } catch (error) {
-    console.error('[admin] Camera preview action failed:', error);
-    showToast?.(error.message || t('dashboard.actionFailed', 'Dashboard action failed'), 'error');
   }
 }
 
@@ -126,14 +112,20 @@ async function repairEmotionWorkerRuntime(elements, showToast) {
   }
 }
 
+async function resetSensorOverrides(elements, showToast) {
+  try {
+    await postJson('/api/admin/session-overrides/reset', {});
+    showToast?.(t('dashboard.overrideResetDone', 'Temporary dashboard overrides reset'), 'success');
+    await refreshAdminStatus(elements, showToast);
+  } catch (error) {
+    console.error('[admin] Sensor override reset failed:', error);
+    showToast?.(t('dashboard.overrideResetFailed', 'Could not reset dashboard overrides'), 'error');
+  }
+}
+
 async function updateIntegrationToggle(integrationKey, enabled, elements, showToast) {
   try {
     const response = await postJson(`/api/admin/integrations/${encodeURIComponent(integrationKey)}/enabled`, { enabled });
-    if (response?.study_controlled) {
-      showToast?.(t('dashboard.studyControlledWarning', 'This sensor is controlled by the active study settings.'), 'warning');
-      await refreshAdminStatus(elements, showToast);
-      return;
-    }
     const messageKey = enabled ? 'dashboard.integrationEnabled' : 'dashboard.integrationDisabled';
     const fallback = enabled ? '{name} enabled' : '{name} disabled';
     showToast?.(t(messageKey, fallback).replace('{name}', formatIntegrationName(integrationKey)), 'success');
@@ -165,14 +157,14 @@ async function refreshAdminStatus(elements, showToast) {
       getJson('/api/admin/status'),
       getJson('/api/runtime-info'),
     ]);
-    let cameraPreview = {};
+    let cameraLive = {};
     try {
-      cameraPreview = await getJson('/api/admin/camera/preview/status');
-    } catch (previewError) {
-      console.warn('[admin] Could not load camera preview status:', previewError);
+      cameraLive = await getJson('/api/admin/camera/live/status');
+    } catch (liveError) {
+      console.warn('[admin] Could not load camera live monitor status:', liveError);
     }
     status.runtime_info = runtimeInfo;
-    status.camera_preview = cameraPreview;
+    status.camera_live = cameraLive;
     renderAdminStatus(elements, status);
   } catch (error) {
     console.error('[admin] Could not load admin status:', error);
@@ -191,8 +183,9 @@ function renderAdminStatus(elements, status) {
     elements.camera,
     status.integrations?.camera_emotion || {},
     status.integrations?.emotion_worker || {},
-    status.camera_preview || {},
+    status.camera_live || {},
     status.runtime_info || {},
+    status.sensor_runtime || {},
   );
   renderIntegrationControls(elements.controls, status.integrations || {}, status);
   renderXdf(elements.xdf, status);
@@ -215,6 +208,7 @@ function renderClients(target, clients) {
       <dt>${fieldLabel('card', 'Card')}</dt><dd>${formatCard(client)}</dd>
       <dt>${fieldLabel('age', 'Age')}</dt><dd>${escapeHtml(client.age_seconds)}s</dd>
       <dt>${fieldLabel('camera', 'Camera')}</dt><dd>${escapeHtml(client.camera_permission || t('dashboard.unknown', 'unknown'))}</dd>
+      <dt>${fieldLabel('cameraMonitor', 'Camera monitor')}</dt><dd>${formatCameraMonitorClient(client)}</dd>
     </dl>
   `).join('');
 }
@@ -283,10 +277,12 @@ function renderMiniRadar(target, radar) {
   `;
 }
 
-function renderCameraEmotion(target, camera, worker, preview = {}, runtimeInfo = {}) {
+function renderCameraEmotion(target, camera, worker, preview = {}, runtimeInfo = {}, sensorRuntime = {}) {
   if (!target) return;
   const latest = camera.latest || {};
-  const analysis = latest.analysis || {};
+  const liveLatest = preview.latest || {};
+  const displayLatest = Object.keys(latest).length ? latest : liveLatest;
+  const analysis = latest.analysis || liveLatest.analysis || {};
   target.innerHTML = `
     <div class="status-row">
       <span class="status-pill status-pill--${escapeHtml(camera.status || 'planned')}">${escapeHtml(camera.status || 'planned')}</span>
@@ -302,11 +298,11 @@ function renderCameraEmotion(target, camera, worker, preview = {}, runtimeInfo =
       <dt>${fieldLabel('emotion', 'Emotion')}</dt><dd>${escapeHtml(analysis.emotion || '-')}</dd>
       <dt>${fieldLabel('confidence', 'Confidence')}</dt><dd>${formatValue(analysis.confidence)}</dd>
       <dt>${fieldLabel('face', 'Face')}</dt><dd>${formatBoolean(analysis.face_detected)}</dd>
-      <dt>${fieldLabel('frame', 'Frame')}</dt><dd>${formatFrame(latest.frame)}</dd>
-      <dt>${fieldLabel('processed', 'Processed')}</dt><dd>${escapeHtml(latest.processed_at || '-')}</dd>
+      <dt>${fieldLabel('frame', 'Frame')}</dt><dd>${formatFrame(displayLatest.frame)}</dd>
+      <dt>${fieldLabel('processed', 'Processed')}</dt><dd>${escapeHtml(displayLatest.processed_at || '-')}</dd>
       <dt>${fieldLabel('message', 'Message')}</dt><dd>${escapeHtml(analysis.error || camera.last_message || worker.last_message || '-')}</dd>
     </dl>
-    ${renderCameraPreview(preview, runtimeInfo)}
+    ${renderCameraLiveMonitor(preview, runtimeInfo, sensorRuntime)}
     ${renderEmotionWorkerInstall(worker)}
     ${renderRuntimeButtons(camera)}
   `;
@@ -337,43 +333,37 @@ function renderRepairOutput(labelKey, fallback, output) {
   return `<details class="dependency-install-output"><summary>${escapeHtml(t(labelKey, fallback))}</summary><pre>${escapeHtml(output)}</pre></details>`;
 }
 
-function renderCameraPreview(preview, runtimeInfo) {
-  const url = preview.preview_url || buildCameraPreviewUrl(runtimeInfo);
+function renderCameraLiveMonitor(preview, runtimeInfo, sensorRuntime = {}) {
   const latest = preview.latest || {};
   const analysis = latest.analysis || {};
   const image = preview.image || '';
+  const secureWarning = runtimeInfo?.scheme === 'https'
+    ? ''
+    : `<span class="status-warning">${escapeHtml(t('dashboard.cameraLiveHttpsWarning', 'Tablet camera needs trusted HTTPS. Install and fully trust the Study Runner local Root CA on the iPad, then open the https:// tablet URL.'))}</span>`;
+  const cameraEffective = sensorRuntime.effective?.camera_emotion === true;
+  const message = cameraEffective
+    ? (preview.last_message || t('dashboard.cameraLiveHint', 'Open the normal study page on the tablet. If camera emotion is enabled for the study, live frames appear here before recording starts.'))
+    : t('dashboard.cameraLiveDisabled', 'Camera emotion is effectively disabled. Enable it in the dashboard or reset overrides to the study setting.');
   return `
-    <div class="camera-preview-dashboard">
-      <div class="camera-preview-dashboard-main">
+    <div class="camera-live-monitor">
+      <div class="camera-live-monitor-main">
         <div>
-          <strong>${escapeHtml(t('dashboard.cameraPreviewTitle', 'Tablet camera preview'))}</strong>
-          <a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(url)}</a>
-          <span class="status-muted">${escapeHtml(preview.last_message || t('dashboard.cameraPreviewHint', 'Open on the tablet to test camera permission and emotion analysis.'))}</span>
-        </div>
-        <div class="camera-preview-dashboard-actions">
-          <button type="button" class="btn-secondary btn-xs" data-dashboard-action="camera_preview_start">${escapeHtml(t('dashboard.action.start', 'Start'))}</button>
-          <button type="button" class="btn-secondary btn-xs" data-dashboard-action="camera_preview_stop">${escapeHtml(t('dashboard.action.stop', 'Stop'))}</button>
+          <strong>${escapeHtml(t('dashboard.cameraLiveTitle', 'Tablet camera live monitor'))}</strong>
+          <span class="status-muted">${escapeHtml(message)}</span>
+          ${secureWarning}
         </div>
       </div>
-      <div class="camera-preview-dashboard-body">
-        <div class="camera-preview-qr">${renderPreviewQr(url)}</div>
-        <div class="camera-preview-thumb">${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(t('dashboard.cameraPreviewImageAlt', 'Latest tablet camera preview frame'))}">` : '-'}</div>
-        <div class="camera-preview-metrics">
+      <div class="camera-live-monitor-body">
+        <div class="camera-live-thumb">${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(t('dashboard.cameraLiveImageAlt', 'Latest tablet camera live frame'))}">` : '-'}</div>
+        <div class="camera-live-metrics">
           <span>${escapeHtml(t('dashboard.field.emotion', 'Emotion'))}: ${escapeHtml(analysis.emotion || '-')}</span>
           <span>${escapeHtml(t('dashboard.field.confidence', 'Confidence'))}: ${formatValue(analysis.confidence)}</span>
           <span>${escapeHtml(t('dashboard.field.face', 'Face'))}: ${formatBoolean(analysis.face_detected)}</span>
+          <span>${escapeHtml(t('dashboard.field.frame', 'Frame'))}: ${formatFrame(latest.frame)}</span>
+          <span>${escapeHtml(t('dashboard.field.processed', 'Processed'))}: ${escapeHtml(latest.processed_at || '-')}</span>
         </div>
       </div>
     </div>`;
-}
-
-function renderPreviewQr(url) {
-  try {
-    return createQrSvg(url, { size: 112, margin: 2 });
-  } catch (error) {
-    console.warn('[admin] Could not render camera preview QR:', error);
-    return `<span class="status-muted">${escapeHtml(t('dashboard.cameraPreviewQrUnavailable', 'QR unavailable'))}</span>`;
-  }
 }
 
 function renderIntegrationControls(target, integrations, status = {}) {
@@ -383,27 +373,32 @@ function renderIntegrationControls(target, integrations, status = {}) {
     target.innerHTML = `<p>${escapeHtml(t('dashboard.noIntegrations', 'No integrations registered.'))}</p>`;
     return;
   }
-  const activeStudySession = Boolean(status.active_study_session);
-  const warning = activeStudySession
-    ? `<div class="integration-control-warning">${escapeHtml(t('dashboard.studyControlledWarning', 'Sensor integrations are controlled by the active study settings while a study is running. LSL markers and LabRecorder/XDF can still be changed live.'))}</div>`
+  const sensorRuntime = status.sensor_runtime || {};
+  const hasOverrides = Object.values(sensorRuntime.override_active || {}).some(Boolean)
+    || Object.keys(status.session_sensor_overrides || {}).length > 0;
+  const warning = hasOverrides
+    ? `<div class="integration-control-warning">${escapeHtml(t('dashboard.overrideWarning', 'Temporary dashboard overrides are active for this server session.'))}</div>`
+    : '';
+  const resetButton = hasOverrides
+    ? `<button type="button" class="btn-secondary btn-xs" data-dashboard-action="reset_sensor_overrides">${escapeHtml(t('dashboard.overrideReset', 'Reset to study settings'))}</button>`
     : '';
   target.innerHTML = `<div class="integration-controls">
     ${warning}
-    ${rows.map((row) => renderIntegrationControlRow(row, activeStudySession)).join('')}
+    ${resetButton ? `<div class="integration-control-reset">${resetButton}</div>` : ''}
+    ${rows.map((row) => renderIntegrationControlRow(row, sensorRuntime)).join('')}
   </div>`;
 }
 
-function renderIntegrationControlRow(item, activeStudySession = false) {
-  const configured = Boolean(item.configured_enabled ?? item.enabled);
+function renderIntegrationControlRow(item, sensorRuntime = {}) {
+  const sensorEffective = sensorRuntime.effective || {};
+  const hasSensorState = Object.prototype.hasOwnProperty.call(sensorEffective, item.key);
+  const configured = hasSensorState ? Boolean(sensorEffective[item.key]) : Boolean(item.configured_enabled ?? item.enabled);
   const status = item.status || (configured ? 'enabled' : 'disabled');
-  const studyControlled = activeStudySession && ['brainbit', 'mini_radar', 'camera_emotion'].includes(item.key);
   const toggleButtons = item.can_toggle ? `
-    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_on"${configured || studyControlled ? ' disabled' : ''}>${escapeHtml(t('dashboard.action.enable', 'Enable'))}</button>
-    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_off"${!configured || studyControlled ? ' disabled' : ''}>${escapeHtml(t('dashboard.action.disable', 'Disable'))}</button>
+    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_on"${configured ? ' disabled' : ''}>${escapeHtml(t('dashboard.action.enable', 'Enable'))}</button>
+    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_off"${!configured ? ' disabled' : ''}>${escapeHtml(t('dashboard.action.disable', 'Disable'))}</button>
   ` : `<span class="integration-control-note">${escapeHtml(t('dashboard.managedByParent', 'Managed by parent integration'))}</span>`;
-  const controlNote = studyControlled
-    ? `<span>${escapeHtml(t('dashboard.studyControlledShort', 'Controlled by active study'))}</span>`
-    : '';
+  const runtimeDetail = hasSensorState ? renderSensorRuntimeDetail(item.key, sensorRuntime) : '';
 
   return `
     <div class="integration-control-row">
@@ -412,7 +407,7 @@ function renderIntegrationControlRow(item, activeStudySession = false) {
         <div>
           <strong>${escapeHtml(item.label || item.key)}</strong>
           <span>${buildIntegrationDetail(item)}</span>
-          ${controlNote}
+          ${runtimeDetail}
         </div>
       </div>
       <div class="integration-control-actions">
@@ -445,6 +440,21 @@ function buildIntegrationDetail(item) {
   if (item.url) details.push(item.url);
   if (item.host) details.push(`${item.host}:${item.port || ''}`);
   return escapeHtml(details.filter(Boolean).join(' - ') || item.last_message || '-');
+}
+
+function renderSensorRuntimeDetail(sensorKey, sensorRuntime = {}) {
+  const study = sensorRuntime.study || {};
+  const overrides = sensorRuntime.overrides || {};
+  const overrideActive = sensorRuntime.override_active || {};
+  const effective = sensorRuntime.effective || {};
+  const hasOverride = Boolean(overrideActive[sensorKey]);
+  const overrideLabel = hasOverride ? formatOnOff(overrides[sensorKey]) : t('dashboard.none', 'none');
+  return `<span class="integration-runtime-detail">
+    ${escapeHtml(t('dashboard.runtimeStudy', 'Study'))}: ${escapeHtml(formatOnOff(study[sensorKey]))}
+    · ${escapeHtml(t('dashboard.runtimeOverride', 'Override'))}: ${escapeHtml(overrideLabel)}
+    · ${escapeHtml(t('dashboard.runtimeEffective', 'Effective'))}: ${escapeHtml(formatOnOff(effective[sensorKey]))}
+    ${hasOverride ? `<em>${escapeHtml(t('dashboard.temporaryOverride', 'temporary dashboard override'))}</em>` : ''}
+  </span>`;
 }
 
 function renderXdf(target, status) {
@@ -513,6 +523,17 @@ function formatTimestampAge(timestamp, ageSeconds) {
 function formatCard(client) {
   if (client.current_index === null || client.current_index === undefined) return '-';
   return `#${Number(client.current_index) + 1} ${escapeHtml(client.current_type || '')}`;
+}
+
+function formatCameraMonitorClient(client) {
+  const parts = [
+    `${escapeHtml(t('dashboard.requested', 'requested'))}: ${formatBoolean(client.camera_monitor_requested)}`,
+    `${escapeHtml(t('dashboard.active', 'active'))}: ${formatBoolean(client.camera_monitor_active)}`,
+  ];
+  if (client.camera_last_error) {
+    parts.push(`<span class="status-warning">${escapeHtml(client.camera_last_error)}</span>`);
+  }
+  return parts.join('<br>');
 }
 
 function formatValue(value, suffix = '') {
@@ -676,15 +697,6 @@ function formatWorkerWarmup(worker) {
   }
   if (latest.model_checked === true) return escapeHtml(t('dashboard.health.waiting', 'waiting'));
   return '-';
-}
-
-function buildCameraPreviewUrl(runtimeInfo) {
-  const baseUrl = runtimeInfo?.participant_url || window.location.origin;
-  try {
-    return new URL('/camera-preview', baseUrl).toString();
-  } catch {
-    return `${window.location.origin}/camera-preview`;
-  }
 }
 
 function formatIntegrationName(key) {

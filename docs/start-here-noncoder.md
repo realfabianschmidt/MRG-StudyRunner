@@ -41,7 +41,7 @@ Darin liegen:
 Bequemer ist meistens die Admin-Oberflaeche:
 
 ```text
-http://localhost:3000/admin
+https://localhost:3000/admin
 ```
 
 ## Was bitte nicht anfassen?
@@ -65,7 +65,25 @@ python server.py
 Dann im Browser:
 
 ```text
-http://localhost:3000/admin
+https://localhost:3000/admin
+```
+
+## iPad / Tablet Kamera
+
+Die Tablet-Kamera braucht HTTPS mit einem Zertifikat, dem das iPad vertraut.
+Study Runner erstellt beim Start automatisch eine lokale Root-CA und zeigt den
+Pfad in der Konsole an:
+
+```text
+iPad trust certificate: ...\study-runner-local-root-ca.crt
+```
+
+Diese `.crt`-Datei einmal aufs iPad uebertragen, dort als Profil installieren
+und unter `Einstellungen > Allgemein > Info > Zertifikatsvertrauenseinstellungen`
+voll vertrauen. Danach die angezeigte Tablet-Adresse oeffnen:
+
+```text
+https://<computer-ip>:3000
 ```
 
 ## ZIP-Build starten

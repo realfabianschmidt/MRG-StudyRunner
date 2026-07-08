@@ -49,14 +49,23 @@ python server.py
 
 The terminal prints the available addresses:
 
-- Admin page: `http://localhost:3000/admin`
-- Participant page: `http://<computer-ip>:3000`
+- Admin page: `https://localhost:3000/admin`
+- Participant page: `https://<computer-ip>:3000`
+
+HTTPS is enabled by default so tablet camera access can work. Study Runner
+creates a persistent local Root CA in `software/study_content/settings/ssl/` and
+prints the exact `.crt` path on startup. For iPad camera access, install that
+Root CA profile on the iPad and enable full trust under iOS certificate trust
+settings, then open the printed `https://<computer-ip>:3000` participant URL.
+To disable HTTPS for a local non-camera debug run, set `STUDY_RUNNER_HTTPS=0`
+before starting.
 
 Optional runtime settings:
 
 ```bash
 STUDY_RUNNER_HOST=0.0.0.0
 STUDY_RUNNER_PORT=3000
+STUDY_RUNNER_HTTPS=0
 STUDY_RUNNER_CONTENT_DIR=/path/to/study-content
 STUDY_RUNNER_DATA_DIR=/path/to/writable/app-data
 ```

@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend.services.study_sensor_runtime import (
+    build_sensor_runtime_state,
     build_effective_hardware_config,
     normalize_study_sensors,
 )
@@ -65,6 +66,37 @@ class StudySensorRuntimeTests(unittest.TestCase):
         self.assertEqual(effective["camera_emotion"]["worker_mode"], "local_worker")
         self.assertTrue(effective["notion"]["enabled"])
         self.assertIsNot(effective["brainbit"], hardware_config["brainbit"])
+
+    def test_session_override_wins_over_study_sensor_setting(self) -> None:
+        hardware_config = {
+            "camera_emotion": {"enabled": False, "worker_mode": "local_worker"},
+            "brainbit": {"enabled": True},
+        }
+        study_settings = {
+            "sensors_enabled": False,
+            "sensors": {
+                "brainbit": False,
+                "mini_radar": False,
+                "camera_emotion": False,
+            },
+        }
+
+        runtime_state = build_sensor_runtime_state(
+            hardware_config,
+            study_settings,
+            {"camera_emotion": True},
+        )
+        effective = build_effective_hardware_config(
+            hardware_config,
+            study_settings,
+            {"camera_emotion": True},
+        )
+
+        self.assertFalse(runtime_state["study"]["camera_emotion"])
+        self.assertTrue(runtime_state["override_active"]["camera_emotion"])
+        self.assertTrue(runtime_state["effective"]["camera_emotion"])
+        self.assertTrue(effective["camera_emotion"]["enabled"])
+        self.assertEqual(effective["camera_emotion"]["worker_mode"], "local_worker")
 
 
 if __name__ == "__main__":
