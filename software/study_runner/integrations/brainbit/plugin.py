@@ -46,6 +46,10 @@ def _initialize(context: IntegrationContext) -> None:
         osc_host=config.get("osc_host", "127.0.0.1"),
         osc_port=config.get("osc_port", 8000),
         scan_seconds=config.get("scan_seconds", 5),
+        device_index=config.get("device_index", 0),
+        device_address=context.resolve_platform_value(config.get("device_address")),
+        serial_number=context.resolve_platform_value(config.get("serial_number")),
+        device_name=context.resolve_platform_value(config.get("device_name")),
         resist_seconds=config.get("resist_seconds", 6),
         signal_seconds=config.get("signal_seconds", 0),
         pretty=config.get("pretty", True),
@@ -55,7 +59,7 @@ def _initialize(context: IntegrationContext) -> None:
         lsl_stream_prefix=lsl_config.get("stream_prefix", "BrainBit"),
         quiet_output=config.get("quiet_output", True),
         monitor_refresh_ms=config.get("monitor_refresh_ms", 1000),
-        disconnect_timeout_ms=config.get("disconnect_timeout_ms", 5000),
+        disconnect_timeout_ms=config.get("disconnect_timeout_ms", 20000),
         log_dir=context.resolve_project_path(
             context.resolve_platform_value(config.get("log_dir")) or DEFAULT_BRAINBIT["log_dir"]
         ),

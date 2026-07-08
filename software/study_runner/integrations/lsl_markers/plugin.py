@@ -35,6 +35,12 @@ def _status(context: IntegrationContext) -> dict[str, Any]:
     }
 
 
+def _stop(context: IntegrationContext) -> None:
+    from . import adapter
+
+    adapter.stop()
+
+
 def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
     _send_marker(options, "study:start")
 
@@ -63,6 +69,7 @@ PLUGIN = IntegrationPlugin(
     has_recording=True,
     initialize=_initialize,
     get_status=_status,
+    stop=_stop,
     on_trial_start=_trial_start,
     on_trial_stop=_trial_stop,
     on_trial_marker=_trial_marker,

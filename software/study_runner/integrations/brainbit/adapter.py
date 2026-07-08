@@ -46,12 +46,31 @@ _latest_state: dict[str, Any] = {}
 _last_state_write = 0.0
 _last_state_write_error_at = 0.0
 _last_activity_at = 0.0
+_last_any_line_at = 0.0
+_last_sensor_activity_at = 0.0
+_last_eeg_at = 0.0
+_last_quality_at = 0.0
+_last_derived_at = 0.0
 _log_handle: Any = None
 _routing_state = {
     "forward_to_lsl": False,
     "forward_to_touchdesigner": False,
 }
 _history: deque[dict[str, Any]] = deque(maxlen=4096)
+_SENSOR_ACTIVITY_TAGS = {
+    "RESIST",
+    "QUALITY",
+    "CALIB",
+    "ARTIFACT",
+    "BATTERY",
+    "EEG",
+    "BANDS",
+    "MENTAL",
+    "STATE",
+}
+_IDENTITY_TAGS = {"DEVICE", "DEVICE_SELECTED"}
+_HISTORY_TAGS = {"BANDS", "MENTAL", "QUALITY", "BATTERY"}
+_DERIVED_TAGS = {"BANDS", "MENTAL"}
 
 
 def _default_python_executable(python_executable: str | None) -> str:
@@ -75,6 +94,10 @@ def initialize(
     osc_host: str = "127.0.0.1",
     osc_port: int = 8000,
     scan_seconds: int = 5,
+    device_index: int | None = 0,
+    device_address: str | None = None,
+    serial_number: str | None = None,
+    device_name: str | None = None,
     resist_seconds: int = 6,
     signal_seconds: int = 0,
     pretty: bool = False,
@@ -84,7 +107,7 @@ def initialize(
     lsl_stream_prefix: str = "BrainBit",
     quiet_output: bool = True,
     monitor_refresh_ms: int = 1000,
-    disconnect_timeout_ms: int = 5000,
+    disconnect_timeout_ms: int = 20000,
     log_dir: str | None = None,
 ) -> None:
     """Store BrainBit settings, prepare optional LSL mirrors, and start the external CLI."""
@@ -106,6 +129,10 @@ def initialize(
         "osc_host": osc_host,
         "osc_port": int(osc_port),
         "scan_seconds": int(scan_seconds),
+        "device_index": device_index,
+        "device_address": str(device_address or "").strip(),
+        "serial_number": str(serial_number or "").strip(),
+        "device_name": str(device_name or "").strip(),
         "resist_seconds": int(resist_seconds),
         "signal_seconds": int(signal_seconds),
         "pretty": bool(pretty),
@@ -132,6 +159,7 @@ def initialize(
             "osc_target": f"{_config['osc_host']}:{_config['osc_port']}",
             "raw_log_path": _config["raw_log_path"],
             "state_path": _config["state_path"],
+            "target_device": _target_device_from_config(),
             "last_message": "BrainBit adapter configured.",
         },
         force=True,
@@ -151,7 +179,9 @@ def initialize(
 
 def start() -> None:
     """Start the repo-local BrainBit process if it is not already running."""
-    global _process, _reader_thread, _log_handle, _watchdog_thread, _last_activity_at
+    global _process, _reader_thread, _log_handle, _watchdog_thread
+    global _last_activity_at, _last_any_line_at, _last_sensor_activity_at
+    global _last_eeg_at, _last_quality_at, _last_derived_at
 
     if not _config:
         print("[BrainBit] Adapter not configured.")
@@ -176,11 +206,19 @@ def start() -> None:
             "--no-osc",
             "--scan-seconds",
             str(_config["scan_seconds"]),
+            "--device-index",
+            str(_config["device_index"] if _config.get("device_index") is not None else 0),
             "--resist-seconds",
             str(_config["resist_seconds"]),
             "--signal-seconds",
             str(_config["signal_seconds"]),
         ]
+        if _config.get("serial_number"):
+            command.extend(["--serial-number", str(_config["serial_number"])])
+        if _config.get("device_address"):
+            command.extend(["--device-address", str(_config["device_address"])])
+        if _config.get("device_name"):
+            command.extend(["--device-name", str(_config["device_name"])])
         if _config["pretty"]:
             command.append("--pretty")
         if _config["debug"]:
@@ -218,11 +256,21 @@ def start() -> None:
                 "last_scan_started_at": _timestamp(),
                 "last_scan_finished_at": None,
                 "next_retry_at": None,
+                "device": None,
+                "selected_device": None,
+                "scan_candidates": [],
+                "target_device": _target_device_from_config(),
                 "last_message": f"Scanning for BrainBit for {_config.get('scan_seconds', 5)} seconds.",
             },
             force=True,
         )
-        _last_activity_at = time.time()
+        now = time.time()
+        _last_activity_at = now
+        _last_any_line_at = now
+        _last_sensor_activity_at = 0.0
+        _last_eeg_at = 0.0
+        _last_quality_at = 0.0
+        _last_derived_at = 0.0
         _reader_thread = threading.Thread(target=_read_output, args=(_process,), daemon=True)
         _reader_thread.start()
         if _watchdog_thread is None or not _watchdog_thread.is_alive():
@@ -293,7 +341,13 @@ def get_status() -> dict[str, Any]:
         running = _process is not None and _process.poll() is None
         pid = _process.pid if running and _process is not None else latest.get("pid")
 
-    status_value = latest.get("status") or ("running" if running else "not_configured")
+    contact_state, contact_channels = _derive_contact_quality(latest.get("quality"))
+    latest.setdefault("contact_quality_state", contact_state)
+    latest.setdefault("contact_quality_channels", contact_channels)
+
+    status_value = _derive_status(latest, running)
+    seconds_since = _seconds_since_values(latest)
+    health = _build_health(latest, running, contact_state)
     return {
         **latest,
         "latest": latest,
@@ -311,6 +365,13 @@ def get_status() -> dict[str, Any]:
         "state_file": _config.get("state_path") if _config else None,
         "raw_log_path": _config.get("raw_log_path") if _config else None,
         "last_activity_at": latest.get("last_activity_at"),
+        **seconds_since,
+        "contact_quality_state": contact_state,
+        "contact_quality_channels": contact_channels,
+        "scan_candidates": latest.get("scan_candidates") or [],
+        "selected_device": latest.get("selected_device") or latest.get("device"),
+        "target_device": latest.get("target_device") or _target_device_from_config(),
+        "health": health,
         "last_message": latest.get("last_message", "BrainBit adapter is not configured."),
     }
 
@@ -335,12 +396,17 @@ def _read_output(process: subprocess.Popen[str]) -> None:
             global _process
             if _process is process:
                 _process = None
+        with _state_lock:
+            previous_status = _latest_state.get("status")
+            previous_message = _latest_state.get("last_message")
+        final_status = "failed" if previous_status == "failed" else "exited"
+        final_message = previous_message if previous_status == "failed" else f"BrainBit CLI exited with code {exit_code}."
         _set_state(
             {
-                "status": "exited",
+                "status": final_status,
                 "exit_code": exit_code,
                 "last_scan_finished_at": _timestamp(),
-                "last_message": f"BrainBit CLI exited with code {exit_code}.",
+                "last_message": final_message,
             },
             force=True,
         )
@@ -349,10 +415,19 @@ def _read_output(process: subprocess.Popen[str]) -> None:
 
 
 def _update_state_from_line(line: str) -> bool:
-    global _last_activity_at
+    global _last_activity_at, _last_any_line_at, _last_sensor_activity_at
+    global _last_eeg_at, _last_quality_at, _last_derived_at
 
     important = False
-    state_update: dict[str, Any] = {"updated_at": _timestamp(), "last_line": line}
+    now = time.time()
+    now_text = _timestamp(now)
+    _last_any_line_at = now
+    state_update: dict[str, Any] = {
+        "updated_at": now_text,
+        "last_line": line,
+        "last_any_line_at": now_text,
+        "last_any_line_epoch": now,
+    }
 
     parts = line.split(" ", 1)
     if len(parts) == 2 and parts[1].startswith("{"):
@@ -362,29 +437,69 @@ def _update_state_from_line(line: str) -> bool:
         except json.JSONDecodeError:
             payload = None
         if isinstance(payload, dict):
-            if tag in {"EEG", "QUALITY", "BATTERY", "BANDS", "MENTAL", "STATE", "DEVICE"}:
-                _last_activity_at = time.time()
-                state_update["last_activity_at"] = _timestamp()
+            if tag in _SENSOR_ACTIVITY_TAGS:
+                _last_activity_at = now
+                _last_sensor_activity_at = now
+                state_update["last_activity_at"] = now_text
+                state_update["last_sensor_activity_at"] = now_text
+                state_update["last_sensor_activity_epoch"] = now
                 state_update["status"] = "connected"
-            if tag in {"BANDS", "MENTAL", "QUALITY", "BATTERY"}:
-                _history.append({"tag": tag, "payload": dict(payload), "server_received_at": _timestamp(), "_epoch": time.time()})
+            if tag in _HISTORY_TAGS:
+                _history.append({"tag": tag, "payload": dict(payload), "server_received_at": now_text, "_epoch": now})
             if tag == "SCAN":
+                state_update["scan_candidates"] = _merge_scan_candidate(payload)
                 state_update["last_scan"] = payload
-            elif tag == "DEVICE":
+                state_update["status"] = "scanning"
+            elif tag in _IDENTITY_TAGS:
                 state_update["device"] = payload
-                state_update["status"] = "connected"
-                state_update["last_message"] = "BrainBit device connected."
+                state_update["selected_device"] = payload
+                state_update["last_message"] = "BrainBit device selected. Waiting for live sensor data."
+                important = True
+            elif tag == "DEVICE_SELECT_FAIL":
+                state_update["status"] = "failed"
+                state_update["selection_error"] = payload
+                state_update["last_message"] = payload.get("message") or "Configured BrainBit target was not found."
                 important = True
             elif tag == "BATTERY":
                 state_update["battery"] = payload
+            elif tag == "RESIST":
+                state_update["resist"] = payload
+                if any(payload.get(channel) is None for channel in ("O1", "O2", "T3", "T4")):
+                    state_update["status"] = "poor_contact"
+                    state_update["last_message"] = "BrainBit electrode values are missing. Adjust band and electrodes."
+                    important = True
             elif tag == "QUALITY":
+                _last_quality_at = now
                 state_update["quality"] = payload
+                state_update["last_quality_at"] = now_text
+                state_update["last_quality_epoch"] = now
+                contact_state, contact_channels = _derive_contact_quality(payload)
+                state_update["contact_quality_state"] = contact_state
+                state_update["contact_quality_channels"] = contact_channels
+                if contact_state == "poor":
+                    state_update["status"] = "poor_contact"
+                    state_update["last_message"] = "BrainBit is receiving data, but electrode contact is poor."
+                    important = True
+                elif contact_state == "mixed":
+                    state_update["last_message"] = "BrainBit electrode contact is mixed. Adjust the band before recording."
             elif tag == "EEG":
+                _last_eeg_at = now
                 state_update["eeg"] = payload
-            elif tag == "BANDS":
-                state_update["bands"] = payload
-            elif tag == "MENTAL":
-                state_update["mental"] = payload
+                state_update["last_eeg_at"] = now_text
+                state_update["last_eeg_epoch"] = now
+                if _last_derived_at <= 0:
+                    state_update["status"] = "warming_up"
+                    state_update["last_message"] = "BrainBit EEG is arriving; waiting for calibration and derived metrics."
+            elif tag in _DERIVED_TAGS:
+                _last_derived_at = now
+                state_update["last_derived_at"] = now_text
+                state_update["last_derived_epoch"] = now
+                state_update["status"] = "connected"
+                state_update["last_message"] = "BrainBit derived metrics are available."
+                if tag == "BANDS":
+                    state_update["bands"] = payload
+                else:
+                    state_update["mental"] = payload
             elif tag == "STATE":
                 state_update["sensor_state"] = payload
                 important = True
@@ -393,12 +508,23 @@ def _update_state_from_line(line: str) -> bool:
                 if payload.get("event"):
                     state_update["last_message"] = f"Calibration: {payload['event']}"
                     important = True
+                if payload.get("event") == "START" or "progress_percent" in payload:
+                    state_update["status"] = "calibrating"
+                elif payload.get("event") in {"FINISHED", "FORCED_FINISH"}:
+                    state_update["status"] = "warming_up"
+            elif tag == "ARTIFACT":
+                state_update["artifact"] = payload
+                if payload.get("both_now") or payload.get("sequence"):
+                    state_update["last_message"] = "BrainBit artifact detected. Reduce movement and check contact."
+                    important = True
             elif tag == "EMO_INIT_FAIL":
                 state_update["status"] = "failed"
                 state_update["last_message"] = payload.get("error", "EmotionalMath init failed.")
                 important = True
     elif line.startswith("[WARN]") or line.startswith("# ERROR") or line.startswith("# FATAL"):
         state_update["last_message"] = line
+        if "No valid EEG frames" in line or "Missing electrode" in line:
+            state_update["status"] = "poor_contact"
         important = True
     elif line.startswith("# ") or line.startswith("[STATUS]"):
         state_update["last_message"] = line
@@ -685,8 +811,182 @@ def _initialize_lsl_outlets() -> None:
     print("[BrainBit] LSL mirror outlets ready.")
 
 
-def _timestamp() -> str:
-    return time.strftime("%Y-%m-%d %H:%M:%S")
+def _derive_status(latest: dict[str, Any], running: bool) -> str:
+    status = latest.get("status") or ("running" if running else "not_configured")
+    if not running:
+        if status in {"failed", "exited", "stopped", "not_configured", "disabled"}:
+            return str(status)
+        return "stopped"
+    if not _has_recent_any_output(latest):
+        return "stale"
+    if status in {"failed", "exited", "stopped", "not_configured", "disabled", "stale", "scanning"}:
+        return str(status)
+    contact_state = latest.get("contact_quality_state")
+    if contact_state == "poor":
+        return "poor_contact"
+    calibration = latest.get("calibration") if isinstance(latest.get("calibration"), dict) else {}
+    if calibration and calibration.get("event") == "START":
+        return "calibrating"
+    if calibration and "progress_percent" in calibration and not latest.get("last_derived_at"):
+        return "calibrating"
+    if latest.get("last_eeg_at") and not latest.get("last_derived_at"):
+        return "warming_up"
+    if not _has_recent_sensor_activity(latest):
+        return "warming_up" if latest.get("selected_device") or latest.get("device") else "waiting"
+    return str(status)
+
+
+def _derive_contact_quality(quality: Any) -> tuple[str, dict[str, str]]:
+    if not isinstance(quality, dict) or not quality:
+        return "unknown", {}
+
+    channels: dict[str, str] = {}
+    values: list[float] = []
+    for channel in ("O1", "O2", "T3", "T4"):
+        raw_value = quality.get(channel)
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            channels[channel] = "poor"
+            continue
+        values.append(value)
+        if value <= 0 or value < 0.10:
+            channels[channel] = "poor"
+        elif value < 0.25:
+            channels[channel] = "mixed"
+        else:
+            channels[channel] = "usable"
+
+    if not values or any(state == "poor" for state in channels.values()):
+        return "poor", channels
+    if any(state == "mixed" for state in channels.values()):
+        return "mixed", channels
+    return "usable", channels
+
+
+def _seconds_since_values(latest: dict[str, Any]) -> dict[str, float | None]:
+    return {
+        "seconds_since_last_any_line": _seconds_since(_epoch_from_latest(latest, "last_any_line_epoch", _last_any_line_at)),
+        "seconds_since_last_activity": _seconds_since(
+            _epoch_from_latest(latest, "last_sensor_activity_epoch", _last_sensor_activity_at or _last_activity_at)
+        ),
+        "seconds_since_last_eeg": _seconds_since(_epoch_from_latest(latest, "last_eeg_epoch", _last_eeg_at)),
+        "seconds_since_last_quality": _seconds_since(_epoch_from_latest(latest, "last_quality_epoch", _last_quality_at)),
+        "seconds_since_last_derived": _seconds_since(_epoch_from_latest(latest, "last_derived_epoch", _last_derived_at)),
+    }
+
+
+def _build_health(latest: dict[str, Any], running: bool, contact_state: str) -> dict[str, str]:
+    calibration = latest.get("calibration") if isinstance(latest.get("calibration"), dict) else {}
+    calibration_state = "waiting"
+    if calibration.get("event") == "FINISHED":
+        calibration_state = "ready"
+    elif calibration.get("event") == "FORCED_FINISH":
+        calibration_state = "forced"
+    elif calibration.get("event") == "START" or "progress_percent" in calibration:
+        calibration_state = "calibrating"
+
+    if not running:
+        connection_state = "stopped"
+    elif _has_recent_sensor_activity(latest):
+        connection_state = "connected"
+    elif _has_recent_any_output(latest):
+        connection_state = "waiting"
+    else:
+        connection_state = "stale"
+
+    return {
+        "process": "running" if running else "stopped",
+        "connection": connection_state,
+        "contact": contact_state,
+        "calibration": calibration_state,
+        "eeg": "receiving" if latest.get("last_eeg_at") else "waiting",
+        "derived_metrics": "ready" if latest.get("last_derived_at") else "waiting",
+        "recording": "recording" if bool(_config.get("lsl_enabled", False) and _lsl_outlets) else "disabled",
+    }
+
+
+def _epoch_from_latest(latest: dict[str, Any], key: str, fallback: float) -> float | None:
+    try:
+        value = float(latest.get(key) or 0.0)
+    except (TypeError, ValueError):
+        value = 0.0
+    if value > 0:
+        return value
+    return fallback if fallback > 0 else None
+
+
+def _seconds_since(epoch: float | None) -> float | None:
+    if not epoch:
+        return None
+    return round(max(0.0, time.time() - epoch), 1)
+
+
+def _has_recent_any_output(latest: dict[str, Any]) -> bool:
+    return _is_recent(_epoch_from_latest(latest, "last_any_line_epoch", _last_any_line_at))
+
+
+def _has_recent_sensor_activity(latest: dict[str, Any]) -> bool:
+    return _is_recent(_epoch_from_latest(latest, "last_sensor_activity_epoch", _last_sensor_activity_at or _last_activity_at))
+
+
+def _is_recent(epoch: float | None) -> bool:
+    if not epoch:
+        return False
+    timeout_s = max(1.0, _config.get("disconnect_timeout_ms", 20000) / 1000.0)
+    return (time.time() - epoch) < timeout_s
+
+
+def _target_device_from_config() -> dict[str, Any]:
+    if not _config:
+        return {}
+    target = {
+        "serial_number": _config.get("serial_number") or "",
+        "address": _config.get("device_address") or "",
+        "name": _config.get("device_name") or "",
+        "index": _config.get("device_index"),
+    }
+    return {key: value for key, value in target.items() if value not in (None, "")}
+
+
+def _merge_scan_candidate(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    with _state_lock:
+        candidates = list(_latest_state.get("scan_candidates") or [])
+    normalized = _normalize_scan_candidate(payload)
+    identity = (
+        str(normalized.get("serial") or normalized.get("serial_number") or "").lower(),
+        str(normalized.get("address") or "").lower(),
+        str(normalized.get("name") or "").lower(),
+        str(normalized.get("index") if normalized.get("index") is not None else ""),
+    )
+    for idx, existing in enumerate(candidates):
+        existing_identity = (
+            str(existing.get("serial") or existing.get("serial_number") or "").lower(),
+            str(existing.get("address") or "").lower(),
+            str(existing.get("name") or "").lower(),
+            str(existing.get("index") if existing.get("index") is not None else ""),
+        )
+        if existing_identity == identity:
+            candidates[idx] = {**existing, **normalized}
+            return candidates
+    candidates.append(normalized)
+    return candidates[-12:]
+
+
+def _normalize_scan_candidate(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "index": payload.get("index"),
+        "name": payload.get("name") or payload.get("Name"),
+        "family": payload.get("family") or payload.get("SensFamily"),
+        "address": payload.get("address") or payload.get("Address"),
+        "serial": payload.get("serial") or payload.get("serial_number") or payload.get("SerialNumber"),
+        "pairing_required": payload.get("pairing_required") or payload.get("PairingRequired"),
+        "rssi": payload.get("rssi") or payload.get("RSSI"),
+    }
+
+
+def _timestamp(epoch: float | None = None) -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(epoch or time.time()))
 
 
 def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]:
@@ -756,35 +1056,41 @@ def _mean_payload(payloads: list[dict[str, Any]], key: str) -> float | None:
 
 
 def _watch_connection_health() -> None:
-    stale_timeout = max(1.0, _config.get("disconnect_timeout_ms", 5000) / 1000.0)
-
     while True:
         time.sleep(1.0)
 
-        process = _process
-        if process is None or process.poll() is not None:
+        if not _check_connection_health_once():
             return
 
-        if _last_activity_at <= 0:
-            continue
 
-        age = time.time() - _last_activity_at
-        if age < stale_timeout:
-            continue
+def _check_connection_health_once(now: float | None = None) -> bool:
+    stale_timeout = max(1.0, _config.get("disconnect_timeout_ms", 20000) / 1000.0)
+    process = _process
+    if process is None or process.poll() is not None:
+        return False
 
+    last_epoch = max(_last_any_line_at, _last_sensor_activity_at, _last_activity_at)
+    if last_epoch <= 0:
+        return True
+
+    now_value = now or time.time()
+    age = now_value - last_epoch
+    if age < stale_timeout:
+        return True
+
+    with _state_lock:
         status = _latest_state.get("status")
-        if status == "stale":
-            continue
-
+    if status != "stale":
         _set_state(
             {
                 "status": "stale",
                 "last_message": (
-                    f"No BrainBit data for {age:.1f}s - connection may be lost or the band may be off."
+                    f"No BrainBit output for {age:.1f}s - the CLI may be stuck or the device may be out of range."
                 ),
                 "seconds_since_last_activity": round(age, 1),
             },
             force=True,
         )
+    return True
 
 

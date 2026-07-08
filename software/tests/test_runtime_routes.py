@@ -60,6 +60,95 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertIn("packaged builds", payload["error"])
 
+    def test_study_session_start_requires_participant_id(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            response = app.test_client().post(
+                "/api/study/session/start",
+                json={"study_id": "test", "participant_id": ""},
+            )
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(payload["ok"])
+        self.assertIn("Participant ID", payload["error"])
+
+    def test_active_study_sensor_toggle_is_study_controlled(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            app.config["HARDWARE_CONFIG"] = {"brainbit": {"enabled": False}}
+            app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = {"brainbit": {"enabled": True}}
+            response = app.test_client().post(
+                "/api/admin/integrations/brainbit/enabled",
+                json={"enabled": False},
+            )
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["study_controlled"])
+        self.assertTrue(payload["enabled"])
+
+    def test_active_study_lsl_toggle_updates_active_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            app.config["HARDWARE_CONFIG"] = {"lsl": {"enabled": True}}
+            app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = {"lsl": {"enabled": True}}
+            response = app.test_client().post(
+                "/api/admin/integrations/lsl/enabled",
+                json={"enabled": False},
+            )
+
+            active_config = app.config["ACTIVE_STUDY_HARDWARE_CONFIG"]
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["active_runtime_updated"])
+        self.assertFalse(active_config["lsl"]["enabled"])
+
+    def test_emotion_worker_repair_runtime_route_reports_package_and_model_state(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            with patch(
+                "study_runner.integrations.local_emotion_worker.plugin.repair_runtime",
+                return_value={
+                    "dependency_install": {"status": "running"},
+                    "model_asset_install": {"status": "queued"},
+                },
+            ):
+                response = app.test_client().post("/api/admin/emotion-worker/repair-runtime")
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["dependency_install"]["status"], "running")
+        self.assertEqual(payload["model_asset_install"]["status"], "queued")
+
 
 if __name__ == "__main__":
     unittest.main()

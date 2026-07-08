@@ -35,6 +35,10 @@
             <i class="iconoir-import"></i>
             <span data-i18n="hub.importStudy">Import study</span>
           </button>
+          <a class="hub-card" href="/audit" target="_blank" rel="noreferrer">
+            <i class="iconoir-book"></i>
+            <span data-i18n="hub.auditSensorSetup">Audit &amp; Sensor Setup</span>
+          </a>
         </div>
 
         <h2 style="margin-top: 40px;" data-i18n="hub.recent">Recently used</h2>
@@ -417,9 +421,35 @@
           <input type="checkbox" id="study-sensors-enabled">
           <span style="display:flex; flex-direction:column; gap:4px;">
             <strong style="color:var(--ink);" data-i18n="settings.recordBiosignals">Record biosignals</strong>
-            <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.recordBiosignalsHint">When disabled, this study sends no triggers to external sensors (BrainBit/radar), even if cards request it.</small>
+            <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.recordBiosignalsHint">When disabled, this study sends no triggers to external sensors, even if cards request it.</small>
           </span>
         </label>
+      </div>
+      <div class="field" id="study-sensor-options" style="margin-bottom: 20px;">
+        <label style="margin-bottom: 10px;" data-i18n="settings.sensorSelection">Sensor selection</label>
+        <div class="stimulus-toggle-list">
+          <label class="consent-row" for="study-sensor-brainbit" style="margin-bottom: 0;">
+            <input type="checkbox" id="study-sensor-brainbit">
+            <span style="display:flex; flex-direction:column; gap:4px;">
+              <strong style="color:var(--ink);" data-i18n="settings.sensorBrainBit">BrainBit EEG</strong>
+              <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.sensorBrainBitHint">Starts BrainBit and records EEG-derived values for this study.</small>
+            </span>
+          </label>
+          <label class="consent-row" for="study-sensor-mini-radar" style="margin-bottom: 0;">
+            <input type="checkbox" id="study-sensor-mini-radar">
+            <span style="display:flex; flex-direction:column; gap:4px;">
+              <strong style="color:var(--ink);" data-i18n="settings.sensorRadar">MR60 radar</strong>
+              <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.sensorRadarHint">Starts MR60 BLE and records heart, breathing and presence values.</small>
+            </span>
+          </label>
+          <label class="consent-row" for="study-sensor-camera-emotion" style="margin-bottom: 0;">
+            <input type="checkbox" id="study-sensor-camera-emotion">
+            <span style="display:flex; flex-direction:column; gap:4px;">
+              <strong style="color:var(--ink);" data-i18n="settings.sensorCameraEmotion">Camera emotion</strong>
+              <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.sensorCameraEmotionHint">Opt-in: starts tablet camera emotion analysis only for studies that need it.</small>
+            </span>
+          </label>
+        </div>
       </div>
       <div class="field" style="margin-bottom: 20px;">
         <label class="consent-row" for="study-progress-bar-enabled" style="margin-bottom: 0;">

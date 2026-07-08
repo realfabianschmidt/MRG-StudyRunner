@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from .study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
+
 
 ALLOWED_QUESTION_TYPES = {
     "stimulus",
@@ -759,8 +761,27 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValidationError("study_settings must be a JSON object.")
 
+    raw_sensors = value.get("sensors")
+    if raw_sensors is not None and not isinstance(raw_sensors, dict):
+        raise ValidationError("study_settings.sensors must be a JSON object.")
+    if isinstance(raw_sensors, dict):
+        extra_sensor_keys = sorted(set(raw_sensors) - set(STUDY_SENSOR_KEYS))
+        if extra_sensor_keys:
+            raise ValidationError(
+                "study_settings.sensors contains unsupported entries: "
+                + ", ".join(extra_sensor_keys)
+                + "."
+            )
+
+    sensors_enabled = _normalize_boolean(value.get("sensors_enabled", True))
     return {
-        "sensors_enabled": _normalize_boolean(value.get("sensors_enabled", True)),
+        "sensors_enabled": sensors_enabled,
+        "sensors": normalize_study_sensors(
+            {
+                "sensors_enabled": sensors_enabled,
+                "sensors": raw_sensors,
+            }
+        ),
         "progress_bar_enabled": _normalize_boolean(value.get("progress_bar_enabled", False)),
         "notion_enabled": _normalize_boolean(value.get("notion_enabled", False)),
         "notion_parent_page_id": _normalize_text(value.get("notion_parent_page_id")),

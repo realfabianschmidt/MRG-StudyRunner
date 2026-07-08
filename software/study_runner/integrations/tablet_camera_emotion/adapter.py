@@ -23,6 +23,10 @@ _cv2: Any = None
 _np: Any = None
 _face_cascade: Any = None
 _history: deque[dict[str, Any]] = deque(maxlen=2048)
+_preview_state: dict[str, Any] = {
+    "available": False,
+    "last_message": "No camera preview frame received yet.",
+}
 _latest_state: dict[str, Any] = {
     "status": "not_configured",
     "latest": {},
@@ -102,6 +106,24 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
     received_at = _timestamp()
     frame_info = _extract_frame_info(payload)
     analysis = _analyze_frame(payload)
+    if payload.get("preview") is True:
+        result = {
+            "accepted": True,
+            "preview": True,
+            "participant_id": str(payload.get("participant_id") or "").strip(),
+            "study_id": str(payload.get("study_id") or "").strip(),
+            "question_index": payload.get("question_index"),
+            "active_phase": False,
+            "client_captured_at": payload.get("client_captured_at") or payload.get("client_timestamp"),
+            "server_received_at": received_at,
+            "processed_at": _timestamp(),
+            "sequence_number": payload.get("sequence_number"),
+            "frame": frame_info,
+            "analysis": analysis,
+        }
+        _set_preview_state(result, payload)
+        return result
+
     result = {
         "accepted": True,
         "participant_id": str(payload.get("participant_id") or "").strip(),
@@ -118,12 +140,17 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
     result["_epoch"] = time.time()
     _history.append(dict(result))
 
+    message = "Camera affect frame processed."
+    status = "connected"
+    if analysis.get("error"):
+        message = f"Camera emotion analysis error: {analysis['error']}"
+        status = "failed"
     _set_state(
         {
-            "status": "connected",
+            "status": status,
             "latest": result,
             "last_activity_at": received_at,
-            "last_message": "Camera affect frame processed.",
+            "last_message": message,
         }
     )
     _push_lsl_result(result)
@@ -145,6 +172,11 @@ def get_status() -> dict[str, Any]:
     status["emotion_worker_url"] = _config.get("emotion_worker_url", "")
     status["streams"] = list(_lsl_outlets.keys())
     return status
+
+
+def get_preview_status() -> dict[str, Any]:
+    with _state_lock:
+        return dict(_preview_state)
 
 
 def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]:
@@ -236,8 +268,9 @@ def _forward_to_emotion_worker(payload: dict[str, Any]) -> dict[str, Any] | None
     mode_label = _config.get("worker_mode", "local_worker")
     url = _config.get("emotion_worker_url", "")
     if not url:
-        _set_state({"last_message": f"{mode_label}: emotion_worker_url not configured"})
-        return None
+        reason = f"{mode_label}: emotion_worker_url not configured"
+        _set_state({"last_message": reason})
+        return _worker_error_result(reason)
 
     timeout_s = _config.get("emotion_worker_timeout_ms", 5000) / 1000.0
 
@@ -263,8 +296,9 @@ def _forward_to_emotion_worker(payload: dict[str, Any]) -> dict[str, Any] | None
         result.setdefault("overlay", {})
         return result
     except (urllib.error.URLError, OSError, ValueError) as exc:
-        _set_state({"last_message": f"emotion_worker unreachable: {exc}"})
-        return None
+        reason = f"emotion_worker unreachable: {exc}"
+        _set_state({"last_message": reason})
+        return _worker_error_result(reason)
 
 
 def _analyze_frame_placeholder(payload: dict[str, Any]) -> dict[str, Any]:
@@ -286,6 +320,21 @@ def _analyze_frame_placeholder(payload: dict[str, Any]) -> dict[str, Any]:
         "face_confidence": 1.0 if face_detected else 0.0,
         "scores": scores,
         "overlay": payload.get("overlay") if isinstance(payload.get("overlay"), dict) else {},
+    }
+
+
+def _worker_error_result(reason: str) -> dict[str, Any]:
+    scores = {name: 0.0 for name in _EMOTIONS}
+    return {
+        "worker_mode": _config.get("worker_mode", "local_worker"),
+        "face_detected": False,
+        "emotion": "unknown",
+        "confidence": 0.0,
+        "face_confidence": 0.0,
+        "scores": scores,
+        "overlay": {},
+        "error": reason,
+        "install_hint": "Run 'pip install -r software/requirements.txt' on the server computer, then restart the local Emotion Worker.",
     }
 
 
@@ -493,6 +542,22 @@ def _set_state(values: dict[str, Any]) -> None:
     with _state_lock:
         _latest_state.update(values)
         _latest_state["updated_at"] = _timestamp()
+
+
+def _set_preview_state(result: dict[str, Any], payload: dict[str, Any]) -> None:
+    global _preview_state
+
+    analysis = result.get("analysis") or {}
+    image_data = str(payload.get("image") or payload.get("image_base64") or "")
+    with _state_lock:
+        _preview_state = {
+            "available": True,
+            "status": "failed" if analysis.get("error") else "connected",
+            "last_message": analysis.get("error") or "Camera preview frame processed.",
+            "updated_at": result.get("processed_at"),
+            "latest": result,
+            "image": image_data,
+        }
 
 
 def _timestamp() -> str:

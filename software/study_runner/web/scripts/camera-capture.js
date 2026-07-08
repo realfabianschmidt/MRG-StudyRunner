@@ -9,6 +9,12 @@ export async function startCameraCaptureSession(options) {
   const intervalMs = Math.max(DEFAULT_INTERVAL_MS, Number(options.intervalMs || DEFAULT_INTERVAL_MS));
   const getPayload = typeof options.getPayload === 'function' ? options.getPayload : () => ({});
   const onState = typeof options.onState === 'function' ? options.onState : () => {};
+  const preview = Boolean(options.preview);
+  const activePhase = options.activePhase === undefined ? !preview : Boolean(options.activePhase);
+  const getFrameState = typeof options.getFrameState === 'function'
+    ? options.getFrameState
+    : () => ({ preview, activePhase });
+  const previewContainer = options.previewContainer || null;
 
   if (!window.isSecureContext) {
     onState({
@@ -42,6 +48,10 @@ export async function startCameraCaptureSession(options) {
   video.muted = true;
   video.playsInline = true;
   video.srcObject = stream;
+  if (previewContainer) {
+    video.className = 'camera-preview-video';
+    previewContainer.replaceChildren(video);
+  }
 
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d', { willReadFrequently: false });
@@ -72,16 +82,20 @@ export async function startCameraCaptureSession(options) {
 
     const clientCapturedAt = new Date().toISOString();
     const image = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+    const frameState = getFrameState() || {};
+    const framePreview = frameState.preview === undefined ? preview : Boolean(frameState.preview);
+    const frameActivePhase = frameState.activePhase === undefined ? activePhase : Boolean(frameState.activePhase);
 
     void postJson('/api/camera/frame', {
       ...getPayload(),
+      preview: framePreview,
       image,
       image_format: 'image/jpeg',
       width: targetWidth,
       height: targetHeight,
       client_captured_at: clientCapturedAt,
       sequence_number: sequenceNumber,
-      active_phase: true,
+      active_phase: frameActivePhase,
     })
       .then((response) => {
         const nextFrameCount = sequenceNumber + 1;
@@ -90,6 +104,8 @@ export async function startCameraCaptureSession(options) {
             permission: 'uploading',
             message: `Camera frame ${nextFrameCount} uploaded.`,
             frames_sent: nextFrameCount,
+            analysis: response.analysis || null,
+            frame: response.frame || null,
           });
           return;
         }
@@ -123,6 +139,9 @@ export async function startCameraCaptureSession(options) {
     }
     stream.getTracks().forEach((track) => track.stop());
     video.srcObject = null;
+    if (previewContainer && video.parentElement === previewContainer) {
+      previewContainer.replaceChildren();
+    }
     onState({ permission: 'stopped', message: 'Camera capture stopped.' });
   };
 }

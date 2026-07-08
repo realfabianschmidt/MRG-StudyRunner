@@ -23,6 +23,8 @@ software/study_runner/integrations/brainbit/logs/
 software/study_runner/integrations/brainbit/recordings/
 software/study_runner/integrations/**/logs/
 software/study_runner/integrations/**/*.log
+# DeepFace runtime cache (generated at start from the vendored model_assets)
+software/study_runner/integrations/local_emotion_worker/deepface_home/
 .secrets/
 
 # Environment and editor tooling

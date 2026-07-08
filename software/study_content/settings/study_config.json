@@ -1,5 +1,5 @@
 {
-  "study_id": "Test1",
+  "study_id": "Neue Studie",
   "questions": [
     {
       "type": "participant-id",
@@ -28,7 +28,7 @@
           ]
         },
         "gender": {
-          "enabled": true,
+          "enabled": false,
           "use_for_key": false,
           "store": false,
           "options": [
@@ -58,10 +58,7 @@
           "use_for_key": false,
           "store": false
         }
-      },
-      "code_label": "Your anonymous code",
-      "info_top": "tesr",
-      "info_bottom": "dsfsdfsd"
+      }
     },
     {
       "type": "mood-meter",
@@ -70,15 +67,41 @@
       "word_lists": null
     },
     {
-      "type": "single",
-      "prompt": "Question",
-      "options": [
-        "Option A",
-        "Option B",
-        "Option C"
+      "type": "word-cloud",
+      "prompt": "Which words describe how you feel right now?",
+      "words": [
+        "Happy!",
+        "Sad",
+        "Excited",
+        "Calm",
+        "Anxious",
+        "Tired",
+        "Focused",
+        "Restless"
       ],
-      "info_top": "Info",
-      "info_bottom": "Note"
+      "allow_multiple": true
+    },
+    {
+      "type": "multi-slider",
+      "prompt": "Rate how you feel on each dimension:",
+      "dimensions": [
+        {
+          "label": "Valence",
+          "min_label": "Very negative",
+          "max_label": "Very positive"
+        },
+        {
+          "label": "Arousal",
+          "min_label": "Very calm",
+          "max_label": "Very excited"
+        }
+      ]
+    },
+    {
+      "type": "slider",
+      "prompt": "",
+      "label_min": "not at all",
+      "label_max": "very strongly"
     },
     {
       "type": "finish",
@@ -87,11 +110,16 @@
     }
   ],
   "study_settings": {
-    "sensors_enabled": true,
-    "progress_bar_enabled": true,
-    "notion_enabled": false,
-    "notion_parent_page_id": "",
-    "notion_database_id": "",
-    "notion_data_source_id": ""
+    "sensors_enabled": false,
+    "sensors": {
+      "brainbit": false,
+      "mini_radar": false,
+      "camera_emotion": false
+    },
+    "progress_bar_enabled": false,
+    "notion_enabled": true,
+    "notion_parent_page_id": "34f720d2b401800c8152f50b363cd4f2",
+    "notion_database_id": "6c8ae6ab62a843b498f05e3e7a4e5b50",
+    "notion_data_source_id": "417c4c30-bdb1-4953-8088-b71251164e28"
   }
 }

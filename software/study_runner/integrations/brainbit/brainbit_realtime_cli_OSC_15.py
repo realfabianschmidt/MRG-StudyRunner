@@ -144,6 +144,46 @@ def _print_sensor_summary(sensor) -> None:
         _status(f"  {key}: {value}")
 
 
+def _sensor_info_payload(info, index: int) -> dict:
+    return {
+        "index": index,
+        "name": _safe(info, "Name"),
+        "family": _enum_name(_safe(info, "SensFamily")),
+        "address": _safe(info, "Address"),
+        "serial": _safe(info, "SerialNumber"),
+        "pairing_required": _safe(info, "PairingRequired"),
+        "rssi": _safe(info, "RSSI"),
+    }
+
+
+def _normalize_target(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _select_sensor_info(sensors: List[Any], args) -> Tuple[Optional[int], Optional[Any], str]:
+    serial_target = _normalize_target(args.serial_number)
+    address_target = _normalize_target(args.device_address)
+    name_target = _normalize_target(args.device_name)
+    if serial_target:
+        for idx, info in enumerate(sensors):
+            if _normalize_target(_safe(info, "SerialNumber")) == serial_target:
+                return idx, info, "serial_number"
+        return None, None, f"serial_number '{args.serial_number}' not found"
+    if address_target:
+        for idx, info in enumerate(sensors):
+            if _normalize_target(_safe(info, "Address")) == address_target:
+                return idx, info, "device_address"
+        return None, None, f"device_address '{args.device_address}' not found"
+    if name_target:
+        for idx, info in enumerate(sensors):
+            if _normalize_target(_safe(info, "Name")) == name_target:
+                return idx, info, "device_name"
+        return None, None, f"device_name '{args.device_name}' not found"
+    if args.device_index < 0 or args.device_index >= len(sensors):
+        return None, None, f"device_index {args.device_index} out of range"
+    return int(args.device_index), sensors[int(args.device_index)], "device_index"
+
+
 def _format_values(**kwargs) -> str:
     return ", ".join(f"{k}={v}" for k, v in kwargs.items())
 
@@ -230,6 +270,9 @@ def main():
     ap = argparse.ArgumentParser(description="BrainBit CLI + OSC + Emotions (Bands + Mind) with calibration watchdog")
     ap.add_argument("--scan-seconds", type=int, default=5)
     ap.add_argument("--device-index", type=int, default=0)
+    ap.add_argument("--device-address", type=str, default="")
+    ap.add_argument("--serial-number", type=str, default="")
+    ap.add_argument("--device-name", type=str, default="")
 
     # staging (per SDK: Resist and Signal cannot run simultaneously)
     ap.add_argument("--no-resist", action="store_true")
@@ -278,15 +321,7 @@ def main():
 
     def _on_sensors(_, sensors):
         for idx, info in enumerate(sensors):
-            _print_json("SCAN", {
-                "index": idx,
-                "name": _safe(info, "Name"),
-                "family": _enum_name(_safe(info, "SensFamily")),
-                "address": _safe(info, "Address"),
-                "serial": _safe(info, "SerialNumber"),
-                "pairing_required": _safe(info, "PairingRequired"),
-                "rssi": _safe(info, "RSSI"),
-            })
+            _print_json("SCAN", _sensor_info_payload(info, idx))
     scanner.sensorsChanged = _on_sensors
 
     stop_event = threading.Event()
@@ -301,9 +336,22 @@ def main():
     if not sensors:
         print("# No compatible BrainBit-family sensor found. Exiting.", flush=True)
         return
-    sel_idx = max(0, min(args.device_index, len(sensors)-1))
-    info = sensors[sel_idx]
-    print(f"# Connecting to device index {sel_idx} ...", flush=True)
+    sel_idx, info, selection_source = _select_sensor_info(sensors, args)
+    if info is None or sel_idx is None:
+        target = {
+            "serial_number": args.serial_number,
+            "device_address": args.device_address,
+            "device_name": args.device_name,
+            "device_index": args.device_index,
+        }
+        message = f"Configured BrainBit target not found: {selection_source}"
+        _print_json("DEVICE_SELECT_FAIL", {"message": message, "target": target})
+        print(f"# {message}. Exiting.", flush=True)
+        raise SystemExit(4)
+    selected_payload = _sensor_info_payload(info, sel_idx)
+    selected_payload["selection_source"] = selection_source
+    _print_json("DEVICE_SELECTED", selected_payload)
+    print(f"# Connecting to device index {sel_idx} ({selection_source}) ...", flush=True)
     sensor = scanner.create_sensor(info)
 
     try:

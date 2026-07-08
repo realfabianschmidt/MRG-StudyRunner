@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import time
 import unittest
 
 
@@ -20,11 +21,35 @@ class FakeOutlet:
         self.samples.append(list(values))
 
 
+class FakeProcess:
+    pid = 12345
+
+    def poll(self):
+        return None
+
+
 class BrainBitAdapterTests(unittest.TestCase):
+    def setUp(self) -> None:
+        adapter._config = {
+            "lsl_enabled": False,
+            "disconnect_timeout_ms": 1000,
+            "monitor_refresh_ms": 1000,
+        }
+        adapter._latest_state = {}
+        adapter._history.clear()
+        adapter._process = FakeProcess()
+        adapter._last_activity_at = 0.0
+        adapter._last_any_line_at = 0.0
+        adapter._last_sensor_activity_at = 0.0
+        adapter._last_eeg_at = 0.0
+        adapter._last_quality_at = 0.0
+        adapter._last_derived_at = 0.0
+
     def tearDown(self) -> None:
         adapter._lsl_outlets = {}
         adapter._routing_state["forward_to_lsl"] = False
         adapter._routing_state["forward_to_touchdesigner"] = False
+        adapter._process = None
 
     def test_lsl_mirror_is_continuous_when_outlet_exists(self) -> None:
         outlet = FakeOutlet()
@@ -34,6 +59,87 @@ class BrainBitAdapterTests(unittest.TestCase):
         adapter._mirror_line_to_lsl('EEG {"O1": 1, "O2": 2, "T3": 3, "T4": 4}')
 
         self.assertEqual(outlet.samples, [[1.0, 2.0, 3.0, 4.0]])
+
+    def test_quality_updates_contact_state_without_stale(self) -> None:
+        adapter._update_state_from_line('QUALITY {"O1": 0.0, "O2": 0.18, "T3": 0.4, "T4": 0.3}')
+
+        status = adapter.get_status()
+
+        self.assertEqual(status["status"], "poor_contact")
+        self.assertEqual(status["contact_quality_state"], "poor")
+        self.assertIsNotNone(status["seconds_since_last_quality"])
+        self.assertNotEqual(status["status"], "stale")
+
+    def test_resist_missing_values_count_as_activity(self) -> None:
+        adapter._update_state_from_line('RESIST {"O1": null, "O2": 1700, "T3": 1500, "T4": 1600}')
+
+        status = adapter.get_status()
+
+        self.assertEqual(status["status"], "poor_contact")
+        self.assertIsNotNone(status["seconds_since_last_activity"])
+        self.assertIn("resist", status["latest"])
+
+    def test_eeg_without_derived_metrics_is_warming_up(self) -> None:
+        adapter._update_state_from_line('EEG {"O1": 1, "O2": 2, "T3": 3, "T4": 4}')
+
+        status = adapter.get_status()
+
+        self.assertEqual(status["status"], "warming_up")
+        self.assertEqual(status["health"]["eeg"], "receiving")
+        self.assertEqual(status["health"]["derived_metrics"], "waiting")
+
+    def test_derived_metrics_mark_brainbit_connected(self) -> None:
+        adapter._update_state_from_line('EEG {"O1": 1, "O2": 2, "T3": 3, "T4": 4}')
+        adapter._update_state_from_line('MENTAL {"Inst_Attention": 0.7, "Inst_Relaxation": 0.3, "Rel_Attention": 0.6, "Rel_Relaxation": 0.4}')
+
+        status = adapter.get_status()
+
+        self.assertEqual(status["status"], "connected")
+        self.assertEqual(status["health"]["derived_metrics"], "ready")
+        self.assertIsNotNone(status["seconds_since_last_derived"])
+
+    def test_no_output_beyond_timeout_marks_stale(self) -> None:
+        adapter._process = FakeProcess()
+        adapter._last_any_line_at = 100.0
+        adapter._latest_state = {"status": "connected"}
+
+        adapter._check_connection_health_once(now=102.0)
+
+        self.assertEqual(adapter.get_status()["status"], "stale")
+
+    def test_device_identity_without_live_activity_is_not_connected(self) -> None:
+        adapter._update_state_from_line('DEVICE {"name": "BrainBit", "serial_number": "ABC123"}')
+
+        status = adapter.get_status()
+
+        self.assertEqual(status["selected_device"]["serial_number"], "ABC123")
+        self.assertNotEqual(status["health"]["connection"], "connected")
+        self.assertNotEqual(status["status"], "connected")
+
+    def test_process_exit_with_old_device_is_not_connected(self) -> None:
+        now = time.time()
+        adapter._latest_state = {
+            "status": "connected",
+            "device": {"name": "BrainBit", "serial_number": "ABC123"},
+            "last_any_line_epoch": now,
+            "last_sensor_activity_epoch": now,
+        }
+        adapter._process = None
+
+        status = adapter.get_status()
+
+        self.assertEqual(status["health"]["connection"], "stopped")
+        self.assertEqual(status["status"], "stopped")
+
+    def test_scan_candidates_are_exposed(self) -> None:
+        adapter._update_state_from_line(
+            'SCAN {"index": 1, "name": "BrainBit Black", "address": "AA:BB", "serial": "SN-1", "rssi": -60}'
+        )
+
+        status = adapter.get_status()
+
+        self.assertEqual(status["scan_candidates"][0]["serial"], "SN-1")
+        self.assertEqual(status["scan_candidates"][0]["address"], "AA:BB")
 
 
 if __name__ == "__main__":

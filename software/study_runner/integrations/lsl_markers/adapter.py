@@ -45,6 +45,12 @@ def initialize(stream_name: str, stream_type: str, auto_install: bool = True) ->
         print("[LSL] pylsl import failed after dependency check.")
 
 
+def stop() -> None:
+    """Release the module-level LSL outlet."""
+    global _outlet
+    _outlet = None
+
+
 def send_marker(value: str) -> None:
     """Push a string marker to the LSL outlet. Does nothing if LSL is not active."""
     if _outlet is not None:

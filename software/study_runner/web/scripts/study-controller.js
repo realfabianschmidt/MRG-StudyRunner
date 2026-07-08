@@ -18,10 +18,22 @@ const state = {
   clockOffsetMs: null,  // estimated server epoch ms minus tablet performance.now()
   touchedFields: {},
   questionMetrics: {},
+  sensorSessionStarted: false,
+  cameraMonitorCleanup: null,
+  cameraMonitorStarting: false,
 };
 
 function getElement(id) {
   return document.getElementById(id);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 async function init() {
@@ -37,8 +49,17 @@ async function init() {
 
   try {
     state.config = await getJson('/api/config');
-    // Start the study immediately because the welcome screen was removed
-    void startTrial();
+    if (!hasParticipantIdStartCard()) {
+      renderParticipantIdRequiredBlock();
+      showScreen('questions');
+      return;
+    }
+    buildQuestions({ markInitialShown: false, startFirstStimulus: false });
+    showScreen('questions');
+    void startCameraMonitorIfNeeded();
+    if (shouldStartStudyImmediately()) {
+      void startTrial({ rebuild: false });
+    }
     void requestStudyFullscreen();
   } catch (error) {
     console.error('[study] Could not load configuration:', error);
@@ -290,15 +311,74 @@ function showScreen(screenName) {
   targetScreen.classList.add('active');
 }
 
-async function startTrial() {
+function shouldStartStudyImmediately() {
+  return false;
+}
+
+function hasParticipantIdStartCard() {
+  const questions = state.config.questions || [];
+  return questions[0]?.type === 'participant-id';
+}
+
+function hasResolvedParticipantId() {
+  const participantId = resolveParticipantId();
+  return Boolean(participantId && participantId !== 'unknown');
+}
+
+function renderParticipantIdRequiredBlock() {
+  const container = getElement('q-container');
+  if (container) {
+    container.innerHTML = `
+      <div class="q-card-study active">
+        <div class="q-type-tag"><i class="iconoir-user-badge-check"></i> ${escapeHtml(t('cards.participant.tag', 'Participant ID'))}</div>
+        <p class="q-prompt">${escapeHtml(t('study.participantRequiredTitle', 'Participant ID required'))}</p>
+        <p class="screen-sub">${escapeHtml(t('study.participantRequiredBody', 'This study cannot start because the first card is not a Participant ID card. Add a Participant ID card as the first card in the admin editor, then reload this tablet page.'))}</p>
+      </div>`;
+  }
+  getElement('btn-prev').disabled = true;
+  getElement('btn-next').disabled = true;
+  getElement('btn-next-label').textContent = t('study.start', 'Start');
+  getElement('btn-next-icon').className = 'iconoir-lock';
+  renderCounter(0, 0);
+  updateProgressBar(0, 0);
+}
+
+async function startTrial(options = {}) {
   if (!Array.isArray(state.config.questions)) {
     alert('The study configuration is not ready yet. Please reload the page.');
     return;
   }
 
+  if (state.startTime) {
+    return;
+  }
+  if (!hasResolvedParticipantId()) {
+    alert(t('study.participantRequiredAlert', 'Please enter the Participant ID before starting the study.'));
+    updateNavigation();
+    return;
+  }
+
+  const rebuild = options.rebuild !== false;
   state.startTime = Date.now();
+  const sessionStarted = await startStudySensorSession();
+  if (!sessionStarted) {
+    state.startTime = null;
+    updateNavigation();
+    return;
+  }
   await sendMarker('study_start', null, null, 'study_start');
-  buildQuestions();
+  if (rebuild) {
+    buildQuestions();
+  } else {
+    const currentQuestion = (state.config.questions || [])[state.currentIndex];
+    if (currentQuestion?.type !== 'participant-id') {
+      markQuestionShown(state.currentIndex);
+      if (currentQuestion?.type === 'stimulus') {
+        void startStimulusCard(state.currentIndex, currentQuestion);
+      }
+    }
+    updateNavigation();
+  }
 
   if (!state.config.questions.length) {
     await submitResults();
@@ -308,7 +388,9 @@ async function startTrial() {
   showScreen('questions');
 }
 
-function buildQuestions() {
+function buildQuestions(options = {}) {
+  const markInitialShown = options.markInitialShown !== false;
+  const startFirstStimulus = options.startFirstStimulus !== false;
   void stopActiveStimulus({ shouldSendStop: false });
 
   const container = getElement('q-container');
@@ -341,13 +423,15 @@ function buildQuestions() {
   const firstCard = getElement('card-q-0');
   if (firstCard) {
     playCardEntrance(firstCard, 'card-enter-initial');
-    markQuestionShown(0);
+    if (markInitialShown) {
+      markQuestionShown(0);
+    }
   }
 
   updateNavigation();
 
   const firstQuestion = (state.config.questions || [])[0];
-  if (firstQuestion?.type === 'stimulus') {
+  if (startFirstStimulus && firstQuestion?.type === 'stimulus') {
     void startStimulusCard(0, firstQuestion);
   }
 }
@@ -492,9 +576,9 @@ async function startActiveStimulusPhase(stimulusRun) {
         ...buildEventPayload(index, question, 'stimulus_active_start', clientTriggerMs),
         marker_event: 'stimulus_active_start',
         send_signal: question.send_signal !== false,
-        brainbit_to_lsl: question.brainbit_to_lsl !== false,
-        brainbit_to_touchdesigner: question.brainbit_to_touchdesigner !== false,
-        mini_radar_recording_enabled: question.mini_radar_recording_enabled !== false,
+        brainbit_to_lsl: isStudySensorEnabled('brainbit') && question.brainbit_to_lsl !== false,
+        brainbit_to_touchdesigner: isStudySensorEnabled('brainbit') && question.brainbit_to_touchdesigner !== false,
+        mini_radar_recording_enabled: isStudySensorEnabled('mini_radar') && question.mini_radar_recording_enabled !== false,
       });
       state.questionMetrics[index] = {
         ...state.questionMetrics[index],
@@ -560,7 +644,10 @@ async function finishStimulusCard(stimulusRun) {
 
 async function maybeStartCameraCapture(stimulusRun) {
   const { index, question } = stimulusRun;
-  if (question.camera_capture_enabled !== true) {
+  if (question.camera_capture_enabled !== true || !isStudySensorEnabled('camera_emotion')) {
+    return null;
+  }
+  if (typeof state.cameraMonitorCleanup === 'function') {
     return null;
   }
 
@@ -579,6 +666,91 @@ async function maybeStartCameraCapture(stimulusRun) {
       }
     },
   });
+}
+
+async function startCameraMonitorIfNeeded() {
+  if (!isStudySensorEnabled('camera_emotion') || state.cameraMonitorStarting || typeof state.cameraMonitorCleanup === 'function') {
+    return;
+  }
+
+  state.cameraMonitorStarting = true;
+  try {
+    await postJson('/api/study/camera-monitor/start', {
+      study_id: state.config.study_id || '',
+    });
+    const cleanup = await startCameraCaptureSession({
+      intervalMs: getCameraMonitorIntervalMs(),
+      preview: true,
+      activePhase: false,
+      getFrameState: getCameraFrameState,
+      getPayload: getCameraMonitorPayload,
+      onState: (cameraState) => {
+        state.cameraPermission = cameraState.permission || state.cameraPermission;
+        if (!['granted', 'uploading', 'stopped'].includes(cameraState.permission)) {
+          console.warn('[camera]', cameraState.message || cameraState.permission);
+        }
+      },
+    });
+    if (typeof cleanup === 'function') {
+      state.cameraMonitorCleanup = cleanup;
+    }
+  } catch (error) {
+    console.warn('[camera] Could not start camera monitor:', error);
+  } finally {
+    state.cameraMonitorStarting = false;
+  }
+}
+
+function stopCameraMonitor() {
+  if (typeof state.cameraMonitorCleanup !== 'function') {
+    return;
+  }
+  try {
+    state.cameraMonitorCleanup();
+  } catch (error) {
+    console.warn('[camera] Could not stop camera monitor:', error);
+  } finally {
+    state.cameraMonitorCleanup = null;
+  }
+}
+
+function getCameraFrameState() {
+  const activeQuestion = state.activeStimulus?.question || null;
+  const activeCameraSample = Boolean(
+    state.startTime
+    && state.activeStimulus
+    && activeQuestion?.camera_capture_enabled === true
+    && isStudySensorEnabled('camera_emotion')
+  );
+  return {
+    preview: !activeCameraSample,
+    activePhase: activeCameraSample,
+  };
+}
+
+function getCameraMonitorPayload() {
+  const questions = state.config.questions || [];
+  const activeQuestion = state.activeStimulus?.question || null;
+  const activeCameraSample = !getCameraFrameState().preview;
+  const questionIndex = activeCameraSample ? state.activeStimulus.index : null;
+  const question = activeCameraSample ? activeQuestion : questions[state.currentIndex] || null;
+  return {
+    participant_id: resolveParticipantId(),
+    study_id: state.config.study_id || '',
+    question_index: questionIndex,
+    question_type: activeCameraSample ? question?.type || '' : 'prestudy_monitor',
+    phase: activeCameraSample ? 'stimulus_active' : 'prestudy_monitor',
+  };
+}
+
+function getCameraMonitorIntervalMs() {
+  const questions = state.config.questions || [];
+  const cameraStimulus = questions.find((question) => (
+    question?.type === 'stimulus'
+    && question.camera_capture_enabled === true
+    && Number.isFinite(Number(question.camera_snapshot_interval_ms))
+  ));
+  return cameraStimulus ? Number(cameraStimulus.camera_snapshot_interval_ms) : 200;
 }
 
 async function stopActiveStimulus({ shouldSendStop }) {
@@ -616,8 +788,8 @@ async function stopActiveStimulus({ shouldSendStop }) {
         ...buildEventPayload(stimulusRun.index, stimulusRun.question, 'stimulus_active_stop', clientTriggerMs),
         marker_event: 'stimulus_active_stop',
         send_signal: stimulusRun.question.send_signal !== false,
-        brainbit_to_lsl: stimulusRun.question.brainbit_to_lsl !== false,
-        brainbit_to_touchdesigner: stimulusRun.question.brainbit_to_touchdesigner !== false,
+        brainbit_to_lsl: isStudySensorEnabled('brainbit') && stimulusRun.question.brainbit_to_lsl !== false,
+        brainbit_to_touchdesigner: isStudySensorEnabled('brainbit') && stimulusRun.question.brainbit_to_touchdesigner !== false,
         mini_radar_recording_enabled: false,
       });
       state.questionMetrics[stimulusRun.index] = {
@@ -856,6 +1028,9 @@ function markQuestionShown(questionIndex) {
     ...current,
     shown_at: current.shown_at || nowIso,
   };
+  if (!state.startTime || question?.type === 'participant-id') {
+    return;
+  }
   if (question?.type !== 'finish' && !current.shown_marker_sent) {
     state.questionMetrics[questionIndex].shown_marker_sent = true;
     void sendMarker(
@@ -882,6 +1057,9 @@ function recordQuestionCompletion(questionIndex) {
     ...current,
     answered_at: new Date().toISOString(),
   };
+  if (!state.startTime || question.type === 'participant-id') {
+    return Promise.resolve();
+  }
   return sendMarker('question_answered', questionIndex, question, 'answered');
 }
 
@@ -893,12 +1071,75 @@ function shouldActivateHardware(question) {
   if (state.config.study_settings && state.config.study_settings.sensors_enabled === false) {
     return false;
   }
-  return (
-    question.send_signal !== false
-    || question.brainbit_to_lsl !== false
+  const brainbitRequested = isStudySensorEnabled('brainbit') && (
+    question.brainbit_to_lsl !== false
     || question.brainbit_to_touchdesigner !== false
-    || question.mini_radar_recording_enabled !== false
   );
+  const radarRequested = isStudySensorEnabled('mini_radar') && question.mini_radar_recording_enabled !== false;
+  const cameraRequested = isStudySensorEnabled('camera_emotion') && question.camera_capture_enabled === true;
+  const anySensorEnabled = hasAnyStudySensorEnabled();
+  return (
+    anySensorEnabled
+    && (
+      question.send_signal !== false
+      || brainbitRequested
+      || radarRequested
+      || cameraRequested
+    )
+  );
+}
+
+function getStudySensorSettings() {
+  const settings = state.config.study_settings || {};
+  if (settings.sensors_enabled === false) {
+    return { brainbit: false, mini_radar: false, camera_emotion: false };
+  }
+  const sensors = settings.sensors && typeof settings.sensors === 'object' ? settings.sensors : {};
+  return {
+    brainbit: sensors.brainbit !== false,
+    mini_radar: sensors.mini_radar !== false,
+    camera_emotion: sensors.camera_emotion === true,
+  };
+}
+
+function isStudySensorEnabled(sensorKey) {
+  return Boolean(getStudySensorSettings()[sensorKey]);
+}
+
+function hasAnyStudySensorEnabled() {
+  return Object.values(getStudySensorSettings()).some(Boolean);
+}
+
+async function startStudySensorSession() {
+  try {
+    await postJson('/api/study/session/start', {
+      study_id: state.config.study_id || '',
+      participant_id: resolveParticipantId(),
+    });
+    state.sensorSessionStarted = true;
+    return true;
+  } catch (error) {
+    state.sensorSessionStarted = false;
+    console.error('[study] Could not start study sensor session:', error);
+    alert(error.message || t('study.startFailed', 'Could not start the study session.'));
+    return false;
+  }
+}
+
+async function stopStudySensorSession() {
+  if (!state.sensorSessionStarted) {
+    return;
+  }
+  try {
+    await postJson('/api/study/session/stop', {
+      study_id: state.config.study_id || '',
+      participant_id: resolveParticipantId(),
+    });
+  } catch (error) {
+    console.error('[study] Could not stop study sensor session:', error);
+  } finally {
+    state.sensorSessionStarted = false;
+  }
 }
 
 function isAnswered(questionIndex) {
@@ -985,13 +1226,14 @@ function updateNavigation() {
   const answered = isAnswered(currentIndex) && !isStimulusBusy;
 
   const isLastNormalCard = (currentIndex === total - 1) || (questions[currentIndex + 1]?.type === 'finish');
+  const isPreStudyStart = !state.startTime && currentQuestion?.type === 'participant-id';
 
   getElement('btn-prev').disabled = isFirst || isStimulusBusy;
   getElement('btn-next').disabled = !answered;
 
   renderCounter(Math.min(currentIndex + 1, totalNormal), totalNormal);
   updateProgressBar(Math.min(currentIndex + 1, totalNormal), totalNormal);
-  getElement('btn-next-label').textContent = isLastNormalCard ? t('study.submit', 'Submit') : t('study.next', 'Next');
+  getElement('btn-next-label').textContent = isPreStudyStart ? t('study.start', 'Start') : (isLastNormalCard ? t('study.submit', 'Submit') : t('study.next', 'Next'));
   getElement('btn-next-icon').className = isLastNormalCard ? 'iconoir-check' : 'iconoir-nav-arrow-right';
 }
 
@@ -1025,6 +1267,19 @@ function updateProgressBar(current, total) {
 async function handleNext() {
   const total = (state.config.questions || []).length;
   const nextQuestion = state.config.questions[state.currentIndex + 1];
+
+  if (!state.startTime) {
+    await startTrial({ rebuild: false });
+    if (!state.startTime) {
+      return;
+    }
+    if ((nextQuestion && nextQuestion.type === 'finish') || state.currentIndex === total - 1) {
+      await submitResults();
+      return;
+    }
+    await goTo(state.currentIndex + 1);
+    return;
+  }
 
   if ((nextQuestion && nextQuestion.type === 'finish') || state.currentIndex === total - 1) {
     await submitResults();
@@ -1135,6 +1390,8 @@ async function submitResults() {
       answer_events: collectAnswerEvents(),
       card_events: collectCardEvents(),
     });
+    await stopStudySensorSession();
+    stopCameraMonitor();
 
     const finishIndex = (state.config.questions || []).findIndex(q => q.type === 'finish');
     if (finishIndex !== -1) {

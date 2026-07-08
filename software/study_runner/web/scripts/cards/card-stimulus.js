@@ -130,11 +130,6 @@ export function renderEditor(q) {
           label: t('stimulus.sendSignalLabel', 'Send Study Runner start/stop signals when the active phase begins and ends'),
         })}
         ${renderToggleRow({
-          inputClass: 'se-brainbit-lsl',
-          checked: q.brainbit_to_lsl !== false,
-          label: t('stimulus.brainbitLslLabel', 'Forward BrainBit data to LSL during this active phase'),
-        })}
-        ${renderToggleRow({
           inputClass: 'se-brainbit-touchdesigner',
           checked: q.brainbit_to_touchdesigner !== false,
           label: t('stimulus.touchdesignerLabel', 'Forward BrainBit data to TouchDesigner during this active phase'),
@@ -270,7 +265,7 @@ export function collectConfig(el) {
     trigger_type: el.querySelector('.se-trigger-type')?.value || 'timer',
     trigger_content: el.querySelector('.se-trigger-content')?.value.trim() || '',
     send_signal: el.querySelector('.se-send-signal')?.checked ?? true,
-    brainbit_to_lsl: el.querySelector('.se-brainbit-lsl')?.checked ?? true,
+    brainbit_to_lsl: true,
     brainbit_to_touchdesigner: el.querySelector('.se-brainbit-touchdesigner')?.checked ?? true,
     mini_radar_recording_enabled: el.querySelector('.se-mini-radar-recording')?.checked ?? true,
     camera_capture_enabled: el.querySelector('.se-camera-capture')?.checked ?? false,

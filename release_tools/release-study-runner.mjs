@@ -203,6 +203,7 @@ function runChecks(nextVersion) {
     'release_tools/write-python-update-key.py',
     'release_tools/build-python-update-manifest.py',
     'release_tools/build-python-onedir.py',
+    'release_tools/build-offline-wheelhouse.py',
   ]);
   run('node', ['release_tools/verify-release-version.mjs', releaseTagName(nextVersion)]);
   run('python', ['-m', 'unittest', 'discover', path.join('software', 'tests')]);

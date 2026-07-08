@@ -56,6 +56,7 @@ const $ = (id) => document.getElementById(id);
 function defaultStudySettings() {
   return {
     sensors_enabled: true,
+    sensors: defaultStudySensors(true),
     progress_bar_enabled: false,
     notion_enabled: false,
     notion_parent_page_id: '',
@@ -64,11 +65,36 @@ function defaultStudySettings() {
   };
 }
 
+function defaultStudySensors(sensorsEnabled = true) {
+  return {
+    brainbit: Boolean(sensorsEnabled),
+    mini_radar: Boolean(sensorsEnabled),
+    camera_emotion: false,
+  };
+}
+
+function normalizeStudySensors(settings, sensorsEnabled) {
+  if (!sensorsEnabled) {
+    return defaultStudySensors(false);
+  }
+  const rawSensors = settings?.sensors;
+  if (!rawSensors || typeof rawSensors !== 'object') {
+    return defaultStudySensors(true);
+  }
+  return {
+    brainbit: rawSensors.brainbit !== false,
+    mini_radar: rawSensors.mini_radar !== false,
+    camera_emotion: rawSensors.camera_emotion === true,
+  };
+}
+
 function normalizeStudySettings(settings) {
+  const sensorsEnabled = settings?.sensors_enabled !== false;
   return {
     ...defaultStudySettings(),
     ...(settings && typeof settings === 'object' ? settings : {}),
-    sensors_enabled: settings?.sensors_enabled !== false,
+    sensors_enabled: sensorsEnabled,
+    sensors: normalizeStudySensors(settings, sensorsEnabled),
     progress_bar_enabled: Boolean(settings?.progress_bar_enabled),
     notion_enabled: Boolean(settings?.notion_enabled),
     notion_parent_page_id: String(settings?.notion_parent_page_id || '').trim(),
@@ -211,6 +237,7 @@ function bindEvents() {
   $('btn-study-settings').addEventListener('click', openStudySettings);
   $('btn-close-study-settings').addEventListener('click', closeStudySettings);
   $('btn-save-study-settings').addEventListener('click', saveStudySettings);
+  $('study-sensors-enabled').addEventListener('change', syncStudySensorControls);
   $('study-settings-modal').addEventListener('click', (event) => {
     if (event.target === $('study-settings-modal')) closeStudySettings();
   });
@@ -1051,7 +1078,7 @@ function markUnsaved() {
 
 let _toastTimer = null;
 function showToast(message, type = 'info') {
-  const icons = { success: 'iconoir-check', error: 'iconoir-xmark-circle', info: 'iconoir-info-circle' };
+  const icons = { success: 'iconoir-check', error: 'iconoir-xmark-circle', info: 'iconoir-info-circle', warning: 'iconoir-warning-triangle' };
   $('toast-icon').className = icons[type] || icons.info;
   $('toast-msg').textContent = message;
   const toast = $('toast');
@@ -1201,7 +1228,11 @@ function getMeta(type) {
 function openStudySettings() {
   const s = normalizeStudySettings(state.config.study_settings);
   $('study-sensors-enabled').checked = s.sensors_enabled !== false;
+  $('study-sensor-brainbit').checked = Boolean(s.sensors.brainbit);
+  $('study-sensor-mini-radar').checked = Boolean(s.sensors.mini_radar);
+  $('study-sensor-camera-emotion').checked = Boolean(s.sensors.camera_emotion);
   $('study-progress-bar-enabled').checked = Boolean(s.progress_bar_enabled);
+  syncStudySensorControls();
   $('study-settings-modal').hidden = false;
 }
 
@@ -1211,8 +1242,14 @@ function closeStudySettings() {
 
 function saveStudySettings() {
   const currentSettings = normalizeStudySettings(state.config.study_settings);
+  const sensorsEnabled = $('study-sensors-enabled').checked;
   state.config.study_settings = {
-    sensors_enabled: $('study-sensors-enabled').checked,
+    sensors_enabled: sensorsEnabled,
+    sensors: {
+      brainbit: sensorsEnabled && $('study-sensor-brainbit').checked,
+      mini_radar: sensorsEnabled && $('study-sensor-mini-radar').checked,
+      camera_emotion: sensorsEnabled && $('study-sensor-camera-emotion').checked,
+    },
     progress_bar_enabled: $('study-progress-bar-enabled').checked,
     notion_enabled: currentSettings.notion_enabled,
     notion_parent_page_id: currentSettings.notion_parent_page_id,
@@ -1222,6 +1259,16 @@ function saveStudySettings() {
   $('study-settings-modal').hidden = true;
   markUnsaved();
   showToast(t('toast.studySettingsApplied'), 'info');
+}
+
+function syncStudySensorControls() {
+  const enabled = $('study-sensors-enabled').checked;
+  ['study-sensor-brainbit', 'study-sensor-mini-radar', 'study-sensor-camera-emotion'].forEach((id) => {
+    const input = $(id);
+    if (input) input.disabled = !enabled;
+  });
+  const options = $('study-sensor-options');
+  if (options) options.classList.toggle('is-disabled', !enabled);
 }
 
 async function checkIntegrationReadinessForStudy() {

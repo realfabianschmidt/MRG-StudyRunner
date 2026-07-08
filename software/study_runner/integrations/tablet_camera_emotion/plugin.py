@@ -31,6 +31,10 @@ def _initialize(context: IntegrationContext) -> None:
         lsl_auto_install=lsl_config.get("auto_install", True),
         lsl_stream_name=lsl_config.get("stream_name", "CameraEmotion"),
     )
+    if config.get("enabled") and config.get("worker_mode", "local_worker") == "local_worker":
+        from ..local_emotion_worker import plugin as emotion_worker_plugin
+
+        emotion_worker_plugin.ensure_started(context)
 
 
 def _status(context: IntegrationContext) -> dict[str, Any]:
@@ -44,13 +48,22 @@ def _start(context: IntegrationContext) -> Any:
 
     if not adapter.is_configured():
         _initialize(context)
-    return adapter.start()
+    result = adapter.start()
+    config = _config_section(context)
+    if config.get("worker_mode", "local_worker") == "local_worker":
+        from ..local_emotion_worker import plugin as emotion_worker_plugin
+
+        emotion_worker_plugin.ensure_started(context)
+    return result
 
 
 def _stop(context: IntegrationContext) -> Any:
     from . import adapter
+    from ..local_emotion_worker import plugin as emotion_worker_plugin
 
-    return adapter.stop()
+    result = adapter.stop()
+    emotion_worker_plugin.stop_worker(context)
+    return result
 
 
 def _interval(context: IntegrationContext, start_epoch: float, end_epoch: float) -> dict[str, Any]:

@@ -15,10 +15,14 @@ def software_root(spec_path: str) -> Path:
 
 
 def common_datas(root: Path) -> list[tuple[str, str]]:
-    return [
+    datas = [
         (str(root / "study_runner" / "web"), "study_runner/web"),
         (str(root / "study_content"), "study_content"),
     ]
+    model_assets = root / "study_runner" / "integrations" / "local_emotion_worker" / "model_assets"
+    if model_assets.exists():
+        datas.append((str(model_assets), "study_runner/integrations/local_emotion_worker/model_assets"))
+    return datas
 
 
 def common_hidden_imports() -> list[str]:

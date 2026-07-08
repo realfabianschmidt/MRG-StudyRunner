@@ -262,6 +262,55 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(options["question_type"], "stimulus")
         self.assertEqual(options["marker_event"], "stimulus_active_start")
 
+    def test_study_sensor_defaults_preserve_legacy_biosignal_studies(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Legacy Sensors",
+                "study_settings": {"sensors_enabled": True},
+                "questions": [{"type": "finish"}],
+            }
+        )
+
+        self.assertEqual(
+            config["study_settings"]["sensors"],
+            {"brainbit": True, "mini_radar": True, "camera_emotion": False},
+        )
+
+    def test_study_sensor_master_switch_disables_all_sensors(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "No Sensors",
+                "study_settings": {
+                    "sensors_enabled": False,
+                    "sensors": {
+                        "brainbit": True,
+                        "mini_radar": True,
+                        "camera_emotion": True,
+                    },
+                },
+                "questions": [{"type": "finish"}],
+            }
+        )
+
+        self.assertEqual(
+            config["study_settings"]["sensors"],
+            {"brainbit": False, "mini_radar": False, "camera_emotion": False},
+        )
+
+    def test_study_sensor_selection_rejects_unknown_sensor_keys(self) -> None:
+        with self.assertRaises(ValidationError):
+            validate_and_normalize_config(
+                {
+                    "study_id": "Unknown Sensor",
+                    "study_settings": {
+                        "sensors": {
+                            "brainbit": True,
+                            "unknown_sensor": True,
+                        },
+                    },
+                    "questions": [{"type": "finish"}],
+                }
+            )
 
     def test_participant_configurable_options_and_new_fields(self) -> None:
         config = validate_and_normalize_config(

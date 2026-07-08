@@ -1,5 +1,6 @@
 ﻿import { getJson, postJson } from './api-client.js';
 
+import { createQrSvg } from './qr-code.js';
 import { t } from './i18n.js';
 
 const POLL_INTERVAL_MS = 2000;
@@ -17,7 +18,7 @@ export function initializeAdminDashboard({ showToast } = {}) {
   elements.dashboard.addEventListener('click', (event) => {
     const button = event.target.closest('[data-dashboard-action]');
     if (button) {
-      void runDashboardAction(button.dataset.dashboardAction, elements, showToast);
+      void runDashboardAction(button, elements, showToast);
     }
   });
 
@@ -29,7 +30,23 @@ export function initializeAdminDashboard({ showToast } = {}) {
   pollTimer = window.setInterval(refresh, POLL_INTERVAL_MS);
 }
 
-async function runDashboardAction(action, elements, showToast) {
+async function runDashboardAction(actionSource, elements, showToast) {
+  const button = typeof actionSource === 'string' ? null : actionSource;
+  const action = typeof actionSource === 'string' ? actionSource : button?.dataset.dashboardAction || '';
+  if (action === 'brainbit_select') {
+    await selectBrainBitCandidate(button, elements, showToast);
+    return;
+  }
+  if (action === 'emotion_worker_repair_runtime' || action === 'emotion_worker_install_deps') {
+    await repairEmotionWorkerRuntime(elements, showToast);
+    return;
+  }
+  const previewMatch = action.match(/^camera_preview_(start|stop)$/);
+  if (previewMatch) {
+    await updateCameraPreview(previewMatch[1], elements, showToast);
+    return;
+  }
+
   const toggleMatch = action.match(/^toggle_(.+)_(on|off)$/);
   if (toggleMatch) {
     const [, integrationKey, state] = toggleMatch;
@@ -44,7 +61,12 @@ async function runDashboardAction(action, elements, showToast) {
 
   const [, integrationKey, runtimeAction] = runtimeMatch;
   try {
-    await postJson(`/api/admin/integrations/${encodeURIComponent(integrationKey)}/${runtimeAction}`, {});
+    const response = await postJson(`/api/admin/integrations/${encodeURIComponent(integrationKey)}/${runtimeAction}`, {});
+    if (response?.study_controlled) {
+      showToast?.(t('dashboard.studyControlledWarning', 'This sensor is controlled by the active study settings.'), 'warning');
+      await refreshAdminStatus(elements, showToast);
+      return;
+    }
     showToast?.(t('dashboard.actionSent', 'Dashboard action sent'), 'success');
     await refreshAdminStatus(elements, showToast);
   } catch (error) {
@@ -53,9 +75,65 @@ async function runDashboardAction(action, elements, showToast) {
   }
 }
 
+async function selectBrainBitCandidate(button, elements, showToast) {
+  if (!button) return;
+  const rawIndex = button.dataset.deviceIndex || '';
+  const payload = {
+    index: rawIndex === '' ? null : Number(rawIndex),
+    name: button.dataset.deviceName || '',
+    address: button.dataset.deviceAddress || '',
+    serial_number: button.dataset.serialNumber || '',
+  };
+  try {
+    const response = await postJson('/api/admin/brainbit/select-device', payload);
+    if (response?.study_controlled) {
+      showToast?.(t('dashboard.studyControlledWarning', 'This sensor is controlled by the active study settings.'), 'warning');
+      await refreshAdminStatus(elements, showToast);
+      return;
+    }
+    showToast?.(t('dashboard.brainbitBandSaved', 'BrainBit band saved and restart requested'), 'success');
+    await refreshAdminStatus(elements, showToast);
+  } catch (error) {
+    console.error('[admin] BrainBit band selection failed:', error);
+    showToast?.(t('dashboard.brainbitBandSaveFailed', 'BrainBit band selection failed'), 'error');
+  }
+}
+
+async function updateCameraPreview(action, elements, showToast) {
+  try {
+    await postJson(`/api/admin/camera/preview/${action}`, {});
+    showToast?.(t('dashboard.actionSent', 'Dashboard action sent'), 'success');
+    await refreshAdminStatus(elements, showToast);
+  } catch (error) {
+    console.error('[admin] Camera preview action failed:', error);
+    showToast?.(error.message || t('dashboard.actionFailed', 'Dashboard action failed'), 'error');
+  }
+}
+
+async function repairEmotionWorkerRuntime(elements, showToast) {
+  try {
+    const response = await postJson('/api/admin/emotion-worker/repair-runtime', {});
+    const installState = response?.dependency_install || {};
+    const modelState = response?.model_asset_install || {};
+    showToast?.(
+      modelState.last_message || installState.last_message || t('dashboard.runtimeRepairStarted', 'DeepFace runtime repair started'),
+      'info',
+    );
+    await refreshAdminStatus(elements, showToast);
+  } catch (error) {
+    console.error('[admin] Emotion worker runtime repair failed:', error);
+    showToast?.(error.message || t('dashboard.runtimeRepairFailed', 'DeepFace runtime repair failed'), 'error');
+  }
+}
+
 async function updateIntegrationToggle(integrationKey, enabled, elements, showToast) {
   try {
-    await postJson(`/api/admin/integrations/${encodeURIComponent(integrationKey)}/enabled`, { enabled });
+    const response = await postJson(`/api/admin/integrations/${encodeURIComponent(integrationKey)}/enabled`, { enabled });
+    if (response?.study_controlled) {
+      showToast?.(t('dashboard.studyControlledWarning', 'This sensor is controlled by the active study settings.'), 'warning');
+      await refreshAdminStatus(elements, showToast);
+      return;
+    }
     const messageKey = enabled ? 'dashboard.integrationEnabled' : 'dashboard.integrationDisabled';
     const fallback = enabled ? '{name} enabled' : '{name} disabled';
     showToast?.(t(messageKey, fallback).replace('{name}', formatIntegrationName(integrationKey)), 'success');
@@ -83,7 +161,18 @@ function getDashboardElements() {
 
 async function refreshAdminStatus(elements, showToast) {
   try {
-    const status = await getJson('/api/admin/status');
+    const [status, runtimeInfo] = await Promise.all([
+      getJson('/api/admin/status'),
+      getJson('/api/runtime-info'),
+    ]);
+    let cameraPreview = {};
+    try {
+      cameraPreview = await getJson('/api/admin/camera/preview/status');
+    } catch (previewError) {
+      console.warn('[admin] Could not load camera preview status:', previewError);
+    }
+    status.runtime_info = runtimeInfo;
+    status.camera_preview = cameraPreview;
     renderAdminStatus(elements, status);
   } catch (error) {
     console.error('[admin] Could not load admin status:', error);
@@ -98,8 +187,14 @@ function renderAdminStatus(elements, status) {
   renderClients(elements.clients, clients.clients || []);
   renderBrainBit(elements.brainbit, status.integrations?.brainbit || {});
   renderMiniRadar(elements.radar, status.integrations?.mini_radar || {});
-  renderCameraEmotion(elements.camera, status.integrations?.camera_emotion || {}, status.integrations?.emotion_worker || {});
-  renderIntegrationControls(elements.controls, status.integrations || {});
+  renderCameraEmotion(
+    elements.camera,
+    status.integrations?.camera_emotion || {},
+    status.integrations?.emotion_worker || {},
+    status.camera_preview || {},
+    status.runtime_info || {},
+  );
+  renderIntegrationControls(elements.controls, status.integrations || {}, status);
   renderXdf(elements.xdf, status);
 }
 
@@ -116,10 +211,10 @@ function renderClients(target, clients) {
       <strong>${escapeHtml(client.participant_id || t('dashboard.noParticipantId', 'No participant ID yet'))}</strong>
     </div>
     <dl class="status-list">
-      <dt>${escapeHtml(t('dashboard.field.study', 'Study'))}</dt><dd>${escapeHtml(client.study_id || '-')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.card', 'Card'))}</dt><dd>${formatCard(client)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.age', 'Age'))}</dt><dd>${escapeHtml(client.age_seconds)}s</dd>
-      <dt>${escapeHtml(t('dashboard.field.camera', 'Camera'))}</dt><dd>${escapeHtml(client.camera_permission || t('dashboard.unknown', 'unknown'))}</dd>
+      <dt>${fieldLabel('study', 'Study')}</dt><dd>${escapeHtml(client.study_id || '-')}</dd>
+      <dt>${fieldLabel('card', 'Card')}</dt><dd>${formatCard(client)}</dd>
+      <dt>${fieldLabel('age', 'Age')}</dt><dd>${escapeHtml(client.age_seconds)}s</dd>
+      <dt>${fieldLabel('camera', 'Camera')}</dt><dd>${escapeHtml(client.camera_permission || t('dashboard.unknown', 'unknown'))}</dd>
     </dl>
   `).join('');
 }
@@ -132,7 +227,7 @@ function renderBrainBit(target, brainbit) {
   const bands = latest.bands || {};
   const mental = latest.mental || {};
   const calibration = latest.calibration || {};
-  const sensorState = latest.sensor_state || {};
+  const contactState = brainbit.contact_quality_state || latest.contact_quality_state || brainbit.health?.contact || 'unknown';
 
   target.innerHTML = `
     <div class="status-row">
@@ -140,17 +235,18 @@ function renderBrainBit(target, brainbit) {
       <strong>${formatEnabled(brainbit.configured_enabled)}</strong>
     </div>
     <dl class="status-list">
-      <dt>${escapeHtml(t('dashboard.field.scanWindow', 'Scan window'))}</dt><dd>${formatValue(brainbit.scan_timeout_seconds, ' s')} (${escapeHtml(brainbit.scan_mode || 'one-shot')})</dd>
-      <dt>${escapeHtml(t('dashboard.field.lastScan', 'Last scan'))}</dt><dd>${escapeHtml(brainbit.last_scan_started_at || '-')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.battery', 'Battery'))}</dt><dd>${formatValue(battery.percent, '%')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.quality', 'Quality'))}</dt><dd>${formatSensorChannels(quality, ['O1', 'O2', 'T3', 'T4'])}</dd>
-      <dt>${escapeHtml(t('dashboard.field.bands', 'Bands'))}</dt><dd>${formatSensorChannels(bands, ['delta', 'theta', 'alpha', 'beta', 'gamma'])}</dd>
-      <dt>${escapeHtml(t('dashboard.field.mental', 'Mental'))}</dt><dd>${formatSensorChannels(mental, ['Inst_Attention', 'Inst_Relaxation', 'Rel_Attention', 'Rel_Relaxation'])}</dd>
-      <dt>${escapeHtml(t('dashboard.field.calibration', 'Calibration'))}</dt><dd>${formatCalibration(calibration)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.state', 'State'))}</dt><dd>${formatObjectBrief(sensorState)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.lsl', 'LSL'))}</dt><dd>${formatEnabled(brainbit.lsl_enabled)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.lastActive', 'Last active'))}</dt><dd>${escapeHtml(latest.last_activity_at || brainbit.last_activity_at || '-')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.message', 'Message'))}</dt><dd>${escapeHtml(latest.last_message || brainbit.last_message || '-')}</dd>
+      <dt>${fieldLabel('scanWindow', 'Scan window')}</dt><dd>${formatValue(brainbit.scan_timeout_seconds, ' s')} (${escapeHtml(brainbit.scan_mode || 'one-shot')})</dd>
+      <dt>${fieldLabel('lastScan', 'Last scan')}</dt><dd>${escapeHtml(brainbit.last_scan_started_at || '-')}</dd>
+      <dt>${fieldLabel('band', 'Band')}</dt><dd>${renderBrainBitBand(brainbit)}</dd>
+      <dt>${fieldLabel('battery', 'Battery')}</dt><dd>${formatValue(battery.percent, '%')}</dd>
+      <dt>${fieldLabel('quality', 'Quality')}</dt><dd>${formatQualityWithContact(quality, contactState)}</dd>
+      <dt>${fieldLabel('bands', 'Bands')}</dt><dd>${formatSensorChannels(bands, ['delta', 'theta', 'alpha', 'beta', 'gamma'])}</dd>
+      <dt>${fieldLabel('mental', 'Mental')}</dt><dd>${formatSensorChannels(mental, ['Inst_Attention', 'Inst_Relaxation', 'Rel_Attention', 'Rel_Relaxation'])}</dd>
+      <dt>${fieldLabel('calibration', 'Calibration')}</dt><dd>${formatCalibration(calibration)}</dd>
+      <dt>${fieldLabel('brainbitDataLsl', 'BrainBit data LSL')}</dt><dd>${formatEnabled(brainbit.lsl_enabled)}</dd>
+      <dt>${fieldLabel('touchdesigner', 'TouchDesigner')}</dt><dd>${formatEnabled(brainbit.touchdesigner_forwarding_enabled)}</dd>
+      <dt>${fieldLabel('lastActive', 'Last active')}</dt><dd>${formatTimestampAge(latest.last_activity_at || brainbit.last_activity_at, brainbit.seconds_since_last_activity)}</dd>
+      <dt>${fieldLabel('message', 'Message')}</dt><dd>${escapeHtml(latest.last_message || brainbit.last_message || '-')}</dd>
     </dl>
     ${renderRuntimeButtons(brainbit)}
   `;
@@ -165,29 +261,29 @@ function renderMiniRadar(target, radar) {
       <strong>${formatEnabled(radar.configured_enabled)}</strong>
     </div>
     <dl class="status-list">
-      <dt>${escapeHtml(t('dashboard.field.connection', 'Connection'))}</dt><dd>${escapeHtml(radar.connection_type || '-')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.device', 'Device'))}</dt><dd>${escapeHtml(radar.device_label || radar.ble_device_name || radar.port || '-')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.scanWindow', 'Scan window'))}</dt><dd>${formatValue(radar.scan_timeout_seconds, ' s')} (${escapeHtml(radar.scan_mode || 'repeated')})</dd>
-      <dt>${escapeHtml(t('dashboard.field.lastScan', 'Last scan'))}</dt><dd>${escapeHtml(radar.last_scan_started_at || '-')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.nextRetry', 'Next retry'))}</dt><dd>${escapeHtml(radar.next_retry_at || '-')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.heart', 'Heart'))}</dt><dd>${formatValue(latest.heartRate, ' BPM')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.breath', 'Breath'))}</dt><dd>${formatValue(latest.breathRate, ' /min')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.presence', 'Presence'))}</dt><dd>${formatBoolean(latest.present)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.valid', 'Valid'))}</dt><dd>${formatBoolean(latest.valid)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.stabilized', 'Stabilized'))}</dt><dd>${formatBoolean(latest.stabilized)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.distance', 'Distance'))}</dt><dd>${formatValue(latest.distance, ' cm')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.phases', 'Phases'))}</dt><dd>${formatPhases(latest)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.sequence', 'Sequence'))}</dt><dd>${escapeHtml(latest.sequence_number ?? '-')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.drops', 'Drops'))}</dt><dd>${formatDropInfo(latest)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.timing', 'Timing'))}</dt><dd>${formatTimingInfo(latest)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.lastUpdateAge', 'Last update age'))}</dt><dd>${formatValue(radar.seconds_since_last_activity, ' s')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.message', 'Message'))}</dt><dd>${escapeHtml(radar.last_message || '-')}</dd>
+      <dt>${fieldLabel('connection', 'Connection')}</dt><dd>${escapeHtml(radar.connection_type || '-')}</dd>
+      <dt>${fieldLabel('device', 'Device')}</dt><dd>${escapeHtml(radar.device_label || radar.ble_device_name || radar.port || '-')}</dd>
+      <dt>${fieldLabel('scanWindow', 'Scan window')}</dt><dd>${formatValue(radar.scan_timeout_seconds, ' s')} (${escapeHtml(radar.scan_mode || 'repeated')})</dd>
+      <dt>${fieldLabel('lastScan', 'Last scan')}</dt><dd>${escapeHtml(radar.last_scan_started_at || '-')}</dd>
+      <dt>${fieldLabel('nextRetry', 'Next retry')}</dt><dd>${escapeHtml(radar.next_retry_at || '-')}</dd>
+      <dt>${fieldLabel('heart', 'Heart')}</dt><dd>${formatValue(latest.heartRate, ' BPM')}</dd>
+      <dt>${fieldLabel('breath', 'Breath')}</dt><dd>${formatValue(latest.breathRate, ' /min')}</dd>
+      <dt>${fieldLabel('presence', 'Presence')}</dt><dd>${formatBoolean(latest.present)}</dd>
+      <dt>${fieldLabel('valid', 'Valid')}</dt><dd>${formatBoolean(latest.valid)}</dd>
+      <dt>${fieldLabel('stabilized', 'Stabilized')}</dt><dd>${formatBoolean(latest.stabilized)}</dd>
+      <dt>${fieldLabel('distance', 'Distance')}</dt><dd>${formatValue(latest.distance, ' cm')}</dd>
+      <dt>${fieldLabel('phases', 'Phases')}</dt><dd>${formatPhases(latest)}</dd>
+      <dt>${fieldLabel('sequence', 'Sequence')}</dt><dd>${escapeHtml(latest.sequence_number ?? '-')}</dd>
+      <dt>${fieldLabel('drops', 'Drops')}</dt><dd>${formatDropInfo(latest)}</dd>
+      <dt>${fieldLabel('timing', 'Timing')}</dt><dd>${formatTimingInfo(latest)}</dd>
+      <dt>${fieldLabel('lastUpdateAge', 'Last update age')}</dt><dd>${formatValue(radar.seconds_since_last_activity, ' s')}</dd>
+      <dt>${fieldLabel('message', 'Message')}</dt><dd>${escapeHtml(radar.last_message || '-')}</dd>
     </dl>
     ${renderRuntimeButtons(radar)}
   `;
 }
 
-function renderCameraEmotion(target, camera, worker) {
+function renderCameraEmotion(target, camera, worker, preview = {}, runtimeInfo = {}) {
   if (!target) return;
   const latest = camera.latest || {};
   const analysis = latest.analysis || {};
@@ -197,38 +293,117 @@ function renderCameraEmotion(target, camera, worker) {
       <strong>${formatEnabled(camera.configured_enabled)}</strong>
     </div>
     <dl class="status-list">
-      <dt>${escapeHtml(t('dashboard.field.mode', 'Mode'))}</dt><dd>${escapeHtml(camera.worker_mode || '-')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.interval', 'Interval'))}</dt><dd>${formatValue(camera.snapshot_interval_ms, ' ms')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.worker', 'Worker'))}</dt><dd>${escapeHtml(worker.status || '-')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.emotion', 'Emotion'))}</dt><dd>${escapeHtml(analysis.emotion || '-')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.confidence', 'Confidence'))}</dt><dd>${formatValue(analysis.confidence)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.face', 'Face'))}</dt><dd>${formatBoolean(analysis.face_detected)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.frame', 'Frame'))}</dt><dd>${formatFrame(latest.frame)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.processed', 'Processed'))}</dt><dd>${escapeHtml(latest.processed_at || '-')}</dd>
+      <dt>${fieldLabel('mode', 'Mode')}</dt><dd>${escapeHtml(camera.worker_mode || '-')}</dd>
+      <dt>${fieldLabel('interval', 'Interval')}</dt><dd>${formatValue(camera.snapshot_interval_ms, ' ms')}</dd>
+      <dt>${fieldLabel('worker', 'Worker')}</dt><dd>${formatWorkerStatus(worker)}</dd>
+      <dt>${fieldLabel('pythonPackages', 'Python packages')}</dt><dd>${formatRepairState(worker.dependency_install)}</dd>
+      <dt>${fieldLabel('modelWeights', 'Model weights')}</dt><dd>${formatModelAssetState(worker)}</dd>
+      <dt>${fieldLabel('workerWarmup', 'Worker warmup')}</dt><dd>${formatWorkerWarmup(worker)}</dd>
+      <dt>${fieldLabel('emotion', 'Emotion')}</dt><dd>${escapeHtml(analysis.emotion || '-')}</dd>
+      <dt>${fieldLabel('confidence', 'Confidence')}</dt><dd>${formatValue(analysis.confidence)}</dd>
+      <dt>${fieldLabel('face', 'Face')}</dt><dd>${formatBoolean(analysis.face_detected)}</dd>
+      <dt>${fieldLabel('frame', 'Frame')}</dt><dd>${formatFrame(latest.frame)}</dd>
+      <dt>${fieldLabel('processed', 'Processed')}</dt><dd>${escapeHtml(latest.processed_at || '-')}</dd>
+      <dt>${fieldLabel('message', 'Message')}</dt><dd>${escapeHtml(analysis.error || camera.last_message || worker.last_message || '-')}</dd>
     </dl>
+    ${renderCameraPreview(preview, runtimeInfo)}
+    ${renderEmotionWorkerInstall(worker)}
     ${renderRuntimeButtons(camera)}
   `;
 }
 
-function renderIntegrationControls(target, integrations) {
+function renderEmotionWorkerInstall(worker) {
+  const installState = worker.dependency_install || {};
+  const modelState = worker.model_asset_install || {};
+  const running = installState.running === true || modelState.running === true;
+  const status = modelState.status || installState.status || (running ? 'running' : '');
+  const message = modelState.last_message || installState.last_message || t('dashboard.runtimeRepairHint', 'Repair DeepFace packages and model weights for the local Emotion Worker.');
+  const output = [
+    renderRepairOutput('dashboard.dependenciesOutput', 'Package output', installState.output_tail),
+    renderRepairOutput('dashboard.modelWeightsOutput', 'Model weights output', modelState.output_tail),
+  ].join('');
+  return `
+    <div class="dashboard-actions dashboard-actions--stacked">
+      <button type="button" class="btn-secondary" data-dashboard-action="emotion_worker_repair_runtime"${running ? ' disabled' : ''}>
+        ${escapeHtml(running ? t('dashboard.runtimeRepairRunning', 'Repairing...') : t('dashboard.runtimeRepair', 'Repair DeepFace runtime'))}
+      </button>
+      <span class="settings-hint">${escapeHtml(status ? `${status}: ${message}` : message)}</span>
+      ${output}
+    </div>`;
+}
+
+function renderRepairOutput(labelKey, fallback, output) {
+  if (!output) return '';
+  return `<details class="dependency-install-output"><summary>${escapeHtml(t(labelKey, fallback))}</summary><pre>${escapeHtml(output)}</pre></details>`;
+}
+
+function renderCameraPreview(preview, runtimeInfo) {
+  const url = preview.preview_url || buildCameraPreviewUrl(runtimeInfo);
+  const latest = preview.latest || {};
+  const analysis = latest.analysis || {};
+  const image = preview.image || '';
+  return `
+    <div class="camera-preview-dashboard">
+      <div class="camera-preview-dashboard-main">
+        <div>
+          <strong>${escapeHtml(t('dashboard.cameraPreviewTitle', 'Tablet camera preview'))}</strong>
+          <a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(url)}</a>
+          <span class="status-muted">${escapeHtml(preview.last_message || t('dashboard.cameraPreviewHint', 'Open on the tablet to test camera permission and emotion analysis.'))}</span>
+        </div>
+        <div class="camera-preview-dashboard-actions">
+          <button type="button" class="btn-secondary btn-xs" data-dashboard-action="camera_preview_start">${escapeHtml(t('dashboard.action.start', 'Start'))}</button>
+          <button type="button" class="btn-secondary btn-xs" data-dashboard-action="camera_preview_stop">${escapeHtml(t('dashboard.action.stop', 'Stop'))}</button>
+        </div>
+      </div>
+      <div class="camera-preview-dashboard-body">
+        <div class="camera-preview-qr">${renderPreviewQr(url)}</div>
+        <div class="camera-preview-thumb">${image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(t('dashboard.cameraPreviewImageAlt', 'Latest tablet camera preview frame'))}">` : '-'}</div>
+        <div class="camera-preview-metrics">
+          <span>${escapeHtml(t('dashboard.field.emotion', 'Emotion'))}: ${escapeHtml(analysis.emotion || '-')}</span>
+          <span>${escapeHtml(t('dashboard.field.confidence', 'Confidence'))}: ${formatValue(analysis.confidence)}</span>
+          <span>${escapeHtml(t('dashboard.field.face', 'Face'))}: ${formatBoolean(analysis.face_detected)}</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderPreviewQr(url) {
+  try {
+    return createQrSvg(url, { size: 112, margin: 2 });
+  } catch (error) {
+    console.warn('[admin] Could not render camera preview QR:', error);
+    return `<span class="status-muted">${escapeHtml(t('dashboard.cameraPreviewQrUnavailable', 'QR unavailable'))}</span>`;
+  }
+}
+
+function renderIntegrationControls(target, integrations, status = {}) {
   if (!target) return;
   const rows = Object.values(integrations).filter((item) => item && item.key);
   if (!rows.length) {
     target.innerHTML = `<p>${escapeHtml(t('dashboard.noIntegrations', 'No integrations registered.'))}</p>`;
     return;
   }
+  const activeStudySession = Boolean(status.active_study_session);
+  const warning = activeStudySession
+    ? `<div class="integration-control-warning">${escapeHtml(t('dashboard.studyControlledWarning', 'Sensor integrations are controlled by the active study settings while a study is running. LSL markers and LabRecorder/XDF can still be changed live.'))}</div>`
+    : '';
   target.innerHTML = `<div class="integration-controls">
-    ${rows.map(renderIntegrationControlRow).join('')}
+    ${warning}
+    ${rows.map((row) => renderIntegrationControlRow(row, activeStudySession)).join('')}
   </div>`;
 }
 
-function renderIntegrationControlRow(item) {
+function renderIntegrationControlRow(item, activeStudySession = false) {
   const configured = Boolean(item.configured_enabled ?? item.enabled);
   const status = item.status || (configured ? 'enabled' : 'disabled');
+  const studyControlled = activeStudySession && ['brainbit', 'mini_radar', 'camera_emotion'].includes(item.key);
   const toggleButtons = item.can_toggle ? `
-    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_on"${configured ? ' disabled' : ''}>${escapeHtml(t('dashboard.action.enable', 'Enable'))}</button>
-    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_off"${!configured ? ' disabled' : ''}>${escapeHtml(t('dashboard.action.disable', 'Disable'))}</button>
+    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_on"${configured || studyControlled ? ' disabled' : ''}>${escapeHtml(t('dashboard.action.enable', 'Enable'))}</button>
+    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_off"${!configured || studyControlled ? ' disabled' : ''}>${escapeHtml(t('dashboard.action.disable', 'Disable'))}</button>
   ` : `<span class="integration-control-note">${escapeHtml(t('dashboard.managedByParent', 'Managed by parent integration'))}</span>`;
+  const controlNote = studyControlled
+    ? `<span>${escapeHtml(t('dashboard.studyControlledShort', 'Controlled by active study'))}</span>`
+    : '';
 
   return `
     <div class="integration-control-row">
@@ -237,6 +412,7 @@ function renderIntegrationControlRow(item) {
         <div>
           <strong>${escapeHtml(item.label || item.key)}</strong>
           <span>${buildIntegrationDetail(item)}</span>
+          ${controlNote}
         </div>
       </div>
       <div class="integration-control-actions">
@@ -263,7 +439,7 @@ function buildIntegrationDetail(item) {
   const details = [];
   if (item.category) details.push(item.category);
   if (item.device_label) details.push(item.device_label);
-  if (item.lsl_enabled !== undefined) details.push(`LSL ${formatOnOff(item.lsl_enabled)}`);
+  if (item.lsl_enabled !== undefined) details.push(`${t('dashboard.dataLsl', 'data LSL')} ${formatOnOff(item.lsl_enabled)}`);
   if (item.recording_enabled !== undefined) details.push(`${t('dashboard.recording', 'recording')} ${formatOnOff(item.recording_enabled)}`);
   if (item.scan_timeout_seconds !== undefined && item.scan_timeout_seconds !== null) details.push(`${t('dashboard.scan', 'scan')} ${item.scan_timeout_seconds}s`);
   if (item.url) details.push(item.url);
@@ -277,10 +453,10 @@ function renderXdf(target, status) {
   const lsl = status.integrations?.lsl || {};
   target.innerHTML = `
     <dl class="status-list">
-      <dt>${escapeHtml(t('dashboard.field.primarySync', 'Primary sync'))}</dt><dd>${escapeHtml(status.timestamp_strategy?.primary || 'LSL')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.format', 'Format'))}</dt><dd>${escapeHtml(status.timestamp_strategy?.recording_format || '.xdf')}</dd>
-      <dt>${escapeHtml(t('dashboard.field.lslMarkers', 'LSL markers'))}</dt><dd>${formatEnabled(lsl.configured_enabled)}</dd>
-      <dt>${escapeHtml(t('dashboard.field.labRecorder', 'LabRecorder'))}</dt><dd>${formatEnabled(labrecorder.configured_enabled)}</dd>
+      <dt>${fieldLabel('primarySync', 'Primary sync')}</dt><dd>${escapeHtml(status.timestamp_strategy?.primary || 'LSL')}</dd>
+      <dt>${fieldLabel('format', 'Format')}</dt><dd>${escapeHtml(status.timestamp_strategy?.recording_format || '.xdf')}</dd>
+      <dt>${fieldLabel('lslMarkers', 'Study marker LSL', 'studyMarkerLsl')}</dt><dd>${formatEnabled(lsl.configured_enabled)}</dd>
+      <dt>${fieldLabel('labRecorder', 'LabRecorder')}</dt><dd>${formatEnabled(labrecorder.configured_enabled)}</dd>
     </dl>
   `;
 }
@@ -293,6 +469,45 @@ function showDashboard(elements) {
 function showEditor(elements) {
   elements.dashboard.hidden = true;
   elements.editView.hidden = false;
+}
+
+function fieldLabel(fieldKey, fallback, helpKey = fieldKey) {
+  const label = escapeHtml(t(`dashboard.field.${fieldKey}`, fallback));
+  const text = t(`dashboard.help.${helpKey}`, '');
+  if (!text) return label;
+  const safeText = escapeHtml(text);
+  const safeLabel = escapeHtml(t('dashboard.helpIconLabel', `{field}`).replace('{field}', fallback));
+  return `<span class="status-label-help" tabindex="0" title="${safeText}" aria-label="${safeLabel}: ${safeText}">${label}</span>`;
+}
+
+function formatHealthValue(value) {
+  if (value === null || value === undefined || value === '') return '-';
+  const normalized = String(value).trim().toLowerCase();
+  const labels = {
+    connected: t('dashboard.health.connected', 'connected'),
+    waiting: t('dashboard.health.waiting', 'waiting'),
+    unknown: t('dashboard.health.unknown', 'unknown'),
+    usable: t('dashboard.health.usable', 'usable'),
+    mixed: t('dashboard.health.mixed', 'mixed'),
+    poor: t('dashboard.health.poor', 'poor'),
+    poor_contact: t('dashboard.health.poorContact', 'poor contact'),
+    calibrating: t('dashboard.health.calibrating', 'calibrating'),
+    warming_up: t('dashboard.health.warmingUp', 'warming up'),
+    ready: t('dashboard.health.ready', 'ready'),
+    receiving: t('dashboard.health.receiving', 'receiving'),
+    enabled: t('dashboard.enabled', 'Enabled'),
+    disabled: t('dashboard.disabled', 'Disabled'),
+    recording: t('dashboard.recording', 'recording'),
+    forced: t('dashboard.health.forced', 'forced'),
+    stopped: t('dashboard.health.stopped', 'stopped'),
+  };
+  return escapeHtml(labels[normalized] || value);
+}
+
+function formatTimestampAge(timestamp, ageSeconds) {
+  if (!timestamp) return '-';
+  const age = ageSeconds === null || ageSeconds === undefined ? '' : ` (${formatValue(ageSeconds, ' s')})`;
+  return `${escapeHtml(timestamp)}${age}`;
 }
 
 function formatCard(client) {
@@ -331,6 +546,46 @@ function formatSensorChannels(source, keys) {
     .filter((key) => source[key] !== null && source[key] !== undefined && source[key] !== '')
     .map((key) => `${escapeHtml(key)}: ${formatValue(source[key])}`);
   return parts.length ? parts.join('<br>') : '-';
+}
+
+function formatQualityWithContact(quality, contactState) {
+  const channels = formatSensorChannels(quality, ['O1', 'O2', 'T3', 'T4']);
+  const contact = formatHealthValue(contactState);
+  if (channels === '-') return contact === '-' ? '-' : contact;
+  return `${channels}<br><span class="status-muted">${escapeHtml(t('dashboard.contactPrefix', 'contact'))}: ${contact}</span>`;
+}
+
+function renderBrainBitBand(brainbit) {
+  const latest = brainbit.latest || {};
+  const target = brainbit.target_device || latest.target_device || {};
+  const selected = brainbit.selected_device || latest.selected_device || latest.device || {};
+  const candidates = brainbit.scan_candidates || latest.scan_candidates || [];
+  const lines = [];
+  lines.push(`<div>${escapeHtml(t('dashboard.brainbitBandTarget', 'Target'))}: ${formatDeviceSummary(target) || escapeHtml(t('dashboard.noBandTarget', 'no target set'))}</div>`);
+  lines.push(`<div>${escapeHtml(t('dashboard.brainbitBandSelected', 'Connected'))}: ${formatDeviceSummary(selected) || '-'}</div>`);
+  if (Array.isArray(candidates) && candidates.length) {
+    lines.push(`<div class="brainbit-band-list">${candidates.map(renderBrainBitCandidate).join('')}</div>`);
+  }
+  return lines.join('');
+}
+
+function renderBrainBitCandidate(candidate) {
+  const summary = formatDeviceSummary(candidate) || escapeHtml(t('dashboard.unknown', 'unknown'));
+  const rssi = candidate.rssi === null || candidate.rssi === undefined ? '' : ` RSSI ${candidate.rssi}`;
+  return `<div class="brainbit-band-row">
+    <span class="brainbit-band-meta">#${escapeHtml(candidate.index ?? '-')}: ${summary}${escapeHtml(rssi)}</span>
+    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="brainbit_select" data-device-index="${dataAttr(candidate.index)}" data-device-name="${dataAttr(candidate.name)}" data-device-address="${dataAttr(candidate.address)}" data-serial-number="${dataAttr(candidate.serial || candidate.serial_number)}">${escapeHtml(t('dashboard.useBand', 'Use this band'))}</button>
+  </div>`;
+}
+
+function formatDeviceSummary(device) {
+  if (!device || typeof device !== 'object' || !Object.keys(device).length) return '';
+  const parts = [];
+  if (device.name) parts.push(device.name);
+  if (device.serial || device.serial_number) parts.push(`serial ${device.serial || device.serial_number}`);
+  if (device.address) parts.push(device.address);
+  if (device.family) parts.push(device.family);
+  return escapeHtml(parts.filter(Boolean).join(' - '));
 }
 
 function formatCalibration(calibration) {
@@ -384,17 +639,70 @@ function formatFrame(frame) {
   return `${escapeHtml(width)} x ${escapeHtml(height)}`;
 }
 
+function formatWorkerStatus(worker) {
+  const status = escapeHtml(worker.status || '-');
+  if (!worker.last_message) return status;
+  return `${status}<br><span class="status-muted">${escapeHtml(worker.last_message)}</span>`;
+}
+
+function formatRepairState(state) {
+  if (!state || typeof state !== 'object') return '-';
+  const status = state.status || (state.running ? 'running' : '');
+  const message = state.last_message || '';
+  if (!status && !message) return '-';
+  return `${escapeHtml(status || '-')}${message ? `<br><span class="status-muted">${escapeHtml(message)}</span>` : ''}`;
+}
+
+function formatModelAssetState(worker) {
+  const state = worker.model_asset_install || {};
+  const assetName = worker.model_asset_name || state.asset_name || '';
+  const assetPath = worker.model_asset_path || state.asset_path || '';
+  const stateText = formatRepairState(state);
+  const parts = [];
+  if (stateText !== '-') parts.push(stateText);
+  if (assetName) parts.push(`<span class="status-muted">${escapeHtml(assetName)}</span>`);
+  if (assetPath) parts.push(`<span class="status-muted">${escapeHtml(assetPath)}</span>`);
+  return parts.length ? parts.join('<br>') : '-';
+}
+
+function formatWorkerWarmup(worker) {
+  const latest = worker.latest || {};
+  if (latest.model_ready === true) return escapeHtml(t('dashboard.health.ready', 'ready'));
+  if (latest.model_error_class || worker.model_error_class) {
+    const errorClass = latest.model_error_class || worker.model_error_class;
+    const action = latest.suggested_action || worker.suggested_action || '';
+    const detail = latest.model_error || '';
+    return `${escapeHtml(errorClass)}${action ? `<br><span class="status-muted">${escapeHtml(action)}</span>` : ''}${detail ? `<br><span class="status-muted">${escapeHtml(detail)}</span>` : ''}`;
+  }
+  if (latest.model_checked === true) return escapeHtml(t('dashboard.health.waiting', 'waiting'));
+  return '-';
+}
+
+function buildCameraPreviewUrl(runtimeInfo) {
+  const baseUrl = runtimeInfo?.participant_url || window.location.origin;
+  try {
+    return new URL('/camera-preview', baseUrl).toString();
+  } catch {
+    return `${window.location.origin}/camera-preview`;
+  }
+}
+
 function formatIntegrationName(key) {
   const names = {
     brainbit: 'BrainBit',
     mini_radar: 'MR60 BLE',
     camera_emotion: 'Camera emotion',
+    emotion_worker: 'Emotion Worker',
     lsl: 'LSL',
     labrecorder: 'LabRecorder',
     osc: 'OSC',
     notion: 'Notion',
   };
   return names[key] || key;
+}
+
+function dataAttr(value) {
+  return escapeHtml(value === null || value === undefined ? '' : value);
 }
 
 function escapeHtml(value) {

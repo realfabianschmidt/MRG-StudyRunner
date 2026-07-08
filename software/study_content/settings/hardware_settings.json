@@ -2,12 +2,15 @@
   "_comment": "Desktop-only Study Runner plugin settings for Windows, macOS, and Linux. Use the dashboard controls for common enabled flags and runtime actions.",
   "brainbit": {
     "debug": false,
-    "disconnect_timeout_ms": 5000,
-    "enabled": false,
+    "disconnect_timeout_ms": 20000,
+    "device_address": "DA:AC:A1:99:7B:BA",
+    "device_index": 0,
+    "device_name": "BrainBit",
+    "enabled": true,
     "log_dir": "study_runner/integrations/brainbit/logs",
     "lsl": {
       "auto_install": false,
-      "enabled": false,
+      "enabled": true,
       "stream_prefix": "BrainBit"
     },
     "monitor_refresh_ms": 1000,
@@ -22,6 +25,7 @@
     "resist_seconds": 6,
     "scan_seconds": 5,
     "script_path": "study_runner/integrations/brainbit/brainbit_realtime_cli_OSC_15.py",
+    "serial_number": "04030072",
     "signal_seconds": 0,
     "working_dir": "study_runner/integrations/brainbit"
   },
@@ -29,7 +33,17 @@
     "auto_install": false,
     "emotion_worker_timeout_ms": 5000,
     "emotion_worker_url": "http://127.0.0.1:3001",
-    "enabled": false,
+    "emotion_worker": {
+      "auto_start": true,
+      "health_timeout_seconds": 0.75,
+      "log_dir": "study_runner/integrations/local_emotion_worker/logs",
+      "python_executable": {
+        "macos": "",
+        "windows": ""
+      },
+      "script_path": "study_runner/integrations/local_emotion_worker/server.py"
+    },
+    "enabled": true,
     "lsl": {
       "auto_install": false,
       "enabled": false,
@@ -41,7 +55,7 @@
     "worker_mode": "local_worker"
   },
   "labrecorder": {
-    "enabled": false,
+    "enabled": true,
     "lookahead_minutes": 120,
     "lookback_minutes": 120,
     "move_xdf": false,
@@ -49,7 +63,7 @@
   },
   "lsl": {
     "auto_install": false,
-    "enabled": false,
+    "enabled": true,
     "stream_name": "StudyRunner",
     "stream_type": "Markers"
   },
@@ -59,11 +73,11 @@
     "baudrate": 115200,
     "connection_type": "ble",
     "data_timeout_seconds": 5,
-    "enabled": false,
+    "enabled": true,
     "log_dir": "saved_results",
     "lsl": {
       "auto_install": false,
-      "enabled": false,
+      "enabled": true,
       "stream_prefix": "MiniRadar"
     },
     "ble": {
@@ -86,7 +100,7 @@
     "reconnect_delay": 5
   },
   "notion": {
-    "enabled": false,
+    "enabled": true,
     "auto_retry_failed": true,
     "timeout_seconds": 10
   },
