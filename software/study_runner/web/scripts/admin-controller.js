@@ -198,6 +198,7 @@ function bindEvents() {
   $('btn-admin-dashboard').addEventListener('click', () => switchView('view-dashboard'));
   $('btn-workspace-home').addEventListener('click', () => switchView('view-hub'));
   $('btn-admin-edit-view').addEventListener('click', () => switchView('view-hub'));
+  $('btn-create-shortcut')?.addEventListener('click', () => createDesktopShortcut());
 
   $('cfg-id').addEventListener('input', () => { markUnsaved(); updateHubTitle(); });
 
@@ -541,8 +542,12 @@ function renderUpdateStatus(status) {
 
   if (!status.configured) {
     pillState = 'disabled';
-    pillText = t('update.disabled', 'Disabled');
-    message = status.configuration_error || t('update.notConfiguredDetail', 'No Python updater public key is configured for this build.');
+    pillText = status.source_mode ? t('update.sourceMode', 'Source mode') : t('update.disabled', 'Disabled');
+    message = status.configuration_error || (
+      status.source_mode
+        ? t('update.sourceModeDetail', 'Source checkouts update through git pull or a fresh release ZIP.')
+        : t('update.notConfiguredDetail', 'No Python updater public key is configured for this build.')
+    );
   } else if (stateName === 'error' || stateName === 'install_failed') {
     pillState = 'error';
     pillText = t('update.error', 'Error');
@@ -596,7 +601,7 @@ function setUpdateActions(status) {
   const hasStaged = Boolean(status.staged?.version);
 
   if (checkButton) {
-    checkButton.disabled = busy;
+    checkButton.disabled = busy || Boolean(status.source_mode) || status.configured === false;
   }
   if (downloadButton) {
     downloadButton.hidden = !status.configured || !hasUpdate || hasStaged || busy;
@@ -1234,6 +1239,27 @@ function openStudySettings() {
   $('study-progress-bar-enabled').checked = Boolean(s.progress_bar_enabled);
   syncStudySensorControls();
   $('study-settings-modal').hidden = false;
+}
+
+async function createDesktopShortcut() {
+  const button = $('btn-create-shortcut');
+  const previous = button?.innerHTML || '';
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<i class="iconoir-refresh"></i><span>${escapeHtml(t('hub.creatingShortcut', 'Creating shortcut...'))}</span>`;
+  }
+  try {
+    const result = await postJson('/api/admin/system/create-shortcut', {});
+    showToast(t('hub.shortcutCreated', 'Desktop shortcut created: {path}').replace('{path}', result.path || ''), 'success');
+  } catch (error) {
+    console.error('[admin] Could not create desktop shortcut:', error);
+    showToast(error.message || t('hub.shortcutFailed', 'Could not create desktop shortcut'), 'error');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = previous;
+    }
+  }
 }
 
 function closeStudySettings() {

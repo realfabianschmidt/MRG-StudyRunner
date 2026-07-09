@@ -1,4 +1,4 @@
-# Data And Terms Explained
+# Sensors And Data
 
 ## Active Study
 
@@ -54,6 +54,55 @@ Tablet camera emotion has a live-monitor phase and a recording phase:
   written to study results.
 - After study start, emotion samples are saved only when camera emotion is effectively enabled and
   the active study/card context allows recording.
+
+## Sensor Source Versus Runtime
+
+The lab workspace keeps two intentionally different sensor areas:
+
+| Area | Purpose | Rule |
+| --- | --- | --- |
+| `../Sensorik/` | Hardware origin, experiments, vendor files, Arduino sketches, TouchDesigner references and notes. | Keep it as a lab reference. Do not assume every file is production-ready app code. |
+| `software/study_runner/integrations/` | Curated runtime code used by Study Runner, tests, packaging and releases. | Only this copy is loaded by the server and shipped in releases. |
+
+Current mapping:
+
+| Sensor | Origin/reference | Runtime copy |
+| --- | --- | --- |
+| MR60 radar | `../Sensorik/MR60BHA2/` | `software/study_runner/integrations/mr60_mini_radar/` |
+| BrainBit EEG | `../Sensorik/BrainBit/` | `software/study_runner/integrations/brainbit/` |
+| Tablet camera emotion | Browser camera plus server-side DeepFace dependency | `software/study_runner/integrations/tablet_camera_emotion/` and `software/study_runner/integrations/local_emotion_worker/` |
+
+Workflow for new hardware:
+
+1. Put vendor/reference files and rough experiments in `../Sensorik/`.
+2. Promote only the tested runtime subset into `software/study_runner/integrations/<sensor_key>/`.
+3. Add or update tests, operator docs and dashboard status fields.
+4. Release from the integration copy, not from the raw `Sensorik/` experiment folder.
+
+This split keeps the repo usable for non-coders while still preserving hardware
+reference material for lab work.
+
+## Research-Grade Boundary
+
+Study Runner is suitable as a research-grade lab tool for local studies. It is
+not a medical device, not a diagnostic system, and not validated for GCP, 21 CFR
+Part 11, HIPAA or clinical-trial source-data compliance.
+
+Strong current points:
+
+- Participant ID is required before a study can start.
+- LSL/XDF is the primary raw-data path for synchronized multimodal recording.
+- Study Runner markers identify study, question and stimulus timing.
+- JSON result files and sidecars keep card intervals and compact summaries.
+- Camera frames can be monitored before the study but are only recorded after study start.
+
+Known limits:
+
+- No immutable audit trail for every operator action yet.
+- No electronic signatures or role-based approval workflow.
+- BLE, browser and camera timing should be treated as lab timing, not hardware trigger timing.
+- BrainBit, MR60 and DeepFace values are research signals, not clinical measurements.
+- LabRecorder stream visibility should still be checked manually before critical runs.
 
 ## Browser Cards
 

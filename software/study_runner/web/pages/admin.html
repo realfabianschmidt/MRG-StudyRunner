@@ -39,6 +39,10 @@
             <i class="iconoir-book"></i>
             <span data-i18n="hub.auditSensorSetup">Audit &amp; Sensor Setup</span>
           </a>
+          <button class="hub-card" id="btn-create-shortcut" type="button">
+            <i class="iconoir-desktop"></i>
+            <span data-i18n="hub.createShortcut">Create desktop shortcut</span>
+          </button>
         </div>
 
         <h2 style="margin-top: 40px;" data-i18n="hub.recent">Recently used</h2>
@@ -273,6 +277,16 @@
       </div>
 
       <div class="dashboard-grid notion-dashboard-grid">
+        <article class="dashboard-card dashboard-card--wide notion-setup-guide-card">
+          <div class="dashboard-card-title"><i class="iconoir-help-circle"></i> <span data-i18n="notion.setupGuide">Setup Guide</span></div>
+          <div class="notion-help-body notion-help-body--inline">
+            <div class="notion-help-step"><div class="notion-help-step-num">1</div><div><strong data-i18n="notion.guide.step1.title">Create an integration</strong><p data-i18n="notion.guide.step1.body">In Notion, under notion.so/profile/integrations, create an internal integration with Read, Update and Insert Content.</p></div><span class="notion-step-state" id="notion-step-1-state">-</span></div>
+            <div class="notion-help-step"><div class="notion-help-step-num">2</div><div><strong data-i18n="notion.guide.step2.title">Save the API key</strong><p data-i18n="notion.guide.step2.body">Paste the token into the API key field. The browser never receives saved keys back.</p></div><span class="notion-step-state" id="notion-step-2-state">-</span></div>
+            <div class="notion-help-step"><div class="notion-help-step-num">3</div><div><strong data-i18n="notion.guide.step3.title">Share the page</strong><p data-i18n="notion.guide.step3.body">Create a Notion page for StudyRunner data and invite the integration with full access.</p></div><span class="notion-step-state" id="notion-step-3-state">-</span></div>
+            <div class="notion-help-step"><div class="notion-help-step-num">4</div><div><strong data-i18n="notion.guide.step4.title">Set the study target</strong><p data-i18n="notion.guide.step4.body">Enter the parent page ID or an existing database ID in the active study target card.</p></div><span class="notion-step-state" id="notion-step-4-state">-</span></div>
+          </div>
+        </article>
+
         <article class="dashboard-card dashboard-card--wide">
           <div class="dashboard-card-title"><i class="iconoir-database"></i> <span data-i18n="notion.status">Status</span></div>
           <div class="notion-status-grid notion-status-grid--dashboard">
@@ -300,7 +314,7 @@
         </article>
 
         <article class="dashboard-card">
-          <div class="dashboard-card-title"><i class="iconoir-keyframes"></i> <span data-i18n="notion.globalNotion">Global Notion</span></div>
+          <div class="dashboard-card-title"><i class="iconoir-keyframes"></i> <span data-i18n="notion.globalNotion">API key</span></div>
           <div class="field">
             <label class="consent-row" for="notion-enabled">
               <input type="checkbox" id="notion-enabled">
@@ -332,7 +346,7 @@
         </article>
 
         <article class="dashboard-card">
-          <div class="dashboard-card-title"><i class="iconoir-journal-page"></i> <span data-i18n="notion.activeStudyTarget">Active Study Target</span></div>
+          <div class="dashboard-card-title"><i class="iconoir-journal-page"></i> <span data-i18n="notion.activeStudyTarget">Active study target</span></div>
           <div class="notion-study-header">
             <div class="notion-study-label" data-i18n="notion.activeStudy">Active study</div>
             <div class="notion-study-name" id="notion-active-study-name">-</div>
@@ -361,7 +375,7 @@
         </article>
 
         <article class="dashboard-card">
-          <div class="dashboard-card-title"><i class="iconoir-upload-data-window"></i> <span data-i18n="notion.queueActions">Queue &amp; Actions</span></div>
+          <div class="dashboard-card-title"><i class="iconoir-upload-data-window"></i> <span data-i18n="notion.queueActions">Test & queue</span></div>
           <p class="settings-hint" id="notion-queue-status" data-i18n="notion.queueLoading">Queue status is loading.</p>
           <div class="dashboard-actions">
             <button class="btn-secondary" id="btn-notion-flush" type="button"><i class="iconoir-refresh"></i> <span data-i18n="notion.uploadQueue">Upload queue</span></button>
@@ -369,15 +383,6 @@
           <div class="notion-inline-note" data-i18n="notion.queueNote">An upload only happens when Notion is globally active and the currently loaded study has Notion enabled too.</div>
         </article>
 
-        <article class="dashboard-card">
-          <div class="dashboard-card-title"><i class="iconoir-help-circle"></i> <span data-i18n="notion.setupGuide">Setup Guide</span></div>
-          <div class="notion-help-body notion-help-body--inline">
-            <div class="notion-help-step"><div class="notion-help-step-num">1</div><div><strong data-i18n="notion.guide.step1.title">Create an integration</strong><p data-i18n="notion.guide.step1.body">In Notion, under notion.so/profile/integrations, create an internal integration with Read, Update and Insert Content.</p></div></div>
-            <div class="notion-help-step"><div class="notion-help-step-num">2</div><div><strong data-i18n="notion.guide.step2.title">Save the API key</strong><p data-i18n="notion.guide.step2.body">Paste the token into the API key field. The browser never receives saved keys back.</p></div></div>
-            <div class="notion-help-step"><div class="notion-help-step-num">3</div><div><strong data-i18n="notion.guide.step3.title">Share the page</strong><p data-i18n="notion.guide.step3.body">Create a Notion page for StudyRunner data and invite the integration with full access.</p></div></div>
-            <div class="notion-help-step"><div class="notion-help-step-num">4</div><div><strong data-i18n="notion.guide.step4.title">Set the Parent Page ID</strong><p data-i18n="notion.guide.step4.body">Enter the 32 characters from the Notion page URL into the Active Study Target settings.</p></div></div>
-          </div>
-        </article>
       </div>
     </section>
   </div>

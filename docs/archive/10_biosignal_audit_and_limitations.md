@@ -1,6 +1,6 @@
 # Biosignal Audit and Limitations
 
-Status: Study Runner is a research-grade lab tool. It is not a medical device, not a diagnostic system, and not validated for GCP, 21 CFR Part 11, HIPAA, or clinical-trial source-data compliance.
+Archived status: Study Runner is a research-grade lab tool. It is not a medical device, not a diagnostic system, and not validated for GCP, 21 CFR Part 11, HIPAA, or clinical-trial source-data compliance.
 
 ## Current Sensor Setup
 

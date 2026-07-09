@@ -1,6 +1,6 @@
 ﻿# Admin Dashboard and Biosignal Console
 
-This document describes the current Admin Dashboard behavior for biosignals and integration
+This archived document describes the Admin Dashboard behavior for biosignals and integration
 control.
 
 ## Current model

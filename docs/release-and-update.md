@@ -1,4 +1,4 @@
-# Python-Only Packaging
+# Release And Update
 
 Study Runner is distributed as a Python-only PyInstaller one-dir ZIP. There is
 no active Tauri wrapper in the repository anymore.
@@ -94,6 +94,12 @@ Required release secrets or variables:
 - `PYTHON_UPDATER_PUBLIC_KEY`
 - `PYTHON_UPDATER_SIGNING_PRIVATE_KEY`
 
+`PYTHON_UPDATER_PUBLIC_KEY` is not secret and may be stored as a GitHub
+Actions variable or secret. It is embedded into packaged builds so they can
+verify signed update manifests. `PYTHON_UPDATER_SIGNING_PRIVATE_KEY` is secret
+and must only live as a GitHub Actions secret. Never commit private signing
+keys, local certificates, `.env` files, `.pem`, `.pfx`, `.p12` or `.key` files.
+
 ## Updating In The App
 
 In a packaged Python build:
@@ -108,7 +114,28 @@ The app checks `study-runner-python-latest.json`, downloads the matching ZIP,
 verifies SHA-256 and Ed25519 signature, stages the update, then restarts into the
 staged executable.
 
-Source checkouts show update state but do not self-install.
+Source checkouts show update state but do not self-install. In source mode use:
+
+```bash
+git pull
+python -m pip install -r software/requirements.txt
+cd software
+python server.py
+```
+
+or download a fresh release ZIP. If a source checkout has no updater public key,
+that is expected and not a broken installation.
+
+## Desktop Shortcut
+
+The Admin hub can create a desktop shortcut on demand:
+
+- Windows: `Study Runner.lnk` on the Desktop.
+- macOS: `Study Runner.command` on the Desktop.
+
+In source mode the shortcut starts `software/server.py` with the current Python
+interpreter. In packaged mode it starts the packaged Python server executable.
+The app does not create shortcuts automatically.
 
 ## Legacy Tauri Installs
 

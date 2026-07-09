@@ -2962,6 +2962,7 @@ body.admin::before { display: none; }
   gap: 16px;
   padding: 14px 0;
   border-bottom: 1px solid var(--ink-06, #f0f0f0);
+  align-items: flex-start;
 }
 
 .notion-help-step:last-child {
@@ -2994,6 +2995,41 @@ body.admin::before { display: none; }
   font-size: .875rem;
   color: var(--ink-80, #333);
   line-height: 1.6;
+}
+
+.notion-setup-guide-card .notion-help-body {
+  max-height: none;
+}
+
+.notion-step-state {
+  flex-shrink: 0;
+  min-width: 72px;
+  margin-left: auto;
+  border: 1px solid var(--ink-12, #e0e0e0);
+  border-radius: 999px;
+  padding: 4px 9px;
+  text-align: center;
+  font-size: .75rem;
+  font-weight: 700;
+  color: var(--ink-60, #666);
+  background: #fff;
+}
+
+.notion-step-state[data-state="ready"] {
+  border-color: rgba(26, 132, 86, .24);
+  color: #146c45;
+  background: rgba(26, 132, 86, .08);
+}
+
+.notion-step-state[data-state="missing"] {
+  border-color: rgba(180, 90, 22, .24);
+  color: #9a4f12;
+  background: rgba(180, 90, 22, .08);
+}
+
+.notion-step-state[data-state="optional"] {
+  color: var(--ink-60, #666);
+  background: var(--bg-sunken, #f4f4f4);
 }
 
 .notion-help-step code {

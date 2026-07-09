@@ -14,7 +14,7 @@ It keeps only the rules that are useful for this small Study Runner project. The
 ## Language rule
 
 - Required: Active technical documentation must be written in English.
-- Exception: `docs/start-here-noncoder.md` may be written in German because it is the non-coder entry point requested for this repository.
+- Exception: `docs/start-here.de.md` may be written in German because it is the non-coder entry point requested for this repository.
 - Required: All code comments must be written in English.
 - Required: All implementation plans, developer notes, and work instructions must be written in English.
 - Required: New file names for documentation should be clear English names.

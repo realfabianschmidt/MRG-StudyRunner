@@ -1,5 +1,5 @@
 {
-  "study_id": "Test1",
+  "study_id": "Example Sensors Study",
   "questions": [
     {
       "type": "participant-id",

@@ -221,10 +221,10 @@ function stagedFiles() {
 }
 
 function ensureNoStagedSecrets(files) {
-  const blockedExtensions = /\.(pfx|p12|pem|p8|key)$/i;
-  const blockedPath = /(^|\/|\\)\.secrets($|\/|\\)/i;
+  const blockedExtensions = /\.(cer|crt|env|pfx|p12|pem|p8|key)$/i;
+  const blockedPath = /(^|\/|\\)(\.secrets|local_secrets\.json|saved_results|ssl)($|\/|\\)/i;
   const privateKeyNeedle = ['BEGIN ', 'PRIVATE KEY'].join('');
-  const secretAssignment = /\b(PYTHON_UPDATER_SIGNING_PRIVATE_KEY|PYTHON_UPDATER_PUBLIC_KEY)\s*=/;
+  const secretAssignment = /\bPYTHON_UPDATER_SIGNING_PRIVATE_KEY\s*=/;
 
   for (const file of files) {
     if (blockedExtensions.test(file) || blockedPath.test(file)) {

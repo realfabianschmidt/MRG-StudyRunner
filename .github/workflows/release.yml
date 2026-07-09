@@ -64,6 +64,17 @@ jobs:
       - name: Install Python build dependencies
         run: python -m pip install --upgrade pip && python -m pip install -r software/requirements.txt -r release_tools/pyinstaller/requirements-build.txt
 
+      - name: Verify updater public key
+        shell: bash
+        env:
+          PYTHON_UPDATER_PUBLIC_KEY: ${{ secrets.PYTHON_UPDATER_PUBLIC_KEY || vars.PYTHON_UPDATER_PUBLIC_KEY }}
+        run: |
+          if [ -z "$PYTHON_UPDATER_PUBLIC_KEY" ]; then
+            echo "PYTHON_UPDATER_PUBLIC_KEY is required for packaged update builds." >&2
+            echo "Use a GitHub Actions variable or secret for the public Ed25519 key." >&2
+            exit 1
+          fi
+
       - name: Write Python updater public key
         env:
           PYTHON_UPDATER_PUBLIC_KEY: ${{ secrets.PYTHON_UPDATER_PUBLIC_KEY || vars.PYTHON_UPDATER_PUBLIC_KEY }}

@@ -35,7 +35,42 @@ class UpdateRoutesTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(response.status_code, 200)
         self.assertFalse(payload["configured"])
+        self.assertTrue(payload["source_mode"])
         self.assertEqual(payload["state"], "idle")
+        self.assertIn("git pull", payload["recommended_action"])
+
+    def test_packaged_update_status_reports_release_key_problem(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_APP_MODE": "packaged",
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=True):
+                with patch.object(sys, "frozen", True, create=True):
+                    app = create_app()
+                    response = app.test_client().get("/api/admin/update/status")
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(payload["configured"])
+        self.assertFalse(payload["source_mode"])
+        self.assertIn("public key", payload["configuration_error"].lower())
+
+    def test_source_update_check_without_key_reports_git_pull(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=True):
+                app = create_app()
+                response = app.test_client().post("/api/admin/update/check")
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(payload["ok"])
+        self.assertIn("git pull", payload["error"])
 
     def test_update_check_returns_available_update(self) -> None:
         private_key, public_key = _make_keypair()

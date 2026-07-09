@@ -6,7 +6,7 @@ workshop, or design research setting.
 Start here if you are not developing the code:
 
 ```text
-docs/start-here-noncoder.md
+docs/start-here.de.md
 ```
 
 ## Project Layout
@@ -24,9 +24,13 @@ Software/
 |-- CONTRIBUTING.md        How we keep the code readable.
 |-- release.ps1            One-command release from the repo root.
 |-- docs/
-|   |-- start-here-noncoder.md  German guide for non-coders.
+|   |-- start-here.de.md        German guide for non-coders.
+|   |-- operator-guide.md       Daily operation and project overview.
+|   |-- sensors-and-data.md     Sensor flow, timing, XDF/LSL, data files.
+|   |-- developer-guide.md      Backend/frontend/plugin development rules.
+|   |-- release-and-update.md   Packaging, updates, desktop shortcuts.
 |   |-- README.md               Documentation index.
-|   `-- archive/                Historical notes and audits.
+|   `-- archive/                Historical plans and audits.
 |-- software/              THE PROGRAM.
 |   |-- server.py          Run locally with: cd software && python server.py
 |   |-- requirements.txt   Python dependencies.
@@ -100,7 +104,9 @@ STUDY_RUNNER_DATA_DIR=/path/to/writable/app-data
 
 ## Packaged App
 
-Official non-coder builds are PyInstaller one-dir ZIPs from GitHub Releases:
+Official non-coder builds are PyInstaller one-dir ZIPs from GitHub Releases.
+They package the Python server; there is no Tauri wrapper, Rust desktop shell,
+or separate desktop app layer:
 
 ```text
 https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
@@ -116,6 +122,11 @@ Assets:
 Unpack the ZIP and start `study-runner-server(.exe)`. Packaged builds open the
 Admin page in the default browser automatically. They use the same per-computer
 HTTPS certificate flow described above.
+
+From the Admin hub you can click `Create desktop shortcut`. On Windows this
+creates a `.lnk` file, and on macOS it creates a `.command` file. The shortcut
+starts the current source checkout or the packaged Python server executable,
+depending on how Study Runner is running.
 
 ## Sensor And Camera Runtime
 
@@ -212,15 +223,18 @@ python release_tools/build-python-onedir.py
 
 ## Source Of Truth
 
-- Non-coder start: `docs/start-here-noncoder.md`
+- Non-coder start: `docs/start-here.de.md`
+- Operator guide: `docs/operator-guide.md`
+- Sensor and data model: `docs/sensors-and-data.md`
+- Developer guide: `docs/developer-guide.md`
 - Editable study defaults: `software/study_content/`
 - Runtime app code: `software/study_runner/`
 - Release automation: `release_tools/`
 - Local hardware references in the lab workspace: `../Sensorik/`
-- Packaging details: `docs/07_desktop_launcher.md`
-- Python update details: `docs/09_python_auto_update.md`
+- Packaging and update details: `docs/release-and-update.md`
 - Docs index: `docs/README.md`
 - Historical plans and audits: `docs/archive/`
 
 Never commit local study results, generated build output, private keys,
-certificates, passwords, `.pfx`, `.p12`, `.key`, `.pem`, or `.p8`.
+certificates, passwords, `.env`, `local_secrets.json`, `settings/ssl/`,
+`.crt`, `.cer`, `.pfx`, `.p12`, `.key`, `.pem`, or `.p8`.

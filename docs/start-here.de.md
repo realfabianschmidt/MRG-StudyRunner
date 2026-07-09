@@ -1,4 +1,4 @@
-# START HERE: Study Runner fuer Nicht-Coder
+# Start Here: Study Runner fuer Nicht-Coder
 
 Diese Datei erklaert, wie du Study Runner lokal nutzt, wo Studien liegen und wie
 Updates entstehen.
@@ -86,6 +86,11 @@ Die Admin-Seite oeffnet sich automatisch im Browser. Falls nicht:
 ```text
 https://localhost:3000/admin
 ```
+
+Wenn der Server laeuft, kann in der Admin-Hub-Ansicht der Button
+`Create desktop shortcut` genutzt werden. Dadurch entsteht eine normale
+Desktop-Verknuepfung, die genau diese Study-Runner-Installation startet. Es
+wird keine separate Desktop-App installiert.
 
 ### GitHub-Version fuer Entwicklung
 
@@ -257,3 +262,10 @@ Update-Dateien.
 
 Alte Tauri-Installationen wechseln nicht automatisch. Einmal das aktuelle
 Python-only ZIP herunterladen, entpacken und ab dann dieses Build nutzen.
+
+## Weitere Doku
+
+- `docs/operator-guide.md`: taegliche Bedienung im Labor.
+- `docs/sensors-and-data.md`: Sensorik, Rohdaten, XDF/LSL und Grenzen.
+- `docs/release-and-update.md`: Updates, Release-ZIPs und Shortcut-Details.
+- `docs/developer-guide.md`: Struktur und Regeln fuer Code-Aenderungen.

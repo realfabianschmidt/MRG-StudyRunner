@@ -67,7 +67,7 @@ def build_update_status(app_config: dict[str, Any]) -> dict[str, Any]:
 
 
 def check_for_update(app_config: dict[str, Any]) -> dict[str, Any]:
-    _require_public_key()
+    _require_public_key(app_config)
     paths = resolve_update_paths(app_config)
     manifest_url = get_manifest_url()
     manifest = fetch_manifest(manifest_url)
@@ -96,7 +96,7 @@ def check_for_update(app_config: dict[str, Any]) -> dict[str, Any]:
 
 
 def download_and_stage_update(app_config: dict[str, Any]) -> dict[str, Any]:
-    _require_public_key()
+    _require_public_key(app_config)
     paths = resolve_update_paths(app_config)
     state = _read_state(paths.state_file)
     update_info = state.get("update") if isinstance(state.get("update"), dict) else {}
@@ -363,21 +363,38 @@ def is_install_supported(app_config: dict[str, Any]) -> bool:
 
 
 def _base_status(app_config: dict[str, Any], key_status: dict[str, Any]) -> dict[str, Any]:
+    packaged = bool(getattr(sys, "frozen", False))
+    source_mode = not packaged
+    public_key_configured = bool(key_status.get("configured"))
+    configuration_error = str(key_status.get("error") or "")
+    recommended_action = ""
+    if not public_key_configured:
+        if source_mode:
+            configuration_error = "Source mode updates use git pull or a fresh ZIP from GitHub Releases."
+            recommended_action = "Use git pull in this checkout, or download the latest release ZIP."
+        else:
+            configuration_error = "This packaged release is missing the trusted Python updater public key."
+            recommended_action = "Install a newer release ZIP or rebuild the release with PYTHON_UPDATER_PUBLIC_KEY configured."
     return {
         "ok": True,
         "current_version": __version__,
         "platform": detect_platform_key(),
         "manifest_url": get_manifest_url(),
         "app_mode": str(app_config.get("APP_MODE") or ""),
-        "packaged": bool(getattr(sys, "frozen", False)),
-        "configured": bool(key_status.get("configured")),
-        "configuration_error": str(key_status.get("error") or ""),
+        "packaged": packaged,
+        "source_mode": source_mode,
+        "configured": public_key_configured,
+        "public_key_configured": public_key_configured,
+        "configuration_error": configuration_error,
+        "recommended_action": recommended_action,
     }
 
 
-def _require_public_key() -> None:
+def _require_public_key(app_config: dict[str, Any] | None = None) -> None:
     status = get_public_key_status()
     if not status.get("configured"):
+        if app_config is not None and not bool(getattr(sys, "frozen", False)):
+            raise UpdateError("Source mode updates use git pull or a fresh ZIP from GitHub Releases.")
         message = status.get("error") or "No Python updater public key is configured."
         raise UpdateError(str(message))
 

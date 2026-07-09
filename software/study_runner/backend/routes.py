@@ -35,6 +35,7 @@ from .services.secrets_service import (
     resolve_notion_api_key,
     save_local_secrets,
 )
+from .services.shortcut_service import ShortcutError, create_desktop_shortcut
 from .services.study_sensor_runtime import (
     SESSION_OVERRIDE_KEYS,
     STUDY_SENSOR_KEYS,
@@ -714,6 +715,13 @@ def register_routes(app: Flask) -> None:
 
         threading.Thread(target=_delayed_shutdown, args=(shutdown_func,), daemon=True).start()
         return jsonify({"ok": True, **result})
+
+    @app.route("/api/admin/system/create-shortcut", methods=["POST"])
+    def admin_create_shortcut():
+        try:
+            return jsonify(create_desktop_shortcut(current_app.config))
+        except ShortcutError as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
 
     @app.route("/api/hardware-config")
     def get_hardware_config():

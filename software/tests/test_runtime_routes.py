@@ -189,6 +189,26 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertIn("available", payload)
         self.assertEqual(preview_page.status_code, 404)
 
+    def test_create_shortcut_route_returns_service_result(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            with patch(
+                "study_runner.backend.routes.create_desktop_shortcut",
+                return_value={"ok": True, "platform": "windows", "path": "C:/Users/test/Desktop/Study Runner.lnk"},
+            ):
+                response = app.test_client().post("/api/admin/system/create-shortcut")
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertIn("Study Runner", payload["path"])
+
 
 if __name__ == "__main__":
     unittest.main()

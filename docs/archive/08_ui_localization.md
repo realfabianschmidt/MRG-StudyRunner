@@ -1,6 +1,6 @@
 # UI Text And Languages
 
-The browser UI (admin page and participant page) is localizable. English is the default
+This archived note describes how the browser UI (admin page and participant page) is localizable. English is the default
 language and German is available through a small switcher in the admin header. The choice
 is remembered per browser.
 

@@ -216,6 +216,7 @@ function renderNotionStatus(status) {
   setText('notion-queue-status', t('notion.queueStatus', 'Queue: {count} waiting - API: {state}')
     .replace('{count}', String(queueSize))
     .replace('{state}', status.connected ? t('notion.connected', 'connected') : t('notion.notConnected', 'not connected')));
+  renderStepStates(status);
 }
 
 function globalStatusLabel(status) {
@@ -248,6 +249,36 @@ function queueExplanation(status) {
   if (!status.current_study_target_ready) return t('notion.queueNeedsTarget', 'Queue is empty. The active study still needs a Notion target.');
   if (!status.connected) return t('notion.queueAdapterDisconnected', 'Queue is empty. The adapter is not connected yet, but failed uploads will be buffered.');
   return t('notion.queueUploadsDirect', 'Queue is empty. New completed sessions should upload directly.');
+}
+
+function renderStepStates(status) {
+  setStepState('notion-step-1-state', 'optional', t('notion.stepStateExternal', 'external'));
+  setStepState(
+    'notion-step-2-state',
+    status.api_key_configured ? 'ready' : 'missing',
+    status.api_key_configured ? t('notion.stepStateReady', 'ready') : t('notion.stepStateMissing', 'missing'),
+  );
+  setStepState(
+    'notion-step-3-state',
+    status.connected ? 'ready' : 'missing',
+    status.connected ? t('notion.stepStateReady', 'ready') : t('notion.stepStateMissing', 'missing'),
+  );
+  setStepState(
+    'notion-step-4-state',
+    status.current_study_target_ready ? 'ready' : 'missing',
+    status.current_study_target_ready
+      ? t('notion.stepStateReady', 'ready')
+      : t('notion.stepStateMissing', 'missing'),
+  );
+}
+
+function setStepState(id, state, label) {
+  const target = $(id);
+  if (!target) {
+    return;
+  }
+  target.textContent = label;
+  target.dataset.state = state;
 }
 
 function populateStudyForm() {

@@ -1,6 +1,6 @@
 # Python-Only Auto Update
 
-Study Runner updates through the Python server. The update UI lives in the Admin
+This archived note describes how Study Runner updates through the Python server. The update UI lives in the Admin
 hub and always requires user confirmation before download or restart.
 
 ## Simple Answer

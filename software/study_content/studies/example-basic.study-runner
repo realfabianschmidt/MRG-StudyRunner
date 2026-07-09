@@ -1,5 +1,5 @@
 {
-  "study_id": "Test Studie",
+  "study_id": "Example Basic Study",
   "questions": [
     {
       "type": "participant-id",

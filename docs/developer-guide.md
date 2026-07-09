@@ -1,6 +1,18 @@
-# Integration Plugin Guide
+# Developer Guide
 
 Study Runner uses built-in integration plugins. A plugin is a normal Python folder under `software/study_runner/integrations/`. There is no automatic discovery and no external plugin marketplace.
+
+## Naming And Structure
+
+- `Software/` is the repository root in the lab workspace.
+- `software/` is the app folder and stays lowercase because imports, CI,
+  packaging and release tooling depend on it.
+- Python packages, modules and services use `snake_case`.
+- Browser files and docs use descriptive `kebab-case`.
+- Active docs avoid numbered prefixes; archived historical files may keep their
+  old names for traceability.
+- Keep comments short and useful. Comment why a complex block exists, not what
+  every line literally does.
 
 ## Important Files
 
@@ -95,3 +107,5 @@ The registry normalizes common fields:
 - Keep secrets out of browser responses and Git-tracked settings.
 - Store backend-local secrets in `software/study_content/settings/local_secrets.json`.
 - Do not add dynamic plugin loading unless the project deliberately changes architecture later.
+- UI text lives in `software/study_runner/web/locales/en.json` and `de.json`;
+  both files must keep the same keys.
