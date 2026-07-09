@@ -59,11 +59,11 @@ Quelle der Wahrheit.
 
 Es gibt zwei sinnvolle Wege:
 
-- Einfach fuer Labor-Nutzung: ZIP von GitHub Releases herunterladen.
+- Einfach fuer Labor-Nutzung: Install & Repair Wizard von GitHub Releases herunterladen.
 - Flexibel fuer Entwicklung oder schnelle Tests: GitHub-Repository klonen und
   Python-Abhaengigkeiten installieren.
 
-### ZIP-Version fuer normale Nutzung
+### Wizard fuer normale Nutzung
 
 1. GitHub Releases oeffnen:
 
@@ -73,24 +73,29 @@ https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
 
 2. Passendes ZIP herunterladen:
 
-- Windows: `study-runner-server-windows-x86_64.zip`
-- Linux: `study-runner-server-linux-x86_64.zip`
-- Mac Intel: `study-runner-server-macos-x86_64.zip`
-- Mac Apple Silicon: `study-runner-server-macos-arm64.zip`
+- Windows: `study-runner-manager-windows-x86_64.zip`
+- Mac Intel: `study-runner-manager-macos-x86_64.zip`
+- Mac Apple Silicon: `study-runner-manager-macos-arm64.zip`
 
 3. ZIP entpacken.
-4. `study-runner-server.exe` oder `study-runner-server` starten.
+4. `study-runner-manager.exe` oder `study-runner-manager` starten.
+5. Im Wizard `Install / Update Study Runner` klicken.
+6. Danach `Create desktop launcher` oder `Start Study Runner` nutzen.
 
-Die Admin-Seite oeffnet sich automatisch im Browser. Falls nicht:
+Der Wizard installiert den neuesten stabilen signierten Study-Runner-Release,
+legt App und Daten getrennt ab und kann eine kaputte Installation reparieren,
+ohne den Datenordner zu loeschen.
+
+Wenn der Server laeuft, ist die Admin-Seite hier:
 
 ```text
 https://localhost:3000/admin
 ```
 
-Wenn der Server laeuft, kann in der Admin-Hub-Ansicht der Button
-`Create desktop shortcut` genutzt werden. Dadurch entsteht eine normale
-Desktop-Verknuepfung, die genau diese Study-Runner-Installation startet. Es
-wird keine separate Desktop-App installiert.
+Manuelle Alternative: Du kannst weiterhin direkt ein
+`study-runner-server-*.zip` herunterladen, entpacken und
+`study-runner-server(.exe)` starten. Fuer Nicht-Coder ist aber der Manager der
+robustere Standardweg.
 
 ### GitHub-Version fuer Entwicklung
 

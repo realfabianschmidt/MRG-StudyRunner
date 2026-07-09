@@ -16,7 +16,8 @@ node release_tools/release-study-runner.mjs release patch
 
 The release command bumps `software/study_runner/version.py`, runs local checks,
 commits on `main`, pushes `main`, and pushes an `app-v<version>` tag. GitHub
-Actions builds and publishes the platform ZIPs after the tag is pushed.
+Actions builds and publishes the server ZIPs and manager ZIPs after the tag is
+pushed.
 
 A normal push to `main` is not an app update. The updater can only see a release
 after the `app-v<version>` tag has been pushed and the GitHub Actions release
@@ -34,6 +35,16 @@ the tag is pushed:
 ```powershell
 .\release.ps1 patch -FullChecks
 ```
+
+Manual local manager build:
+
+```powershell
+python release_tools/build-python-onedir.py --spec release_tools/pyinstaller/study_runner_manager_onedir.spec
+python release_tools/package-python-onedir.py --source software/dist/study-runner-manager --output study-runner-manager-local.zip
+```
+
+The manager is the Install & Repair Wizard. It verifies the signed
+`study-runner-python-latest.json` manifest before installing a server ZIP.
 
 For offline/lab-ready camera emotion releases, the DeepFace emotion model asset
 is already committed under

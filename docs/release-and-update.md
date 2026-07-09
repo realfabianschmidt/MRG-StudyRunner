@@ -1,11 +1,21 @@
 # Release And Update
 
-Study Runner is distributed as a Python-only PyInstaller one-dir ZIP. There is
+Study Runner is distributed as Python-only PyInstaller one-dir ZIPs. There is
 no active Tauri wrapper in the repository anymore.
 
 ## What Users Download
 
-Each release publishes exactly these app ZIPs:
+Recommended for non-coders:
+
+- `study-runner-manager-windows-x86_64.zip`
+- `study-runner-manager-macos-x86_64.zip`
+- `study-runner-manager-macos-arm64.zip`
+
+The manager is the Install & Repair Wizard. It installs or repairs the latest
+stable signed Study Runner release, keeps user data in a separate folder, and
+creates a desktop launcher.
+
+Manual server ZIPs remain available:
 
 - `study-runner-server-windows-x86_64.zip`
 - `study-runner-server-linux-x86_64.zip`
@@ -18,7 +28,7 @@ Users download the ZIP for their platform from:
 https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
 ```
 
-Then they unpack it and start:
+For manual server ZIPs, unpack and start:
 
 - Windows: `study-runner-server.exe`
 - macOS/Linux: `study-runner-server`
@@ -52,6 +62,8 @@ From the repository root:
 python -m pip install -r software/requirements.txt -r release_tools/pyinstaller/requirements-build.txt
 python release_tools/build-python-onedir.py
 python release_tools/package-python-onedir.py --source software/dist/study-runner-server --output study-runner-server-local.zip
+python release_tools/build-python-onedir.py --spec release_tools/pyinstaller/study_runner_manager_onedir.spec
+python release_tools/package-python-onedir.py --source software/dist/study-runner-manager --output study-runner-manager-local.zip
 ```
 
 The executable name must remain `study-runner-server(.exe)` because the updater
@@ -81,9 +93,10 @@ visible to installed apps as an update.
 
 ## GitHub Actions Output
 
-`.github/workflows/release.yml` builds four ZIPs and publishes:
+`.github/workflows/release.yml` builds server ZIPs plus manager ZIPs and publishes:
 
-- the four platform ZIPs,
+- signed server platform ZIPs,
+- manager ZIPs for Windows and macOS,
 - `study-runner-python-latest.json`.
 
 The workflow no longer creates `latest.json`, Tauri installers, Rust bundles, or
@@ -125,6 +138,22 @@ python server.py
 
 or download a fresh release ZIP. If a source checkout has no updater public key,
 that is expected and not a broken installation.
+
+## Install & Repair Wizard
+
+The manager uses `study-runner-python-latest.json` and the embedded updater
+public key to verify the selected server ZIP before installing it. It installs
+into versioned folders such as:
+
+```text
+StudyRunner/app/versions/0.3.1/
+StudyRunner/data/
+```
+
+Repair reinstalls the current release and recreates the desktop launcher. It
+does not delete the data folder. The advanced development mode can clone/pull
+GitHub `main`, but it is not the lab default because it requires local Git,
+Python, and dependency installation.
 
 ## Desktop Shortcut
 

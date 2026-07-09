@@ -204,12 +204,14 @@ function runChecks(nextVersion) {
     'release_tools/build-python-update-manifest.py',
     'release_tools/build-python-onedir.py',
     'release_tools/build-offline-wheelhouse.py',
+    'tools/study_runner_manager.py',
   ]);
   run('node', ['release_tools/verify-release-version.mjs', releaseTagName(nextVersion)]);
   run('python', ['-m', 'unittest', 'discover', path.join('software', 'tests')]);
 
   if (fullChecks) {
     run('python', ['release_tools/build-python-onedir.py']);
+    run('python', ['release_tools/build-python-onedir.py', '--spec', 'release_tools/pyinstaller/study_runner_manager_onedir.spec']);
   }
 
   git(['diff', '--check']);

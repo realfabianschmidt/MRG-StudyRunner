@@ -29,7 +29,8 @@ def main() -> int:
         cwd=SOFTWARE_ROOT,
         check=True,
     )
-    print("PyInstaller one-dir build is ready in software/dist/study-runner-server.")
+    output_name = "study-runner-manager" if "manager" in spec_file.name else "study-runner-server"
+    print(f"PyInstaller one-dir build is ready in software/dist/{output_name}.")
     return 0
 
 

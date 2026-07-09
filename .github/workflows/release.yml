@@ -23,15 +23,19 @@ jobs:
           - label: Windows x64
             platform: windows-latest
             python_asset: study-runner-server-windows-x86_64.zip
+            manager_asset: study-runner-manager-windows-x86_64.zip
           - label: Linux x64
             platform: ubuntu-24.04
             python_asset: study-runner-server-linux-x86_64.zip
+            manager_asset: ""
           - label: macOS Intel
             platform: macos-15-intel
             python_asset: study-runner-server-macos-x86_64.zip
+            manager_asset: study-runner-manager-macos-x86_64.zip
           - label: macOS Apple Silicon
             platform: macos-15
             python_asset: study-runner-server-macos-arm64.zip
+            manager_asset: study-runner-manager-macos-arm64.zip
 
     steps:
       - name: Checkout
@@ -96,11 +100,27 @@ jobs:
       - name: Package Python update asset
         run: python release_tools/package-python-onedir.py --source software/dist/study-runner-server --output "${{ matrix.python_asset }}"
 
+      - name: Build manager package
+        if: matrix.manager_asset != ''
+        run: python release_tools/build-python-onedir.py --spec release_tools/pyinstaller/study_runner_manager_onedir.spec
+
+      - name: Package manager asset
+        if: matrix.manager_asset != ''
+        run: python release_tools/package-python-onedir.py --source software/dist/study-runner-manager --output "${{ matrix.manager_asset }}"
+
       - name: Upload Python update workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: python-update-${{ matrix.python_asset }}
           path: ${{ matrix.python_asset }}
+          if-no-files-found: error
+
+      - name: Upload manager workflow artifact
+        if: matrix.manager_asset != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-update-${{ matrix.manager_asset }}
+          path: ${{ matrix.manager_asset }}
           if-no-files-found: error
 
   publish:
@@ -119,7 +139,7 @@ jobs:
       - name: Install manifest signing dependency
         run: python -m pip install "cryptography>=42"
 
-      - name: Download Python update assets
+      - name: Download release assets
         uses: actions/download-artifact@v4
         with:
           pattern: python-update-*

@@ -105,23 +105,32 @@ STUDY_RUNNER_DATA_DIR=/path/to/writable/app-data
 ## Packaged App
 
 Official non-coder builds are PyInstaller one-dir ZIPs from GitHub Releases.
-They package the Python server; there is no Tauri wrapper, Rust desktop shell,
-or separate desktop app layer:
+There is no Tauri wrapper, Rust desktop shell, or separate desktop app layer:
 
 ```text
 https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
 ```
 
-Assets:
+Recommended first download:
+
+- `study-runner-manager-windows-x86_64.zip`
+- `study-runner-manager-macos-x86_64.zip`
+- `study-runner-manager-macos-arm64.zip`
+
+The manager is the Install & Repair Wizard. It downloads the latest signed
+stable server release, installs it into a versioned app folder, keeps study data
+in a separate data folder, and creates or repairs the desktop launcher.
+
+Manual server assets:
 
 - `study-runner-server-windows-x86_64.zip`
 - `study-runner-server-linux-x86_64.zip`
 - `study-runner-server-macos-x86_64.zip`
 - `study-runner-server-macos-arm64.zip`
 
-Unpack the ZIP and start `study-runner-server(.exe)`. Packaged builds open the
-Admin page in the default browser automatically. They use the same per-computer
-HTTPS certificate flow described above.
+If you use a manual server ZIP, unpack it and start `study-runner-server(.exe)`.
+Packaged builds open the Admin page in the default browser automatically. They
+use the same per-computer HTTPS certificate flow described above.
 
 From the Admin hub you can click `Create desktop shortcut`. On Windows this
 creates a `.lnk` file, and on macOS it creates a `.command` file. The shortcut

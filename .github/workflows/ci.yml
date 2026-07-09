@@ -8,6 +8,7 @@ on:
     branches:
       - main
       - "release/**"
+      - "feature/study-runner-manager"
 
 permissions:
   contents: read
@@ -51,7 +52,7 @@ jobs:
           node --check release_tools/release-study-runner.mjs
 
       - name: Check release Python helpers
-        run: python -m py_compile release_tools/package-python-onedir.py release_tools/write-python-update-key.py release_tools/build-python-update-manifest.py release_tools/build-python-onedir.py
+        run: python -m py_compile release_tools/package-python-onedir.py release_tools/write-python-update-key.py release_tools/build-python-update-manifest.py release_tools/build-python-onedir.py tools/study_runner_manager.py
 
       - name: Verify Python app version
         shell: bash
