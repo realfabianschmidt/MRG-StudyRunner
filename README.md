@@ -39,11 +39,28 @@ Software/
 Local study results are written to `software/saved_results/` and are ignored by
 Git.
 
-## Run Locally
+## Install And Run From Source
+
+Use this path when you cloned the GitHub repository. It works on Windows and
+macOS when Python 3.11+ is installed.
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r software/requirements.txt
+cd software
+python server.py
+```
+
+macOS/Linux:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r software/requirements.txt
 cd software
-pip install -r requirements.txt
 python server.py
 ```
 
@@ -54,11 +71,22 @@ The terminal prints the available addresses:
 
 HTTPS is enabled by default so tablet camera access can work. Study Runner
 creates a persistent local Root CA in `software/study_content/settings/ssl/` and
-prints the exact `.crt` path on startup. For iPad camera access, install that
-Root CA profile on the iPad and enable full trust under iOS certificate trust
-settings, then open the printed `https://<computer-ip>:3000` participant URL.
-To disable HTTPS for a local non-camera debug run, set `STUDY_RUNNER_HTTPS=0`
-before starting.
+prints the exact `.crt` path on startup. The certificate files and private keys
+are local machine state and are intentionally ignored by Git.
+
+For iPad camera access:
+
+1. Start Study Runner once.
+2. Copy the printed `study-runner-local-root-ca.crt` to the iPad. If iPadOS does
+   not recognize it as a certificate, rename the copy to `.cer`.
+3. Install it under `Settings > General > VPN & Device Management`.
+4. Enable full trust under `Settings > General > About > Certificate Trust Settings`.
+5. Open the printed `https://<computer-ip>:3000` participant URL.
+
+Every server computer creates its own Root CA. When moving to another computer,
+install that computer's newly generated certificate on the tablet. To disable
+HTTPS for a local non-camera debug run, set `STUDY_RUNNER_HTTPS=0` before
+starting.
 
 Optional runtime settings:
 
@@ -86,7 +114,40 @@ Assets:
 - `study-runner-server-macos-arm64.zip`
 
 Unpack the ZIP and start `study-runner-server(.exe)`. Packaged builds open the
-Admin page in the default browser automatically.
+Admin page in the default browser automatically. They use the same per-computer
+HTTPS certificate flow described above.
+
+## Sensor And Camera Runtime
+
+Current built-in lab integrations:
+
+- BrainBit EEG through the repo-local NeuroSDK CLI.
+- MR60 radar through ESP32-C6 BLE firmware in
+  `software/study_runner/integrations/mr60_mini_radar/firmware/`.
+- Tablet camera emotion through browser `getUserMedia` and a local DeepFace
+  worker on the server computer.
+- LSL markers and LabRecorder/XDF for synchronized raw recording.
+
+DeepFace is installed through `software/requirements.txt`. The required emotion
+model weight `facial_expression_model_weights.h5` is vendored in the repo under
+`software/study_runner/integrations/local_emotion_worker/model_assets/`, so a
+normal clone or release build does not depend on downloading that model from
+GitHub at runtime.
+
+Study settings define which sensors are intended for a study. The Admin
+dashboard can set temporary runtime overrides for the current server session.
+Those overrides are useful during setup and diagnostics, and they do not rewrite
+the study file unless the study is explicitly saved in the editor.
+
+Tablet camera behavior:
+
+- If camera emotion is effectively enabled, the normal participant page starts
+  live camera monitoring as soon as it is open and camera permission is granted.
+- Before the Participant ID is entered and the study starts, frames only update
+  the dashboard live monitor.
+- After study start, emotion samples are recorded with the active study/card
+  context.
+- The separate `/camera-preview` page has been removed.
 
 ## Local Package Build
 

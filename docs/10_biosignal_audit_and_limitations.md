@@ -8,7 +8,7 @@ Study Runner can combine survey cards with these biosignal sources:
 
 - BrainBit EEG via the BrainBit/NeuroSDK CLI. Runtime data can be streamed through LSL and summarized into sidecars and Notion summaries.
 - MR60 mini radar via ESP32-C6 BLE firmware. Runtime data includes heart rate, breathing rate, distance, quality, packet sequence, drops, jitter, and timestamps.
-- Tablet camera emotion via browser `getUserMedia` and a local DeepFace worker on the Study Runner server computer. Pre-study frames are preview-only; study samples are recorded only after the participant ID is entered and the study has started.
+- Tablet camera emotion via browser `getUserMedia` and a local DeepFace worker on the Study Runner server computer. Live-monitor frames can start as soon as the normal participant page is open and camera emotion is effectively enabled; study samples are recorded only after the participant ID is entered and the study has started.
 - Study Runner LSL markers for study start/end, question shown/answered, and stimulus active start/stop.
 - LabRecorder/XDF as the canonical raw-data recording path for synchronized LSL streams.
 
@@ -37,10 +37,12 @@ https://bids-specification.readthedocs.io/en/stable/modality-specific-files/phys
 - Modular integrations: sensors live behind integration plugins instead of one-off scripts.
 - Explicit per-study sensor selection: BrainBit, MR60, and camera emotion are selected in study settings.
 - Participant-ID gating: a study cannot start without a Participant ID as the first card.
-- Pre-study camera monitoring: the tablet can show live camera/DeepFace readiness in the dashboard before recording starts.
+- Pre-study camera monitoring: the normal participant page can stream a live camera/DeepFace monitor to the dashboard before recording starts.
 - XDF/LSL core: raw streams and markers can be recorded in a standard multimodal lab format.
 - Per-interval summaries: questions and stimuli have separate intervals for average biomarker summaries.
-- Runtime safety: during an active study, BrainBit/MR60/camera state is controlled by study settings; the dashboard cannot silently override those sensor selections.
+- Runtime control: study settings define the saved sensor defaults, while the dashboard can apply explicit temporary overrides for the current server session. Overrides are visible in the dashboard and can be reset to study settings.
+- HTTPS for tablet camera: Study Runner generates a per-computer local Root CA and server certificate so iPad/tablet camera access can work over trusted HTTPS after the Root CA is installed on the tablet.
+- Offline emotion model asset: the DeepFace emotion weights are vendored in the repo and bundled into packaged builds, reducing runtime dependence on GitHub model downloads.
 
 ## Known Weaknesses
 
@@ -49,6 +51,8 @@ https://bids-specification.readthedocs.io/en/stable/modality-specific-files/phys
 - No electronic signatures or role-based approval workflow.
 - No medical calibration guarantee: BrainBit, MR60, and DeepFace outputs are used as research signals, not clinical measurements.
 - Camera emotion is model-dependent and sensitive to lighting, face angle, occlusion, demographic bias, and dependency versions.
+- Dashboard overrides are operational controls, not a compliance audit trail. Operators must still document deviations from planned study settings when that matters for a study.
+- The local HTTPS Root CA is generated per server computer. Tablets must trust the certificate for the actual server computer used in the session.
 - BLE and browser timing are good enough for lab monitoring but should not be treated as hardware-grade trigger timing without external validation.
 - LabRecorder must still be checked manually before a critical run to confirm that all intended streams are visible and recorded.
 
@@ -65,10 +69,11 @@ Study Runner does not currently implement that full control set. It should be de
 2. Confirm the first card is Participant ID.
 3. In study settings, select only the sensors needed for this study.
 4. Open the dashboard and confirm BrainBit, MR60, LSL markers, LabRecorder/XDF, and camera worker status.
-5. Open the tablet study page. If camera emotion is enabled, confirm the live preview and detected face/emotion before starting.
-6. Confirm LabRecorder sees the expected streams: StudyRunner markers, BrainBit streams, MR60 streams, and optional camera emotion streams.
-7. Enter Participant ID on the tablet and start the study.
-8. After completion, check the result JSON, sensor sidecars, XDF file, and Notion summary.
+5. If a temporary dashboard override is needed, set it deliberately and leave the visible override warning in place until the run is finished, or reset to study settings before recording.
+6. Open the tablet study page over trusted HTTPS. If camera emotion is effectively enabled, confirm the live monitor and detected face/emotion before starting.
+7. Confirm LabRecorder sees the expected streams: StudyRunner markers, BrainBit streams, MR60 streams, and optional camera emotion streams.
+8. Enter Participant ID on the tablet and start the study.
+9. After completion, check the result JSON, sensor sidecars, XDF file, and Notion summary.
 
 ## Recommended Next Improvements
 
@@ -77,4 +82,4 @@ Study Runner does not currently implement that full control set. It should be de
 - Export BIDS-like `events.tsv` and sidecar metadata for card events and stimulus intervals.
 - Store exact integration versions, firmware version, BLE device IDs, BrainBit target identity, and DeepFace model/dependency versions per session.
 - Add a lab preflight checklist UI with pass/fail status for each selected sensor.
-- Add offline wheelhouse assets for Windows/macOS releases so DeepFace installation is reproducible without a live PyPI download.
+- Add offline wheelhouse assets for Windows/macOS releases so Python package installation is reproducible without a live PyPI download.

@@ -9,8 +9,13 @@ Important fields:
 - `study_id`: the study label.
 - `questions`: the ordered card list shown to the participant.
 - `study_settings`: study-level options such as sensor use and Notion upload target.
+- `study_settings.sensors`: saved per-study sensor defaults for BrainBit, MR60, and camera emotion.
 
 Saved presets are stored in `software/study_content/studies/` as `.study-runner` files.
+
+The Admin dashboard can apply temporary runtime overrides for sensor integrations during the
+current server session. These overrides do not rewrite the saved study unless the operator
+explicitly saves the study settings in the editor.
 
 ## Results
 
@@ -42,6 +47,13 @@ Compact JSON sidecars are secondary exports. They keep sensor-near samples with 
 and copy `card_events` so question and stimulus intervals can be reconstructed without opening XDF.
 Question summaries use the card's `shown_at` to `answered_at` interval. Stimulus summaries use
 `active_started_at` to `active_ended_at`.
+
+Tablet camera emotion has a live-monitor phase and a recording phase:
+
+- Before Participant ID and study start, frames can update the dashboard live monitor but are not
+  written to study results.
+- After study start, emotion samples are saved only when camera emotion is effectively enabled and
+  the active study/card context allows recording.
 
 ## Browser Cards
 

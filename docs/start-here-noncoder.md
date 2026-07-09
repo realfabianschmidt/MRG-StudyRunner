@@ -55,38 +55,15 @@ Diese Ordner sind generiert oder lokal:
 Sie werden durch Tests, Builds oder Studienlaeufe erzeugt und sind nicht die
 Quelle der Wahrheit.
 
-## Lokal starten
+## Software installieren
 
-```powershell
-cd software
-python server.py
-```
+Es gibt zwei sinnvolle Wege:
 
-Dann im Browser:
+- Einfach fuer Labor-Nutzung: ZIP von GitHub Releases herunterladen.
+- Flexibel fuer Entwicklung oder schnelle Tests: GitHub-Repository klonen und
+  Python-Abhaengigkeiten installieren.
 
-```text
-https://localhost:3000/admin
-```
-
-## iPad / Tablet Kamera
-
-Die Tablet-Kamera braucht HTTPS mit einem Zertifikat, dem das iPad vertraut.
-Study Runner erstellt beim Start automatisch eine lokale Root-CA und zeigt den
-Pfad in der Konsole an:
-
-```text
-iPad trust certificate: ...\study-runner-local-root-ca.crt
-```
-
-Diese `.crt`-Datei einmal aufs iPad uebertragen, dort als Profil installieren
-und unter `Einstellungen > Allgemein > Info > Zertifikatsvertrauenseinstellungen`
-voll vertrauen. Danach die angezeigte Tablet-Adresse oeffnen:
-
-```text
-https://<computer-ip>:3000
-```
-
-## ZIP-Build starten
+### ZIP-Version fuer normale Nutzung
 
 1. GitHub Releases oeffnen:
 
@@ -104,7 +81,117 @@ https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
 3. ZIP entpacken.
 4. `study-runner-server.exe` oder `study-runner-server` starten.
 
-Die Admin-Seite oeffnet sich automatisch im Browser.
+Die Admin-Seite oeffnet sich automatisch im Browser. Falls nicht:
+
+```text
+https://localhost:3000/admin
+```
+
+### GitHub-Version fuer Entwicklung
+
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
+cd MRG-StudyRunner
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r software\requirements.txt
+cd software
+python server.py
+```
+
+macOS Terminal:
+
+```bash
+git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
+cd MRG-StudyRunner
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r software/requirements.txt
+cd software
+python server.py
+```
+
+Dann im Browser:
+
+```text
+https://localhost:3000/admin
+```
+
+## HTTPS und iPad / Tablet Kamera
+
+Die Tablet-Kamera funktioniert im Browser nur zuverlaessig ueber HTTPS. Study
+Runner startet deshalb standardmaessig mit HTTPS und erzeugt beim ersten Start
+auf jedem Server-Rechner ein eigenes lokales Zertifikat.
+
+Beim Start steht in der Konsole eine Zeile wie:
+
+```text
+iPad trust certificate: ...\study-runner-local-root-ca.crt
+```
+
+Diese Datei gehoert nur zu diesem Rechner. Wenn du Study Runner auf einem
+anderen Windows-PC oder Mac startest, wird dort ein neues Zertifikat erzeugt und
+das Tablet muss diesem neuen Zertifikat ebenfalls vertrauen.
+
+Einrichtung auf dem iPad:
+
+1. `study-runner-local-root-ca.crt` aufs iPad uebertragen. Wenn iPadOS die Datei
+   nicht als Zertifikat erkennt, die Kopie in `.cer` umbenennen.
+2. In iPadOS installieren unter:
+
+```text
+Einstellungen > Allgemein > VPN & Geraeteverwaltung
+```
+
+3. Danach die Root-CA voll vertrauen unter:
+
+```text
+Einstellungen > Allgemein > Info > Zertifikatsvertrauenseinstellungen
+```
+
+4. Danach die in der Konsole angezeigte Tablet-Adresse oeffnen:
+
+```text
+https://<computer-ip>:3000
+```
+
+Wenn `Zertifikatsvertrauenseinstellungen` nicht erscheint, ist noch kein
+zusaetzliches Zertifikat installiert. Das entspricht Apples Hinweis fuer manuell
+installierte Root-Zertifikate:
+
+```text
+https://support.apple.com/en-us/102390
+```
+
+## Sensorik im Labor
+
+Study Runner kann aktuell diese Sensoren/Integrationen nutzen:
+
+- BrainBit EEG ueber Bluetooth/NeuroSDK.
+- MR60 Radar ueber ESP32-C6 BLE-Firmware.
+- Tablet-Kamera-Emotion ueber die normale Teilnehmerseite und den lokalen
+  DeepFace Worker.
+- LSL Marker und LabRecorder/XDF fuer synchronisierte Rohdaten.
+- Notion Upload fuer kompakte Zusammenfassungen, wenn ein API-Key gesetzt ist.
+
+Wichtig: Kamera-Emotion streamt Livebilder ins Dashboard, sobald Camera Emotion
+effektiv aktiv ist, die Tablet-Seite offen ist und die Kamera erlaubt wurde.
+Vor dem Studienstart werden diese Bilder nur fuer den Live-Monitor genutzt.
+Gespeichert wird erst nach gueltiger Participant ID und Studienstart.
+
+Die Sensor-Auswahl in den Studien-Einstellungen ist der gespeicherte Standard.
+Das Dashboard darf diese Auswahl temporaer fuer die aktuelle Server-Session
+ueberstimmen. Das ist praktisch fuer Tests im Labor. Mit `Reset to study
+settings` faellt alles wieder auf die gespeicherten Studienwerte zurueck.
+
+DeepFace: Das Python-Paket wird mit `software/requirements.txt` installiert.
+Das wichtige Emotion-Modell `facial_expression_model_weights.h5` liegt bereits
+im Repository und in Release-Builds. Normalerweise muss es also nicht separat
+von GitHub heruntergeladen werden.
 
 ## Neues Update veroeffentlichen
 

@@ -35,17 +35,18 @@ the tag is pushed:
 .\release.ps1 patch -FullChecks
 ```
 
-For offline/lab-ready camera emotion releases, fetch the DeepFace emotion model
-asset before building:
+For offline/lab-ready camera emotion releases, the DeepFace emotion model asset
+is already committed under
+`software/study_runner/integrations/local_emotion_worker/model_assets/`. Fetch a
+fresh copy only when the model asset should be refreshed:
 
 ```powershell
 python release_tools/fetch-deepface-model-assets.py
 ```
 
-The release build includes
-`software/study_runner/integrations/local_emotion_worker/model_assets/` when it
-exists, so the dashboard repair action can prepare DeepFace without downloading
-model weights from GitHub on the lab computer.
+The release build includes that `model_assets/` folder, so the dashboard repair
+action can prepare DeepFace without downloading model weights from GitHub on the
+lab computer.
 
 Required release secrets or variables:
 
