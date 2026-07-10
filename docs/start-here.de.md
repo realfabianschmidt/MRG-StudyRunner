@@ -86,6 +86,10 @@ Der Wizard installiert den neuesten stabilen signierten Study-Runner-Release,
 legt App und Daten getrennt ab und kann eine kaputte Installation reparieren,
 ohne den Datenordner zu loeschen.
 
+Auf macOS kann beim ersten Start eine Gatekeeper-Warnung erscheinen, solange die
+Builds nicht signiert/notarisiert sind. Dann einmal Rechtsklick auf die Datei
+und `Oeffnen` waehlen.
+
 Wenn der Server laeuft, ist die Admin-Seite hier:
 
 ```text
@@ -198,10 +202,14 @@ Das Dashboard darf diese Auswahl temporaer fuer die aktuelle Server-Session
 ueberstimmen. Das ist praktisch fuer Tests im Labor. Mit `Reset to study
 settings` faellt alles wieder auf die gespeicherten Studienwerte zurueck.
 
-DeepFace: Das Python-Paket wird mit `software/requirements.txt` installiert.
-Das wichtige Emotion-Modell `facial_expression_model_weights.h5` liegt bereits
-im Repository und in Release-Builds. Normalerweise muss es also nicht separat
-von GitHub heruntergeladen werden.
+DeepFace: In der normalen Wizard-/Release-Installation sind DeepFace,
+TensorFlow/tf-keras, OpenCV, der lokale Emotion Worker und das wichtige
+Emotion-Modell `facial_expression_model_weights.h5` im Paket enthalten. Beim
+ersten Start wird das Modell in den Datenordner-Cache kopiert. Der Laborrechner
+braucht dafuer kein Python, kein Pip und keinen GitHub-Modell-Download.
+
+Nur bei der GitHub-Version fuer Entwicklung werden die Python-Pakete mit
+`software/requirements.txt` installiert.
 
 ## Neues Update veroeffentlichen
 

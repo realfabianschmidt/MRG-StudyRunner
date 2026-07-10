@@ -119,7 +119,8 @@ Recommended first download:
 
 The manager is the Install & Repair Wizard. It downloads the latest signed
 stable server release, installs it into a versioned app folder, keeps study data
-in a separate data folder, and creates or repairs the desktop launcher.
+in a separate data folder, and creates or repairs the desktop launcher. This is
+the normal path for non-coders on Windows and macOS.
 
 Manual server assets:
 
@@ -131,6 +132,9 @@ Manual server assets:
 If you use a manual server ZIP, unpack it and start `study-runner-server(.exe)`.
 Packaged builds open the Admin page in the default browser automatically. They
 use the same per-computer HTTPS certificate flow described above.
+
+On macOS, unsigned builds may need the usual Gatekeeper step: right-click the
+executable and choose `Open` once.
 
 From the Admin hub you can click `Create desktop shortcut`. On Windows this
 creates a `.lnk` file, and on macOS it creates a `.command` file. The shortcut
@@ -148,11 +152,14 @@ Current built-in lab integrations:
   worker on the server computer.
 - LSL markers and LabRecorder/XDF for synchronized raw recording.
 
-DeepFace is installed through `software/requirements.txt`. The required emotion
-model weight `facial_expression_model_weights.h5` is vendored in the repo under
-`software/study_runner/integrations/local_emotion_worker/model_assets/`, so a
-normal clone or release build does not depend on downloading that model from
-GitHub at runtime.
+In packaged builds, DeepFace, TensorFlow/tf-keras, OpenCV and the local Emotion
+Worker are bundled. The required emotion model weight
+`facial_expression_model_weights.h5` is vendored under
+`software/study_runner/integrations/local_emotion_worker/model_assets/` and is
+copied into the data-folder cache on first use. A normal release install does
+not need Python, Pip, Git or a model download on the lab computer.
+
+In source checkouts, DeepFace is installed through `software/requirements.txt`.
 
 Study settings define which sensors are intended for a study. The Admin
 dashboard can set temporary runtime overrides for the current server session.

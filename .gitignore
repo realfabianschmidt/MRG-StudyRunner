@@ -15,6 +15,7 @@ target/
 
 # Local study results and secrets (never commit these)
 software/saved_results/
+software/runtime/
 saved_results/
 software/study_content/settings/local_secrets.json
 software/study_content/settings/*.local.json

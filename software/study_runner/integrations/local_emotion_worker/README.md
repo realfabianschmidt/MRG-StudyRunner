@@ -22,6 +22,19 @@ python server.py --port 3001
 Then point the camera-emotion integration settings at the worker URL, normally
 `http://127.0.0.1:3001`.
 
+Packaged builds do not start this file through a separate Python interpreter.
+They start the bundled server executable with:
+
+```bash
+study-runner-server --emotion-worker --host 127.0.0.1 --port 3001
+```
+
+The packaged self-test is:
+
+```bash
+study-runner-server --emotion-worker-self-test --json
+```
+
 ## Dashboard Workflow
 
 1. Enable Camera Emotion in the study settings when the study needs it.
@@ -38,10 +51,14 @@ Then point the camera-emotion integration settings at the worker URL, normally
 - `GET http://127.0.0.1:3001/status` should return `ready=true`.
 - `model_ready=false` or `model_error` means DeepFace/OpenCV runtime setup is
   incomplete or failing on the server computer.
-- If TensorFlow reports that `tf-keras` is required, use the dashboard button
-  "Repair DeepFace runtime". This runs the same install as the command below,
-  checks the emotion model weights and restarts the worker after a successful
-  repair.
+- In source mode, if TensorFlow reports that `tf-keras` is required, use the
+  dashboard button "Repair DeepFace runtime". This runs the same install as the
+  command below, checks the emotion model weights and restarts the worker after
+  a successful repair.
+- In packaged mode, "Repair DeepFace runtime" never runs `pip install` inside
+  the executable. It repairs the model cache only. If packaged Python
+  dependencies are damaged, use the Study Runner Install & Repair Wizard action
+  "Repair existing installation".
 - If DeepFace reports a failed download for
   `facial_expression_model_weights.h5`, use "Repair DeepFace runtime" again.
   The repair first copies a vendored model asset from `model_assets/` when it is
@@ -84,11 +101,17 @@ The DeepFace emotion model asset is vendored in this repository at:
 software/study_runner/integrations/local_emotion_worker/model_assets/facial_expression_model_weights.h5
 ```
 
-Fresh clones and packaged builds include this file. At runtime, the worker uses
-an integration-local DeepFace cache under:
+Fresh clones and packaged builds include this file. In source mode, the worker
+uses an integration-local DeepFace cache under:
 
 ```text
 software/study_runner/integrations/local_emotion_worker/deepface_home/.deepface/weights/
+```
+
+In packaged mode, the cache lives in the configured Study Runner data folder:
+
+```text
+<StudyRunner data>/runtime/local_emotion_worker/deepface_home/.deepface/weights/
 ```
 
 That cache is generated locally and ignored by Git. It is safe to delete if it

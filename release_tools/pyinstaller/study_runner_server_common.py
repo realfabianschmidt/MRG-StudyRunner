@@ -30,8 +30,39 @@ def common_hidden_imports() -> list[str]:
         collect_submodules("study_runner.backend")
         + collect_submodules("study_runner.integrations")
         + [
+            "cv2",
+            "deepface",
+            "deepface.DeepFace",
+            "deepface.models.Demography",
+            "deepface.models.demography.Emotion",
+            "deepface.models.face_detection.OpenCv",
+            "deepface.modules.demography",
+            "deepface.modules.detection",
+            "deepface.modules.modeling",
+            "deepface.modules.normalization",
+            "deepface.modules.preprocessing",
+            "keras",
+            "tensorflow",
             "study_runner.update_helper",
             "study_runner.update_keys",
             "study_runner.version",
+            "tf_keras",
         ]
     )
+
+
+def common_excludes() -> list[str]:
+    return [
+        "IPython",
+        "dlib",
+        "jupyter",
+        "matplotlib",
+        "mediapipe",
+        "mtcnn",
+        "openvino",
+        "pytest",
+        "retinaface",
+        "tensorboard",
+        "torch",
+        "torchvision",
+    ]

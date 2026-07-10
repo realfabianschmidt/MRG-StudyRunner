@@ -5,6 +5,7 @@ import sys
 import tempfile
 import urllib.error
 import unittest
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.integrations.local_emotion_worker import plugin as worker_plugin
+from study_runner.integrations.local_emotion_worker import server as worker_server
 from study_runner.integrations.plugin_api import IntegrationContext
 from study_runner.integrations.tablet_camera_emotion import adapter as camera_adapter
 
@@ -130,6 +132,46 @@ class CameraEmotionWorkerTests(unittest.TestCase):
             worker_plugin.subprocess.Popen = original_popen
             worker_plugin._probe_worker = original_probe
 
+    def test_packaged_worker_starts_through_current_executable(self) -> None:
+        context = _context(
+            {
+                "camera_emotion": {
+                    "enabled": True,
+                    "worker_mode": "local_worker",
+                    "emotion_worker_url": "http://127.0.0.1:3001",
+                    "emotion_worker": {"auto_start": True},
+                }
+            }
+        )
+        fake_process = FakeWorkerProcess()
+        captured: dict[str, object] = {}
+        original_popen = worker_plugin.subprocess.Popen
+        original_probe = worker_plugin._probe_worker
+        try:
+            def fake_popen(command, **kwargs):
+                captured["command"] = command
+                captured["cwd"] = kwargs.get("cwd")
+                captured["env"] = kwargs.get("env")
+                return fake_process
+
+            worker_plugin.subprocess.Popen = fake_popen
+            worker_plugin._probe_worker = lambda url, timeout: ({"ready": True, "model_ready": True}, None)
+            with patch.object(worker_plugin, "_is_packaged_runtime", return_value=True), patch.object(sys, "executable", str(PROJECT_ROOT / "dist" / "study-runner-server.exe")):
+                status = worker_plugin.ensure_started(context)
+
+            self.assertEqual(status["status"], "connected")
+            command = captured["command"]
+            self.assertIsInstance(command, list)
+            self.assertEqual(command[0], str(PROJECT_ROOT / "dist" / "study-runner-server.exe"))
+            self.assertIn("--emotion-worker", command)
+            self.assertEqual(captured["cwd"], str((PROJECT_ROOT / "dist").resolve()))
+            env = captured["env"]
+            self.assertIsInstance(env, dict)
+            self.assertIn("STUDY_RUNNER_DATA_DIR", env)
+        finally:
+            worker_plugin.subprocess.Popen = original_popen
+            worker_plugin._probe_worker = original_probe
+
     def test_worker_status_classifies_deepface_model_download_failure(self) -> None:
         context = _context(
             {
@@ -180,6 +222,60 @@ class CameraEmotionWorkerTests(unittest.TestCase):
             self.assertTrue(result)
             self.assertTrue((cache_dir / worker_plugin.DEEPFACE_EMOTION_MODEL["name"]).exists())
             self.assertEqual(worker_plugin._model_asset_install_status()["status"], "completed")
+
+    def test_default_model_cache_uses_data_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_root = Path(temp_dir)
+            context = IntegrationContext(
+                base_dir=PROJECT_ROOT,
+                data_dir=data_root / "saved_results",
+                hardware_config={
+                    "camera_emotion": {
+                        "enabled": True,
+                        "worker_mode": "local_worker",
+                        "emotion_worker_url": "http://127.0.0.1:3001",
+                    }
+                },
+                local_secrets={},
+                local_secrets_file=data_root / "settings" / "local_secrets.json",
+            )
+
+            worker_plugin._configure(context)
+
+            self.assertEqual(
+                Path(worker_plugin._config["model_cache_dir"]),
+                data_root / "runtime" / "local_emotion_worker" / "deepface_home" / ".deepface" / "weights",
+            )
+            self.assertEqual(
+                Path(worker_plugin._config["raw_log_path"]).parent,
+                data_root / "runtime" / "local_emotion_worker" / "logs",
+            )
+
+    def test_packaged_dependency_repair_skips_pip(self) -> None:
+        context = _context({"camera_emotion": {"enabled": True, "worker_mode": "local_worker"}})
+        worker_plugin._configure(context)
+
+        with patch.object(worker_plugin, "_is_packaged_runtime", return_value=True):
+            self.assertTrue(worker_plugin._run_dependency_install(context))
+
+        state = worker_plugin._dependency_install_status()
+        self.assertEqual(state["status"], "skipped")
+        self.assertIn("Install & Repair Wizard", state["last_message"])
+
+    def test_worker_self_test_returns_success_when_warmup_is_ready(self) -> None:
+        original_state = dict(worker_server.MODEL_STATE)
+        try:
+            with patch.object(worker_server, "_prepare_deepface_runtime"), patch.object(worker_server, "_warmup_deepface") as warmup:
+                def mark_ready() -> None:
+                    worker_server.MODEL_STATE["model_checked"] = True
+                    worker_server.MODEL_STATE["model_ready"] = True
+                    worker_server.MODEL_STATE["model_error"] = None
+
+                warmup.side_effect = mark_ready
+                self.assertEqual(worker_server.self_test_main([]), 0)
+        finally:
+            worker_server.MODEL_STATE.clear()
+            worker_server.MODEL_STATE.update(original_state)
 
     def test_model_asset_download_failure_is_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

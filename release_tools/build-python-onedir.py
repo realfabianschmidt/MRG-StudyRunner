@@ -25,7 +25,7 @@ def main() -> int:
         raise SystemExit(f"PyInstaller spec not found: {spec_file}")
 
     subprocess.run(
-        [sys.executable, "-m", "PyInstaller", "--noconfirm", str(spec_file)],
+        [sys.executable, "-m", "PyInstaller", "--clean", "--noconfirm", str(spec_file)],
         cwd=SOFTWARE_ROOT,
         check=True,
     )

@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(SPECPATH)))
-from study_runner_server_common import common_datas, common_hidden_imports, software_root
+from study_runner_server_common import common_datas, common_excludes, common_hidden_imports, software_root
 
 root = software_root(SPECPATH)
 # Make the editable Python software importable so collect_submodules finds study_runner.
@@ -19,7 +19,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=common_excludes(),
     noarchive=False,
 )
 pyz = PYZ(a.pure)

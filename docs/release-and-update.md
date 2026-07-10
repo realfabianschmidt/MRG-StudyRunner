@@ -13,7 +13,8 @@ Recommended for non-coders:
 
 The manager is the Install & Repair Wizard. It installs or repairs the latest
 stable signed Study Runner release, keeps user data in a separate folder, and
-creates a desktop launcher.
+creates a desktop launcher. This is the recommended install path for Windows
+and macOS users who should not handle Python, Pip, Git or DeepFace manually.
 
 Manual server ZIPs remain available:
 
@@ -48,6 +49,7 @@ The app stores or reads:
 - `settings/local_secrets.json`
 - `studies/`
 - `saved_results/`
+- `runtime/local_emotion_worker/`
 - `updates/`
 
 On first start with an external data dir, default settings and example studies
@@ -99,6 +101,12 @@ visible to installed apps as an update.
 - manager ZIPs for Windows and macOS,
 - `study-runner-python-latest.json`.
 
+The workflow runs the packaged Emotion Worker self-test before packaging the
+server ZIP. The self-test starts the built executable with
+`--emotion-worker-self-test`, seeds the vendored DeepFace model into a temporary
+data-folder cache and loads DeepFace offline. A release must fail if this check
+fails.
+
 The workflow no longer creates `latest.json`, Tauri installers, Rust bundles, or
 Tauri updater signatures.
 
@@ -138,6 +146,15 @@ python server.py
 
 or download a fresh release ZIP. If a source checkout has no updater public key,
 that is expected and not a broken installation.
+
+## Packaged DeepFace Repair
+
+Packaged builds bundle DeepFace, TensorFlow/tf-keras, OpenCV and the model
+asset. The dashboard action `Repair DeepFace runtime` must not run `pip install`
+inside a packaged executable. It only repairs the local model cache and restarts
+the worker. If packaged Python dependencies are missing, use the manager action
+`Repair existing installation` to reinstall the app while preserving the data
+folder.
 
 ## Install & Repair Wizard
 

@@ -57,7 +57,9 @@ python release_tools/fetch-deepface-model-assets.py
 
 The release build includes that `model_assets/` folder, so the dashboard repair
 action can prepare DeepFace without downloading model weights from GitHub on the
-lab computer.
+lab computer. The GitHub release workflow also runs
+`study-runner-server --emotion-worker-self-test --json` on the packaged server
+before publishing the ZIP, so a broken DeepFace bundle fails the release.
 
 Required release secrets or variables:
 

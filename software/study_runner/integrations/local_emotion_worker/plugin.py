@@ -81,19 +81,37 @@ def repair_runtime(context: IntegrationContext) -> dict[str, Any]:
 
     with _install_lock:
         _install_job.clear()
-        _install_job.update(
-            {
-                "running": True,
-                "status": "running",
-                "started_at": _timestamp(),
-                "finished_at": None,
-                "return_code": None,
-                "last_message": "Installing Study Runner dependencies for the Local Emotion Worker.",
-                "output_tail": "",
-                "python_executable": str(_config.get("python_executable") or sys.executable),
-                "requirements_file": str(context.base_dir / "requirements.txt"),
-            }
-        )
+        if _is_packaged_runtime():
+            _install_job.update(
+                {
+                    "running": False,
+                    "status": "skipped",
+                    "started_at": _timestamp(),
+                    "finished_at": _timestamp(),
+                    "return_code": 0,
+                    "last_message": (
+                        "Packaged Study Runner builds already include DeepFace packages. "
+                        "Use the Install & Repair Wizard if packaged dependencies are damaged."
+                    ),
+                    "output_tail": "",
+                    "python_executable": str(sys.executable),
+                    "requirements_file": "",
+                }
+            )
+        else:
+            _install_job.update(
+                {
+                    "running": True,
+                    "status": "running",
+                    "started_at": _timestamp(),
+                    "finished_at": None,
+                    "return_code": None,
+                    "last_message": "Installing Study Runner dependencies for the Local Emotion Worker.",
+                    "output_tail": "",
+                    "python_executable": str(_config.get("python_executable") or sys.executable),
+                    "requirements_file": str(context.base_dir / "requirements.txt"),
+                }
+            )
     with _model_lock:
         _model_job.clear()
         _model_job.update(
@@ -127,20 +145,22 @@ def _configure(context: IntegrationContext) -> None:
 
     config = _config_section(context)
     worker_config = config.get("emotion_worker") if isinstance(config.get("emotion_worker"), dict) else {}
+    storage_root = _runtime_storage_root(context)
     worker_mode = str(config.get("worker_mode") or "local_worker")
     worker_url = str(config.get("emotion_worker_url") or "http://127.0.0.1:3001").rstrip("/")
     host, port = _host_port_from_url(worker_url)
     script_path = context.resolve_project_path(
         context.resolve_platform_value(worker_config.get("script_path")) or DEFAULT_WORKER["script_path"]
     )
+    log_dir_value = context.resolve_platform_value(worker_config.get("log_dir"))
+    default_log_dir = storage_root / "runtime" / "local_emotion_worker" / "logs"
     log_dir = Path(
-        context.resolve_project_path(context.resolve_platform_value(worker_config.get("log_dir")) or DEFAULT_WORKER["log_dir"])
-        or context.base_dir / DEFAULT_WORKER["log_dir"]
+        context.resolve_project_path(log_dir_value) if log_dir_value else str(default_log_dir)
     )
     log_dir.mkdir(parents=True, exist_ok=True)
     deepface_home = context.resolve_project_path(context.resolve_platform_value(worker_config.get("deepface_home")))
     if not deepface_home:
-        deepface_home = context.resolve_project_path(DEFAULT_WORKER["deepface_home"])
+        deepface_home = str(storage_root / "runtime" / "local_emotion_worker" / "deepface_home")
     # DeepFace treats DEEPFACE_HOME as the PARENT of `.deepface` and appends
     # `.deepface/weights` itself. Guard against a value that already ends in
     # `.deepface`, which would otherwise produce a doubled `.deepface/.deepface`
@@ -158,6 +178,7 @@ def _configure(context: IntegrationContext) -> None:
         "configured_enabled": bool(config.get("enabled", False)),
         "worker_enabled": worker_mode in EMOTION_WORKER_MODES,
         "worker_mode": worker_mode,
+        "packaged_runtime": _is_packaged_runtime(),
         "url": worker_url,
         "host": host,
         "port": port,
@@ -171,6 +192,7 @@ def _configure(context: IntegrationContext) -> None:
         "deepface_home": deepface_home,
         "model_cache_dir": model_cache_dir,
         "model_assets_dir": model_assets_dir,
+        "storage_root": str(storage_root),
     }
 
 
@@ -193,6 +215,7 @@ def _status(context: IntegrationContext) -> dict[str, Any]:
         "url": _config.get("url", ""),
         "host": _config.get("host", "127.0.0.1"),
         "port": _config.get("port", 3001),
+        "packaged_runtime": bool(_config.get("packaged_runtime", False)),
         "raw_log_path": _config.get("raw_log_path"),
         "dependency_install": _dependency_install_status(),
         "model_asset_install": _model_asset_install_status(),
@@ -254,7 +277,8 @@ def _start(context: IntegrationContext) -> Any:
         return _status(context)
 
     script_path = Path(str(_config.get("script_path") or ""))
-    if not script_path.exists():
+    packaged = _is_packaged_runtime()
+    if not packaged and not script_path.exists():
         return {
             **_status(context),
             "status": "not_configured",
@@ -263,17 +287,13 @@ def _start(context: IntegrationContext) -> Any:
 
     _ensure_local_model_weights()
 
-    command = [
-        str(_config.get("python_executable") or sys.executable),
-        str(script_path),
-        "--host",
-        str(_config.get("host", "127.0.0.1")),
-        "--port",
-        str(_config.get("port", 3001)),
-    ]
+    command, cwd = _worker_command(script_path)
     env = os.environ.copy()
     if _config.get("deepface_home"):
         env["DEEPFACE_HOME"] = str(_config["deepface_home"])
+        env["STUDY_RUNNER_DEEPFACE_HOME"] = str(_config["deepface_home"])
+    if _config.get("storage_root"):
+        env["STUDY_RUNNER_DATA_DIR"] = str(_config["storage_root"])
     creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
     start_error = ""
     with _lock:
@@ -283,7 +303,7 @@ def _start(context: IntegrationContext) -> Any:
             _log_handle.flush()
             _process = subprocess.Popen(
                 command,
-                cwd=str(script_path.parent),
+                cwd=str(cwd),
                 stdout=_log_handle,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -403,6 +423,12 @@ def _runtime_error_message(error_info: dict[str, Any]) -> str:
     error_class = str(error_info.get("model_error_class") or "model_warmup_failed")
     detail = str(error_info.get("model_error") or "")
     if error_class == "missing_package":
+        if _is_packaged_runtime():
+            return (
+                "Local Emotion Worker is reachable, but the packaged DeepFace dependencies are incomplete. "
+                "Use the Study Runner Install & Repair Wizard action 'Repair existing installation'. "
+                f"Detail: {detail}"
+            )
         return (
             "Local Emotion Worker is reachable, but Python packages for DeepFace are missing or incompatible. "
             "Use the dashboard button 'Repair DeepFace runtime' or run 'pip install -r software/requirements.txt', "
@@ -419,7 +445,7 @@ def _runtime_error_message(error_info: dict[str, Any]) -> str:
 
 
 def _run_runtime_repair(context: IntegrationContext) -> None:
-    dependency_ok = _run_dependency_install(context)
+    dependency_ok = True if _is_packaged_runtime() else _run_dependency_install(context)
     if not dependency_ok:
         with _model_lock:
             _model_job.update(
@@ -438,6 +464,23 @@ def _run_runtime_repair(context: IntegrationContext) -> None:
 
 
 def _run_dependency_install(context: IntegrationContext) -> bool:
+    if _is_packaged_runtime():
+        with _install_lock:
+            _install_job.update(
+                {
+                    "running": False,
+                    "status": "skipped",
+                    "finished_at": _timestamp(),
+                    "return_code": 0,
+                    "last_message": (
+                        "Packaged Study Runner builds include Python dependencies. "
+                        "Repair packaged dependencies with the Install & Repair Wizard."
+                    ),
+                    "output_tail": "",
+                }
+            )
+        return True
+
     python_executable = str(_config.get("python_executable") or sys.executable)
     requirements_file = Path(str(context.base_dir / "requirements.txt"))
     command = [
@@ -590,6 +633,40 @@ def _download_model_asset(destination: Path, lines: list[str]) -> None:
         )
     temporary.replace(destination)
     lines.append(f"Downloaded {bytes_downloaded} bytes to {destination}.")
+
+
+def _worker_command(script_path: Path) -> tuple[list[str], Path]:
+    if _is_packaged_runtime():
+        command = [
+            str(sys.executable),
+            "--emotion-worker",
+            "--host",
+            str(_config.get("host", "127.0.0.1")),
+            "--port",
+            str(_config.get("port", 3001)),
+        ]
+        return command, Path(sys.executable).resolve().parent
+    command = [
+        str(_config.get("python_executable") or sys.executable),
+        str(script_path),
+        "--host",
+        str(_config.get("host", "127.0.0.1")),
+        "--port",
+        str(_config.get("port", 3001)),
+    ]
+    return command, script_path.parent
+
+
+def _is_packaged_runtime() -> bool:
+    app_mode = os.getenv("STUDY_RUNNER_APP_MODE", "").strip().lower()
+    return bool(getattr(sys, "frozen", False) or app_mode in {"packaged", "desktop"})
+
+
+def _runtime_storage_root(context: IntegrationContext) -> Path:
+    data_dir = Path(context.data_dir).expanduser().resolve()
+    if data_dir.name == "saved_results":
+        return data_dir.parent
+    return data_dir
 
 
 def _ensure_local_model_weights() -> None:

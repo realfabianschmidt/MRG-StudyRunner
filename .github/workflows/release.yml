@@ -97,6 +97,20 @@ jobs:
       - name: Build Python one-dir package
         run: python release_tools/build-python-onedir.py
 
+      - name: Run packaged Emotion Worker self-test
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:STUDY_RUNNER_DATA_DIR = Join-Path $env:RUNNER_TEMP "study-runner-self-test"
+          software\dist\study-runner-server\study-runner-server.exe --emotion-worker-self-test --json
+
+      - name: Run packaged Emotion Worker self-test
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export STUDY_RUNNER_DATA_DIR="$RUNNER_TEMP/study-runner-self-test"
+          software/dist/study-runner-server/study-runner-server --emotion-worker-self-test --json
+
       - name: Package Python update asset
         run: python release_tools/package-python-onedir.py --source software/dist/study-runner-server --output "${{ matrix.python_asset }}"
 
