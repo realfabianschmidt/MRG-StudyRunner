@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 import { renderCardInstruction } from './card-info.js';
 
 function escapeHtml(v) {
@@ -19,7 +20,7 @@ export function renderStudy(q, i) {
     </div>`).join('');
 
   return `
-    <div class="q-type-tag"><i class="iconoir-sort"></i> Ranking</div>
+    <div class="q-type-tag"><i class="iconoir-sort"></i> ${escapeHtml(t('cards.ranking.tag', 'Ordering'))}</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
     ${renderCardInstruction(q)}
     <div class="rank-list" id="rl${i}">${itemsHtml}</div>`;
@@ -28,11 +29,11 @@ export function renderStudy(q, i) {
 export function renderEditor(q) {
   return `
     <div class="field">
-      <label>Question text</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="Enter question...">
+      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
+      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.enterQuestion', 'Enter question...'))}">
     </div>
     <div class="field">
-      <label>Items (one per line)</label>
+      <label>${escapeHtml(t('editor.itemsOneLine', 'Items (one per line)'))}</label>
       <textarea class="qe-options">${escapeHtml((q.options || []).join('\n'))}</textarea>
     </div>`;
 }

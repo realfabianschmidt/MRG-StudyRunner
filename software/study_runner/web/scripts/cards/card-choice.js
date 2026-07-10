@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 import { renderCardInstruction } from './card-info.js';
 
 function escapeHtml(v) {
@@ -20,14 +21,14 @@ export function renderStudy(q, i) {
   const isMultiple = q.type === 'choice';
   const inputType = isMultiple ? 'checkbox' : 'radio';
   const icon = isMultiple ? 'multi-bubble' : 'circle';
-  const label = isMultiple ? 'Multiple choice' : 'Single choice';
+  const label = isMultiple ? t('cards.choice.tagMultiple', 'Multiple selection') : t('cards.choice.tagSingle', 'Single selection');
   let opts = '<div class="chips">';
   (q.options || []).forEach((opt, oi) => {
     opts += `<input type="${inputType}" name="q${i}" value="${escapeHtml(opt)}" id="q${i}o${oi}"><label for="q${i}o${oi}">${escapeHtml(opt)}</label>`;
   });
   opts += '</div>';
   return `
-    <div class="q-type-tag"><i class="iconoir-${icon}"></i> ${label}</div>
+    <div class="q-type-tag"><i class="iconoir-${icon}"></i> ${escapeHtml(label)}</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
     ${renderCardInstruction(q)}
     ${opts}`;
@@ -39,11 +40,11 @@ export function renderEditor(q) {
   return `
     <input type="hidden" class="qe-choice-type" value="${choiceType}">
     <div class="field">
-      <label>Question text</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="Enter question...">
+      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
+      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.enterQuestion', 'Enter question...'))}">
     </div>
     <div class="field">
-      <label>Options (one per line)</label>
+      <label>${escapeHtml(t('editor.optionsOneLine', 'Options (one per line)'))}</label>
       <textarea class="qe-options">${escapeHtml(options)}</textarea>
     </div>`;
 }

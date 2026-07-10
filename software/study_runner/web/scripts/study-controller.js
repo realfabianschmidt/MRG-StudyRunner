@@ -79,7 +79,7 @@ async function init() {
     void requestStudyFullscreen();
   } catch (error) {
     console.error('[study] Could not load configuration:', error);
-    alert(`Could not load the study configuration: ${error.message}`);
+    showStudyNotice(t('study.loadFailed', 'The study could not be loaded. Please tell the study supervisor.'));
   }
 
   // Estimate clock offset between tablet and Study Runner server for precise trigger timestamps.
@@ -124,6 +124,21 @@ function estimateServerEpochMs(clientPerfMs = performance.now()) {
     return clientPerfMs + state.clockOffsetMs;
   }
   return Date.now();
+}
+
+let _studyNoticeTimer = null;
+function showStudyNotice(message, type = 'error', durationMs = 6000) {
+  // In-page notice instead of a blocking browser popup on the tablet.
+  let toast = document.getElementById('study-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'study-toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.className = `toast toast--${type} show`;
+  clearTimeout(_studyNoticeTimer);
+  _studyNoticeTimer = setTimeout(() => toast.classList.remove('show'), durationMs);
 }
 
 function getClientClockOffsetMs() {
@@ -336,7 +351,7 @@ async function resumeAfterReload(snapshot) {
     void startCameraMonitorIfNeeded();
   } catch (error) {
     console.error('[study] Could not resume study session:', error);
-    alert(error.message || t('study.recoveryFailed', 'Could not resume the study session.'));
+    showStudyNotice(t('study.recoveryFailed', 'Could not resume the study session.'));
   }
 }
 
@@ -597,7 +612,7 @@ function renderParticipantIdRequiredBlock() {
 
 async function startTrial(options = {}) {
   if (!Array.isArray(state.config.questions)) {
-    alert('The study configuration is not ready yet. Please reload the page.');
+    showStudyNotice(t('study.configNotReady', 'The study is not ready yet. Please reload the page or tell the study supervisor.'));
     return;
   }
 
@@ -605,7 +620,7 @@ async function startTrial(options = {}) {
     return;
   }
   if (!hasResolvedParticipantId()) {
-    alert(t('study.participantRequiredAlert', 'Please enter the Participant ID before starting the study.'));
+    showStudyNotice(t('study.participantRequiredAlert', 'Please enter the Participant ID before starting the study.'), 'warning');
     updateNavigation();
     return;
   }
@@ -1403,7 +1418,7 @@ async function startStudySensorSession() {
   } catch (error) {
     state.sensorSessionStarted = false;
     console.error('[study] Could not start study sensor session:', error);
-    alert(error.message || t('study.startFailed', 'Could not start the study session.'));
+    showStudyNotice(t('study.startFailed', 'Could not start the study session.'));
     return false;
   }
 }
@@ -1690,7 +1705,7 @@ async function submitResults() {
     }
   } catch (error) {
     console.error('[study] Could not save results:', error);
-    alert(`Could not save the results: ${error.message}`);
+    showStudyNotice(t('study.saveFailedBody', 'Your answers could not be saved. Please tell the study supervisor - your answers are still on this screen.'), 'error', 10000);
     if (btn) {
       btn.disabled = false;
       getElement('btn-next-label').textContent = t('study.submit', 'Submit');

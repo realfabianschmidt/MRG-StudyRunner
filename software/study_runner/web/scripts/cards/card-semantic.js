@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 import { renderCardInstruction } from './card-info.js';
 
 function escapeHtml(v) {
@@ -25,7 +26,7 @@ export function renderStudy(q, i) {
       </div>`;
   });
   return `
-    <div class="q-type-tag"><i class="iconoir-arrows-horizontal"></i> Semantic differential</div>
+    <div class="q-type-tag"><i class="iconoir-arrows-horizontal"></i> ${escapeHtml(t('cards.semantic.tag', 'Word pairs'))}</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
     ${renderCardInstruction(q)}
     ${pairsHtml}`;
@@ -35,11 +36,11 @@ export function renderEditor(q) {
   const lines = (q.pairs || []).map(p => p.join(' | ')).join('\n');
   return `
     <div class="field">
-      <label>Question text</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="Enter question...">
+      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
+      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.enterQuestion', 'Enter question...'))}">
     </div>
     <div class="field">
-      <label>Word pairs - one per line: word A | word B</label>
+      <label>${escapeHtml(t('editor.wordPairsHint', 'Word pairs - one per line: word A | word B'))}</label>
       <textarea class="qe-pairs">${escapeHtml(lines)}</textarea>
     </div>`;
 }

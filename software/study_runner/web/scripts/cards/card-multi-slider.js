@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 import { renderCardInstruction } from './card-info.js';
 
 function escapeHtml(v) {
@@ -42,7 +43,7 @@ export function renderStudy(q, i) {
   }).join('');
 
   return `
-    <div class="q-type-tag"><i class="iconoir-sliders-vertical"></i> Multi-Slider</div>
+    <div class="q-type-tag"><i class="iconoir-sliders-vertical"></i> ${escapeHtml(t('cards.multiSlider.tag', 'Rating scales'))}</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
     ${renderCardInstruction(q)}
     <div class="ms-stack">${rows}</div>`;
@@ -52,24 +53,24 @@ export function renderEditor(q) {
   const dims = q.dimensions ?? defaultQuestion.dimensions;
   const dimRows = dims.map((dim, di) => `
     <div class="ms-ed-dim-row" data-di="${di}">
-      <input type="text" class="ms-ed-label fi-input" value="${escapeHtml(dim.label)}" placeholder="Dimension name" style="margin-bottom:0;">
-      <input type="text" class="ms-ed-lmin fi-input" value="${escapeHtml(dim.min_label||'')}" placeholder="Left label" style="margin-bottom:0;">
-      <input type="text" class="ms-ed-lmax fi-input" value="${escapeHtml(dim.max_label||'')}" placeholder="Right label" style="margin-bottom:0;">
-      <button type="button" class="ms-ed-remove-btn" aria-label="Remove dimension">x</button>
+      <input type="text" class="ms-ed-label fi-input" value="${escapeHtml(dim.label)}" placeholder="${escapeHtml(t('editor.dimensionNamePlaceholder', 'Dimension name'))}" style="margin-bottom:0;">
+      <input type="text" class="ms-ed-lmin fi-input" value="${escapeHtml(dim.min_label||'')}" placeholder="${escapeHtml(t('editor.leftLabel', 'Left label'))}" style="margin-bottom:0;">
+      <input type="text" class="ms-ed-lmax fi-input" value="${escapeHtml(dim.max_label||'')}" placeholder="${escapeHtml(t('editor.rightLabel', 'Right label'))}" style="margin-bottom:0;">
+      <button type="button" class="ms-ed-remove-btn" aria-label="${escapeHtml(t('editor.removeDimension', 'Remove dimension'))}">x</button>
     </div>`).join('');
 
   return `
     <div class="field">
-      <label>Question text</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="Rate how you feel...">
+      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
+      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.multiSliderPlaceholder', 'Rate how you feel...'))}">
     </div>
     <div class="field">
-      <label>Dimensions</label>
+      <label>${escapeHtml(t('editor.dimensions', 'Dimensions'))}</label>
       <div class="ms-ed-dims-header">
-        <span>Name</span><span>Left label</span><span>Right label</span><span></span>
+        <span>${escapeHtml(t('editor.dimensionName', 'Name'))}</span><span>${escapeHtml(t('editor.leftLabel', 'Left label'))}</span><span>${escapeHtml(t('editor.rightLabel', 'Right label'))}</span><span></span>
       </div>
       <div class="ms-ed-dims">${dimRows}</div>
-      <button type="button" class="ms-ed-add-btn">+ Add dimension</button>
+      <button type="button" class="ms-ed-add-btn">${escapeHtml(t('editor.addDimension', '+ Add dimension'))}</button>
     </div>`;
 }
 
@@ -108,10 +109,10 @@ export function bindEditorEvents(el) {
     row.className = 'ms-ed-dim-row';
     row.dataset.di = di;
     row.innerHTML = `
-      <input type="text" class="ms-ed-label fi-input" value="" placeholder="Dimension name" style="margin-bottom:0;">
-      <input type="text" class="ms-ed-lmin  fi-input" value="" placeholder="Left label"      style="margin-bottom:0;">
-      <input type="text" class="ms-ed-lmax  fi-input" value="" placeholder="Right label"     style="margin-bottom:0;">
-      <button type="button" class="ms-ed-remove-btn" aria-label="Remove dimension">x</button>`;
+      <input type="text" class="ms-ed-label fi-input" value="" placeholder="${escapeHtml(t('editor.dimensionNamePlaceholder', 'Dimension name'))}" style="margin-bottom:0;">
+      <input type="text" class="ms-ed-lmin  fi-input" value="" placeholder="${escapeHtml(t('editor.leftLabel', 'Left label'))}" style="margin-bottom:0;">
+      <input type="text" class="ms-ed-lmax  fi-input" value="" placeholder="${escapeHtml(t('editor.rightLabel', 'Right label'))}" style="margin-bottom:0;">
+      <button type="button" class="ms-ed-remove-btn" aria-label="${escapeHtml(t('editor.removeDimension', 'Remove dimension'))}">x</button>`;
     container.appendChild(row);
     row.querySelector('.ms-ed-remove-btn').addEventListener('click', () => row.remove());
   });

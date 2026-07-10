@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 import { renderCardInstruction } from './card-info.js';
 
 function escapeHtml(v) {
@@ -12,7 +13,7 @@ export const defaultQuestion = {
 
 export function renderStudy(q, i) {
   return `
-    <div class="q-type-tag"><i class="iconoir-sliders-vertical"></i> Visual analog scale</div>
+    <div class="q-type-tag"><i class="iconoir-sliders-vertical"></i> ${escapeHtml(t('cards.slider.tag', 'Rating scale'))}</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
     ${renderCardInstruction(q)}
     <div class="vas-wrap">
@@ -28,16 +29,16 @@ export function renderStudy(q, i) {
 export function renderEditor(q) {
   return `
     <div class="field">
-      <label>Question text</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="Enter question...">
+      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
+      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.enterQuestion', 'Enter question...'))}">
     </div>
     <div class="row2">
       <div class="field">
-        <label>Left label (min)</label>
+        <label>${escapeHtml(t('editor.leftLabelMin', 'Left label (min)'))}</label>
         <input type="text" class="qe-lmin" value="${escapeHtml(q.label_min||'')}">
       </div>
       <div class="field">
-        <label>Right label (max)</label>
+        <label>${escapeHtml(t('editor.rightLabelMax', 'Right label (max)'))}</label>
         <input type="text" class="qe-lmax" value="${escapeHtml(q.label_max||'')}">
       </div>
     </div>`;

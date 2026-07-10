@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 import { renderCardInstruction } from './card-info.js';
 
 function escapeHtml(v) {
@@ -17,7 +18,7 @@ export function renderStudy(q, i) {
     opts += `<input type="radio" name="q${i}" value="${v}" id="q${i}v${v}"><label for="q${i}v${v}">${v}</label>`;
   }
   return `
-    <div class="q-type-tag"><i class="iconoir-list-select"></i> Likert scale</div>
+    <div class="q-type-tag"><i class="iconoir-list-select"></i> ${escapeHtml(t('cards.likert.tag', 'Rating scale'))}</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
     ${renderCardInstruction(q)}
     <div class="likert-scale-row">
@@ -30,20 +31,20 @@ export function renderStudy(q, i) {
 export function renderEditor(q) {
   return `
     <div class="field">
-      <label>Question text</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="Enter question...">
+      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
+      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.enterQuestion', 'Enter question...'))}">
     </div>
     <div class="row3">
       <div class="field">
-        <label>Scale points</label>
+        <label>${escapeHtml(t('editor.scalePoints', 'Scale points'))}</label>
         <input type="number" class="qe-scale" value="${q.scale||7}" min="3" max="11">
       </div>
       <div class="field">
-        <label>Left label</label>
+        <label>${escapeHtml(t('editor.leftLabel', 'Left label'))}</label>
         <input type="text" class="qe-lmin" value="${escapeHtml(q.label_min||'')}">
       </div>
       <div class="field">
-        <label>Right label</label>
+        <label>${escapeHtml(t('editor.rightLabel', 'Right label'))}</label>
         <input type="text" class="qe-lmax" value="${escapeHtml(q.label_max||'')}">
       </div>
     </div>`;

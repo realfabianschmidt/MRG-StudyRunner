@@ -200,7 +200,7 @@ function renderClients(target, clients) {
 
   target.innerHTML = clients.map((client) => `
     <div class="status-row">
-      <span class="status-pill status-pill--${escapeHtml(client.status)}">${escapeHtml(client.status)}</span>
+      <span class="status-pill status-pill--${escapeHtml(client.status)}">${escapeHtml(statusLabel(client.status))}</span>
       <strong>${escapeHtml(client.participant_id || t('dashboard.noParticipantId', 'No participant ID yet'))}</strong>
     </div>
     <dl class="status-list">
@@ -225,7 +225,7 @@ function renderBrainBit(target, brainbit) {
 
   target.innerHTML = `
     <div class="status-row">
-      <span class="status-pill status-pill--${escapeHtml(brainbit.status || 'unknown')}">${escapeHtml(brainbit.status || 'unknown')}</span>
+      <span class="status-pill status-pill--${escapeHtml(brainbit.status || 'unknown')}">${escapeHtml(statusLabel(brainbit.status))}</span>
       <strong>${formatEnabled(brainbit.configured_enabled)}</strong>
     </div>
     <dl class="status-list">
@@ -251,7 +251,7 @@ function renderMiniRadar(target, radar) {
   const latest = radar.latest || {};
   target.innerHTML = `
     <div class="status-row">
-      <span class="status-pill status-pill--${escapeHtml(radar.status || 'planned')}">${escapeHtml(radar.status || 'planned')}</span>
+      <span class="status-pill status-pill--${escapeHtml(radar.status || 'unknown')}">${escapeHtml(statusLabel(radar.status))}</span>
       <strong>${formatEnabled(radar.configured_enabled)}</strong>
     </div>
     <dl class="status-list">
@@ -285,7 +285,7 @@ function renderCameraEmotion(target, camera, worker, preview = {}, runtimeInfo =
   const analysis = latest.analysis || liveLatest.analysis || {};
   target.innerHTML = `
     <div class="status-row">
-      <span class="status-pill status-pill--${escapeHtml(camera.status || 'planned')}">${escapeHtml(camera.status || 'planned')}</span>
+      <span class="status-pill status-pill--${escapeHtml(camera.status || 'unknown')}">${escapeHtml(statusLabel(camera.status))}</span>
       <strong>${formatEnabled(camera.configured_enabled)}</strong>
     </div>
     <dl class="status-list">
@@ -403,7 +403,7 @@ function renderIntegrationControlRow(item, sensorRuntime = {}) {
   return `
     <div class="integration-control-row">
       <div class="integration-control-main">
-        <span class="status-pill status-pill--${escapeHtml(status)}">${escapeHtml(status)}</span>
+        <span class="status-pill status-pill--${escapeHtml(status)}">${escapeHtml(statusLabel(status))}</span>
         <div>
           <strong>${escapeHtml(item.label || item.key)}</strong>
           <span>${buildIntegrationDetail(item)}</span>
@@ -479,6 +479,13 @@ function showDashboard(elements) {
 function showEditor(elements) {
   elements.dashboard.hidden = true;
   elements.editView.hidden = false;
+}
+
+function statusLabel(status) {
+  // Operators see a plain-language label; the raw status stays in the
+  // CSS class for styling.
+  const raw = String(status || 'unknown');
+  return t(`dashboard.status.${raw}`, raw.replace(/_/g, ' '));
 }
 
 function fieldLabel(fieldKey, fallback, helpKey = fieldKey) {
@@ -661,7 +668,7 @@ function formatFrame(frame) {
 }
 
 function formatWorkerStatus(worker) {
-  const status = escapeHtml(worker.status || '-');
+  const status = escapeHtml(worker.status ? statusLabel(worker.status) : '-');
   if (!worker.last_message) return status;
   return `${status}<br><span class="status-muted">${escapeHtml(worker.last_message)}</span>`;
 }
@@ -671,7 +678,7 @@ function formatRepairState(state) {
   const status = state.status || (state.running ? 'running' : '');
   const message = state.last_message || '';
   if (!status && !message) return '-';
-  return `${escapeHtml(status || '-')}${message ? `<br><span class="status-muted">${escapeHtml(message)}</span>` : ''}`;
+  return `${escapeHtml(status ? statusLabel(status) : '-')}${message ? `<br><span class="status-muted">${escapeHtml(message)}</span>` : ''}`;
 }
 
 function formatModelAssetState(worker) {
