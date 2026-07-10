@@ -1,0 +1,33 @@
+"""Crash-safe JSON writes for study data.
+
+Every file that holds participant results must be written atomically:
+the file on disk is always either the previous complete version or the
+new complete version, never a half-written one. This mirrors the
+temp-file + os.replace pattern already used by the updater staging and
+the DeepFace model download.
+"""
+import json
+import os
+import tempfile
+from pathlib import Path
+from typing import Any
+
+
+def atomic_write_json(path: Path, payload: Any, *, indent: int = 2) -> None:
+    """Write ``payload`` as JSON to ``path`` via a same-directory temp file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as file_handle:
+            json.dump(payload, file_handle, indent=indent, ensure_ascii=False)
+            file_handle.flush()
+            os.fsync(file_handle.fileno())
+        os.replace(temp_path, path)
+    except Exception:
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
+        raise

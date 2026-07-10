@@ -24,8 +24,14 @@ from .services.study_config_service import (
     save_config,
     save_study,
 )
+from .services.atomic_io import atomic_write_json
 from .services.hardware_settings_service import save_hardware_config, set_integration_enabled
-from .services.results_service import build_answer_details, build_biosignal_summary, save_results_payload
+from .services.results_service import (
+    build_answer_details,
+    build_biosignal_summary,
+    sanitize_identifier_for_filename,
+    save_results_payload,
+)
 from .services.runtime_config import build_runtime_info
 from .services.secrets_service import (
     describe_notion_api_key_source,
@@ -65,6 +71,46 @@ from .services.validation import (
 )
 
 ACTIVE_RUNTIME_TOGGLE_KEYS = {"lsl", "labrecorder"}
+
+
+def _write_results_recovery_file(result_payload: dict) -> str | None:
+    """Best-effort raw dump of a submission that could not be saved normally.
+
+    Participant answers arrive exactly once; if anything in the save path
+    fails, this keeps the raw payload on disk so no study data is lost.
+    Must never raise: the caller is already handling an error.
+    """
+    try:
+        study_id = sanitize_identifier_for_filename(str(result_payload.get("study_id") or "unknown-study"))
+        participant_id = sanitize_identifier_for_filename(str(result_payload.get("participant_id") or "participant"))
+        recovery_dir = current_app.config["DATA_DIR"] / study_id / "_recovery"
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        recovery_path = recovery_dir / f"{participant_id}_{timestamp}_{uuid.uuid4().hex[:8]}.json"
+        atomic_write_json(recovery_path, result_payload)
+        print(f"[DATA] Raw submission preserved: {recovery_path}")
+        return str(recovery_path)
+    except Exception as recovery_error:
+        print(f"[DATA] Could not write recovery file: {recovery_error}")
+        return None
+
+
+def _partial_snapshot_path(payload: dict):
+    session_id = str(payload.get("session_id") or "").strip()
+    if not session_id:
+        return None
+    study_id = sanitize_identifier_for_filename(str(payload.get("study_id") or "unknown-study"))
+    safe_session = sanitize_identifier_for_filename(session_id)
+    return current_app.config["DATA_DIR"] / study_id / "_partial" / f"{safe_session}.json"
+
+
+def _discard_partial_snapshot(payload: dict) -> None:
+    """Remove the incremental snapshot once the full results are safely on disk."""
+    try:
+        snapshot_path = _partial_snapshot_path(payload)
+        if snapshot_path is not None and snapshot_path.is_file():
+            snapshot_path.unlink()
+    except Exception as cleanup_error:
+        print(f"[DATA] Could not remove partial snapshot: {cleanup_error}")
 
 
 def _runtime_hardware_config() -> dict:
@@ -981,44 +1027,86 @@ def register_routes(app: Flask) -> None:
     @app.route("/api/results", methods=["POST"])
     def save_results():
         result_payload = request.get_json() or {}
-        config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
-        hardware_config = _runtime_hardware_config()
-        validated_results = validate_and_normalize_results(result_payload, config_data)
-        validated_results["answer_details"] = build_answer_details(
-            validated_results,
-            config_data,
-            hardware_config,
-        )
-        saved_output = save_results_payload(
-            current_app.config["DATA_DIR"],
-            config_data["study_id"],
-            validated_results,
-            hardware_config,
-            context=_integration_context(),
-        )
+        try:
+            config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
+            hardware_config = _runtime_hardware_config()
+            validated_results = validate_and_normalize_results(result_payload, config_data)
+            validated_results["answer_details"] = build_answer_details(
+                validated_results,
+                config_data,
+                hardware_config,
+            )
+            saved_output = save_results_payload(
+                current_app.config["DATA_DIR"],
+                config_data["study_id"],
+                validated_results,
+                hardware_config,
+                context=_integration_context(),
+            )
+        except ValidationError:
+            _write_results_recovery_file(result_payload)
+            raise
+        except Exception as error:
+            recovery_file = _write_results_recovery_file(result_payload)
+            print(f"[DATA] Saving results failed: {error}")
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": str(error),
+                        "recovered_file": recovery_file,
+                    }
+                ),
+                500,
+            )
         print(f"[DATA] Saved: {saved_output['json_file']}")
         if saved_output.get("xdf_file"):
             print(f"[DATA] XDF: {saved_output['xdf_file']}")
+        _discard_partial_snapshot(result_payload)
 
+        # The results are on disk at this point; nothing below may undo that.
         study_settings = config_data.get("study_settings", {})
         if study_settings.get("notion_enabled"):
-            from study_runner.integrations.notion_upload import adapter as notion_adapter
+            try:
+                from study_runner.integrations.notion_upload import adapter as notion_adapter
 
-            biosignal_summary = build_biosignal_summary(hardware_config, saved_output, context=_integration_context())
-            notion_result = notion_adapter.upload_study_result(
-                result_payload=validated_results,
-                hardware_config=hardware_config,
-                saved_output={**saved_output, "biosignal_summary": biosignal_summary},
-                config_data=config_data,
-            )
-            if notion_result.get("ok"):
-                print("[NOTION] Uploaded")
-            elif notion_result.get("queued"):
-                print("[NOTION] Queued (offline)")
-            elif notion_result.get("skipped"):
-                print(f"[NOTION] Skipped: {notion_result.get('error', 'not configured')}")
+                biosignal_summary = build_biosignal_summary(hardware_config, saved_output, context=_integration_context())
+                notion_result = notion_adapter.upload_study_result(
+                    result_payload=validated_results,
+                    hardware_config=hardware_config,
+                    saved_output={**saved_output, "biosignal_summary": biosignal_summary},
+                    config_data=config_data,
+                )
+                if notion_result.get("ok"):
+                    print("[NOTION] Uploaded")
+                elif notion_result.get("queued"):
+                    print("[NOTION] Queued (offline)")
+                elif notion_result.get("skipped"):
+                    print(f"[NOTION] Skipped: {notion_result.get('error', 'not configured')}")
+            except Exception as notion_error:
+                print(f"[NOTION] Upload failed after save: {notion_error}")
 
         return jsonify({"ok": True, **saved_output})
+
+    @app.route("/api/results/partial", methods=["POST"])
+    def save_partial_results():
+        """Incremental answer snapshot from the participant page.
+
+        Written after every answered card (and on pagehide via sendBeacon)
+        so a closed tab or a crashed tablet cannot lose the whole session.
+        The successful final /api/results submit removes the snapshot.
+        """
+        payload = request.get_json(force=True, silent=True) or {}
+        snapshot_path = _partial_snapshot_path(payload)
+        if snapshot_path is None:
+            return jsonify({"ok": False, "error": "session_id is required"}), 400
+        try:
+            payload["server_received_at"] = time.time()
+            atomic_write_json(snapshot_path, payload)
+            return jsonify({"ok": True})
+        except Exception as error:
+            print(f"[DATA] Could not write partial snapshot: {error}")
+            return jsonify({"ok": False, "error": str(error)}), 500
 
     @app.route("/api/notion/status")
     def notion_status():
