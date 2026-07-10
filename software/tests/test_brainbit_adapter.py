@@ -44,6 +44,8 @@ class BrainBitAdapterTests(unittest.TestCase):
         adapter._last_eeg_at = 0.0
         adapter._last_quality_at = 0.0
         adapter._last_derived_at = 0.0
+        adapter._auto_restart_count = 0
+        adapter._last_auto_restart_at = 0.0
 
     def tearDown(self) -> None:
         adapter._lsl_outlets = {}
@@ -106,6 +108,56 @@ class BrainBitAdapterTests(unittest.TestCase):
         adapter._check_connection_health_once(now=102.0)
 
         self.assertEqual(adapter.get_status()["status"], "stale")
+
+    def test_persistent_stale_triggers_auto_restart(self) -> None:
+        adapter._config.update({"script_path": "brainbit_cli.py", "python_executable": "python"})
+        adapter._process = FakeProcess()
+        adapter._last_any_line_at = 100.0
+        adapter._latest_state = {"status": "connected"}
+        adapter._auto_restart_count = 0
+        adapter._last_auto_restart_at = 0.0
+
+        restarts: list[bool] = []
+        original_restart = adapter.restart
+        adapter.restart = lambda: restarts.append(True)
+        try:
+            adapter._check_connection_health_once(now=103.0)
+        finally:
+            adapter.restart = original_restart
+
+        self.assertEqual(restarts, [True])
+        self.assertEqual(adapter._auto_restart_count, 1)
+        self.assertEqual(adapter._latest_state.get("status"), "restarting")
+
+    def test_auto_restart_respects_attempt_limit(self) -> None:
+        adapter._config.update({"script_path": "brainbit_cli.py", "python_executable": "python"})
+        adapter._process = FakeProcess()
+        adapter._last_any_line_at = 100.0
+        adapter._latest_state = {"status": "connected"}
+        adapter._auto_restart_count = 3
+        adapter._last_auto_restart_at = 0.0
+
+        restarts: list[bool] = []
+        original_restart = adapter.restart
+        adapter.restart = lambda: restarts.append(True)
+        try:
+            adapter._check_connection_health_once(now=103.0)
+        finally:
+            adapter.restart = original_restart
+
+        self.assertEqual(restarts, [])
+
+    def test_fresh_sensor_data_resets_restart_counter(self) -> None:
+        adapter._process = FakeProcess()
+        adapter._auto_restart_count = 2
+        adapter._last_auto_restart_at = 100.0
+        adapter._last_sensor_activity_at = 150.0
+        adapter._last_any_line_at = 150.0
+        adapter._latest_state = {"status": "connected"}
+
+        adapter._check_connection_health_once(now=150.2)
+
+        self.assertEqual(adapter._auto_restart_count, 0)
 
     def test_device_identity_without_live_activity_is_not_connected(self) -> None:
         adapter._update_state_from_line('DEVICE {"name": "BrainBit", "serial_number": "ABC123"}')

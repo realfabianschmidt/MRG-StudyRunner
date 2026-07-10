@@ -126,6 +126,15 @@ function estimateServerEpochMs(clientPerfMs = performance.now()) {
   return Date.now();
 }
 
+function getClientClockOffsetMs() {
+  // Difference between the server clock and this tablet's wall clock
+  // (server_epoch = client_epoch + offset). Null when clock sync failed.
+  if (!Number.isFinite(state.clockOffsetMs)) {
+    return null;
+  }
+  return Math.round(estimateServerEpochMs() - Date.now());
+}
+
 function handleHeartbeatResponse(response) {
   if (response?.sensor_runtime) {
     updateSensorRuntime(response.sensor_runtime);
@@ -219,6 +228,7 @@ function saveSessionSnapshot() {
 function buildPartialResultsPayload() {
   return {
     ...getSessionPayload(),
+    client_clock_offset_ms: getClientClockOffsetMs(),
     timestamp_start: state.startTime ? new Date(state.startTime).toISOString() : null,
     snapshot_at: new Date().toISOString(),
     current_index: state.currentIndex,
@@ -1283,6 +1293,8 @@ function markQuestionShown(questionIndex) {
   state.questionMetrics[questionIndex] = {
     ...current,
     shown_at: current.shown_at || nowIso,
+    // Server-clock estimate so biosignal slicing is immune to tablet clock skew.
+    shown_at_server_epoch_ms: current.shown_at_server_epoch_ms || estimateServerEpochMs(),
   };
   if (!state.startTime || question?.type === 'participant-id') {
     return;
@@ -1312,6 +1324,7 @@ function recordQuestionCompletion(questionIndex) {
   state.questionMetrics[questionIndex] = {
     ...current,
     answered_at: new Date().toISOString(),
+    answered_at_server_epoch_ms: estimateServerEpochMs(),
   };
   if (!state.startTime || question.type === 'participant-id') {
     return Promise.resolve();
@@ -1615,6 +1628,7 @@ function collectCardEvents() {
       question_index: questionIndex,
       question_type: question.type,
       shown_at: metrics.shown_at || new Date(state.startTime || Date.now()).toISOString(),
+      shown_at_server_epoch_ms: metrics.shown_at_server_epoch_ms || null,
     };
 
     if (question.type === 'stimulus') {
@@ -1631,6 +1645,7 @@ function collectCardEvents() {
       event.stop_marker = metrics.stop_marker || '';
     } else {
       event.answered_at = metrics.answered_at || new Date().toISOString();
+      event.answered_at_server_epoch_ms = metrics.answered_at_server_epoch_ms || null;
       event.completed_at = metrics.answered_at || null;
     }
 
@@ -1656,6 +1671,7 @@ async function submitResults() {
       session_id: state.sessionId,
       participant_id: resolveParticipantId(),
       study_id: state.config.study_id,
+      client_clock_offset_ms: getClientClockOffsetMs(),
       timestamp_start: new Date(state.startTime).toISOString(),
       timestamp_end: timestampEnd,
       answers: collectAnswers(),

@@ -162,9 +162,11 @@ def build_interval_summary(
         if plugin.get_interval_summary is None or not _is_config_enabled(context, plugin):
             continue
         try:
-            summary[plugin.key] = plugin.get_interval_summary(context, start_epoch, end_epoch)
+            # "enabled" separates "sensor off" from "sensor on but no data",
+            # so missing data can be flagged as a real gap in the results.
+            summary[plugin.key] = {**plugin.get_interval_summary(context, start_epoch, end_epoch), "enabled": True}
         except Exception:
-            summary[plugin.key] = {"available": False}
+            summary[plugin.key] = {"available": False, "enabled": True}
     return summary
 
 
