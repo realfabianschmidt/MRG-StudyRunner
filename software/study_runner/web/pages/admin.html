@@ -242,11 +242,11 @@
         </article>
         <article class="dashboard-card">
           <div class="dashboard-card-title"><i class="iconoir-activity"></i> <span data-i18n="dashboard.miniRadar">Mini-radar</span></div>
-          <div id="dashboard-radar" class="dashboard-card-body" data-i18n="dashboard.planned">Planned.</div>
+          <div id="dashboard-radar" class="dashboard-card-body" data-i18n="dashboard.waitingStatus">Waiting for status.</div>
         </article>
         <article class="dashboard-card">
           <div class="dashboard-card-title"><i class="iconoir-camera"></i> <span data-i18n="dashboard.cameraEmotion">Camera emotion</span></div>
-          <div id="dashboard-camera" class="dashboard-card-body" data-i18n="dashboard.planned">Planned.</div>
+          <div id="dashboard-camera" class="dashboard-card-body" data-i18n="dashboard.waitingStatus">Waiting for status.</div>
         </article>
         <article class="dashboard-card dashboard-card--wide">
           <div class="dashboard-card-title"><i class="iconoir-settings-profiles"></i> <span data-i18n="dashboard.integrationControls">Integration controls</span></div>
@@ -316,9 +316,9 @@
         <article class="dashboard-card">
           <div class="dashboard-card-title"><i class="iconoir-keyframes"></i> <span data-i18n="notion.globalNotion">API key</span></div>
           <div class="field">
-            <label class="consent-row" for="notion-enabled">
-              <input type="checkbox" id="notion-enabled">
+            <label class="switch-row" for="notion-enabled">
               <span data-i18n="notion.enableGlobal">Enable global Notion integration</span>
+              <span class="switch"><input type="checkbox" id="notion-enabled"><span class="switch-slider"></span></span>
             </label>
           </div>
           <div class="field">
@@ -333,9 +333,9 @@
             <span class="settings-hint" id="notion-clear-key-state" data-i18n="notion.noClearPending">No deletion pending.</span>
           </div>
           <div class="field">
-            <label class="consent-row" for="notion-auto-retry">
-              <input type="checkbox" id="notion-auto-retry">
+            <label class="switch-row" for="notion-auto-retry">
               <span data-i18n="notion.autoRetry">Automatically retry failed uploads on server start</span>
+              <span class="switch"><input type="checkbox" id="notion-auto-retry"><span class="switch-slider"></span></span>
             </label>
           </div>
           <div class="dashboard-actions">
@@ -353,9 +353,9 @@
             <div class="settings-hint" data-i18n="notion.studyValuesHint">These values are saved with the currently loaded study.</div>
           </div>
           <div class="field">
-            <label class="consent-row" for="notion-study-enabled">
-              <input type="checkbox" id="notion-study-enabled">
+            <label class="switch-row" for="notion-study-enabled">
               <span data-i18n="notion.uploadThisStudy">Upload results of this study to Notion</span>
+              <span class="switch"><input type="checkbox" id="notion-study-enabled"><span class="switch-slider"></span></span>
             </label>
           </div>
           <div id="notion-study-fields">
@@ -422,47 +422,47 @@
     <div class="settings-modal-body">
       <p class="settings-hint" style="margin-bottom: 16px;" data-i18n="settings.notionMovedHint">Notion-specific study values are collected on the full Notion settings page.</p>
       <div class="field" style="margin-bottom: 20px;">
-        <label class="consent-row" for="study-sensors-enabled" style="margin-bottom: 0;">
-          <input type="checkbox" id="study-sensors-enabled">
+        <label class="switch-row" for="study-sensors-enabled" style="margin-bottom: 0;">
           <span style="display:flex; flex-direction:column; gap:4px;">
             <strong style="color:var(--ink);" data-i18n="settings.recordBiosignals">Record biosignals</strong>
             <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.recordBiosignalsHint">When disabled, this study sends no triggers to external sensors, even if cards request it.</small>
           </span>
+          <span class="switch"><input type="checkbox" id="study-sensors-enabled"><span class="switch-slider"></span></span>
         </label>
       </div>
       <div class="field" id="study-sensor-options" style="margin-bottom: 20px;">
         <label style="margin-bottom: 10px;" data-i18n="settings.sensorSelection">Sensor selection</label>
         <div class="stimulus-toggle-list">
-          <label class="consent-row" for="study-sensor-brainbit" style="margin-bottom: 0;">
-            <input type="checkbox" id="study-sensor-brainbit">
+          <label class="switch-row" for="study-sensor-brainbit" style="margin-bottom: 0;">
             <span style="display:flex; flex-direction:column; gap:4px;">
               <strong style="color:var(--ink);" data-i18n="settings.sensorBrainBit">BrainBit EEG</strong>
               <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.sensorBrainBitHint">Starts BrainBit and records EEG-derived values for this study.</small>
             </span>
+            <span class="switch"><input type="checkbox" id="study-sensor-brainbit"><span class="switch-slider"></span></span>
           </label>
-          <label class="consent-row" for="study-sensor-mini-radar" style="margin-bottom: 0;">
-            <input type="checkbox" id="study-sensor-mini-radar">
+          <label class="switch-row" for="study-sensor-mini-radar" style="margin-bottom: 0;">
             <span style="display:flex; flex-direction:column; gap:4px;">
               <strong style="color:var(--ink);" data-i18n="settings.sensorRadar">MR60 radar</strong>
               <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.sensorRadarHint">Starts MR60 BLE and records heart, breathing and presence values.</small>
             </span>
+            <span class="switch"><input type="checkbox" id="study-sensor-mini-radar"><span class="switch-slider"></span></span>
           </label>
-          <label class="consent-row" for="study-sensor-camera-emotion" style="margin-bottom: 0;">
-            <input type="checkbox" id="study-sensor-camera-emotion">
+          <label class="switch-row" for="study-sensor-camera-emotion" style="margin-bottom: 0;">
             <span style="display:flex; flex-direction:column; gap:4px;">
               <strong style="color:var(--ink);" data-i18n="settings.sensorCameraEmotion">Camera emotion</strong>
               <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.sensorCameraEmotionHint">Opt-in: starts tablet camera emotion analysis only for studies that need it.</small>
             </span>
+            <span class="switch"><input type="checkbox" id="study-sensor-camera-emotion"><span class="switch-slider"></span></span>
           </label>
         </div>
       </div>
       <div class="field" style="margin-bottom: 20px;">
-        <label class="consent-row" for="study-progress-bar-enabled" style="margin-bottom: 0;">
-          <input type="checkbox" id="study-progress-bar-enabled">
+        <label class="switch-row" for="study-progress-bar-enabled" style="margin-bottom: 0;">
           <span style="display:flex; flex-direction:column; gap:4px;">
             <strong style="color:var(--ink);" data-i18n="settings.showProgressBar">Show progress bar</strong>
             <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.showProgressBarHint">Shows a slim progress bar at the bottom of the participant page.</small>
           </span>
+          <span class="switch"><input type="checkbox" id="study-progress-bar-enabled"><span class="switch-slider"></span></span>
         </label>
       </div>
       <div class="settings-toolbar" style="margin-top: 24px;">

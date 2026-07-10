@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 import { renderCardInstruction } from './card-info.js';
 
 function escapeHtml(v) {
@@ -10,7 +11,7 @@ export const defaultQuestion = { type:'text', prompt:'' };
 
 export function renderStudy(q, i) {
   return `
-    <div class="q-type-tag"><i class="iconoir-chat-bubble"></i> Free text</div>
+    <div class="q-type-tag"><i class="iconoir-chat-bubble"></i> ${escapeHtml(t('cards.text.tag', 'Free answer'))}</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
     ${renderCardInstruction(q)}
     <textarea class="fi-textarea" id="q${i}" placeholder="Your answer..."></textarea>`;
@@ -19,8 +20,8 @@ export function renderStudy(q, i) {
 export function renderEditor(q) {
   return `
     <div class="field">
-      <label>Question text</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="Enter question...">
+      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
+      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.enterQuestion', 'Enter question...'))}">
     </div>`;
 }
 

@@ -106,7 +106,7 @@ export function renderStudy(q, i) {
   }).join('');
 
   return `
-    <div class="q-type-tag"><i class="iconoir-app-window"></i> Mood Meter</div>
+    <div class="q-type-tag"><i class="iconoir-app-window"></i> ${escapeHtml(t('cards.moodMeter.tag', 'Mood'))}</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
     ${renderCardInstruction(q)}
     <div class="mm-grid" id="mm-grid-${i}">${tiles}</div>`;
@@ -119,18 +119,18 @@ export function renderEditor(q) {
       <label class="mm-ed-quad-label" style="color:${quad.color};">${escapeHtml(quad.label)}</label>
       <textarea class="mm-ed-words fi-textarea" data-quadrant="${quad.id}"
                 style="min-height:96px;font-size:.75rem;"
-                placeholder="One word per line">${escapeHtml(quad.words.join('\n'))}</textarea>
+                placeholder="${escapeHtml(t('editor.oneWordPerLine', 'One word per line'))}">${escapeHtml(quad.words.join('\n'))}</textarea>
     </div>`).join('');
 
   return `
     <div class="field">
-      <label>Question text</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="How do you feel right now?">
+      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
+      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.moodMeterPlaceholder', 'How do you feel right now?'))}">
     </div>
     <div class="field">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal;">
-        <input type="checkbox" class="qe-allow-multiple" ${q.allow_multiple !== false ? 'checked' : ''}>
-        Allow selecting multiple words
+      <label class="switch-row" style="margin-bottom:0;">
+        <span>${escapeHtml(t('editor.allowMultipleWords', 'Allow selecting multiple words'))}</span>
+        <span class="switch"><input type="checkbox" class="qe-allow-multiple" ${q.allow_multiple !== false ? 'checked' : ''}><span class="switch-slider"></span></span>
       </label>
     </div>
     <div class="mm-ed-quads">${quadSections}</div>`;

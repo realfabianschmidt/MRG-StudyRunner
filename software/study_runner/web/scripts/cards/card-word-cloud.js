@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 import { renderCardInstruction } from './card-info.js';
 
 function escapeHtml(v) {
@@ -42,7 +43,7 @@ export function renderStudy(q, i) {
     </button>`).join('');
 
   return `
-    <div class="q-type-tag"><i class="iconoir-chat-bubble"></i> Word Cloud</div>
+    <div class="q-type-tag"><i class="iconoir-chat-bubble"></i> ${escapeHtml(t('cards.wordCloud.tag', 'Word selection'))}</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
     ${renderCardInstruction(q)}
     <div class="wc-cloud" id="wc-cloud-${i}" data-multiple="${isMultiple}" role="group"
@@ -58,17 +59,17 @@ export function renderEditor(q) {
   const words = (q.words ?? DEFAULT_WORDS).join('\n');
   return `
     <div class="field">
-      <label>Question text</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="Which words describe how you feel?">
+      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
+      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.wordCloudPlaceholder', 'Which words describe how you feel?'))}">
     </div>
     <div class="field">
-      <label>Words (one per line)</label>
+      <label>${escapeHtml(t('editor.wordsOneLine', 'Words (one per line)'))}</label>
       <textarea class="qe-words fi-textarea" style="min-height:100px;">${escapeHtml(words)}</textarea>
     </div>
     <div class="field">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal;">
-        <input type="checkbox" class="qe-allow-multiple" ${q.allow_multiple !== false ? 'checked' : ''}>
-        Allow selecting multiple words
+      <label class="switch-row" style="margin-bottom:0;">
+        <span>${escapeHtml(t('editor.allowMultipleWords', 'Allow selecting multiple words'))}</span>
+        <span class="switch"><input type="checkbox" class="qe-allow-multiple" ${q.allow_multiple !== false ? 'checked' : ''}><span class="switch-slider"></span></span>
       </label>
     </div>`;
 }

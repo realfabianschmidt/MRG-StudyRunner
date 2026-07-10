@@ -404,7 +404,13 @@ def _initialize_opencv() -> bool:
         auto_install=bool(_config.get("auto_install", True)),
         label="Camera emotion NumPy",
     ):
-        _set_state({"status": "failed", "last_message": "NumPy is unavailable for camera analysis."})
+        _set_state({
+            "status": "failed",
+            "last_message": (
+                "A required component for camera analysis (NumPy) is not installed. "
+                "Run 'pip install -r software/requirements.txt' or reinstall Study Runner."
+            ),
+        })
         return False
 
     try:

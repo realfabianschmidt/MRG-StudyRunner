@@ -241,20 +241,16 @@ body::before {
 }
 
 /* ============================================================
-   STUDY PAGE - consent row
+   SHARED - switch row (label text left, slide toggle right)
    ============================================================ */
-.consent-row {
-  display: flex; align-items: flex-start; gap: 12px;
+.switch-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 14px 16px; background: var(--ink-06);
   border-radius: var(--r-surface); margin-bottom: 28px; cursor: pointer;
   transition: background var(--t-fast) var(--fluid);
 }
-.consent-row:hover { background: var(--accent-06); }
-.consent-row input {
-  width: 18px; height: 18px; margin-top: 2px; flex-shrink: 0;
-  accent-color: var(--accent); cursor: pointer;
-}
-.consent-row span { font-size: .875rem; color: var(--ink-60); line-height: 1.5; }
+.switch-row:hover { background: var(--accent-06); }
+.switch-row > span:first-child { font-size: .875rem; color: var(--ink-60); line-height: 1.5; }
 
 /* ============================================================
    SHARED - buttons
@@ -614,27 +610,6 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
 .row2:last-child, .row3:last-child { margin-bottom: 0; }
 .row2 .field, .row3 .field { display: flex; flex-direction: column; margin-bottom: 0; }
 .row2 .field label, .row3 .field label { margin-top: auto; }
-
-/* Toggle */
-.toggle-label {
-  display: flex; align-items: center; gap: 10px;
-  cursor: pointer; font-size: .875rem; color: var(--ink-60); padding: 6px 0;
-}
-input[type=checkbox].toggle {
-  width: 36px; height: 20px; appearance: none;
-  background: var(--ink-25); border-radius: 20px;
-  position: relative; cursor: pointer;
-  transition: background var(--t-fast); flex-shrink: 0;
-}
-input[type=checkbox].toggle:checked { background: var(--accent); }
-input[type=checkbox].toggle::after {
-  content: ''; position: absolute;
-  top: 2px; left: 2px; width: 16px; height: 16px;
-  background: #fff; border-radius: 50%;
-  transition: transform var(--t-fast);
-  box-shadow: 0 1px 3px rgba(0,0,0,.15);
-}
-input[type=checkbox].toggle:checked::after { transform: translateX(16px); }
 
 /* ============================================================
    ADMIN PAGE - two-column layout

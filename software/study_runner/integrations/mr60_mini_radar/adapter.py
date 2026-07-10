@@ -338,7 +338,13 @@ def _ble_loop() -> None:
         auto_install=bool(_config.get("auto_install", True)),
         label="Mini-radar BLE",
     ):
-        _set_state({"status": "failed", "last_message": "bleak is unavailable."})
+        _set_state({
+            "status": "failed",
+            "last_message": (
+                "Bluetooth support for the mini-radar is not installed on this computer. "
+                "Run 'pip install -r software/requirements.txt' or reinstall Study Runner."
+            ),
+        })
         with _lock:
             if _reader_thread is threading.current_thread():
                 _running = False
@@ -528,7 +534,13 @@ def _open_serial_connection() -> None:
         auto_install=bool(_config.get("auto_install", True)),
         label="Mini-radar serial",
     ):
-        _set_state({"status": "failed", "last_message": "pyserial is unavailable."})
+        _set_state({
+            "status": "failed",
+            "last_message": (
+                "USB/serial support for the mini-radar is not installed on this computer. "
+                "Run 'pip install -r software/requirements.txt' or reinstall Study Runner."
+            ),
+        })
         return
 
     try:

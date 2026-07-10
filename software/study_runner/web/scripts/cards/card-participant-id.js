@@ -323,13 +323,13 @@ function openFieldModal(editorEl, fieldKey) {
         </button>
       </div>
       <div class="settings-modal-body">
-        <label class="checkbox-row" style="margin-bottom:12px;">
-          <input type="checkbox" class="pid-modal-key" ${state.use_for_key ? 'checked' : ''}>
+        <label class="switch-row" style="margin-bottom:12px;">
           <span>${escapeHtml(t('cards.participant.useForKeyLabel', 'Use for anonymous code (hash)'))}</span>
+          <span class="switch"><input type="checkbox" class="pid-modal-key" ${state.use_for_key ? 'checked' : ''}><span class="switch-slider"></span></span>
         </label>
-        <label class="checkbox-row" style="margin-bottom:12px;">
-          <input type="checkbox" class="pid-modal-store" ${state.store ? 'checked' : ''}>
+        <label class="switch-row" style="margin-bottom:12px;">
           <span>${escapeHtml(t('cards.participant.storeLabel', 'Store in results (DB)'))}</span>
+          <span class="switch"><input type="checkbox" class="pid-modal-store" ${state.store ? 'checked' : ''}><span class="switch-slider"></span></span>
         </label>
         ${optionsSection}
         <button class="btn-primary pid-modal-apply" type="button" style="width:100%; justify-content:center; margin-top:16px;">
