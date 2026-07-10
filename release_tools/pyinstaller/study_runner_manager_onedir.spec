@@ -36,7 +36,9 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX compression corrupts code-signed Mach-O binaries on macOS and adds
+    # little value elsewhere; keep it off on every platform.
+    upx=False,
     console=False,
 )
 coll = COLLECT(
@@ -44,7 +46,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name="study-runner-manager",
 )
