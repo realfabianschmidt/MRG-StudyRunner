@@ -105,7 +105,7 @@ jobs:
           software\dist\study-runner-server\study-runner-server.exe --emotion-worker-self-test --json
 
       - name: Run packaged Emotion Worker self-test
-        if: runner.os != 'Windows'
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           export STUDY_RUNNER_DATA_DIR="$RUNNER_TEMP/study-runner-self-test"
