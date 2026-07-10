@@ -29,6 +29,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
+
 from ..dependency_utils import ensure_requirements
 
 
@@ -56,7 +58,8 @@ _routing_state = {
     "forward_to_lsl": False,
     "forward_to_touchdesigner": False,
 }
-_history: deque[dict[str, Any]] = deque(maxlen=4096)
+# The CLI emits a handful of JSON lines per second; sized for a full session.
+_history: deque[dict[str, Any]] = deque(maxlen=history_maxlen(10.0))
 _SENSOR_ACTIVITY_TAGS = {
     "RESIST",
     "QUALITY",
@@ -990,10 +993,7 @@ def _timestamp(epoch: float | None = None) -> str:
 
 
 def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]:
-    samples = [
-        sample for sample in list(_history)
-        if start_epoch <= float(sample.get("_epoch", 0.0)) <= end_epoch
-    ]
+    samples = samples_in_interval(_history, start_epoch, end_epoch)
     if not samples:
         return {
             "available": False,
@@ -1005,6 +1005,7 @@ def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]
             "avg_theta": None,
             "avg_delta": None,
             "avg_gamma": None,
+            **truncation_info(_history, start_epoch),
         }
 
     mental_payloads = [sample["payload"] for sample in samples if sample.get("tag") == "MENTAL"]
@@ -1020,15 +1021,14 @@ def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]
         "avg_theta": _mean_payload(band_payloads, "theta"),
         "avg_delta": _mean_payload(band_payloads, "delta"),
         "avg_gamma": _mean_payload(band_payloads, "gamma"),
+        "max_gap_seconds": max_gap_seconds(samples),
+        **truncation_info(_history, start_epoch),
     }
 
 
 def export_interval_samples(start_epoch: float, end_epoch: float) -> list[dict[str, Any]]:
     """Return BrainBit adapter history for compact JSON sidecar export."""
-    samples = [
-        sample for sample in list(_history)
-        if start_epoch <= float(sample.get("_epoch", 0.0)) <= end_epoch
-    ]
+    samples = samples_in_interval(_history, start_epoch, end_epoch)
     return [_public_history_sample(sample) for sample in samples]
 
 

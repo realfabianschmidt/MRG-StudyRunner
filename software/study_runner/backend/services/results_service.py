@@ -370,8 +370,52 @@ def build_answer_details(
                 ),
             }
         )
+        entries[-1]["data_warnings"] = _build_data_warnings(
+            entries[-1]["biosignal_interval"],
+            interval_seconds,
+        )
 
     return entries
+
+
+_SENSOR_LABELS = {
+    "brainbit": "BrainBit EEG",
+    "mini_radar": "Heart/breathing radar",
+    "camera_emotion": "Camera emotion",
+}
+
+
+def _build_data_warnings(
+    interval_summary: dict[str, Any] | None,
+    interval_seconds: float | None,
+) -> list[str]:
+    """Plain-language notes when an enabled sensor has missing or holey data.
+
+    Without these, a sensor dropout mid-card is indistinguishable from a
+    sensor that was switched off when reading the results file.
+    """
+    warnings: list[str] = []
+    for sensor_key, summary in (interval_summary or {}).items():
+        if not isinstance(summary, dict) or not summary.get("enabled"):
+            continue
+        label = _SENSOR_LABELS.get(sensor_key, sensor_key)
+        if summary.get("buffer_overflowed"):
+            warnings.append(
+                f"{label}: this card is older than the sensor buffer window; earlier samples were discarded."
+            )
+        if not summary.get("available"):
+            warnings.append(f"{label}: no data arrived while this card was shown.")
+            continue
+        max_gap = summary.get("max_gap_seconds")
+        if isinstance(max_gap, (int, float)) and interval_seconds:
+            # A pause is a dropout when it is both long in absolute terms
+            # and large relative to how long the card was visible.
+            if max_gap >= 5.0 and max_gap >= 0.25 * float(interval_seconds):
+                warnings.append(f"{label}: data gap of {max_gap:.1f} s while this card was shown.")
+        dropped = summary.get("dropped_in_interval")
+        if isinstance(dropped, int) and dropped > 0:
+            warnings.append(f"{label}: {dropped} radio packets were lost while this card was shown.")
+    return warnings
 
 
 def _resolve_interval_epochs(

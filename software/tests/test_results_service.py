@@ -167,6 +167,41 @@ class ResultsServicePathTests(unittest.TestCase):
         self.assertEqual(details[0]["biosignal_interval_timing_source"], "server_clock")
         self.assertEqual(calls, [(shown_epoch, answered_epoch)])
 
+    def test_data_warnings_flag_gaps_dropouts_and_truncation(self) -> None:
+        warnings = results_service._build_data_warnings(
+            {
+                "brainbit": {"enabled": True, "available": False},
+                "mini_radar": {
+                    "enabled": True,
+                    "available": True,
+                    "max_gap_seconds": 12.0,
+                    "dropped_in_interval": 50,
+                },
+                "camera_emotion": {"available": False},  # disabled -> silent
+            },
+            interval_seconds=30.0,
+        )
+
+        self.assertEqual(len(warnings), 3)
+        self.assertIn("BrainBit EEG: no data arrived", warnings[0])
+        self.assertIn("data gap of 12.0 s", warnings[1])
+        self.assertIn("50 radio packets were lost", warnings[2])
+
+    def test_data_warnings_ignore_short_pauses(self) -> None:
+        warnings = results_service._build_data_warnings(
+            {
+                "mini_radar": {
+                    "enabled": True,
+                    "available": True,
+                    "max_gap_seconds": 2.0,
+                    "dropped_in_interval": 0,
+                },
+            },
+            interval_seconds=30.0,
+        )
+
+        self.assertEqual(warnings, [])
+
     def test_signal_sidecar_contains_card_events_and_sample_count(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = results_service._write_signal_sidecar(

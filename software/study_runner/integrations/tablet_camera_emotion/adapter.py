@@ -14,6 +14,7 @@ from threading import Lock
 from typing import Any
 
 from ..dependency_utils import ensure_requirements
+from ..history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 
 
 _state_lock = Lock()
@@ -22,7 +23,8 @@ _lsl_outlets: dict[str, Any] = {}
 _cv2: Any = None
 _np: Any = None
 _face_cascade: Any = None
-_history: deque[dict[str, Any]] = deque(maxlen=2048)
+# Frames arrive at most every 200 ms (5 Hz); sized for a full session.
+_history: deque[dict[str, Any]] = deque(maxlen=history_maxlen(5.0))
 _preview_state: dict[str, Any] = {
     "available": False,
     "last_message": "No tablet camera live frame received yet.",
@@ -180,10 +182,7 @@ def get_preview_status() -> dict[str, Any]:
 
 
 def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]:
-    samples = [
-        sample for sample in list(_history)
-        if start_epoch <= float(sample.get("_epoch", 0.0)) <= end_epoch
-    ]
+    samples = samples_in_interval(_history, start_epoch, end_epoch)
     if not samples:
         return {
             "available": False,
@@ -192,6 +191,7 @@ def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]
             "avg_emotion_confidence": None,
             "face_detected_rate": None,
             "dominant_emotion": None,
+            **truncation_info(_history, start_epoch),
         }
 
     emotion_totals: dict[str, float] = {}
@@ -223,6 +223,8 @@ def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]
         "avg_emotion_confidence": _mean(emotion_conf_values),
         "face_detected_rate": round(face_detected / len(samples), 4),
         "dominant_emotion": dominant_emotion,
+        "max_gap_seconds": max_gap_seconds(samples),
+        **truncation_info(_history, start_epoch),
     }
 
 

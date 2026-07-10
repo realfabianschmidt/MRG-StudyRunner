@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ..dependency_utils import ensure_requirements
+from ..history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 
 
 BLE_SERVICE_UUID = "9d6f0001-7d2a-4c6b-9f4e-5c2b1f4a6e10"
@@ -36,7 +37,8 @@ _stop_event = threading.Event()
 _recording_enabled = False
 _registered_shutdown = False
 _lsl_outlets: dict[str, Any] = {}
-_history: deque[dict[str, Any]] = deque(maxlen=4096)
+# Radar reports at ~10 Hz; sized to hold a full study session.
+_history: deque[dict[str, Any]] = deque(maxlen=history_maxlen(10.0))
 _latest_state: dict[str, Any] = {
     "status": "not_configured",
     "latest": {},
@@ -256,8 +258,10 @@ def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]
             "avg_breath_rate": None,
             "avg_quality": None,
             "avg_distance": None,
+            **truncation_info(_history, start_epoch),
         }
 
+    dropped_counters = [int(sample.get("total_dropped") or 0) for sample in samples]
     return {
         "available": True,
         "sample_count": len(samples),
@@ -265,10 +269,12 @@ def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]
         "avg_breath_rate": _mean(samples, "breathRate"),
         "avg_quality": _mean(samples, "quality"),
         "avg_distance": _mean(samples, "distance"),
-        "total_dropped": max(
-            int(sample.get("total_dropped") or 0)
-            for sample in samples
-        ),
+        "total_dropped": max(dropped_counters),
+        # total_dropped is a running counter; the difference is what was
+        # actually lost inside this window.
+        "dropped_in_interval": max(dropped_counters) - min(dropped_counters),
+        "max_gap_seconds": max_gap_seconds(samples),
+        **truncation_info(_history, start_epoch),
     }
 
 
@@ -653,10 +659,7 @@ def _set_state(values: dict[str, Any]) -> None:
 
 
 def _samples_in_interval(start_epoch: float, end_epoch: float) -> list[dict[str, Any]]:
-    return [
-        sample for sample in list(_history)
-        if start_epoch <= float(sample.get("_epoch", 0.0)) <= end_epoch
-    ]
+    return samples_in_interval(_history, start_epoch, end_epoch)
 
 
 def _public_sample(sample: dict[str, Any]) -> dict[str, Any]:
