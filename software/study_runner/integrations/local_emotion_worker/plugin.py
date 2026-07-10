@@ -35,6 +35,10 @@ _process: subprocess.Popen[Any] | None = None
 _log_handle: Any = None
 _config: dict[str, Any] = {}
 _registered_shutdown = False
+_monitor_thread: threading.Thread | None = None
+_monitor_context: IntegrationContext | None = None
+_worker_restart_count = 0
+_last_worker_restart_at = 0.0
 _install_lock = threading.Lock()
 _install_job: dict[str, Any] = {
     "running": False,
@@ -322,8 +326,69 @@ def _start(context: IntegrationContext) -> Any:
         _close_log_handle()
         return {**_status(context), "status": "failed", "last_message": start_error}
 
+    _ensure_worker_monitor(context)
     time.sleep(0.35)
     return _status(context)
+
+
+def _ensure_worker_monitor(context: IntegrationContext) -> None:
+    global _monitor_thread, _monitor_context
+
+    _monitor_context = context
+    if _monitor_thread is None or not _monitor_thread.is_alive():
+        _monitor_thread = threading.Thread(target=_watch_worker, daemon=True)
+        _monitor_thread.start()
+
+
+def _watch_worker() -> None:
+    """Restart the worker when it crashes mid-study.
+
+    A crashed worker used to stop emotion capture silently until an
+    operator looked at the dashboard. Limited attempts with backoff so a
+    broken runtime does not restart forever. A deliberate stop clears
+    _process first, which ends this monitor.
+    """
+    global _process, _worker_restart_count, _last_worker_restart_at
+
+    max_attempts = 3
+    while True:
+        time.sleep(2.0)
+        with _lock:
+            process = _process
+        if process is None:
+            return
+        if process.poll() is None:
+            if _worker_restart_count and time.time() - _last_worker_restart_at > 30.0:
+                _worker_restart_count = 0
+            continue
+        if not _config.get("auto_restart", True):
+            return
+        if _worker_restart_count >= max_attempts:
+            print(
+                "[EmotionWorker] Worker keeps crashing - giving up after "
+                f"{max_attempts} automatic restarts. Use 'Repair DeepFace runtime' on the dashboard."
+            )
+            return
+        backoff_seconds = min(60.0, 5.0 * (2 ** _worker_restart_count))
+        if _last_worker_restart_at and time.time() - _last_worker_restart_at < backoff_seconds:
+            continue
+        context = _monitor_context
+        if context is None:
+            return
+        _worker_restart_count += 1
+        _last_worker_restart_at = time.time()
+        print(
+            "[EmotionWorker] Worker exited unexpectedly - restarting automatically "
+            f"(attempt {_worker_restart_count}/{max_attempts})."
+        )
+        with _lock:
+            if _process is process:
+                _process = None
+        _close_log_handle()
+        try:
+            _start(context)
+        except Exception as error:
+            print(f"[EmotionWorker] Automatic worker restart failed: {error}")
 
 
 def _stop(context: IntegrationContext) -> Any:
@@ -341,11 +406,12 @@ def _restart(context: IntegrationContext) -> Any:
 def _stop_process() -> None:
     global _process
 
+    # Claim the process under the lock BEFORE terminating it, so the
+    # crash monitor sees a deliberate stop instead of a crash to restart.
     with _lock:
         process = _process
+        _process = None
     if process is None or process.poll() is not None:
-        with _lock:
-            _process = None
         _close_log_handle()
         return
 
@@ -358,9 +424,6 @@ def _stop_process() -> None:
         except Exception:
             pass
     finally:
-        with _lock:
-            if _process is process:
-                _process = None
         _close_log_handle()
 
 

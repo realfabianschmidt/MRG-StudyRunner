@@ -310,5 +310,75 @@ def _context(hardware_config: dict) -> IntegrationContext:
     )
 
 
+class CrashedWorkerProcess:
+    def poll(self):
+        return 1
+
+
+class WorkerAutoRestartTests(unittest.TestCase):
+    def setUp(self) -> None:
+        worker_plugin._config = {"auto_restart": True}
+        worker_plugin._worker_restart_count = 0
+        worker_plugin._last_worker_restart_at = 0.0
+        worker_plugin._monitor_context = object()
+
+    def tearDown(self) -> None:
+        worker_plugin._process = None
+        worker_plugin._monitor_context = None
+        worker_plugin._worker_restart_count = 0
+
+    def test_monitor_restarts_crashed_worker(self) -> None:
+        worker_plugin._process = CrashedWorkerProcess()
+        restarts: list[object] = []
+
+        def fake_start(context):
+            restarts.append(context)
+            with worker_plugin._lock:
+                worker_plugin._process = None  # ends the monitor loop
+
+        original_start = worker_plugin._start
+        worker_plugin._start = fake_start
+        try:
+            with patch.object(worker_plugin.time, "sleep", lambda _seconds: None):
+                worker_plugin._watch_worker()
+        finally:
+            worker_plugin._start = original_start
+
+        self.assertEqual(len(restarts), 1)
+        self.assertEqual(worker_plugin._worker_restart_count, 1)
+
+    def test_monitor_gives_up_after_attempt_limit(self) -> None:
+        worker_plugin._process = CrashedWorkerProcess()
+        worker_plugin._worker_restart_count = 3
+        restarts: list[object] = []
+
+        original_start = worker_plugin._start
+        worker_plugin._start = lambda context: restarts.append(context)
+        try:
+            with patch.object(worker_plugin.time, "sleep", lambda _seconds: None):
+                worker_plugin._watch_worker()
+        finally:
+            worker_plugin._start = original_start
+
+        self.assertEqual(restarts, [])
+
+    def test_deliberate_stop_ends_monitor_without_restart(self) -> None:
+        process = FakeWorkerProcess()
+        worker_plugin._process = process
+
+        restarts: list[object] = []
+        original_start = worker_plugin._start
+        worker_plugin._start = lambda context: restarts.append(context)
+        try:
+            worker_plugin._stop_process()
+            with patch.object(worker_plugin.time, "sleep", lambda _seconds: None):
+                worker_plugin._watch_worker()
+        finally:
+            worker_plugin._start = original_start
+
+        self.assertTrue(process.terminated)
+        self.assertEqual(restarts, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -58,6 +58,8 @@ _routing_state = {
     "forward_to_lsl": False,
     "forward_to_touchdesigner": False,
 }
+_auto_restart_count = 0
+_last_auto_restart_at = 0.0
 # The CLI emits a handful of JSON lines per second; sized for a full session.
 _history: deque[dict[str, Any]] = deque(maxlen=history_maxlen(10.0))
 _SENSOR_ACTIVITY_TAGS = {
@@ -1064,6 +1066,8 @@ def _watch_connection_health() -> None:
 
 
 def _check_connection_health_once(now: float | None = None) -> bool:
+    global _auto_restart_count
+
     stale_timeout = max(1.0, _config.get("disconnect_timeout_ms", 20000) / 1000.0)
     process = _process
     if process is None or process.poll() is not None:
@@ -1076,6 +1080,9 @@ def _check_connection_health_once(now: float | None = None) -> bool:
     now_value = now or time.time()
     age = now_value - last_epoch
     if age < stale_timeout:
+        # Real device data after an automatic restart proves recovery.
+        if _auto_restart_count and _last_sensor_activity_at > _last_auto_restart_at:
+            _auto_restart_count = 0
         return True
 
     with _state_lock:
@@ -1091,6 +1098,53 @@ def _check_connection_health_once(now: float | None = None) -> bool:
             },
             force=True,
         )
+    _maybe_auto_restart(age, stale_timeout, now_value)
     return True
+
+
+def _maybe_auto_restart(age: float, stale_timeout: float, now_value: float) -> None:
+    """Relaunch a hung CLI instead of waiting for the operator to notice.
+
+    The MR60 adapter already reconnects on its own; this gives BrainBit the
+    same self-healing. Limited attempts with exponential backoff so a dead
+    device does not cause an endless restart loop.
+    """
+    global _auto_restart_count, _last_auto_restart_at
+
+    if not _config.get("auto_restart", True) or not _config.get("script_path"):
+        return
+    max_attempts = int(_config.get("auto_restart_max_attempts", 3))
+    if _auto_restart_count >= max_attempts:
+        return
+    if age < stale_timeout * 2:
+        return  # short silence: give the device a chance to come back on its own
+    backoff_seconds = min(300.0, 30.0 * (2 ** _auto_restart_count))
+    if _last_auto_restart_at and now_value - _last_auto_restart_at < backoff_seconds:
+        return
+
+    _auto_restart_count += 1
+    _last_auto_restart_at = now_value
+    print(
+        f"[BrainBit] No data for {age:.0f}s - restarting the CLI automatically "
+        f"(attempt {_auto_restart_count}/{max_attempts})."
+    )
+    _set_state(
+        {
+            "status": "restarting",
+            "auto_restart_count": _auto_restart_count,
+            "last_message": (
+                f"BrainBit was silent for {age:.0f}s. Restarting automatically "
+                f"(attempt {_auto_restart_count} of {max_attempts})."
+            ),
+        },
+        force=True,
+    )
+    try:
+        restart()
+    except Exception as error:
+        _set_state(
+            {"status": "failed", "last_message": f"Automatic BrainBit restart failed: {error}"},
+            force=True,
+        )
 
 
