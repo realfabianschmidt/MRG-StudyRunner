@@ -13,6 +13,7 @@ from study_runner.integrations.registry import (
     build_interval_summary as build_plugin_interval_summary,
     export_interval_sidecars,
 )
+from .atomic_io import atomic_write_json
 
 
 TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
@@ -49,8 +50,7 @@ def save_results_payload(
     participant_dir.mkdir(parents=True, exist_ok=True)
 
     json_path = _build_unique_output_path(participant_dir, safe_participant_id, ".json")
-    with json_path.open("w", encoding="utf-8") as file_handle:
-        json.dump(result_payload, file_handle, indent=2, ensure_ascii=False)
+    atomic_write_json(json_path, result_payload)
 
     xdf_path = _maybe_collect_xdf(
         participant_dir=participant_dir,
@@ -132,8 +132,7 @@ def _write_signal_sidecar(
         "sample_count": len(samples),
         "samples": samples,
     }
-    with sidecar_path.open("w", encoding="utf-8") as file_handle:
-        json.dump(payload, file_handle, indent=2, ensure_ascii=False)
+    atomic_write_json(sidecar_path, payload)
     print(f"[DATA] {sensor} sidecar written: {sidecar_path.name}")
     return sidecar_path
 

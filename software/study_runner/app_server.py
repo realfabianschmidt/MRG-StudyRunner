@@ -4,6 +4,7 @@ Use ``software/server.py`` as the local development entrypoint.
 """
 
 import datetime as dt
+import errno
 import ipaddress
 import os
 from pathlib import Path
@@ -270,9 +271,40 @@ def open_admin_browser_later(url: str) -> None:
     threading.Thread(target=_open, daemon=True).start()
 
 
+def _fail_for_port_conflict(port: int) -> None:
+    print("\n" + "!" * 50)
+    print(f"  Port {port} is already in use.")
+    print("  Is Study Runner (or another program) already running on this computer?")
+    print("  Close the other program, or set STUDY_RUNNER_PORT to a free port,")
+    print("  then start Study Runner again.")
+    print("!" * 50 + "\n")
+    raise SystemExit(1)
+
+
+def _ensure_port_is_free(host: str, port: int) -> None:
+    """Refuse to start when the port is taken, with a plain-language message.
+
+    On Windows two processes can silently bind the same wildcard port
+    (SO_REUSEADDR semantics), so a second Study Runner would appear to
+    start fine while requests go to the first one. SO_EXCLUSIVEADDRUSE
+    makes the probe bind fail instead.
+    """
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if os.name == "nt":
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        probe.bind((host, port))
+    except OSError:
+        probe.close()
+        _fail_for_port_conflict(port)
+    finally:
+        probe.close()
+
+
 def run_app() -> None:
     host = read_server_host()
     port = read_server_port()
+    _ensure_port_is_free(host, port)
     local_ips = get_local_private_ips()
     ssl_context = get_ssl_context()
     scheme = "https" if ssl_context else "http"
@@ -299,7 +331,13 @@ def run_app() -> None:
     if should_open_admin_browser():
         open_admin_browser_later(admin_url)
 
-    app.run(host=host, port=port, debug=is_debug_enabled(), ssl_context=ssl_context)
+    try:
+        app.run(host=host, port=port, debug=is_debug_enabled(), ssl_context=ssl_context)
+    except OSError as error:
+        # Second line of defense for a race between the probe and app.run.
+        if error.errno in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", 10048)):
+            _fail_for_port_conflict(port)
+        raise
 
 
 if __name__ == "__main__":

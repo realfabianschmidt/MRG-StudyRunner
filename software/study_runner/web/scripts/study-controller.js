@@ -163,6 +163,7 @@ function startRuntimePolling() {
 function bindPageLifecycleEvents() {
   const sendLeaveEvent = () => {
     saveSessionSnapshot();
+    sendPartialResults({ useBeacon: true });
     const payload = {
       event: 'client_reload_or_leave',
       ...getSessionPayload(),
@@ -212,6 +213,37 @@ function saveSessionSnapshot() {
     }));
   } catch {
     // Session recovery is best-effort.
+  }
+}
+
+function buildPartialResultsPayload() {
+  return {
+    ...getSessionPayload(),
+    timestamp_start: state.startTime ? new Date(state.startTime).toISOString() : null,
+    snapshot_at: new Date().toISOString(),
+    current_index: state.currentIndex,
+    answers: collectAnswers(),
+    participant_metadata: collectParticipantMetadata(),
+    answer_events: collectAnswerEvents(),
+    card_events: collectCardEvents(),
+  };
+}
+
+function sendPartialResults({ useBeacon = false } = {}) {
+  // Server-side safety copy of everything answered so far. Without it,
+  // closing the tab (sessionStorage is per-tab) loses the whole session.
+  if (!state.startTime || !state.sessionId) {
+    return;
+  }
+  try {
+    const payload = buildPartialResultsPayload();
+    if (useBeacon && navigator.sendBeacon) {
+      navigator.sendBeacon('/api/results/partial', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+      return;
+    }
+    void postJson('/api/results/partial', payload).catch(() => {});
+  } catch {
+    // Partial saves are best-effort; the final submit is authoritative.
   }
 }
 
@@ -706,6 +738,7 @@ async function goTo(targetIndex) {
   markQuestionShown(targetIndex);
   updateNavigation();
   saveSessionSnapshot();
+  sendPartialResults();
 
   const targetQuestion = (state.config.questions || [])[targetIndex];
   if (targetQuestion?.type === 'stimulus') {
@@ -1620,6 +1653,7 @@ async function submitResults() {
     const currentQuestion = (state.config.questions || [])[state.currentIndex] || null;
     await sendMarker('study_end', state.currentIndex, currentQuestion, 'study_end');
     await postJson('/api/results', {
+      session_id: state.sessionId,
       participant_id: resolveParticipantId(),
       study_id: state.config.study_id,
       timestamp_start: new Date(state.startTime).toISOString(),
