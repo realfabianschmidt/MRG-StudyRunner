@@ -118,6 +118,15 @@ def validate_and_normalize_results(
         "study_id": study_config["study_id"],
         "timestamp_start": timestamp_start,
         "timestamp_end": timestamp_end,
+        # Tablet-vs-server clock offset (server = client + offset), used to
+        # align client timestamps with server-clock sensor samples.
+        "client_clock_offset_ms": _normalize_float(
+            result_payload.get("client_clock_offset_ms"),
+            field_name="client_clock_offset_ms",
+            minimum=-10_000_000_000.0,
+            maximum=10_000_000_000.0,
+            allow_none=True,
+        ),
         "answers": _validate_answers(answers, study_config.get("questions", [])),
         "participant_metadata": participant_metadata,
         "answer_events": answer_events,
@@ -376,7 +385,21 @@ def _validate_card_events(
                 "question_index": question_index,
                 "question_type": question_type,
                 "shown_at": _require_iso_timestamp(raw_event.get("shown_at"), "card_event shown_at"),
+                "shown_at_server_epoch_ms": _normalize_float(
+                    raw_event.get("shown_at_server_epoch_ms"),
+                    field_name="card_event shown_at_server_epoch_ms",
+                    minimum=0.0,
+                    maximum=10_000_000_000_000.0,
+                    allow_none=True,
+                ),
                 "answered_at": _optional_iso_timestamp(raw_event.get("answered_at"), "card_event answered_at"),
+                "answered_at_server_epoch_ms": _normalize_float(
+                    raw_event.get("answered_at_server_epoch_ms"),
+                    field_name="card_event answered_at_server_epoch_ms",
+                    minimum=0.0,
+                    maximum=10_000_000_000_000.0,
+                    allow_none=True,
+                ),
                 "completed_at": _optional_iso_timestamp(raw_event.get("completed_at"), "card_event completed_at"),
                 "active_started_at": _optional_iso_timestamp(raw_event.get("active_started_at"), "card_event active_started_at"),
                 "active_ended_at": _optional_iso_timestamp(raw_event.get("active_ended_at"), "card_event active_ended_at"),

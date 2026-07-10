@@ -92,8 +92,11 @@ def _maybe_write_biosignal_sidecars(
     if start_dt is None or end_dt is None:
         return {}
 
-    start_epoch = start_dt.timestamp()
-    end_epoch = end_dt.timestamp()
+    # Session boundaries come from the tablet clock; shift them onto the
+    # server clock (which sensor samples use) when the offset is known.
+    offset_seconds = _epoch_ms_to_seconds(result_payload.get("client_clock_offset_ms"), allow_negative=True) or 0.0
+    start_epoch = start_dt.timestamp() + offset_seconds
+    end_epoch = end_dt.timestamp() + offset_seconds
     if end_epoch < start_epoch:
         start_epoch, end_epoch = end_epoch, start_epoch
 
@@ -327,6 +330,13 @@ def build_answer_details(
             interval_kind = "question_visible"
 
         interval_seconds = _seconds_between(interval_start, interval_end)
+        start_epoch, end_epoch, timing_source = _resolve_interval_epochs(
+            event=event,
+            result_payload=result_payload,
+            is_stimulus=is_stimulus,
+            interval_start_iso=interval_start,
+            interval_end_iso=interval_end,
+        )
         entries.append(
             {
                 "question_index": question_index,
@@ -350,17 +360,90 @@ def build_answer_details(
                 "biosignal_interval_start": interval_start,
                 "biosignal_interval_end": interval_end,
                 "biosignal_interval_kind": interval_kind,
+                "biosignal_interval_timing_source": timing_source,
                 "interval_seconds": interval_seconds,
                 "seconds_since_previous_answer": interval_seconds,
-                "biosignal_interval": build_interval_biosignal_summary(
+                "biosignal_interval": _interval_summary_from_epochs(
                     hardware_config,
-                    interval_start,
-                    interval_end,
+                    start_epoch,
+                    end_epoch,
                 ),
             }
         )
 
     return entries
+
+
+def _resolve_interval_epochs(
+    *,
+    event: dict[str, Any],
+    result_payload: dict[str, Any],
+    is_stimulus: bool,
+    interval_start_iso: Any,
+    interval_end_iso: Any,
+) -> tuple[float | None, float | None, str]:
+    """Pick the best available clock for slicing sensor samples per card.
+
+    Sensor samples carry server timestamps, but card timestamps come from
+    the tablet. Preference order:
+    1. server-clock epochs recorded by the client at the exact moment
+       (trigger epochs, marker receipts, shown/answered epochs),
+    2. client ISO timestamps shifted by the submitted clock offset,
+    3. raw client ISO timestamps (legacy payloads without clock sync).
+    """
+    if is_stimulus:
+        start_epoch = _epoch_ms_to_seconds(
+            event.get("client_start_trigger_epoch_ms")
+            or event.get("server_start_received_epoch_ms")
+        )
+        end_epoch = _epoch_ms_to_seconds(
+            event.get("client_stop_trigger_epoch_ms")
+            or event.get("server_stop_received_epoch_ms")
+        )
+    else:
+        start_epoch = _epoch_ms_to_seconds(event.get("shown_at_server_epoch_ms"))
+        end_epoch = _epoch_ms_to_seconds(event.get("answered_at_server_epoch_ms"))
+    if start_epoch is not None and end_epoch is not None:
+        return start_epoch, end_epoch, "server_clock"
+
+    start_dt = _parse_iso_timestamp(interval_start_iso)
+    end_dt = _parse_iso_timestamp(interval_end_iso)
+    if start_dt is None or end_dt is None:
+        return None, None, "unavailable"
+    start_iso_epoch = start_dt.timestamp()
+    end_iso_epoch = end_dt.timestamp()
+
+    offset_seconds = _epoch_ms_to_seconds(result_payload.get("client_clock_offset_ms"), allow_negative=True)
+    if offset_seconds is not None:
+        return start_iso_epoch + offset_seconds, end_iso_epoch + offset_seconds, "client_clock_plus_offset"
+    return start_iso_epoch, end_iso_epoch, "client_clock"
+
+
+def _epoch_ms_to_seconds(value: Any, *, allow_negative: bool = False) -> float | None:
+    try:
+        epoch_ms = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not allow_negative and epoch_ms <= 0:
+        return None
+    return epoch_ms / 1000.0
+
+
+def _interval_summary_from_epochs(
+    hardware_config: dict[str, Any],
+    start_epoch: float | None,
+    end_epoch: float | None,
+    context: IntegrationContext | None = None,
+) -> dict[str, Any]:
+    if start_epoch is None or end_epoch is None:
+        return _empty_interval_biosignals()
+    if end_epoch < start_epoch:
+        start_epoch, end_epoch = end_epoch, start_epoch
+    runtime_context = context or _context_from_hardware_config(
+        _project_root() / "saved_results",
+        hardware_config,
+    )
+    return build_plugin_interval_summary(runtime_context, start_epoch, end_epoch)
 
 
 def build_interval_biosignal_summary(
@@ -373,17 +456,12 @@ def build_interval_biosignal_summary(
     end_dt = _parse_iso_timestamp(interval_end)
     if start_dt is None or end_dt is None:
         return _empty_interval_biosignals()
-
-    start_epoch = start_dt.timestamp()
-    end_epoch = end_dt.timestamp()
-    if end_epoch < start_epoch:
-        start_epoch, end_epoch = end_epoch, start_epoch
-
-    runtime_context = context or _context_from_hardware_config(
-        _project_root() / "saved_results",
+    return _interval_summary_from_epochs(
         hardware_config,
+        start_dt.timestamp(),
+        end_dt.timestamp(),
+        context=context,
     )
-    return build_plugin_interval_summary(runtime_context, start_epoch, end_epoch)
 
 def _empty_interval_biosignals() -> dict[str, Any]:
     return {
