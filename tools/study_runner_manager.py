@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 import hashlib
 import json
@@ -22,9 +21,6 @@ import zipfile
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 
 APP_NAME = "Study Runner"
@@ -41,10 +37,9 @@ SOFTWARE_ROOT = REPO_ROOT / "software"
 if SOFTWARE_ROOT.exists():
     sys.path.insert(0, str(SOFTWARE_ROOT))
 
-try:
-    from study_runner.update_keys import TRUSTED_UPDATE_PUBLIC_KEYS
-except Exception:
-    TRUSTED_UPDATE_PUBLIC_KEYS = []
+# Shared signature-verification core; also baked into the frozen manager
+# build via the spec's hiddenimports.
+from study_runner import update_crypto
 
 
 @dataclass(frozen=True)
@@ -65,18 +60,10 @@ class InstallResult:
 
 
 def detect_platform_key() -> str:
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-    arch = "arm64" if machine in {"arm64", "aarch64"} else "x86_64"
-    if system == "windows":
-        os_key = "windows"
-    elif system == "darwin":
-        os_key = "macos"
-    elif system == "linux":
-        os_key = "linux"
-    else:
+    key = update_crypto.detect_platform_key()
+    if key.split("-", 1)[0] not in {"windows", "macos", "linux"}:
         raise RuntimeError(f"Unsupported platform: {platform.system()}")
-    return f"{os_key}-{arch}"
+    return key
 
 
 def manager_asset_name() -> str:
@@ -145,52 +132,21 @@ def select_platform_asset(manifest: dict[str, Any], platform_key: str | None = N
 
 
 def canonical_asset_payload(version: str, platform_key: str, asset: dict[str, Any]) -> bytes:
-    payload = {
-        "schema": UPDATER_SCHEMA_VERSION,
-        "version": str(version),
-        "platform": str(platform_key),
-        "url": str(asset.get("url") or ""),
-        "sha256": str(asset.get("sha256") or "").lower(),
-        "size": int(asset.get("size") or 0),
-    }
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return update_crypto.canonical_asset_payload(version, platform_key, asset)
 
 
-def load_public_keys() -> list[Ed25519PublicKey]:
-    raw_values = []
-    env_key = os.getenv("STUDY_RUNNER_UPDATE_PUBLIC_KEY", "").strip()
-    if env_key:
-        raw_values.append(env_key)
-    raw_values.extend(str(value).strip() for value in TRUSTED_UPDATE_PUBLIC_KEYS if str(value).strip())
-
-    keys = [_load_public_key(raw_value) for raw_value in raw_values]
+def load_public_keys() -> list:
+    keys = update_crypto.load_trusted_public_keys()
     if not keys:
         raise RuntimeError("No trusted Study Runner updater public key is available in this manager build.")
     return keys
 
 
 def verify_asset_signature(version: str, platform_key: str, asset: dict[str, Any]) -> None:
-    signature = base64.b64decode(str(asset.get("signature") or ""), validate=True)
-    payload = canonical_asset_payload(version, platform_key, asset)
-    for public_key in load_public_keys():
-        try:
-            public_key.verify(signature, payload)
-            return
-        except InvalidSignature:
-            continue
-    raise RuntimeError("Release asset signature could not be verified.")
-
-
-def _load_public_key(raw_value: str) -> Ed25519PublicKey:
-    if "BEGIN PUBLIC KEY" in raw_value:
-        key = serialization.load_pem_public_key(raw_value.encode("utf-8"))
-        if not isinstance(key, Ed25519PublicKey):
-            raise RuntimeError("Configured updater public key is not an Ed25519 key.")
-        return key
-    key_bytes = base64.b64decode(raw_value, validate=True)
-    if len(key_bytes) != 32:
-        raise RuntimeError("Configured updater public key must be a 32-byte Ed25519 key.")
-    return Ed25519PublicKey.from_public_bytes(key_bytes)
+    try:
+        update_crypto.verify_asset_signature(version, platform_key, asset, public_keys=load_public_keys())
+    except (update_crypto.SignatureVerificationError, ValueError) as error:
+        raise RuntimeError("Release asset signature could not be verified.") from error
 
 
 def download_file(url: str, destination: Path) -> str:
