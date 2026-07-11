@@ -3,7 +3,7 @@ BrainBit adapter - launches a repo-local BrainBit CLI process and optionally mir
 
 Expected setup inside this repository:
   - BrainBit Python CLI script in the project folder, for example:
-      study_runner/integrations/brainbit/brainbit_realtime_cli_OSC_15.py
+      study_runner/integrations/brainbit/brainbit_realtime_cli.py
   - TouchDesigner project listening for OSC on the configured port, for example:
       study_runner/integrations/brainbit/HelloEEG_HelloMYO_01.3.toe
 
@@ -91,6 +91,9 @@ def _default_python_executable(python_executable: str | None) -> str:
     return sys.executable
 
 
+# ============================================================
+#  1. LIFECYCLE - configure, start/stop/restart the external CLI
+# ============================================================
 def initialize(
     *,
     script_path: str,
@@ -119,6 +122,11 @@ def initialize(
     global _registered_shutdown, _config
 
     script_file = Path(script_path).expanduser()
+    if not script_file.exists() and script_file.name == "brainbit_realtime_cli_OSC_15.py":
+        # Saved hardware settings from releases before the 0.4 rename.
+        renamed = script_file.with_name("brainbit_realtime_cli.py")
+        if renamed.exists():
+            script_file = renamed
     if not script_file.exists():
         print(f"[BrainBit] Script not found: {script_file}")
         return
@@ -337,6 +345,9 @@ def is_configured() -> bool:
     return bool(_config)
 
 
+# ============================================================
+#  2. STATUS - what the dashboard shows
+# ============================================================
 def get_status() -> dict[str, Any]:
     """Return the current process/state-file status in the common plugin shape."""
     with _state_lock:
@@ -381,6 +392,9 @@ def get_status() -> dict[str, Any]:
     }
 
 
+# ============================================================
+#  3. CLI OUTPUT - read and parse the JSON line stream
+# ============================================================
 def _read_output(process: subprocess.Popen[str]) -> None:
     try:
         if process.stdout is None:
@@ -594,6 +608,9 @@ def _close_log_handle() -> None:
     _log_handle = None
 
 
+# ============================================================
+#  4. FORWARDING - LSL / TouchDesigner mirrors
+# ============================================================
 def _mirror_line_to_lsl(line: str) -> None:
     if not _lsl_outlets:
         return
@@ -994,6 +1011,9 @@ def _timestamp(epoch: float | None = None) -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(epoch or time.time()))
 
 
+# ============================================================
+#  5. RESULTS - per-card interval summaries and sidecar export
+# ============================================================
 def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]:
     samples = samples_in_interval(_history, start_epoch, end_epoch)
     if not samples:
@@ -1057,6 +1077,9 @@ def _mean_payload(payloads: list[dict[str, Any]], key: str) -> float | None:
     return round(sum(values) / len(values), 4)
 
 
+# ============================================================
+#  6. WATCHDOG - stale detection and automatic restart
+# ============================================================
 def _watch_connection_health() -> None:
     while True:
         time.sleep(1.0)

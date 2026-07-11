@@ -31,7 +31,7 @@ Enhanced Python CLI for BrainBit 2 biosignal headband with real-time EEG streami
 
 ### 1. Run with Auto-Install
 ```bash
-python3 brainbit_realtime_cli_OSC_15.py --osc-port 8000 --pretty
+python3 brainbit_realtime_cli.py --osc-port 8000 --pretty
 ```
 **What it does:**
 - Checks if required libraries are installed
@@ -43,7 +43,7 @@ python3 brainbit_realtime_cli_OSC_15.py --osc-port 8000 --pretty
 
 ### 2. Enable Debug Mode
 ```bash
-python3 brainbit_realtime_cli_OSC_15.py --osc-port 8000 --pretty --debug
+python3 brainbit_realtime_cli.py --osc-port 8000 --pretty --debug
 ```
 **Shows:**
 - Data flow at each processing stage
@@ -54,7 +54,7 @@ python3 brainbit_realtime_cli_OSC_15.py --osc-port 8000 --pretty --debug
 
 ### 3. Run Extended Measurements
 ```bash
-python3 brainbit_realtime_cli_OSC_15.py \
+python3 brainbit_realtime_cli.py \
   --scan-seconds 5 \
   --resist-seconds 10 \
   --fpg-seconds 5 \
@@ -191,7 +191,7 @@ MENTAL {"ts": 1234567890.456, "Inst_Attention": 0.72, "Rel_Attention": 0.68, ...
 python3 -m pythonosc.osc_server 127.0.0.1 8000
 
 # Or run script without --no-osc (should see no errors):
-python3 brainbit_realtime_cli_OSC_15.py --osc-port 8000 --pretty
+python3 brainbit_realtime_cli.py --osc-port 8000 --pretty
 ```
 
 ### Issue: Script crashes on import
@@ -261,7 +261,7 @@ P7  P3  Pz  P4  P8
 
 ### Calibration Tuning
 ```bash
-python3 brainbit_realtime_cli_OSC_15.py \
+python3 brainbit_realtime_cli.py \
   --calibration-sec 10 \          # Target calibration time (sec)
   --calib-max-sec 25 \            # Max forced finish timeout
   --calib-stall-sec 10 \          # Stall detection (no progress)
@@ -272,7 +272,7 @@ python3 brainbit_realtime_cli_OSC_15.py \
 
 ### Signal Processing
 ```bash
-python3 brainbit_realtime_cli_OSC_15.py \
+python3 brainbit_realtime_cli.py \
   --process-win-freq 25 \         # Processing window freq (Hz)
   --fft-window-samples 1000 \     # FFT bin resolution
   --skip-first-sec 5 \            # Warmup period

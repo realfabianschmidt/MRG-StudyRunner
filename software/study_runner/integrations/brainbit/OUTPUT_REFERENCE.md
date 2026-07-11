@@ -137,7 +137,7 @@ CALIB {"event":"FORCED_FINISH","reason":"timeout","last_progress_percent":4}
 ## Session 5: JSON-Only Output (Default + OSC)
 
 ```bash
-$ python3 brainbit_realtime_cli_OSC_15.py --osc-port 8000
+$ python3 brainbit_realtime_cli.py --osc-port 8000
 # (no --pretty --debug flags)
 ```
 
@@ -187,9 +187,9 @@ EEG {"ts":1234.567,"O1":0.0000123,"O2":-0.0000056,"T3":0.0000082,"T4":-0.0000031
 
 Run with:
 ```bash
-python3 brainbit_realtime_cli_OSC_15.py --eeg-scale uV --eeg-precision 3   # Default
-python3 brainbit_realtime_cli_OSC_15.py --eeg-scale mV --eeg-precision 6
-python3 brainbit_realtime_cli_OSC_15.py --eeg-scale V --eeg-precision 9
+python3 brainbit_realtime_cli.py --eeg-scale uV --eeg-precision 3   # Default
+python3 brainbit_realtime_cli.py --eeg-scale mV --eeg-precision 6
+python3 brainbit_realtime_cli.py --eeg-scale V --eeg-precision 9
 ```
 
 ---
@@ -197,7 +197,7 @@ python3 brainbit_realtime_cli_OSC_15.py --eeg-scale V --eeg-precision 9
 ## Session 7: Extended Measurements (No EEG Signal)
 
 ```bash
-$ python3 brainbit_realtime_cli_OSC_15.py \
+$ python3 brainbit_realtime_cli.py \
     --resist-seconds 10 \
     --fpg-seconds 5 \
     --mems-seconds 5 \
@@ -234,7 +234,7 @@ MEMS {"ts":..., "pack":1, "accel":{"x":0.12, "y":0.04, "z":9.80}, "gyro":{"x":0.
 ## Session 8: Debug Mode Analysis — Frame-by-Frame
 
 ```bash
-$ python3 brainbit_realtime_cli_OSC_15.py --debug
+$ python3 brainbit_realtime_cli.py --debug
 ```
 
 ```

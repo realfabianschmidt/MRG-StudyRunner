@@ -12,7 +12,7 @@ Study Runner does not talk to the BrainBit headset directly from the browser.
 The backend starts this local CLI process:
 
 ```text
-software/study_runner/integrations/brainbit/brainbit_realtime_cli_OSC_15.py
+software/study_runner/integrations/brainbit/brainbit_realtime_cli.py
 ```
 
 That CLI uses NeuroSDK over Bluetooth LE to scan for BrainBit-family sensors,
@@ -108,7 +108,7 @@ Run this from the Study Runner app root:
 
 ```powershell
 cd software
-python study_runner\integrations\brainbit\brainbit_realtime_cli_OSC_15.py --scan-seconds 10 --resist-seconds 10 --signal-seconds 0 --pretty --debug --no-osc
+python study_runner\integrations\brainbit\brainbit_realtime_cli.py --scan-seconds 10 --resist-seconds 10 --signal-seconds 0 --pretty --debug --no-osc
 ```
 
 Expected flow:
@@ -127,7 +127,7 @@ Use this when the headset works but TouchDesigner does not react:
 
 ```powershell
 cd software
-python study_runner\integrations\brainbit\brainbit_realtime_cli_OSC_15.py --scan-seconds 10 --resist-seconds 10 --signal-seconds 0 --pretty --debug --osc-host 127.0.0.1 --osc-port 8000
+python study_runner\integrations\brainbit\brainbit_realtime_cli.py --scan-seconds 10 --resist-seconds 10 --signal-seconds 0 --pretty --debug --osc-host 127.0.0.1 --osc-port 8000
 ```
 
 Then check:
@@ -229,4 +229,4 @@ Use `Restart` after fixing the physical or Bluetooth issue.
 - `OUTPUT_REFERENCE.md`: expected JSON, OSC, status, and troubleshooting output.
 - `README_ENHANCED.md`: detailed standalone CLI documentation.
 - `HelloEEG_HelloMYO_01.3.toe`: TouchDesigner reference project.
-- `brainbit_realtime_cli_OSC_15.py`: CLI used by Study Runner.
+- `brainbit_realtime_cli.py`: CLI used by Study Runner.
