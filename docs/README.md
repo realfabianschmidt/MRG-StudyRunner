@@ -11,6 +11,7 @@ Recommended starting points:
 - `operator-guide.md`: daily lab operation and project overview.
 - `sensors-and-data.md`: sensor sources, runtime integrations, timing, XDF/LSL and result files.
 - `developer-guide.md`: code structure, naming rules and integration plugin pattern.
+- `file-guide.md`: one line per source file - what it does and how safely it can be edited.
 - `release-and-update.md`: PyInstaller server ZIPs, updater keys, release flow and shortcuts.
 - `../CONTRIBUTING.md`: project rules for clear, maintainable changes.
 

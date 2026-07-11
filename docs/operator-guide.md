@@ -41,6 +41,45 @@ the dashboard, that effective runtime setting wins until the server is restarted
 or `Reset to study settings` is clicked. The study file is not rewritten unless
 the study is explicitly saved in the editor.
 
+## Camera Emotion And The Emotion Worker
+
+Camera emotion analysis runs in a separate helper process called the
+Local Emotion Worker (it loads the DeepFace model). You normally never
+start it yourself:
+
+- It starts automatically when a study with camera emotion enabled runs.
+- The dashboard "Camera emotion" card shows its state in plain language
+  (Running / Starting / Problem, with a suggested fix).
+- If the worker crashes, Study Runner restarts it automatically (up to
+  3 attempts). If it keeps failing, use the dashboard button
+  **Repair DeepFace runtime**: it re-installs the model weights from the
+  bundled copy (or downloads them) and restarts the worker. In packaged
+  builds the repair never runs pip - it only fixes the model cache.
+- The tablet camera needs HTTPS: install and fully trust the Study
+  Runner Root CA on the iPad once (the server prints where the
+  certificate file lives at startup).
+
+Command line flags of the server (useful for diagnosis):
+
+- `study-runner-server --emotion-worker-self-test --json` - checks that
+  the packaged DeepFace runtime can load the model; prints a JSON
+  verdict and exits 0/1. Run this after installing on a new machine.
+- `study-runner-server --emotion-worker` - runs only the worker process
+  (this is what Study Runner launches internally).
+- `study-runner-server --apply-update` - applies a staged update
+  (used internally by the updater restart).
+
+## If Something Goes Wrong During A Study
+
+- Answers are saved to the server after every card
+  (`saved_results/<study>/_partial/`), so a closed tab or a dead tablet
+  battery does not lose the session.
+- If the final save fails, the raw submission is preserved under
+  `saved_results/<study>/_recovery/` and the participant sees a message
+  to call you - their answers stay on the screen.
+- Each result entry contains `data_warnings` naming any sensor that had
+  a gap or dropout while a card was shown.
+
 ## Desktop Shortcut
 
 The Admin hub has a `Create desktop shortcut` button.
