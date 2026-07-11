@@ -41,11 +41,11 @@ class ResultsRoutesTests(unittest.TestCase):
 
     def _results_patches(self, save_results_payload):
         return (
-            patch("study_runner.backend.routes.load_config", return_value={}),
-            patch("study_runner.backend.routes.validate_and_normalize_config", return_value=dict(CONFIG_DATA)),
-            patch("study_runner.backend.routes.validate_and_normalize_results", return_value=dict(VALIDATED_RESULTS)),
-            patch("study_runner.backend.routes.build_answer_details", return_value=[]),
-            patch("study_runner.backend.routes.save_results_payload", save_results_payload),
+            patch("study_runner.backend.routes.results.load_config", return_value={}),
+            patch("study_runner.backend.routes.results.validate_and_normalize_config", return_value=dict(CONFIG_DATA)),
+            patch("study_runner.backend.routes.results.validate_and_normalize_results", return_value=dict(VALIDATED_RESULTS)),
+            patch("study_runner.backend.routes.results.build_answer_details", return_value=[]),
+            patch("study_runner.backend.routes.results.save_results_payload", save_results_payload),
         )
 
     def test_save_failure_returns_500_and_preserves_raw_payload(self) -> None:

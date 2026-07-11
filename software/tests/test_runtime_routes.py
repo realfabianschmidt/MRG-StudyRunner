@@ -199,7 +199,7 @@ class RuntimeRoutesTests(unittest.TestCase):
                 app = create_app()
 
             with patch(
-                "study_runner.backend.routes.create_desktop_shortcut",
+                "study_runner.backend.routes.admin.create_desktop_shortcut",
                 return_value={"ok": True, "platform": "windows", "path": "C:/Users/test/Desktop/Study Runner.lnk"},
             ):
                 response = app.test_client().post("/api/admin/system/create-shortcut")
