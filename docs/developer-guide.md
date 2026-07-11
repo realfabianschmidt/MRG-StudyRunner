@@ -32,7 +32,7 @@ visible without becoming app code by accident.
 Runtime-ready files that have already been copied into the app integration
 folders:
 
-- `../../Sensorik/MR60BHA2/GP_mmwaveBreath_and_Pulse_02.ino` -> `software/study_runner/integrations/mr60_mini_radar/firmware/GP_mmwaveBreath_and_Pulse_02.ino`
+- `../../Sensorik/MR60BHA2/GP_mmwaveBreath_and_Pulse_02/GP_mmwaveBreath_and_Pulse_02.ino` -> `software/study_runner/integrations/mr60_mini_radar/firmware/GP_mmwaveBreath_and_Pulse_02.ino`
 - `../../Sensorik/MR60BHA2/README.md` -> `software/study_runner/integrations/mr60_mini_radar/firmware/README.md`
 - `../../Sensorik/BrainBit/brainbit_realtime_cli.py` -> `software/study_runner/integrations/brainbit/brainbit_realtime_cli.py`
 - `../../Sensorik/BrainBit/README_ENHANCED.md` -> `software/study_runner/integrations/brainbit/README_ENHANCED.md`

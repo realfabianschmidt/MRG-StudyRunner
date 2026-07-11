@@ -48,6 +48,20 @@ and copy `card_events` so question and stimulus intervals can be reconstructed w
 Question summaries use the card's `shown_at` to `answered_at` interval. Stimulus summaries use
 `active_started_at` to `active_ended_at`.
 
+Clock alignment: sensor samples use the server clock, card timestamps come from the tablet. The
+study page estimates the offset between the two clocks (`/api/sync-clock`) and records server-clock
+epochs for every shown/answered moment. Per-card slicing prefers those server-clock epochs, then
+tablet timestamps shifted by the submitted `client_clock_offset_ms`, then raw tablet timestamps as
+a last resort. Each `answer_details` entry records which source was used in
+`biosignal_interval_timing_source` (`server_clock`, `client_clock_plus_offset`, or `client_clock`).
+
+Data completeness: each `answer_details` entry carries `data_warnings` - plain-language notes when
+an enabled sensor delivered nothing during a card, had a long gap (`max_gap_seconds`), or lost
+radio packets (`dropped_in_interval`). Sensor history buffers hold a full session (default 2 hours,
+override with the `STUDY_RUNNER_SENSOR_BUFFER_SECONDS` environment variable); when a card's window
+is older than the buffer, the summary sets `buffer_overflowed: true` instead of silently returning
+partial data. XDF via LabRecorder is unaffected by these buffers.
+
 Tablet camera emotion has a live-monitor phase and a recording phase:
 
 - Before Participant ID and study start, frames can update the dashboard live monitor but are not
@@ -103,6 +117,11 @@ Known limits:
 - BLE, browser and camera timing should be treated as lab timing, not hardware trigger timing.
 - BrainBit, MR60 and DeepFace values are research signals, not clinical measurements.
 - LabRecorder stream visibility should still be checked manually before critical runs.
+- Clock alignment relies on the sync-clock estimate; if it fails, slicing falls back to raw tablet
+  timestamps (visible as `biosignal_interval_timing_source: "client_clock"` in the results).
+- Server timestamps use the wall clock; an NTP time jump during a session can shift intervals.
+- JSON sidecars/summaries come from in-memory buffers sized for one session (default 2 h);
+  sessions longer than the buffer window set `buffer_overflowed` for the oldest cards.
 
 ## Browser Cards
 
