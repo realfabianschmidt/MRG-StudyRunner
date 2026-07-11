@@ -20,8 +20,14 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
         (str(root / "study_content"), "study_content"),
     ]
     model_assets = root / "study_runner" / "integrations" / "local_emotion_worker" / "model_assets"
-    if model_assets.exists():
-        datas.append((str(model_assets), "study_runner/integrations/local_emotion_worker/model_assets"))
+    model_weights = model_assets / "facial_expression_model_weights.h5"
+    if not model_weights.is_file():
+        raise RuntimeError(
+            "DeepFace model weights are missing: "
+            f"{model_weights}. A packaged build without them cannot analyze emotions offline. "
+            "Run release_tools/fetch-deepface-model-assets.py first."
+        )
+    datas.append((str(model_assets), "study_runner/integrations/local_emotion_worker/model_assets"))
     return datas
 
 

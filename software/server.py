@@ -5,6 +5,7 @@ Keep using:
     python server.py
 """
 
+import multiprocessing
 import sys
 
 if __name__ != "__main__":
@@ -12,6 +13,9 @@ if __name__ != "__main__":
 
 
 if __name__ == "__main__":
+    # Required in frozen (PyInstaller) builds: without it, any library that
+    # spawns a child process would re-run this entrypoint recursively.
+    multiprocessing.freeze_support()
     if len(sys.argv) > 1 and sys.argv[1] == "--emotion-worker":
         from study_runner.integrations.local_emotion_worker.server import main as run_emotion_worker
 
