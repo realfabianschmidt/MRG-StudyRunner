@@ -24,7 +24,7 @@
     "quiet_output": true,
     "resist_seconds": 6,
     "scan_seconds": 5,
-    "script_path": "study_runner/integrations/brainbit/brainbit_realtime_cli_OSC_15.py",
+    "script_path": "study_runner/integrations/brainbit/brainbit_realtime_cli.py",
     "serial_number": "04030072",
     "signal_seconds": 0,
     "working_dir": "study_runner/integrations/brainbit"

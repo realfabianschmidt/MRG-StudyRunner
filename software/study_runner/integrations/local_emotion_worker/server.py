@@ -23,13 +23,22 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request
 
-
-DEEPFACE_EMOTION_MODEL_NAME = "facial_expression_model_weights.h5"
-DEEPFACE_EMOTION_MODEL_URL = (
-    "https://github.com/serengil/deepface_models/releases/download/v1.0/"
-    "facial_expression_model_weights.h5"
-)
-DEEPFACE_EMOTION_MODEL_MIN_BYTES = 1_000_000
+try:
+    from .model_errors import (
+        DEEPFACE_EMOTION_MODEL_MIN_BYTES,
+        DEEPFACE_EMOTION_MODEL_NAME,
+        DEEPFACE_EMOTION_MODEL_URL,
+        classify_model_error,
+        suggested_action,
+    )
+except ImportError:
+    from model_errors import (
+        DEEPFACE_EMOTION_MODEL_MIN_BYTES,
+        DEEPFACE_EMOTION_MODEL_NAME,
+        DEEPFACE_EMOTION_MODEL_URL,
+        classify_model_error,
+        suggested_action,
+    )
 
 MODEL_STATE = {
     "model_checked": False,
@@ -178,44 +187,14 @@ def _warmup_deepface() -> None:
 
 
 def _classify_model_error(error: str) -> dict[str, str]:
-    normalized = error.lower()
     asset_path = str(_deepface_model_path())
-    if "no module named" in normalized or "tf-keras" in normalized or ("tensorflow" in normalized and "requires" in normalized):
-        return {
-            "model_error_class": "missing_package",
-            "model_asset_name": DEEPFACE_EMOTION_MODEL_NAME,
-            "model_asset_url": DEEPFACE_EMOTION_MODEL_URL,
-            "model_asset_path": asset_path,
-            "suggested_action": "Run 'pip install -r software/requirements.txt', then restart the Local Emotion Worker.",
-        }
-    if DEEPFACE_EMOTION_MODEL_NAME.lower() in normalized and "downloading" in normalized:
-        return {
-            "model_error_class": "model_download_failed",
-            "model_asset_name": DEEPFACE_EMOTION_MODEL_NAME,
-            "model_asset_url": DEEPFACE_EMOTION_MODEL_URL,
-            "model_asset_path": asset_path,
-            "suggested_action": (
-                "Run the dashboard action 'Repair DeepFace runtime', or manually download "
-                f"{DEEPFACE_EMOTION_MODEL_NAME} to {asset_path}."
-            ),
-        }
-    if DEEPFACE_EMOTION_MODEL_NAME.lower() in normalized:
-        return {
-            "model_error_class": "model_file_missing",
-            "model_asset_name": DEEPFACE_EMOTION_MODEL_NAME,
-            "model_asset_url": DEEPFACE_EMOTION_MODEL_URL,
-            "model_asset_path": asset_path,
-            "suggested_action": (
-                "Run the dashboard action 'Repair DeepFace runtime', or manually place "
-                f"{DEEPFACE_EMOTION_MODEL_NAME} at {asset_path}."
-            ),
-        }
+    error_class = classify_model_error(error)
     return {
-        "model_error_class": "model_warmup_failed",
+        "model_error_class": error_class,
         "model_asset_name": DEEPFACE_EMOTION_MODEL_NAME,
         "model_asset_url": DEEPFACE_EMOTION_MODEL_URL,
         "model_asset_path": asset_path,
-        "suggested_action": "Run the dashboard action 'Repair DeepFace runtime', then restart the Local Emotion Worker.",
+        "suggested_action": suggested_action(error_class, asset_path),
     }
 
 

@@ -34,7 +34,7 @@ folders:
 
 - `../../Sensorik/MR60BHA2/GP_mmwaveBreath_and_Pulse_02.ino` -> `software/study_runner/integrations/mr60_mini_radar/firmware/GP_mmwaveBreath_and_Pulse_02.ino`
 - `../../Sensorik/MR60BHA2/README.md` -> `software/study_runner/integrations/mr60_mini_radar/firmware/README.md`
-- `../../Sensorik/BrainBit/brainbit_realtime_cli_OSC_15.py` -> `software/study_runner/integrations/brainbit/brainbit_realtime_cli_OSC_15.py`
+- `../../Sensorik/BrainBit/brainbit_realtime_cli.py` -> `software/study_runner/integrations/brainbit/brainbit_realtime_cli.py`
 - `../../Sensorik/BrainBit/README_ENHANCED.md` -> `software/study_runner/integrations/brainbit/README_ENHANCED.md`
 - `../../Sensorik/BrainBit/OUTPUT_REFERENCE.md` -> `software/study_runner/integrations/brainbit/OUTPUT_REFERENCE.md`
 - `../../Sensorik/BrainBit/HelloEEG_HelloMYO_01.3.toe` -> `software/study_runner/integrations/brainbit/HelloEEG_HelloMYO_01.3.toe`

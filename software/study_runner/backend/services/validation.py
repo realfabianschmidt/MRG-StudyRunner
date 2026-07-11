@@ -1,3 +1,14 @@
+"""Validation and normalization of study configs, results, and trial options.
+
+Table of contents (in file order):
+1. PUBLIC ENTRY POINTS   validate_and_normalize_config / _results / _trial_options
+2. RESULT PARTS          answers, participant metadata, answer/card events
+3. ANSWER VALUES         per-card-type answer validation (_validate_answer_value)
+4. QUESTIONS & SETTINGS  per-card-type config validation, study settings
+5. PRIMITIVES            _normalize_* / _require_* low-level helpers
+
+Everything raises ValidationError with an operator-readable message.
+"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -56,6 +67,9 @@ CONFIGURABLE_OPTION_DEFAULTS = {
 CHILDHOOD_AREA_OPTIONS = {"urban", "rural"}
 
 
+# ============================================================
+#  1. PUBLIC ENTRY POINTS
+# ============================================================
 class ValidationError(ValueError):
     """Raised when config or result payloads are incomplete or malformed."""
 
@@ -184,6 +198,9 @@ def validate_and_normalize_trial_options(payload: Any) -> dict[str, Any]:
     }
 
 
+# ============================================================
+#  2. RESULT PARTS - answers, metadata, events
+# ============================================================
 def _validate_answers(
     answers: dict[str, Any],
     questions: list[dict[str, Any]],
@@ -441,6 +458,9 @@ def _validate_card_events(
     return normalized_events
 
 
+# ============================================================
+#  3. ANSWER VALUES - one branch per card type
+# ============================================================
 def _validate_answer_value(
     *,
     answer_key: str,
@@ -581,6 +601,9 @@ def _validate_answer_value(
     raise ValidationError(f"{answer_key} uses an unsupported question type: {question_type!r}.")
 
 
+# ============================================================
+#  4. QUESTIONS & SETTINGS - config validation
+# ============================================================
 def _validate_question(question_data: Any, question_index: int) -> dict[str, Any]:
     normalized = _validate_question_by_type(question_data, question_index)
 
@@ -918,6 +941,9 @@ def _normalize_pairs(value: Any, question_index: int) -> list[list[str]]:
     return pairs
 
 
+# ============================================================
+#  5. PRIMITIVES - low-level normalize/require helpers
+# ============================================================
 def _normalize_text_list(value: Any) -> list[str]:
     if value is None:
         return []

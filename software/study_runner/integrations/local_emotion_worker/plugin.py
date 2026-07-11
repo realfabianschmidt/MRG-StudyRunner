@@ -15,6 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from ..plugin_api import IntegrationContext, IntegrationPlugin
+from .model_errors import (
+    DEEPFACE_EMOTION_MODEL_MIN_BYTES,
+    DEEPFACE_EMOTION_MODEL_NAME,
+    DEEPFACE_EMOTION_MODEL_URL,
+    classify_model_error,
+    suggested_action,
+)
 
 
 EMOTION_WORKER_MODES = {"local_worker", "remote_worker"}
@@ -25,9 +32,9 @@ DEFAULT_WORKER = {
     "deepface_home": "study_runner/integrations/local_emotion_worker/deepface_home",
 }
 DEEPFACE_EMOTION_MODEL = {
-    "name": "facial_expression_model_weights.h5",
-    "url": "https://github.com/serengil/deepface_models/releases/download/v1.0/facial_expression_model_weights.h5",
-    "min_bytes": 1_000_000,
+    "name": DEEPFACE_EMOTION_MODEL_NAME,
+    "url": DEEPFACE_EMOTION_MODEL_URL,
+    "min_bytes": DEEPFACE_EMOTION_MODEL_MIN_BYTES,
 }
 
 _lock = threading.Lock()
@@ -461,25 +468,11 @@ def _model_error_info(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _classify_model_error(error: str) -> str:
-    normalized = error.lower()
-    if "no module named" in normalized or "tf-keras" in normalized or ("tensorflow" in normalized and "requires" in normalized):
-        return "missing_package"
-    if DEEPFACE_EMOTION_MODEL["name"].lower() in normalized and "downloading" in normalized:
-        return "model_download_failed"
-    if DEEPFACE_EMOTION_MODEL["name"].lower() in normalized:
-        return "model_file_missing"
-    return "model_warmup_failed"
+    return classify_model_error(error)
 
 
 def _suggested_action(error_class: str) -> str:
-    if error_class == "missing_package":
-        return "Run the dashboard action 'Repair DeepFace runtime' or run 'pip install -r software/requirements.txt'."
-    if error_class in {"model_download_failed", "model_file_missing", "model_file_unreadable"}:
-        return (
-            "Run the dashboard action 'Repair DeepFace runtime', or manually place "
-            f"{DEEPFACE_EMOTION_MODEL['name']} at {_model_asset_path()}."
-        )
-    return "Run the dashboard action 'Repair DeepFace runtime' and restart the Local Emotion Worker."
+    return suggested_action(error_class, str(_model_asset_path()))
 
 
 def _runtime_error_message(error_info: dict[str, Any]) -> str:

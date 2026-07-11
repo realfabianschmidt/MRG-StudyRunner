@@ -8,7 +8,7 @@ from ..plugin_api import IntegrationContext, IntegrationPlugin
 
 
 DEFAULT_BRAINBIT = {
-    "script_path": "study_runner/integrations/brainbit/brainbit_realtime_cli_OSC_15.py",
+    "script_path": "study_runner/integrations/brainbit/brainbit_realtime_cli.py",
     "working_dir": "study_runner/integrations/brainbit",
     "log_dir": "study_runner/integrations/brainbit/logs",
 }

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 import hashlib
 import json
 import os
 from pathlib import Path
-import platform
 import shutil
 import stat
 import subprocess
@@ -16,12 +14,10 @@ from typing import Any
 from urllib.parse import urlparse
 import zipfile
 
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 import requests
 
-from study_runner.update_keys import TRUSTED_UPDATE_PUBLIC_KEYS
+from study_runner import update_crypto
+from study_runner.update_crypto import UPDATER_SCHEMA_VERSION
 from study_runner.version import __version__
 
 
@@ -29,7 +25,6 @@ DEFAULT_MANIFEST_URL = (
     "https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest/download/"
     "study-runner-python-latest.json"
 )
-UPDATER_SCHEMA_VERSION = 1
 STATE_FILE_NAME = "update-state.json"
 MANIFEST_TIMEOUT_SECONDS = 15
 DOWNLOAD_TIMEOUT_SECONDS = 60
@@ -216,17 +211,11 @@ def get_public_key_status() -> dict[str, Any]:
     return {"configured": bool(keys), "error": ""}
 
 
-def load_public_keys() -> list[Ed25519PublicKey]:
-    raw_values: list[str] = []
-    env_key = os.getenv("STUDY_RUNNER_UPDATE_PUBLIC_KEY", "").strip()
-    if env_key:
-        raw_values.append(env_key)
-    raw_values.extend(str(value).strip() for value in TRUSTED_UPDATE_PUBLIC_KEYS if str(value).strip())
-
-    keys: list[Ed25519PublicKey] = []
-    for raw_value in raw_values:
-        keys.append(_load_public_key(raw_value))
-    return keys
+def load_public_keys() -> list:
+    try:
+        return update_crypto.load_trusted_public_keys()
+    except update_crypto.SignatureVerificationError as error:
+        raise UpdateError(str(error)) from error
 
 
 def fetch_manifest(manifest_url: str) -> dict[str, Any]:
@@ -303,24 +292,7 @@ def select_platform_asset(manifest: dict[str, Any], platform_key: str | None = N
 
 
 def detect_platform_key() -> str:
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-    if machine in {"amd64", "x86_64"}:
-        arch = "x86_64"
-    elif machine in {"aarch64", "arm64"}:
-        arch = "arm64"
-    else:
-        arch = machine or "unknown"
-
-    if system == "windows":
-        os_key = "windows"
-    elif system == "darwin":
-        os_key = "macos"
-    elif system == "linux":
-        os_key = "linux"
-    else:
-        os_key = system or "unknown"
-    return f"{os_key}-{arch}"
+    return update_crypto.detect_platform_key()
 
 
 def compare_versions(left: str, right: str) -> int:
@@ -334,27 +306,14 @@ def compare_versions(left: str, right: str) -> int:
 
 
 def canonical_asset_payload(version: str, platform_key: str, asset: dict[str, Any]) -> bytes:
-    payload = {
-        "schema": UPDATER_SCHEMA_VERSION,
-        "version": str(version),
-        "platform": str(platform_key),
-        "url": str(asset.get("url") or ""),
-        "sha256": str(asset.get("sha256") or "").lower(),
-        "size": int(asset.get("size") or 0),
-    }
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return update_crypto.canonical_asset_payload(version, platform_key, asset)
 
 
 def verify_asset_signature(version: str, platform_key: str, asset: dict[str, Any]) -> None:
-    signature = _decode_base64(str(asset.get("signature") or ""))
-    payload = canonical_asset_payload(version, platform_key, asset)
-    for public_key in load_public_keys():
-        try:
-            public_key.verify(signature, payload)
-            return
-        except InvalidSignature:
-            continue
-    raise UpdateError("Update asset signature could not be verified.")
+    try:
+        update_crypto.verify_asset_signature(version, platform_key, asset, public_keys=load_public_keys())
+    except (update_crypto.SignatureVerificationError, ValueError) as error:
+        raise UpdateError("Update asset signature could not be verified.") from error
 
 
 def is_install_supported(app_config: dict[str, Any]) -> bool:
@@ -397,23 +356,6 @@ def _require_public_key(app_config: dict[str, Any] | None = None) -> None:
             raise UpdateError("Source mode updates use git pull or a fresh ZIP from GitHub Releases.")
         message = status.get("error") or "No Python updater public key is configured."
         raise UpdateError(str(message))
-
-
-def _load_public_key(raw_value: str) -> Ed25519PublicKey:
-    raw_value = raw_value.strip()
-    try:
-        if "BEGIN PUBLIC KEY" in raw_value:
-            key = serialization.load_pem_public_key(raw_value.encode("utf-8"))
-            if isinstance(key, Ed25519PublicKey):
-                return key
-            raise UpdateError("Configured update public key is not an Ed25519 key.")
-
-        key_bytes = _decode_base64(raw_value)
-        if len(key_bytes) != 32:
-            raise UpdateError("Configured update public key must be a 32-byte base64 Ed25519 key.")
-        return Ed25519PublicKey.from_public_bytes(key_bytes)
-    except ValueError as error:
-        raise UpdateError("Configured update public key is not valid base64 or PEM.") from error
 
 
 def _download_asset(asset: dict[str, Any], destination: Path, state_file: Path, state: dict[str, Any]) -> str:
@@ -592,12 +534,6 @@ def _version_tuple(value: str) -> tuple[int, int, int]:
 def _is_semver(value: str) -> bool:
     parts = str(value).split(".")
     return len(parts) == 3 and all(part.isdigit() for part in parts)
-
-
-def _decode_base64(value: str) -> bytes:
-    padded = value.strip()
-    padded += "=" * (-len(padded) % 4)
-    return base64.b64decode(padded.encode("ascii"), validate=False)
 
 
 def _utc_now() -> str:

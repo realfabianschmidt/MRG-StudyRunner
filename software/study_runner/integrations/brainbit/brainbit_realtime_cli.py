@@ -1,10 +1,12 @@
-# WORKING!
-# based on: https://chatgpt.com/g/g-p-68a4726e0b8c8191920fd5f3a430885d-kristian/c/68d4004b-4b68-8324-97ae-79a382299d7e?model=gpt-5-thinking
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-brainbit_realtime_cli_OSC_15.py
+brainbit_realtime_cli.py
+
+SOURCE OF TRUTH: this in-repo copy is the one Study Runner ships and
+runs. The copy in ../Sensorik/BrainBit/ is a reference mirror only -
+edit here, then copy over if you want the mirror updated.
+(Renamed from brainbit_realtime_cli_OSC_15.py in 0.4.)
 
 Fixes missing MENTAL/BANDS emission by mirroring BrainBit's
 `sample_brainbit_emotions.py` settings & flow:
