@@ -39,10 +39,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: lts/*
 
@@ -55,7 +55,7 @@ jobs:
         if: runner.os != 'Windows'
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -123,7 +123,7 @@ jobs:
         run: python release_tools/package-python-onedir.py --source software/dist/study-runner-manager --output "${{ matrix.manager_asset }}"
 
       - name: Upload Python update workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: python-update-${{ matrix.python_asset }}
           path: ${{ matrix.python_asset }}
@@ -131,7 +131,7 @@ jobs:
 
       - name: Upload manager workflow artifact
         if: matrix.manager_asset != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: python-update-${{ matrix.manager_asset }}
           path: ${{ matrix.manager_asset }}
@@ -143,10 +143,10 @@ jobs:
     needs: build
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -154,7 +154,7 @@ jobs:
         run: python -m pip install "cryptography>=42"
 
       - name: Download release assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           pattern: python-update-*
           path: python-update-assets
