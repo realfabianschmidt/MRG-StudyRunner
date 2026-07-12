@@ -97,19 +97,29 @@ jobs:
       - name: Build Python one-dir package
         run: python release_tools/build-python-onedir.py
 
+      # On failure the JSON verdict is emitted as an ::error:: annotation so
+      # the diagnosis is readable via the public API without opening the log.
       - name: Run packaged Emotion Worker self-test
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $env:STUDY_RUNNER_DATA_DIR = Join-Path $env:RUNNER_TEMP "study-runner-self-test"
-          software\dist\study-runner-server\study-runner-server.exe --emotion-worker-self-test --json
+          software\dist\study-runner-server\study-runner-server.exe --emotion-worker-self-test --json 2>&1 | Tee-Object -FilePath selftest.json
+          if ($LASTEXITCODE -ne 0) {
+            $summary = (Get-Content selftest.json -Raw) -replace "`r?`n", " "
+            Write-Output "::error::Emotion worker self-test failed: $summary"
+            exit 1
+          }
 
       - name: Run packaged Emotion Worker self-test
         if: runner.os == 'macOS'
         shell: bash
         run: |
           export STUDY_RUNNER_DATA_DIR="$RUNNER_TEMP/study-runner-self-test"
-          software/dist/study-runner-server/study-runner-server --emotion-worker-self-test --json
+          if ! software/dist/study-runner-server/study-runner-server --emotion-worker-self-test --json 2>&1 | tee selftest.json; then
+            echo "::error::Emotion worker self-test failed: $(tr '\n' ' ' < selftest.json)"
+            exit 1
+          fi
 
       - name: Package Python update asset
         run: python release_tools/package-python-onedir.py --source software/dist/study-runner-server --output "${{ matrix.python_asset }}"
