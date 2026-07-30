@@ -516,6 +516,12 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 - Study selection and study execution are still coupled loosely: a study can be loaded/edited, but there is no explicit operator flow of "load study" -> "edit or start" -> "tablet begins now".
 - Completed studies should be browseable and visualizable like a folder/file-based result browser. A live bug report says saved completed sessions are currently not appearing in the lower preview/list, so this must be investigated before or as part of the shell cleanup.
 
+### Scope decision
+
+- **0.5 target:** exactly one participant tablet and one instance of each physical/logical device at a time. No multi-tablet, no multi-participant, and no duplicate sensor instances in this implementation block.
+- The data model and coordinator boundaries should leave room for later multi-tablet/multi-participant work, but the UI must not expose that complexity yet.
+- Admin Start therefore targets the single waiting tablet session. If no tablet is waiting, the admin sees a plain "waiting for tablet" state; if another tablet appears, it is reported as a conflict, not auto-joined.
+
 ### Approach
 
 1. **Top-right settings hub:** add a settings icon next to the EN/DE language switch. It opens a shared settings modal/shell with a left-side tab list and adapted pages for Notion, Nextcloud, Certificate, Audit Sensor Setup, Create Shortcut, Update, and plugin settings.
@@ -526,6 +532,15 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 6. **Run dashboard scope:** during a running study, the dashboard focuses on start/stop/recovery/status and live monitoring. Plugin configuration moves to Settings, so live-run controls are not mixed with setup knobs.
 7. **Completed-session browser fix:** make the completed-study area behave like the study browser above it: folder/file based, refreshable, and obvious when results exist. Clicking a completed session should open the visualization/timeline path from T5.
 
+### UI/UX implementation rules
+
+- **Token-based reuse only:** use the existing CSS variables (`var(--...)`) for color, spacing, borders, shadows, and focus states. Do not introduce a new palette, radius scale, shadow language, or one-off layout tokens for T11.
+- **Reuse existing components before adding markup:** settings views use `.settings-page`, `.status-grid` / `.status-card`, `.setup-step`, `.dashboard-actions`, the shared `createModal()` shell, and the shared settings-page helper patterns. New classes are allowed only as small composition wrappers around those existing pieces.
+- **Use the current icon/button language:** gear, play, editor, dashboard, load, close, retry, and open-folder actions should use the existing icon button patterns (`.btn-icon-only`, `.btn-primary`, `.btn-secondary`, current Iconoir icon set) with localized aria-labels/tooltips.
+- **Keep the first screen operational, not decorative:** no landing-page hero treatment. The admin hub should show loaded study state, available actions, waiting tablet state, completed sessions, and important run status immediately.
+- **No duplicate settings surfaces:** if a setting moves into the hub, the old entry point becomes a launcher/deep link or disappears in the same implementation slice. Avoid two live places for the same plugin setting.
+- **No card nesting:** settings sections can use existing cards as top-level containers, but not cards inside cards. Repeated plugin rows and completed-session rows may be cards/list-items.
+
 ### Work items
 
 | Item | Size | Risk | Tier |
@@ -534,6 +549,7 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 | Move/adapt Notion, Nextcloud, Certificate, Audit, Shortcut, Update into the hub | L | many entry points, i18n, route assumptions | medium |
 | Plugin-settings tab model, fed initially by current registry and later by T10 manifests | M | avoid duplicating per-study sensor settings | medium |
 | Hub action redesign: icon buttons, Load buttons, Play/Start button | M | operator confusion if loaded vs running state is unclear | medium |
+| Single-tablet active-run guard | M | conflict handling must be plain and deterministic | hard |
 | Admin-controlled study start + tablet waiting room | L | timing and session semantics; must not regress resume/recovery | hard |
 | Dashboard scope cleanup for active-run control/status only | M | must keep current live-monitor visibility | medium |
 | Completed-session browser bugfix + file/folder style result browser | M | result-index cache, repeated sessions, stale UI state | medium |
@@ -542,6 +558,8 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 
 - Admin can load a study from the study list, then choose Edit or Start from clear icon actions.
 - A tablet opened before Start shows only the waiting-room state; after admin Start it moves to the first participant-id card without a reload.
+- Exactly one tablet can be the active participant client in 0.5; additional tablets are shown as conflicts/ignored candidates, not started.
+- Each sensor/plugin device is represented once in Settings and Dashboard; duplicate-device handling is reserved for a later multi-participant architecture.
 - Recording/session timing starts only on admin Start, not merely because the tablet page loaded.
 - Settings gear opens one hub with tabs for Notion, Nextcloud, Certificate, Audit/Sensor Setup, Shortcut, Update, and each plugin.
 - Dashboard during a run shows live status/control/recovery, while plugin configuration lives in Settings.
@@ -549,13 +567,14 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 
 ### Open questions
 
-1. ❓ Should admin Start target exactly one connected tablet, all waiting tablets, or a selectable subset?
-2. ❓ Should a participant-id be created before admin Start, or should admin Start reveal the participant-id card and the generated ID becomes part of the run after entry?
-3. ❓ Should Stop mean "abort/recovery candidate" during a run, or also allow a clean early finalize?
-4. ❓ Should plugin tabs be shown for all registered plugins or only enabled/configured ones?
+1. ❓ Should a participant-id be created before admin Start, or should admin Start reveal the participant-id card and the generated ID becomes part of the run after entry?
+2. ❓ Should Stop mean "abort/recovery candidate" during a run, or also allow a clean early finalize?
+3. ❓ Should plugin tabs be shown for all registered plugins or only enabled/configured ones?
 
 > **GPT 5.6 Sol input:**
 > This is a good T11, not an extension of T10. T10 defines the plugin/coordinator contract; T11 defines the operator workflow that consumes it. The strongest architectural point is the explicit loaded-vs-running split: "load study" becomes a preparation state, "start" becomes the single clock/control event, and tablets wait until the admin begins the run. That can make timing, session state, and user expectations much clearer. The risk is scope: moving all settings into one hub while also changing run lifecycle touches many surfaces, so implementation should be staged. First fix the completed-session browser visibility and add the loaded/running state model; then add the tablet waiting room; only then migrate settings pages into the hub and plugin tabs.
+>
+> **Fabian scope clarification applied (2026-07-30):** T11 is single-tablet/single-device first. Future multi-tablet, multi-participant, and repeated-sensor support can be prepared in naming and data boundaries, but it must not leak into the 0.5 operator UI. The implementation should also be token- and component-reuse heavy: use the existing settings shell, shared modal, status cards, setup steps, switch controls, icon button patterns, and CSS variables instead of creating another admin design language.
 
 ---
 
