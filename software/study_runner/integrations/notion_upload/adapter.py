@@ -4,15 +4,14 @@ Notion adapter - uploads anonymized study results to a Notion database.
 Each participant gets one database page identified by their pseudonymized hash ID.
 Each completed study session is appended as a toggle block to that page.
 
-If the Notion API is unreachable, the payload is written to a local JSONL queue
-file and re-attempted on the next server start or via the admin flush endpoint.
+Network failures are returned to the central upload-job service, which owns the
+persistent retry journal for every destination.
 
 Requires: notion-client  (auto-install optional)
 Enable:   set "notion": { "enabled": true, ... } in study_content/settings/hardware_settings.json
 """
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
 from typing import Any
@@ -23,7 +22,6 @@ from study_runner.backend.services.validation import PARTICIPANT_FIELD_ORDER
 
 _client: Any = None
 _config: dict[str, Any] = {}
-_queue_path: Path | None = None
 
 PARTICIPANT_NOTION_PROPERTIES = {
     "first_name": ("First Name", "rich_text"),
@@ -45,7 +43,7 @@ def initialize(
     timeout_seconds: int,
     data_dir: Path,
 ) -> None:
-    global _client, _config, _queue_path
+    global _client, _config
 
     _client = None
     _config = {
@@ -54,8 +52,6 @@ def initialize(
         "auto_retry_failed": bool(auto_retry_failed),
         "timeout_seconds": max(1, int(timeout_seconds)),
     }
-
-    _queue_path = Path(data_dir) / "notion_upload_queue.jsonl"
 
     if not enabled:
         print("[NOTION] Disabled.")
@@ -83,10 +79,6 @@ def initialize(
         print(f"[NOTION] Client initialization failed: {error}")
         return
 
-    if auto_retry_failed and _queue_path and _queue_path.exists():
-        _try_flush_queue()
-
-
 def upload_study_result(
     result_payload: dict[str, Any],
     hardware_config: dict[str, Any],
@@ -94,7 +86,7 @@ def upload_study_result(
     config_data: dict[str, Any] = None,
     is_retry: bool = False,
 ) -> dict[str, Any]:
-    """Upload one completed study session to Notion. Returns {ok, queued?, error?}."""
+    """Upload one completed study session; retry persistence lives elsewhere."""
     if config_data is None:
         config_data = {}
 
@@ -107,10 +99,7 @@ def upload_study_result(
 
     if _client is None:
         error_message = "Notion client is not ready on the server."
-        if _config.get("enabled") and not is_retry:
-            _enqueue(result_payload, hardware_config, saved_output, config_data)
-            return {"ok": False, "queued": True, "error": error_message}
-        return {"ok": False, "skipped": True, "error": error_message}
+        return {"ok": False, "error": error_message}
 
     try:
         db_id = _ensure_database(study_settings, config_data)
@@ -122,15 +111,8 @@ def upload_study_result(
         print(f"[NOTION] Uploaded session {session_num} for participant {pid_short}…")
         return {"ok": True}
     except Exception as error:
-        print(f"[NOTION] Upload failed{' (retry)' if is_retry else ', queuing'}: {error}")
-        if not is_retry:
-            _enqueue(result_payload, hardware_config, saved_output, config_data)
-        return {"ok": False, "queued": True, "error": str(error)}
-
-
-def flush_queue() -> dict[str, Any]:
-    """Retry all queued uploads. Returns attempt stats."""
-    return _try_flush_queue()
+        print(f"[NOTION] Upload failed{' (retry)' if is_retry else ''}: {error}")
+        return {"ok": False, "error": str(error)}
 
 
 def test_connection(
@@ -177,17 +159,10 @@ test_connection.__test__ = False
 
 
 def get_status() -> dict[str, Any]:
-    queue_size = 0
-    if _queue_path and _queue_path.exists():
-        try:
-            with _queue_path.open(encoding="utf-8") as fh:
-                queue_size = sum(1 for line in fh if line.strip())
-        except OSError:
-            pass
     return {
         "enabled": bool(_config.get("enabled")),
         "connected": _client is not None,
-        "queue_size": queue_size,
+        "queue_size": 0,
     }
 
 
@@ -601,77 +576,6 @@ def _fmt_metric(value: Any) -> str:
     return str(value)
 
 
-def _enqueue(
-    result_payload: dict[str, Any],
-    hardware_config: dict[str, Any],
-    saved_output: dict[str, Any],
-    config_data: dict[str, Any],
-) -> None:
-    if not _queue_path:
-        return
-    entry = {
-        "result_payload": result_payload,
-        "hardware_config": hardware_config,
-        "saved_output": saved_output,
-        "config_data": config_data,
-        "queued_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
-    try:
-        with _queue_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except OSError as error:
-        print(f"[NOTION] Could not write to queue: {error}")
-
-
-def _try_flush_queue() -> dict[str, Any]:
-    if not _queue_path or not _queue_path.exists():
-        return {"attempted": 0, "succeeded": 0, "remaining": 0}
-
-    try:
-        with _queue_path.open(encoding="utf-8") as fh:
-            entries = [json.loads(line) for line in fh if line.strip()]
-    except OSError as error:
-        return {"attempted": 0, "succeeded": 0, "remaining": 0, "error": str(error)}
-
-    if _client is None:
-        return {
-            "attempted": len(entries),
-            "succeeded": 0,
-            "remaining": len(entries),
-            "last_error": "Notion-Client ist nicht verbunden. Hast du das Terminal (den Server) nach dem Speichern der API-Daten neu gestartet?"
-        }
-
-    succeeded = 0
-    remaining = []
-    last_error = None
-    for entry in entries:
-        result = upload_study_result(
-            entry["result_payload"],
-            entry.get("hardware_config", {}),
-            entry.get("saved_output", {}),
-            config_data=entry.get("config_data", {}),
-            is_retry=True,
-        )
-        if result.get("ok"):
-            succeeded += 1
-        else:
-            remaining.append(entry)
-            last_error = result.get("error", "Unknown error")
-
-    try:
-        if remaining:
-            with _queue_path.open("w", encoding="utf-8") as fh:
-                for entry in remaining:
-                    fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        else:
-            _queue_path.unlink(missing_ok=True)
-    except OSError as error:
-        print(f"[NOTION] Could not rewrite queue: {error}")
-
-    print(f"[NOTION] Queue flush: {succeeded}/{len(entries)} succeeded, {len(remaining)} remaining.")
-    return {"attempted": len(entries), "succeeded": succeeded, "remaining": len(remaining), "last_error": last_error}
-
-
 def _refresh_config_for_retry(
     result_payload: dict[str, Any],
     queued_config_data: dict[str, Any],
@@ -700,22 +604,7 @@ def _refresh_config_for_retry(
 
         return load_study(studies_dir, study_id)
     except Exception:
-        try:
-            from study_runner.backend.services.study_config_service import load_config, load_study
-
-            if not _queue_path:
-                return queued_config_data
-
-            base_dir = _queue_path.parent.parent
-            content_dir = base_dir / "study_content"
-            config_file = content_dir / "settings" / "study_config.json"
-            studies_dir = content_dir / "studies"
-            current_config = load_config(config_file)
-            if str(current_config.get("study_id") or "").strip() == study_id:
-                return current_config
-            return load_study(studies_dir, study_id)
-        except Exception:
-            return queued_config_data
+        return queued_config_data
 
 
 def _persist_study_database_id(config_data: dict[str, Any]) -> None:

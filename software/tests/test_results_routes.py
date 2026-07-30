@@ -106,6 +106,103 @@ class ResultsRoutesTests(unittest.TestCase):
             self.assertTrue(response.get_json()["ok"])
             self.assertFalse(snapshot_path.exists(), "partial snapshot should be removed after final save")
 
+    def test_successful_save_only_journals_uploads_and_returns_without_network_calls(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            app = self._make_app(data_dir)
+            app.config["HARDWARE_CONFIG"] = {
+                "notion": {"enabled": True, "api_key": "legacy-secret"},
+                "nextcloud": {"password": "legacy-share-secret"},
+            }
+            app.config["LOCAL_SECRETS"] = {
+                "notion": {"api_key": "local-secret"},
+                "nextcloud": {"password": "local-share-secret"},
+            }
+            config = {
+                **CONFIG_DATA,
+                "study_settings": {
+                    "notion_enabled": True,
+                    "nextcloud_enabled": True,
+                    "nextcloud_share_link": "https://cloud.example/s/token",
+                },
+            }
+
+            def working_save(*args, **kwargs):
+                return {
+                    "participant_dir": "saved_results/teststudy/p01",
+                    "json_file": "saved_results/teststudy/p01/p01.json",
+                    "xdf_file": None,
+                }
+
+            submission = {
+                "session_id": "sess-upload",
+                "study_id": "teststudy",
+                "participant_id": "p01",
+            }
+            with (
+                patch("study_runner.backend.routes.results.load_config", return_value={}),
+                patch("study_runner.backend.routes.results.validate_and_normalize_config", return_value=config),
+                patch(
+                    "study_runner.backend.routes.results.validate_and_normalize_results",
+                    return_value={**VALIDATED_RESULTS, "session_id": "sess-upload"},
+                ),
+                patch("study_runner.backend.routes.results.build_answer_details", return_value=[]),
+                patch("study_runner.backend.routes.results.build_biosignal_summary", return_value={"brainbit": {}}),
+                patch("study_runner.backend.routes.results.save_results_payload", working_save),
+                patch(
+                    "study_runner.integrations.notion_upload.adapter.upload_study_result",
+                    side_effect=AssertionError("Notion network call ran inside /api/results"),
+                ) as notion_upload,
+                patch(
+                    "study_runner.backend.services.nextcloud_service.NextcloudPublicShareClient.upload_session_folder",
+                    side_effect=AssertionError("Nextcloud network call ran inside /api/results"),
+                ) as nextcloud_upload,
+            ):
+                response = app.test_client().post("/api/results", json=submission)
+
+            payload = response.get_json()
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(payload["ok"])
+            self.assertNotIn("upload_jobs", payload)
+            self.assertNotIn("upload_job_errors", payload)
+            notion_upload.assert_not_called()
+            nextcloud_upload.assert_not_called()
+            self.assertEqual(app.config["UPLOAD_JOBS_SERVICE"].counts()["queued"], 2)
+
+            stored_payloads = " ".join(
+                path.read_text(encoding="utf-8")
+                for path in (Path(data_dir) / "saved_results" / "upload_jobs").glob("*.json")
+            )
+            self.assertNotIn("legacy-secret", stored_payloads)
+            self.assertNotIn("local-secret", stored_payloads)
+            self.assertNotIn("share-secret", stored_payloads)
+
+    def test_post_save_scheduling_failure_does_not_change_success_response(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            app = self._make_app(data_dir)
+
+            def working_save(*args, **kwargs):
+                return {"json_file": "teststudy/p01/p01.json", "xdf_file": None}
+
+            patches = self._results_patches(working_save)
+            with (
+                patches[0],
+                patches[1],
+                patches[2],
+                patches[3],
+                patches[4],
+                patch(
+                    "study_runner.backend.routes.results._enqueue_upload_jobs",
+                    side_effect=OSError("journal disk full"),
+                ),
+            ):
+                response = app.test_client().post("/api/results", json={"study_id": "teststudy"})
+
+            payload = response.get_json()
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(payload["ok"])
+            self.assertNotIn("upload_jobs", payload)
+            self.assertNotIn("upload_job_errors", payload)
+
     def test_partial_snapshot_requires_session_id(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             app = self._make_app(data_dir)

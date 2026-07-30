@@ -15,6 +15,7 @@ from .services.runtime_config import (
     resolve_runtime_paths,
 )
 from .services.secrets_service import load_local_secrets
+from .services.upload_runtime import configure_upload_jobs
 
 
 BASE_DIR = get_project_base_dir()
@@ -90,5 +91,6 @@ def create_app() -> Flask:
     if not _hardware_disabled():
         initialize_plugins(_integration_context(app))
 
+    configure_upload_jobs(app)
     register_routes(app)
     return app

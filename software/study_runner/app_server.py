@@ -29,6 +29,7 @@ from study_runner.backend.services.runtime_config import (
     read_server_port,
 )
 from study_runner.backend.services.ssl_service import ensure_local_ssl_certificate
+from study_runner.backend.services.upload_jobs_service import UploadJobService
 
 
 app = create_app()
@@ -190,6 +191,12 @@ def run_app() -> None:
     local_ips = get_local_private_ips()
     ssl_context = get_ssl_context()
     _start_certificate_download(local_ips)
+    upload_jobs: UploadJobService = app.config["UPLOAD_JOBS_SERVICE"]
+    should_run_background = not is_background_disabled() and (
+        not is_debug_enabled() or os.getenv("WERKZEUG_RUN_MAIN") == "true"
+    )
+    if should_run_background:
+        upload_jobs.start()
     scheme = "https" if ssl_context else "http"
     admin_url = f"{scheme}://localhost:{port}/admin"
 
@@ -226,6 +233,7 @@ def run_app() -> None:
             _fail_for_port_conflict(port)
         raise
     finally:
+        upload_jobs.stop()
         _stop_certificate_download()
 
 

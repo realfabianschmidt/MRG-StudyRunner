@@ -194,7 +194,9 @@ Tests: `tests/test_upload_jobs_service.py` — journal replay after simulated cr
 | Completion modal + mini widget | M | UI only | medium |
 
 > **GPT 5.6 Sol input:**
-> **Bug fix implemented (2026-07-30):** completed `PARTICIPANT_NOTION_PROPERTIES` for `gender`, `birth_place`, and `birth_date` (real Notion date property), replaced brittle direct lookups with skip-and-log behavior, and added regression coverage for all optional participant fields. The T4 upload-job journal, instant-return submit path, retry routes, and monitor remain pending; the protected result-save/upload orchestration was not changed by this fix.
+> **Backend implemented (2026-07-30):** completed `PARTICIPANT_NOTION_PROPERTIES` for `gender`, `birth_place`, and `birth_date` (real Notion date property), replacing brittle direct lookups with skip-and-log behavior.
+>
+> The central upload-job backend is now implemented: result files remain the unchanged commit point, after which Notion/Nextcloud jobs are persisted as atomic payload files plus an fsynced append-only event journal and `/api/results` returns without network I/O. Replay recovers interrupted attempts; retry uses 30 s / 2 m / 10 m / 30 m / hourly backoff with the planned 48-hour automatic cutoff. The legacy Notion JSONL queue migrates idempotently, and the Notion adapter no longer owns a competing retry queue. Status, manual retry, legacy flush compatibility, and guarded Windows/macOS result-folder opening routes are registered and inventory-tested. Job payloads redact backend credentials. Remaining T4 work is the completion modal/mini-widget owned by the UI implementer; real Notion/Nextcloud round-trips remain manual acceptance gates.
 
 ---
 

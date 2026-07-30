@@ -22,8 +22,11 @@ def notion_status():
     study_settings = config_data.get("study_settings", {})
 
     status = notion_adapter.get_status()
+    upload_counts = current_app.config["UPLOAD_JOBS_SERVICE"].counts(kind="notion")
     status.update(
         {
+            "queue_size": upload_counts["queued"] + upload_counts["running"],
+            "failed_uploads": upload_counts["failed"],
             "enabled_globally": bool(hardware_config.get("notion", {}).get("enabled")),
             "auto_retry_failed": bool(hardware_config.get("notion", {}).get("auto_retry_failed", True)),
             "api_key_configured": bool(resolve_notion_api_key(hardware_config, local_secrets)),
@@ -42,9 +45,8 @@ def notion_status():
 
 @bp.route("/api/notion/flush-queue", methods=["POST"])
 def notion_flush_queue():
-    from study_runner.integrations.notion_upload import adapter as notion_adapter
-
-    return jsonify(notion_adapter.flush_queue())
+    service = current_app.config["UPLOAD_JOBS_SERVICE"]
+    return jsonify(service.retry(all_failed=True, kind="notion"))
 
 
 @bp.route("/api/notion/test", methods=["POST"])

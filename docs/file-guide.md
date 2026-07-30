@@ -34,6 +34,7 @@ Edit-safety legend:
 | `routes/nextcloud.py` | Tests a study's writable Nextcloud public-share connection | careful |
 | `routes/sessions.py` | Read-only completed-session list, detail, and timeline-signal APIs | careful |
 | `routes/certificate.py` | Certificate status plus guarded root-CA export/import endpoints | no |
+| `routes/uploads.py` | Background-upload status/retry and validated result-folder opening | no |
 | `routes/helpers.py` | Shared request helpers: runtime config, sessions, sensor runtime | careful |
 
 ## Backend - services (`software/study_runner/backend/services/`)
@@ -50,6 +51,9 @@ Edit-safety legend:
 | `services/ssl_service.py` | Local HTTPS certificate authority for tablet camera access | no |
 | `services/certificate_download_service.py` | Plain-HTTP, one-file bootstrap download for the local root CA | careful |
 | `services/certificate_transfer_service.py` | Validates, exports, and transactionally imports the reusable local root CA | no |
+| `services/upload_jobs_service.py` | Persistent upload journal, crash replay, backoff worker, and retry state | no |
+| `services/upload_runtime.py` | Connects upload jobs to Flask plus the Notion and Nextcloud executors | no |
+| `services/folder_open_service.py` | Validates and opens result folders on Windows or macOS | no |
 | `services/runtime_config.py` | Paths, ports, app mode, data-folder resolution | careful |
 | `services/study_config_service.py` | Load/save the active study and the saved-studies folder | careful |
 | `services/study_sensor_runtime.py` | Which sensors are effectively on (study settings + overrides) | careful |

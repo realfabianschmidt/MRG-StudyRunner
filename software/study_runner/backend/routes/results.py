@@ -7,6 +7,7 @@ answered so far in case the tablet dies before the final submit.
 """
 import time
 import uuid
+from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
@@ -17,7 +18,9 @@ from ..services.results_service import (
     sanitize_identifier_for_filename,
     save_results_payload,
 )
+from ..services.secrets_service import redact_hardware_config
 from ..services.study_config_service import load_config
+from ..services.upload_jobs_service import build_job_metadata
 from ..services.validation import (
     ValidationError,
     validate_and_normalize_config,
@@ -108,29 +111,83 @@ def save_results():
         print(f"[DATA] XDF: {saved_output['xdf_file']}")
     _discard_partial_snapshot(result_payload)
 
-    # The results are on disk at this point; nothing below may undo that.
+    # The results are on disk at this point; network work is journaled locally
+    # and the participant receives the response without waiting for it.
+    try:
+        _enqueue_upload_jobs(
+            validated_results,
+            config_data,
+            hardware_config,
+            saved_output,
+        )
+    except Exception as error:
+        # Local results are already durable. A secondary bookkeeping failure
+        # must never turn a successful participant submit into an HTTP 500.
+        print(f"[UPLOADS] Could not prepare upload jobs after save: {error}")
+    return jsonify({"ok": True, **saved_output})
+
+
+def _enqueue_upload_jobs(
+    validated_results: dict,
+    config_data: dict,
+    hardware_config: dict,
+    saved_output: dict,
+) -> tuple[list[dict], list[str]]:
+    service = current_app.config["UPLOAD_JOBS_SERVICE"]
     study_settings = config_data.get("study_settings", {})
+    session_id = str(
+        validated_results.get("session_id")
+        or Path(str(saved_output.get("json_file") or "")).stem
+        or uuid.uuid4()
+    )
+    safe_hardware_config = redact_hardware_config(
+        hardware_config,
+        current_app.config.get("LOCAL_SECRETS", {}),
+    )
+    enriched_output = dict(saved_output)
     if study_settings.get("notion_enabled"):
         try:
-            from study_runner.integrations.notion_upload import adapter as notion_adapter
-
-            biosignal_summary = build_biosignal_summary(hardware_config, saved_output, context=_integration_context())
-            notion_result = notion_adapter.upload_study_result(
-                result_payload=validated_results,
-                hardware_config=hardware_config,
-                saved_output={**saved_output, "biosignal_summary": biosignal_summary},
-                config_data=config_data,
+            enriched_output["biosignal_summary"] = build_biosignal_summary(
+                hardware_config,
+                saved_output,
+                context=_integration_context(),
             )
-            if notion_result.get("ok"):
-                print("[NOTION] Uploaded")
-            elif notion_result.get("queued"):
-                print("[NOTION] Queued (offline)")
-            elif notion_result.get("skipped"):
-                print(f"[NOTION] Skipped: {notion_result.get('error', 'not configured')}")
-        except Exception as notion_error:
-            print(f"[NOTION] Upload failed after save: {notion_error}")
+        except Exception as error:
+            enriched_output["biosignal_summary"] = {}
+            print(f"[UPLOADS] Could not build optional Notion biosignal summary: {error}")
+    job_payload = {
+        "result_payload": validated_results,
+        "hardware_config": safe_hardware_config,
+        "saved_output": enriched_output,
+        "config_data": config_data,
+    }
+    metadata = build_job_metadata(validated_results, saved_output)
+    destinations = []
+    if study_settings.get("notion_enabled"):
+        destinations.append(("notion", "Notion"))
+    if study_settings.get("nextcloud_enabled"):
+        destinations.append(("nextcloud", "Nextcloud"))
 
-    return jsonify({"ok": True, **saved_output})
+    jobs: list[dict] = []
+    errors: list[str] = []
+    for kind, label in destinations:
+        try:
+            jobs.append(
+                service.enqueue(
+                    kind=kind,
+                    study_id=str(validated_results.get("study_id") or ""),
+                    participant_id=str(validated_results.get("participant_id") or ""),
+                    session_id=session_id,
+                    label=label,
+                    payload=job_payload,
+                    metadata=metadata,
+                )
+            )
+        except Exception as error:
+            message = f"{label}: {error}"
+            errors.append(message)
+            print(f"[UPLOADS] Could not queue {message}")
+    return jobs, errors
 
 
 @bp.route("/api/results/partial", methods=["POST"])
