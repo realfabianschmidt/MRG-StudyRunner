@@ -1,4 +1,5 @@
 import { t } from '../i18n.js';
+import { escapeHtml } from '../lib/dom-utils.js';
 import { renderCardInstruction } from './card-info.js';
 
 // Field metadata: render kind, label, and (for choice fields) default options.
@@ -26,14 +27,14 @@ const FIELD_ORDER = [
 ];
 
 const DEFAULT_FIELDS = {
-  first_name: { enabled: true, use_for_key: true, store: false },
-  last_name: { enabled: true, use_for_key: true, store: false },
-  age_group: { enabled: true, use_for_key: true, store: true },
-  gender: { enabled: false, use_for_key: false, store: true },
-  childhood_area: { enabled: true, use_for_key: true, store: true },
-  childhood_nearest_city: { enabled: true, use_for_key: true, store: true },
-  birth_place: { enabled: false, use_for_key: false, store: true },
-  birth_date: { enabled: false, use_for_key: false, store: true },
+  first_name: { enabled: true, use_for_key: true, store: false, required: true },
+  last_name: { enabled: true, use_for_key: true, store: false, required: true },
+  age_group: { enabled: true, use_for_key: true, store: true, required: true },
+  gender: { enabled: false, use_for_key: false, store: true, required: true },
+  childhood_area: { enabled: true, use_for_key: true, store: true, required: true },
+  childhood_nearest_city: { enabled: true, use_for_key: true, store: true, required: true },
+  birth_place: { enabled: false, use_for_key: false, store: true, required: true },
+  birth_date: { enabled: false, use_for_key: false, store: true, required: true },
 };
 
 function isConfigurable(fieldKey) {
@@ -42,10 +43,6 @@ function isConfigurable(fieldKey) {
 
 function defaultOptions(fieldKey) {
   return [...(FIELD_META[fieldKey]?.defaultOptions || [])];
-}
-
-function escapeHtml(v) {
-  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function cloneDefaultFields() {
@@ -80,10 +77,14 @@ function normalizeFields(rawFields) {
     const raw = source[fieldKey] && typeof source[fieldKey] === 'object' ? source[fieldKey] : {};
     const base = defaults[fieldKey];
     const enabled = raw.enabled ?? base.enabled;
+    const useForKey = Boolean(enabled) && Boolean(raw.use_for_key ?? base.use_for_key);
+    // A field used for the anonymous code must stay required - the hash needs its value.
+    const required = Boolean(enabled) && (useForKey || Boolean(raw.required ?? base.required ?? true));
     fields[fieldKey] = {
       enabled: Boolean(enabled),
-      use_for_key: Boolean(enabled) && Boolean(raw.use_for_key ?? base.use_for_key),
+      use_for_key: useForKey,
       store: Boolean(enabled) && Boolean(raw.store ?? base.store),
+      required,
     };
     if (isConfigurable(fieldKey)) {
       fields[fieldKey].options = normalizeOptions(raw.options ?? base.options, fieldKey);
@@ -212,6 +213,7 @@ function renderEditorFieldRow(fieldKey, fieldConfig) {
   const stateValue = escapeHtml(JSON.stringify({
     use_for_key: fieldConfig.use_for_key,
     store: fieldConfig.store,
+    required: fieldConfig.required,
     options: isConfigurable(fieldKey) ? normalizeOptions(fieldConfig.options, fieldKey) : undefined,
   }));
 
@@ -236,9 +238,11 @@ function readFieldState(editorEl, fieldKey) {
   const stateEl = editorEl.querySelector(`.pid-field-state[data-pid-field="${fieldKey}"]`);
   let parsed = {};
   try { parsed = JSON.parse(stateEl?.value || '{}'); } catch { parsed = {}; }
+  const useForKey = Boolean(parsed.use_for_key);
   return {
-    use_for_key: Boolean(parsed.use_for_key),
+    use_for_key: useForKey,
     store: Boolean(parsed.store),
+    required: useForKey || Boolean(parsed.required ?? true),
     options: isConfigurable(fieldKey) ? normalizeOptions(parsed.options, fieldKey) : undefined,
   };
 }
@@ -246,9 +250,11 @@ function readFieldState(editorEl, fieldKey) {
 function writeFieldState(editorEl, fieldKey, next) {
   const stateEl = editorEl.querySelector(`.pid-field-state[data-pid-field="${fieldKey}"]`);
   if (!stateEl) return;
+  const useForKey = Boolean(next.use_for_key);
   stateEl.value = JSON.stringify({
-    use_for_key: Boolean(next.use_for_key),
+    use_for_key: useForKey,
     store: Boolean(next.store),
+    required: useForKey || Boolean(next.required),
     options: isConfigurable(fieldKey) ? normalizeOptions(next.options, fieldKey) : undefined,
   });
   // Trigger the admin overlay's input delegation so the preview + unsaved state update.
@@ -331,6 +337,13 @@ function openFieldModal(editorEl, fieldKey) {
           <span>${escapeHtml(t('cards.participant.storeLabel', 'Store in results (DB)'))}</span>
           <span class="switch"><input type="checkbox" class="pid-modal-store" ${state.store ? 'checked' : ''}><span class="switch-slider"></span></span>
         </label>
+        <label class="switch-row" style="margin-bottom:12px;">
+          <span style="display:flex; flex-direction:column; gap:2px;">
+            <span>${escapeHtml(t('editor.requiredLabel', 'Required'))}</span>
+            <small class="pid-required-hint" style="color:var(--ink-40); line-height:1.4;" ${state.use_for_key ? '' : 'hidden'}>${escapeHtml(t('cards.participant.requiredLockedHint', 'Locked on: this field feeds the anonymous code.'))}</small>
+          </span>
+          <span class="switch"><input type="checkbox" class="pid-modal-required" ${state.required ? 'checked' : ''} ${state.use_for_key ? 'disabled' : ''}><span class="switch-slider"></span></span>
+        </label>
         ${optionsSection}
         <button class="btn-primary pid-modal-apply" type="button" style="width:100%; justify-content:center; margin-top:16px;">
           ${escapeHtml(t('cards.participant.modalApply', 'Apply'))}
@@ -345,6 +358,17 @@ function openFieldModal(editorEl, fieldKey) {
     if (event.target === backdrop) closeFieldModal();
   });
   backdrop.querySelector('.pid-modal-close')?.addEventListener('click', closeFieldModal);
+
+  const requiredInput = backdrop.querySelector('.pid-modal-required');
+  const requiredHint = backdrop.querySelector('.pid-required-hint');
+  backdrop.querySelector('.pid-modal-key')?.addEventListener('change', (event) => {
+    const useForKey = event.target.checked;
+    if (requiredInput) {
+      requiredInput.disabled = useForKey;
+      if (useForKey) requiredInput.checked = true;
+    }
+    if (requiredHint) requiredHint.hidden = !useForKey;
+  });
 
   const optionsEditor = backdrop.querySelector('.pid-options-editor');
   backdrop.querySelector('.pid-add-option')?.addEventListener('click', () => {
@@ -362,6 +386,7 @@ function openFieldModal(editorEl, fieldKey) {
     const next = {
       use_for_key: Boolean(backdrop.querySelector('.pid-modal-key')?.checked),
       store: Boolean(backdrop.querySelector('.pid-modal-store')?.checked),
+      required: Boolean(backdrop.querySelector('.pid-modal-required')?.checked),
     };
     if (configurable) {
       next.options = [...backdrop.querySelectorAll('.pid-option-input')]
@@ -392,10 +417,12 @@ export function collectConfig(el) {
   FIELD_ORDER.forEach((fieldKey) => {
     const enabled = Boolean(el.querySelector(`.pid-enabled[data-pid-field="${fieldKey}"]`)?.checked);
     const state = readFieldState(el, fieldKey);
+    const useForKey = enabled && state.use_for_key;
     fields[fieldKey] = {
       enabled,
-      use_for_key: enabled && state.use_for_key,
+      use_for_key: useForKey,
       store: enabled && state.store,
+      required: enabled && (useForKey || state.required),
     };
     if (isConfigurable(fieldKey)) fields[fieldKey].options = state.options;
   });

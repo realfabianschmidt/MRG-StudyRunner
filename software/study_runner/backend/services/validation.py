@@ -33,6 +33,8 @@ ALLOWED_QUESTION_TYPES = {
     "word-cloud",
 }
 
+NON_ANSWER_QUESTION_TYPES = {"stimulus", "participant-id", "finish"}
+
 ALLOWED_TRIGGER_TYPES = {"timer", "image", "video", "audio", "html", "js"}
 
 PARTICIPANT_FIELD_ORDER = [
@@ -47,14 +49,14 @@ PARTICIPANT_FIELD_ORDER = [
 ]
 
 PARTICIPANT_FIELD_DEFAULTS = {
-    "first_name": {"enabled": True, "use_for_key": True, "store": False},
-    "last_name": {"enabled": True, "use_for_key": True, "store": False},
-    "age_group": {"enabled": True, "use_for_key": True, "store": True},
-    "gender": {"enabled": False, "use_for_key": False, "store": True},
-    "childhood_area": {"enabled": True, "use_for_key": True, "store": True},
-    "childhood_nearest_city": {"enabled": True, "use_for_key": True, "store": True},
-    "birth_place": {"enabled": False, "use_for_key": False, "store": True},
-    "birth_date": {"enabled": False, "use_for_key": False, "store": True},
+    "first_name": {"enabled": True, "use_for_key": True, "store": False, "required": True},
+    "last_name": {"enabled": True, "use_for_key": True, "store": False, "required": True},
+    "age_group": {"enabled": True, "use_for_key": True, "store": True, "required": True},
+    "gender": {"enabled": False, "use_for_key": False, "store": True, "required": True},
+    "childhood_area": {"enabled": True, "use_for_key": True, "store": True, "required": True},
+    "childhood_nearest_city": {"enabled": True, "use_for_key": True, "store": True, "required": True},
+    "birth_place": {"enabled": False, "use_for_key": False, "store": True, "required": True},
+    "birth_date": {"enabled": False, "use_for_key": False, "store": True, "required": True},
 }
 
 # Fields whose allowed answers can be configured per study.
@@ -127,6 +129,14 @@ def validate_and_normalize_results(
         study_config.get("questions", []),
     )
 
+    normalized_answers = _validate_answers(answers, study_config.get("questions", []))
+    skipped_questions = _skipped_optional_questions(
+        answers,
+        study_config.get("questions", []),
+        answer_events=answer_events,
+        card_events=card_events,
+    )
+
     return {
         "participant_id": participant_id,
         "study_id": study_config["study_id"],
@@ -141,7 +151,8 @@ def validate_and_normalize_results(
             maximum=10_000_000_000.0,
             allow_none=True,
         ),
-        "answers": _validate_answers(answers, study_config.get("questions", [])),
+        "answers": normalized_answers,
+        "skipped_questions": skipped_questions,
         "participant_metadata": participant_metadata,
         "answer_events": answer_events,
         "card_events": card_events,
@@ -198,6 +209,21 @@ def validate_and_normalize_trial_options(payload: Any) -> dict[str, Any]:
     }
 
 
+def skipped_optional_questions_for_result(
+    answers: dict[str, Any],
+    questions: list[dict[str, Any]],
+    *,
+    answer_events: list[dict[str, Any]] | None = None,
+    card_events: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    return _skipped_optional_questions(
+        answers,
+        questions,
+        answer_events=answer_events,
+        card_events=card_events,
+    )
+
+
 # ============================================================
 #  2. RESULT PARTS - answers, metadata, events
 # ============================================================
@@ -209,12 +235,14 @@ def _validate_answers(
     expected_keys = set()
 
     for question_index, question in enumerate(questions):
-        if question.get("type") in {"stimulus", "participant-id", "finish"}:
+        if question.get("type") in NON_ANSWER_QUESTION_TYPES:
             continue
 
         answer_key = f"q{question_index}"
         expected_keys.add(answer_key)
-        if answer_key not in answers:
+        if answer_key not in answers or answers.get(answer_key) is None:
+            if not _question_is_required(question):
+                continue
             raise ValidationError(f"Missing answer for question {question_index + 1}.")
 
         normalized_answers[answer_key] = _validate_answer_value(
@@ -231,6 +259,34 @@ def _validate_answers(
     return normalized_answers
 
 
+def _skipped_optional_questions(
+    answers: dict[str, Any],
+    questions: list[dict[str, Any]],
+    *,
+    answer_events: list[dict[str, Any]] | None = None,
+    card_events: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    skipped: list[str] = []
+    seen_indexes = {
+        int(event["question_index"])
+        for event in [*(answer_events or []), *(card_events or [])]
+        if isinstance(event.get("question_index"), int)
+    }
+    for question_index, question in enumerate(questions):
+        if question.get("type") in NON_ANSWER_QUESTION_TYPES or _question_is_required(question):
+            continue
+        if seen_indexes and question_index not in seen_indexes:
+            continue
+        answer_key = f"q{question_index}"
+        if answer_key not in answers or answers.get(answer_key) is None:
+            skipped.append(answer_key)
+    return skipped
+
+
+def _question_is_required(question: dict[str, Any]) -> bool:
+    return _normalize_boolean(question.get("required", True))
+
+
 def _validate_participant_metadata(
     value: Any,
     questions: list[dict[str, Any]],
@@ -245,7 +301,9 @@ def _validate_participant_metadata(
     normalized: dict[str, str] = {}
     for field_key in stored_fields:
         if field_key not in value:
-            raise ValidationError(f"participant_metadata is missing {field_key}.")
+            if _participant_field_is_required(questions, field_key):
+                raise ValidationError(f"participant_metadata is missing {field_key}.")
+            continue
         normalized[field_key] = _validate_participant_metadata_value(
             field_key,
             value.get(field_key),
@@ -259,6 +317,15 @@ def _validate_participant_metadata(
         )
 
     return normalized
+
+
+def _participant_field_is_required(questions: list[dict[str, Any]], field_key: str) -> bool:
+    participant_question = next(
+        (question for question in questions if question.get("type") == "participant-id"),
+        None,
+    )
+    field_config = ((participant_question or {}).get("fields") or {}).get(field_key) or {}
+    return _normalize_boolean(field_config.get("required", True))
 
 
 def _stored_participant_fields(questions: list[dict[str, Any]]) -> list[str]:
@@ -606,6 +673,8 @@ def _validate_answer_value(
 # ============================================================
 def _validate_question(question_data: Any, question_index: int) -> dict[str, Any]:
     normalized = _validate_question_by_type(question_data, question_index)
+    if normalized.get("type") not in NON_ANSWER_QUESTION_TYPES:
+        normalized["required"] = _normalize_boolean(question_data.get("required", True))
 
     # Optional per-question info text, shared by every card type. Only kept when set.
     info_top = _normalize_text(question_data.get("info_top"))
@@ -877,10 +946,16 @@ def _validate_participant_fields(value: Any, question_index: int) -> dict[str, d
             raw_field.get("use_for_key", defaults["use_for_key"])
         )
         store = enabled and _normalize_boolean(raw_field.get("store", defaults["store"]))
+        required = enabled and _normalize_boolean(raw_field.get("required", defaults["required"]))
+        if use_for_key and raw_field.get("required") is not None and not required:
+            raise ValidationError(
+                f"Question {question_index} participant field {field_key} cannot be optional because it is used for the anonymous code."
+            )
         normalized[field_key] = {
             "enabled": enabled,
             "use_for_key": use_for_key,
             "store": store,
+            "required": True if use_for_key else required,
         }
         if field_key in CONFIGURABLE_OPTION_DEFAULTS:
             normalized[field_key]["options"] = _normalize_field_options(

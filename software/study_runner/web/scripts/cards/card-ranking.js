@@ -1,9 +1,6 @@
 import { t } from '../i18n.js';
+import { escapeHtml } from '../lib/dom-utils.js';
 import { renderCardInstruction } from './card-info.js';
-
-function escapeHtml(v) {
-  return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
 
 export const meta = { type:'ranking', icon:'sort', label:'Ranking', pill:'pill-ranking' };
 

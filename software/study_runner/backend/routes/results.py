@@ -19,6 +19,7 @@ from ..services.results_service import (
     save_results_payload,
 )
 from ..services.secrets_service import redact_hardware_config
+from ..services.sensor_flush_service import discard_session_flush_files
 from ..services.study_config_service import load_config
 from ..services.upload_jobs_service import build_job_metadata
 from ..services.validation import (
@@ -110,6 +111,11 @@ def save_results():
     if saved_output.get("xdf_file"):
         print(f"[DATA] XDF: {saved_output['xdf_file']}")
     _discard_partial_snapshot(result_payload)
+    discard_session_flush_files(
+        current_app.config["DATA_DIR"],
+        str(config_data.get("study_id") or ""),
+        str(result_payload.get("session_id") or ""),
+    )
 
     # The results are on disk at this point; network work is journaled locally
     # and the participant receives the response without waiting for it.

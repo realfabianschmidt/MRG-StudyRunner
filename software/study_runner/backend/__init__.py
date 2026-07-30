@@ -15,6 +15,8 @@ from .services.runtime_config import (
     resolve_runtime_paths,
 )
 from .services.secrets_service import load_local_secrets
+from .services.sensor_flush_service import SensorFlushService
+from .services.session_store import SessionStore
 from .services.upload_runtime import configure_upload_jobs
 
 
@@ -86,9 +88,13 @@ def create_app() -> Flask:
     app.config["HARDWARE_CONFIG"] = hardware_config
     app.config["LOCAL_SECRETS"] = local_secrets
     app.config["SESSION_SENSOR_OVERRIDES"] = {}
-    app.config["STUDY_SESSIONS"] = {}
+    app.config["SESSION_STORE"] = SessionStore(app.config["DATA_DIR"])
+    app.config["SENSOR_FLUSH_SERVICE"] = SensorFlushService(app)
 
-    if not _hardware_disabled():
+    hardware_disabled = _hardware_disabled()
+    app.config["HARDWARE_DISABLED"] = hardware_disabled
+
+    if not hardware_disabled:
         initialize_plugins(_integration_context(app))
 
     configure_upload_jobs(app)

@@ -1,6 +1,7 @@
 ﻿import { getJson, postJson } from './api-client.js';
 
 import { t } from './i18n.js';
+import { escapeHtml } from './lib/dom-utils.js';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -735,15 +736,6 @@ function formatIntegrationName(key) {
 
 function dataAttr(value) {
   return escapeHtml(value === null || value === undefined ? '' : value);
-}
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 window.addEventListener('beforeunload', () => {

@@ -1,8 +1,5 @@
 import { t } from '../i18n.js';
-
-function escapeHtml(v) {
-  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');
-}
+import { escapeHtml } from '../lib/dom-utils.js';
 
 export const meta = {
   type: 'stimulus',

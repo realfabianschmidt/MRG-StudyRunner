@@ -1,6 +1,7 @@
 ﻿import { getJson, postJson } from './api-client.js';
 
 import { t } from './i18n.js';
+import { escapeHtml } from './lib/dom-utils.js';
 
 let callbacks = {};
 let clearKeyRequested = false;
@@ -320,13 +321,4 @@ function getCurrentStudyName() {
 function setText(id, value) {
   const target = $(id);
   if (target) target.textContent = value;
-}
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

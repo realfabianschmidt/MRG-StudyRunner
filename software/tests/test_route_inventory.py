@@ -44,6 +44,9 @@ EXPECTED_ROUTES = {
     ("POST", "/api/admin/radar/restart"),
     ("POST", "/api/admin/radar/start"),
     ("POST", "/api/admin/radar/stop"),
+    ("GET", "/api/admin/recovery"),
+    ("POST", "/api/admin/recovery/discard"),
+    ("POST", "/api/admin/recovery/finalize"),
     ("POST", "/api/admin/restart"),
     ("POST", "/api/admin/session-overrides/reset"),
     ("GET", "/api/admin/sessions"),
@@ -135,6 +138,23 @@ class RouteInventoryTests(unittest.TestCase):
             self.assertEqual(sync.status_code, 200)
             self.assertEqual(payload["client_send_ms"], 12.5)
             self.assertLessEqual(payload["server_receive_ms"], payload["server_send_ms"])
+
+            marker = client.post(
+                "/api/marker",
+                json={
+                    "send_signal": False,
+                    "study_id": "Study A",
+                    "participant_id": "p01",
+                    "question_index": 1,
+                    "question_type": "likert",
+                    "phase": "shown",
+                    "marker_event": "question_shown",
+                    "clock_offset_ms": 250.5,
+                    "client_trigger_epoch_ms": 1760000000123.4,
+                },
+            )
+            self.assertEqual(marker.status_code, 200)
+            self.assertTrue(marker.get_json()["ok"])
 
             runtime = client.get("/api/study/runtime")
             self.assertEqual(runtime.status_code, 200)

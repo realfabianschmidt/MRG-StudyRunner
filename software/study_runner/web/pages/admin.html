@@ -23,6 +23,17 @@
       </div>
     </header>
 
+    <div class="recovery-banner" id="recovery-banner" hidden>
+      <div class="recovery-banner-header">
+        <i class="iconoir-warning-triangle"></i>
+        <div>
+          <strong data-i18n="recovery.title">Interrupted session found</strong>
+          <p data-i18n="recovery.subtitle">Study Runner was closed or restarted while a study was running. Review what was recorded, then finalize it into a normal result or discard it.</p>
+        </div>
+      </div>
+      <div class="recovery-list" id="recovery-list"></div>
+    </div>
+
     <div class="hub-grid">
       <div class="hub-section">
         <h2 data-i18n="hub.quickAccess">Quick access</h2>
@@ -274,7 +285,7 @@
 <!-- NOTION SETTINGS VIEW -->
 <div id="view-notion-settings" class="admin-view" hidden>
   <div style="padding: 60px 40px;">
-    <section class="admin-dashboard notion-settings-page" id="notion-settings-page">
+    <section class="admin-dashboard settings-page" id="notion-settings-page">
       <div class="dashboard-hero">
         <div>
           <span class="dashboard-kicker" data-i18n="notion.uploadIntegration">Upload Integration</span>
@@ -404,7 +415,7 @@
       <div class="dashboard-hero">
         <div>
           <span class="dashboard-kicker" data-i18n="sessions.kicker">Completed study</span>
-          <h1 id="session-detail-title" data-i18n="sessions.loading">Loading ...</h1>
+          <h1 id="session-detail-title" data-i18n="sessions.detailLoading">Loading ...</h1>
           <p id="session-detail-subtitle"></p>
         </div>
         <button class="btn-secondary" id="btn-session-back" type="button">

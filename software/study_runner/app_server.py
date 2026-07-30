@@ -28,6 +28,7 @@ from study_runner.backend.services.runtime_config import (
     read_server_host,
     read_server_port,
 )
+from study_runner.backend.services.sensor_flush_service import SensorFlushService
 from study_runner.backend.services.ssl_service import ensure_local_ssl_certificate
 from study_runner.backend.services.upload_jobs_service import UploadJobService
 
@@ -192,11 +193,13 @@ def run_app() -> None:
     ssl_context = get_ssl_context()
     _start_certificate_download(local_ips)
     upload_jobs: UploadJobService = app.config["UPLOAD_JOBS_SERVICE"]
+    sensor_flush: SensorFlushService = app.config["SENSOR_FLUSH_SERVICE"]
     should_run_background = not is_background_disabled() and (
         not is_debug_enabled() or os.getenv("WERKZEUG_RUN_MAIN") == "true"
     )
     if should_run_background:
         upload_jobs.start()
+        sensor_flush.start()
     scheme = "https" if ssl_context else "http"
     admin_url = f"{scheme}://localhost:{port}/admin"
 
@@ -234,6 +237,7 @@ def run_app() -> None:
         raise
     finally:
         upload_jobs.stop()
+        sensor_flush.stop()
         _stop_certificate_download()
 
 

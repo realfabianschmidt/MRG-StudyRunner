@@ -167,6 +167,73 @@ class ResultsServicePathTests(unittest.TestCase):
         self.assertEqual(details[0]["biosignal_interval_timing_source"], "server_clock")
         self.assertEqual(calls, [(shown_epoch, answered_epoch)])
 
+    def test_answer_details_include_skipped_optional_questions(self) -> None:
+        details, calls = self._capture_answer_details(
+            {
+                "participant_id": "p01",
+                "timestamp_start": "2026-01-01T10:00:00Z",
+                "timestamp_end": "2026-01-01T10:01:00Z",
+                "answers": {"q1": 5},
+                "answer_events": [],
+                "card_events": [
+                    {
+                        "question_index": 0,
+                        "question_type": "likert",
+                        "shown_at": "2026-01-01T10:00:10Z",
+                        "completed_at": "2026-01-01T10:00:20Z",
+                    },
+                    {
+                        "question_index": 1,
+                        "question_type": "likert",
+                        "shown_at": "2026-01-01T10:00:20Z",
+                        "answered_at": "2026-01-01T10:00:30Z",
+                    },
+                ],
+            },
+            {
+                "questions": [
+                    {"type": "likert", "prompt": "Optional", "required": False},
+                    {"type": "likert", "prompt": "Required"},
+                    {"type": "finish"},
+                ]
+            },
+        )
+
+        self.assertEqual(len(details), 2)
+        self.assertTrue(details[0]["skipped"])
+        self.assertIsNone(details[0]["answer"])
+        self.assertEqual(details[0]["question_key"], "q0")
+        self.assertEqual(calls[0], (self._iso_epoch("2026-01-01T10:00:10Z"), self._iso_epoch("2026-01-01T10:00:20Z")))
+
+    def test_answer_details_do_not_mark_unshown_optional_questions_as_skipped(self) -> None:
+        details, calls = self._capture_answer_details(
+            {
+                "participant_id": "p01",
+                "timestamp_start": "2026-01-01T10:00:00Z",
+                "timestamp_end": "2026-01-01T10:01:00Z",
+                "answers": {"q0": 5},
+                "answer_events": [],
+                "card_events": [
+                    {
+                        "question_index": 0,
+                        "question_type": "likert",
+                        "shown_at": "2026-01-01T10:00:10Z",
+                        "answered_at": "2026-01-01T10:00:20Z",
+                    },
+                ],
+            },
+            {
+                "questions": [
+                    {"type": "likert", "prompt": "Answered"},
+                    {"type": "likert", "prompt": "Never shown", "required": False},
+                    {"type": "finish"},
+                ]
+            },
+        )
+
+        self.assertEqual([detail["question_key"] for detail in details], ["q0"])
+        self.assertEqual(len(calls), 1)
+
     def test_data_warnings_flag_gaps_dropouts_and_truncation(self) -> None:
         warnings = results_service._build_data_warnings(
             {

@@ -474,7 +474,7 @@ def _format_answer_details(answer_details: list[dict[str, Any]]) -> list[str]:
         question_number = detail.get("question_number")
         question_type = detail.get("question_type") or "question"
         prompt = str(detail.get("question_prompt") or "").replace("\n", " ").strip()
-        answer_text = _format_answer_value(detail.get("answer"))
+        answer_text = "\u2014" if detail.get("skipped") else _format_answer_value(detail.get("answer"))
         interval_seconds = detail.get("interval_seconds", detail.get("seconds_since_previous_answer"))
         interval_text = f"{interval_seconds:.1f}s" if isinstance(interval_seconds, (int, float)) else "n/a"
         interval_kind = detail.get("biosignal_interval_kind") or "question_visible"

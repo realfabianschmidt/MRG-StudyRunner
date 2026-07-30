@@ -128,6 +128,23 @@ class NotionParticipantMetadataTests(unittest.TestCase):
         self.assertIn("gamma=5.00", lines[0])
         self.assertIn("dist=150.00", lines[0])
 
+    def test_answer_detail_format_renders_skipped_answers_as_dash(self) -> None:
+        lines = adapter._format_answer_details(
+            [
+                {
+                    "question_number": 2,
+                    "question_type": "likert",
+                    "question_prompt": "Optional rating",
+                    "answer": None,
+                    "skipped": True,
+                    "biosignal_interval_kind": "question_visible",
+                    "interval_seconds": 3.0,
+                }
+            ]
+        )
+
+        self.assertIn("Antwort: \u2014", lines[0])
+
 
 if __name__ == "__main__":
     unittest.main()

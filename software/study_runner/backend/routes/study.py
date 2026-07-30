@@ -23,8 +23,8 @@ from .helpers import (
     _start_or_reuse_study_session,
     _start_study_camera_monitor_runtime,
     _start_study_sensor_runtime,
+    _stop_study_session_tracking,
     _stop_study_sensor_runtime,
-    _study_sessions,
     _valid_participant_id,
 )
 
@@ -69,8 +69,7 @@ def start_study_session():
 def stop_study_session():
     payload = request.get_json() or {}
     session_id = str(payload.get("session_id") or "").strip()
-    if session_id and session_id in _study_sessions():
-        _study_sessions()[session_id]["status"] = "completed"
+    _stop_study_session_tracking(session_id)
     result = _stop_study_sensor_runtime()
     return jsonify({"ok": True, **result})
 

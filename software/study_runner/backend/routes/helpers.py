@@ -9,7 +9,6 @@ import os
 import subprocess
 import sys
 import time
-import uuid
 
 from flask import current_app
 
@@ -21,6 +20,7 @@ from study_runner.integrations.registry import (
 )
 from ..services.hardware_settings_service import set_integration_enabled
 from ..services.secrets_service import load_local_secrets, save_local_secrets
+from ..services.session_store import public_session
 from ..services.study_config_service import load_config
 from ..services.study_sensor_runtime import (
     SESSION_OVERRIDE_KEYS,
@@ -33,6 +33,33 @@ from ..services.trial_service import configure_runtime
 from ..services.validation import validate_and_normalize_config
 
 ACTIVE_RUNTIME_TOGGLE_KEYS = {"lsl", "labrecorder"}
+
+
+def _hardware_disabled() -> bool:
+    configured = current_app.config.get("HARDWARE_DISABLED")
+    if configured is not None:
+        return bool(configured)
+    return os.getenv("STUDY_RUNNER_DISABLE_HARDWARE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _hardware_disabled_result(sensor_key: str) -> dict:
+    return {"ok": True, "integration": sensor_key, "skipped": True, "reason": "hardware_disabled"}
+
+
+def _disable_runtime_hardware(config_data: dict) -> dict:
+    disabled = _copy_config(config_data)
+    for key in SESSION_OVERRIDE_KEYS:
+        section = disabled.get(key)
+        if not isinstance(section, dict):
+            section = {}
+            disabled[key] = section
+        section["enabled"] = False
+    return disabled
 
 
 def _runtime_hardware_config() -> dict:
@@ -135,6 +162,12 @@ def _apply_session_override_runtime(integration_key: str, enabled: bool) -> dict
     active_config = _rebuild_active_study_runtime_config()
     context = _integration_context(active_config) if isinstance(active_config, dict) else _integration_context()
     result: dict = {}
+
+    if _hardware_disabled():
+        if isinstance(active_config, dict):
+            current_app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = _disable_runtime_hardware(active_config)
+            _refresh_trial_runtime()
+        return _hardware_disabled_result(integration_key)
 
     if integration_key in STUDY_SENSOR_KEYS:
         try:
@@ -256,6 +289,18 @@ def _start_study_sensor_runtime(study_settings: dict) -> dict:
     selected_sensors = runtime_state["effective"]
     current_app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = effective_hardware_config
     current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = []
+
+    if _hardware_disabled():
+        disabled_config = _disable_runtime_hardware(effective_hardware_config)
+        current_app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = disabled_config
+        _refresh_trial_runtime()
+        return {
+            "sensors": selected_sensors,
+            "sensor_runtime": runtime_state,
+            "active_plugins": [],
+            "runtime": {key: _hardware_disabled_result(key) for key in STUDY_SENSOR_KEYS},
+        }
+
     _refresh_trial_runtime()
 
     context = _integration_context(effective_hardware_config)
@@ -331,120 +376,53 @@ def _start_study_camera_monitor_runtime() -> dict:
     return run_runtime_action("camera_emotion", "start", context)
 
 
-def _study_sessions() -> dict:
-    sessions = current_app.config.setdefault("STUDY_SESSIONS", {})
-    return sessions if isinstance(sessions, dict) else {}
+def _session_store():
+    return current_app.config["SESSION_STORE"]
 
 
 def _find_active_study_session(study_id: str, participant_id: str, client_id: str = "") -> dict | None:
-    for session in _study_sessions().values():
-        if session.get("status") != "active":
-            continue
-        if session.get("study_id") != study_id or session.get("participant_id") != participant_id:
-            continue
-        if client_id and session.get("client_id") != client_id:
-            continue
-        return session
-    return None
+    return _session_store().find_active(study_id, participant_id, client_id)
 
 
 def _start_or_reuse_study_session(payload: dict) -> dict:
-    study_id = str(payload.get("study_id") or "").strip()
-    participant_id = str(payload.get("participant_id") or "").strip()
-    client_id = str(payload.get("client_id") or "").strip()
-    existing = _find_active_study_session(study_id, participant_id, client_id)
-    now = time.time()
-    if existing:
-        existing["last_seen"] = now
-        existing["last_seen_at"] = _format_server_time(now)
-        return {**existing, "reused": True}
-
-    session_id = str(payload.get("session_id") or f"study-session-{uuid.uuid4()}").strip()
-    session = {
-        "session_id": session_id,
-        "client_id": client_id,
-        "study_id": study_id,
-        "participant_id": participant_id,
-        "current_index": payload.get("current_index"),
-        "current_type": payload.get("current_type"),
-        "status": "active",
-        "started_at": _format_server_time(now),
-        "last_seen": now,
-        "last_seen_at": _format_server_time(now),
-        "events": [],
-    }
-    _study_sessions()[session_id] = session
-    return {**session, "reused": False}
+    return _session_store().start_or_reuse(payload)
 
 
 def _resume_study_session(payload: dict) -> dict | None:
-    session_id = str(payload.get("session_id") or "").strip()
-    study_id = str(payload.get("study_id") or "").strip()
-    participant_id = str(payload.get("participant_id") or "").strip()
-    client_id = str(payload.get("client_id") or "").strip()
-    session = _study_sessions().get(session_id) if session_id else None
-    if not session:
-        session = _find_active_study_session(study_id, participant_id, client_id)
-    if not session:
-        return None
-    now = time.time()
-    session["status"] = "active"
-    session["last_seen"] = now
-    session["last_seen_at"] = _format_server_time(now)
-    _append_session_event(session, payload.get("event") or "study_resume_after_reload", payload)
+    session = _session_store().resume(payload)
+    if session is not None:
+        _restart_sensor_runtime_if_needed(session)
     return session
 
 
+def _restart_sensor_runtime_if_needed(session: dict) -> None:
+    """Bring sensors back up for a session resumed after a server restart.
+
+    ``ACTIVE_STUDY_HARDWARE_CONFIG`` lives only in ``current_app.config``, so
+    it is gone after a crash/restart even though the session itself is now
+    rehydrated. Without this, a resumed tablet would look fine while no
+    sensor is actually recording again.
+    """
+    if current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"):
+        return
+    try:
+        study_settings = _current_study_settings()
+        _start_study_sensor_runtime(study_settings)
+    except Exception as error:
+        print(f"[SESSIONS] Could not restart sensors for resumed session: {error}")
+
+
+def _stop_study_session_tracking(session_id: str) -> None:
+    if session_id:
+        _session_store().mark_completed(session_id)
+
+
 def _record_study_client_event(payload: dict) -> dict:
-    session_id = str(payload.get("session_id") or "").strip()
-    study_id = str(payload.get("study_id") or "").strip()
-    participant_id = str(payload.get("participant_id") or "").strip()
-    client_id = str(payload.get("client_id") or "").strip()
-    session = _study_sessions().get(session_id) if session_id else None
-    if not session:
-        session = _find_active_study_session(study_id, participant_id, client_id)
+    session = _session_store().record_client_event(payload)
     if session is None:
         return {"recorded": False, "reason": "session_not_found"}
-    _append_session_event(session, payload.get("event") or "client_event", payload)
     return {"recorded": True, "session": _public_study_session(session)}
 
 
-def _append_session_event(session: dict, event: object, payload: dict) -> None:
-    events = session.setdefault("events", [])
-    event_name = str(event or "client_event").strip() or "client_event"
-    session["current_index"] = payload.get("current_index", session.get("current_index"))
-    session["current_type"] = payload.get("current_type", session.get("current_type"))
-    item = {
-        "event": event_name,
-        "received_at": _format_server_time(time.time()),
-        "current_index": payload.get("current_index"),
-        "current_type": payload.get("current_type"),
-        "is_stimulus_active": bool(payload.get("is_stimulus_active", False)),
-    }
-    if event_name in {"client_reload_or_leave", "pagehide", "beforeunload"} and item["is_stimulus_active"]:
-        item["interrupted_by_reload"] = True
-        session["last_interruption"] = item
-    events.append(item)
-    if len(events) > 50:
-        del events[:-50]
-
-
 def _public_study_session(session: dict | None) -> dict | None:
-    if not session:
-        return None
-    return {
-        "session_id": session.get("session_id"),
-        "client_id": session.get("client_id"),
-        "study_id": session.get("study_id"),
-        "participant_id": session.get("participant_id"),
-        "current_index": session.get("current_index"),
-        "current_type": session.get("current_type"),
-        "status": session.get("status"),
-        "started_at": session.get("started_at"),
-        "last_seen_at": session.get("last_seen_at"),
-        "last_interruption": session.get("last_interruption"),
-    }
-
-
-def _format_server_time(timestamp: float) -> str:
-    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
+    return public_session(session)

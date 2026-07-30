@@ -102,15 +102,15 @@ class ValidationTests(unittest.TestCase):
         )
 
         fields = config["questions"][0]["fields"]
-        self.assertEqual(fields["first_name"], {"enabled": True, "use_for_key": True, "store": False})
-        self.assertEqual(fields["last_name"], {"enabled": True, "use_for_key": True, "store": False})
-        self.assertEqual(fields["age_group"], {"enabled": True, "use_for_key": True, "store": True, "options": ["18-25", "26-35", "36-45", "46-60", "60+"]})
-        self.assertEqual(fields["childhood_area"], {"enabled": True, "use_for_key": True, "store": True})
-        self.assertEqual(fields["childhood_nearest_city"], {"enabled": True, "use_for_key": True, "store": True})
+        self.assertEqual(fields["first_name"], {"enabled": True, "use_for_key": True, "store": False, "required": True})
+        self.assertEqual(fields["last_name"], {"enabled": True, "use_for_key": True, "store": False, "required": True})
+        self.assertEqual(fields["age_group"], {"enabled": True, "use_for_key": True, "store": True, "required": True, "options": ["18-25", "26-35", "36-45", "46-60", "60+"]})
+        self.assertEqual(fields["childhood_area"], {"enabled": True, "use_for_key": True, "store": True, "required": True})
+        self.assertEqual(fields["childhood_nearest_city"], {"enabled": True, "use_for_key": True, "store": True, "required": True})
         # New fields default to disabled so existing studies are unchanged.
-        self.assertEqual(fields["gender"], {"enabled": False, "use_for_key": False, "store": False, "options": ["Female", "Male", "Non-binary", "Prefer not to say"]})
-        self.assertEqual(fields["birth_place"], {"enabled": False, "use_for_key": False, "store": False})
-        self.assertEqual(fields["birth_date"], {"enabled": False, "use_for_key": False, "store": False})
+        self.assertEqual(fields["gender"], {"enabled": False, "use_for_key": False, "store": False, "required": False, "options": ["Female", "Male", "Non-binary", "Prefer not to say"]})
+        self.assertEqual(fields["birth_place"], {"enabled": False, "use_for_key": False, "store": False, "required": False})
+        self.assertEqual(fields["birth_date"], {"enabled": False, "use_for_key": False, "store": False, "required": False})
 
     def test_participant_id_needs_at_least_one_key_field(self) -> None:
         with self.assertRaises(ValidationError):
@@ -244,6 +244,118 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(len(result["card_events"]), 2)
         self.assertEqual(result["card_events"][0]["active_started_at"], "2026-01-01T10:00:02Z")
 
+    def test_optional_question_may_be_missing_but_required_question_still_fails(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Optional Answers",
+                "questions": [
+                    {"type": "likert", "prompt": "Optional?", "required": False},
+                    {"type": "likert", "prompt": "Required by default"},
+                    {"type": "finish"},
+                ],
+            }
+        )
+
+        result = validate_and_normalize_results(
+            {
+                "participant_id": "abc123",
+                "study_id": "Optional Answers",
+                "timestamp_start": "2026-01-01T10:00:00Z",
+                "timestamp_end": "2026-01-01T10:01:00Z",
+                "answers": {"q1": 5},
+                "participant_metadata": {},
+                "card_events": [
+                    {
+                        "question_index": 0,
+                        "question_type": "likert",
+                        "shown_at": "2026-01-01T10:00:10Z",
+                    },
+                    {
+                        "question_index": 1,
+                        "question_type": "likert",
+                        "shown_at": "2026-01-01T10:00:20Z",
+                        "answered_at": "2026-01-01T10:00:30Z",
+                    },
+                ],
+            },
+            config,
+        )
+        self.assertEqual(config["questions"][0]["required"], False)
+        self.assertEqual(config["questions"][1]["required"], True)
+        self.assertEqual(result["answers"], {"q1": 5})
+        self.assertEqual(result["skipped_questions"], ["q0"])
+
+        with self.assertRaises(ValidationError):
+            validate_and_normalize_results(
+                {
+                    "participant_id": "abc123",
+                    "study_id": "Optional Answers",
+                    "timestamp_start": "2026-01-01T10:00:00Z",
+                    "timestamp_end": "2026-01-01T10:01:00Z",
+                    "answers": {"q0": 4},
+                    "participant_metadata": {},
+                },
+                config,
+            )
+
+    def test_unshown_optional_question_is_not_marked_skipped(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Recovered Partial",
+                "questions": [
+                    {"type": "likert", "prompt": "Answered"},
+                    {"type": "likert", "prompt": "Never shown", "required": False},
+                    {"type": "finish"},
+                ],
+            }
+        )
+
+        result = validate_and_normalize_results(
+            {
+                "participant_id": "abc123",
+                "study_id": "Recovered Partial",
+                "timestamp_start": "2026-01-01T10:00:00Z",
+                "timestamp_end": "2026-01-01T10:01:00Z",
+                "answers": {"q0": 4},
+                "participant_metadata": {},
+                "card_events": [
+                    {
+                        "question_index": 0,
+                        "question_type": "likert",
+                        "shown_at": "2026-01-01T10:00:10Z",
+                        "answered_at": "2026-01-01T10:00:20Z",
+                    }
+                ],
+            },
+            config,
+        )
+
+        self.assertEqual(result["skipped_questions"], [])
+
+    def test_optional_question_with_invalid_provided_answer_still_fails(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Optional Provided",
+                "questions": [
+                    {"type": "choice", "prompt": "Pick any", "options": ["A", "B"], "required": False},
+                    {"type": "finish"},
+                ],
+            }
+        )
+
+        with self.assertRaises(ValidationError):
+            validate_and_normalize_results(
+                {
+                    "participant_id": "abc123",
+                    "study_id": "Optional Provided",
+                    "timestamp_start": "2026-01-01T10:00:00Z",
+                    "timestamp_end": "2026-01-01T10:01:00Z",
+                    "answers": {"q0": ["C"]},
+                    "participant_metadata": {},
+                },
+                config,
+            )
+
     def test_trial_options_accept_marker_metadata_and_epoch_trigger(self) -> None:
         options = validate_and_normalize_trial_options(
             {
@@ -253,6 +365,7 @@ class ValidationTests(unittest.TestCase):
                 "question_type": "stimulus",
                 "phase": "stimulus_active_start",
                 "marker_event": "stimulus_active_start",
+                "clock_offset_ms": 250.5,
                 "client_trigger_epoch_ms": 1760000000123.4,
             }
         )
@@ -261,6 +374,16 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(options["question_index"], 2)
         self.assertEqual(options["question_type"], "stimulus")
         self.assertEqual(options["marker_event"], "stimulus_active_start")
+        self.assertEqual(options["clock_offset_ms"], 250.5)
+
+    def test_trial_options_reject_performance_epoch_bridge_as_clock_offset(self) -> None:
+        with self.assertRaises(ValidationError):
+            validate_and_normalize_trial_options(
+                {
+                    "clock_offset_ms": 1760000000123.4,
+                    "client_trigger_epoch_ms": 1760000000123.4,
+                }
+            )
 
     def test_study_sensor_defaults_preserve_legacy_biosignal_studies(self) -> None:
         config = validate_and_normalize_config(
@@ -470,6 +593,68 @@ class ValidationTests(unittest.TestCase):
                     "participant_metadata": {"birth_date": "not-a-date"},
                 },
                 config,
+            )
+
+    def test_optional_stored_participant_metadata_may_be_absent(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Optional Metadata",
+                "questions": [
+                    {
+                        "type": "participant-id",
+                        "fields": {
+                            "first_name": {"enabled": True, "use_for_key": True, "store": False},
+                            "gender": {
+                                "enabled": True,
+                                "use_for_key": False,
+                                "store": True,
+                                "required": False,
+                            },
+                            "age_group": {"enabled": False},
+                            "childhood_area": {"enabled": False},
+                            "childhood_nearest_city": {"enabled": False},
+                        },
+                    },
+                    {"type": "finish"},
+                ],
+            }
+        )
+
+        result = validate_and_normalize_results(
+            {
+                "participant_id": "abc123",
+                "study_id": "Optional Metadata",
+                "timestamp_start": "2026-01-01T10:00:00Z",
+                "timestamp_end": "2026-01-01T10:01:00Z",
+                "answers": {},
+                "participant_metadata": {},
+            },
+            config,
+        )
+
+        self.assertEqual(config["questions"][0]["fields"]["gender"]["required"], False)
+        self.assertEqual(result["participant_metadata"], {})
+
+    def test_participant_metadata_used_for_key_cannot_be_optional(self) -> None:
+        with self.assertRaises(ValidationError):
+            validate_and_normalize_config(
+                {
+                    "study_id": "Bad Metadata",
+                    "questions": [
+                        {
+                            "type": "participant-id",
+                            "fields": {
+                                "first_name": {
+                                    "enabled": True,
+                                    "use_for_key": True,
+                                    "store": False,
+                                    "required": False,
+                                },
+                            },
+                        },
+                        {"type": "finish"},
+                    ],
+                }
             )
 
 

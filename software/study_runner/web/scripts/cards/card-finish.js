@@ -1,9 +1,8 @@
 import { t } from '../i18n.js';
+import { escapeHtml } from '../lib/dom-utils.js';
 import { renderCardInstruction } from './card-info.js';
 
-export function escapeHtml(v) {
-  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
+export { escapeHtml };
 
 export const meta = {
   type: 'finish',

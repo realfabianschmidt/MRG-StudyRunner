@@ -310,6 +310,7 @@ def build_answer_details(
         answer_key = None if question_type in {"participant-id", "stimulus"} else f"q{question_index}"
         if is_stimulus:
             answer_value = "stimulus"
+            skipped = False
             interval_start = event.get("active_started_at") or event.get("shown_at") or result_payload.get("timestamp_start")
             interval_end = (
                 event.get("active_ended_at")
@@ -318,9 +319,18 @@ def build_answer_details(
             )
             interval_kind = "stimulus_active"
         else:
-            answer_value = participant_id if question_type == "participant-id" else answers.get(answer_key)
-            if answer_value is None and question_type != "participant-id":
-                continue
+            skipped = False
+            if question_type == "participant-id":
+                answer_value = participant_id
+            elif answer_key not in answers or answers.get(answer_key) is None:
+                if _question_is_required(question):
+                    continue
+                if not event:
+                    continue
+                answer_value = None
+                skipped = True
+            else:
+                answer_value = answers.get(answer_key)
             interval_start = event.get("shown_at") or result_payload.get("timestamp_start")
             interval_end = (
                 event.get("answered_at")
@@ -337,45 +347,55 @@ def build_answer_details(
             interval_start_iso=interval_start,
             interval_end_iso=interval_end,
         )
-        entries.append(
-            {
-                "question_index": question_index,
-                "question_number": question_index + 1,
-                "question_key": answer_key or ("stimulus" if is_stimulus else "participant_id"),
-                "question_type": question_type,
-                "question_prompt": _question_prompt(question),
-                "answer": answer_value,
-                "shown_at": event.get("shown_at") or result_payload.get("timestamp_start"),
-                "answered_at": event.get("answered_at") or event.get("completed_at") or result_payload.get("timestamp_end"),
-                "active_started_at": event.get("active_started_at"),
-                "active_ended_at": event.get("active_ended_at"),
-                "server_start_received_at": event.get("server_start_received_at"),
-                "server_stop_received_at": event.get("server_stop_received_at"),
-                "server_start_received_epoch_ms": event.get("server_start_received_epoch_ms"),
-                "server_stop_received_epoch_ms": event.get("server_stop_received_epoch_ms"),
-                "client_start_trigger_epoch_ms": event.get("client_start_trigger_epoch_ms"),
-                "client_stop_trigger_epoch_ms": event.get("client_stop_trigger_epoch_ms"),
-                "start_marker": event.get("start_marker"),
-                "stop_marker": event.get("stop_marker"),
-                "biosignal_interval_start": interval_start,
-                "biosignal_interval_end": interval_end,
-                "biosignal_interval_kind": interval_kind,
-                "biosignal_interval_timing_source": timing_source,
-                "interval_seconds": interval_seconds,
-                "seconds_since_previous_answer": interval_seconds,
-                "biosignal_interval": _interval_summary_from_epochs(
-                    hardware_config,
-                    start_epoch,
-                    end_epoch,
-                ),
-            }
-        )
+        entry = {
+            "question_index": question_index,
+            "question_number": question_index + 1,
+            "question_key": answer_key or ("stimulus" if is_stimulus else "participant_id"),
+            "question_type": question_type,
+            "question_prompt": _question_prompt(question),
+            "answer": answer_value,
+            "shown_at": event.get("shown_at") or result_payload.get("timestamp_start"),
+            "answered_at": event.get("answered_at") or event.get("completed_at") or result_payload.get("timestamp_end"),
+            "active_started_at": event.get("active_started_at"),
+            "active_ended_at": event.get("active_ended_at"),
+            "server_start_received_at": event.get("server_start_received_at"),
+            "server_stop_received_at": event.get("server_stop_received_at"),
+            "server_start_received_epoch_ms": event.get("server_start_received_epoch_ms"),
+            "server_stop_received_epoch_ms": event.get("server_stop_received_epoch_ms"),
+            "client_start_trigger_epoch_ms": event.get("client_start_trigger_epoch_ms"),
+            "client_stop_trigger_epoch_ms": event.get("client_stop_trigger_epoch_ms"),
+            "start_marker": event.get("start_marker"),
+            "stop_marker": event.get("stop_marker"),
+            "biosignal_interval_start": interval_start,
+            "biosignal_interval_end": interval_end,
+            "biosignal_interval_kind": interval_kind,
+            "biosignal_interval_timing_source": timing_source,
+            "interval_seconds": interval_seconds,
+            "seconds_since_previous_answer": interval_seconds,
+            "biosignal_interval": _interval_summary_from_epochs(
+                hardware_config,
+                start_epoch,
+                end_epoch,
+            ),
+        }
+        if skipped:
+            entry["skipped"] = True
+        entries.append(entry)
         entries[-1]["data_warnings"] = _build_data_warnings(
             entries[-1]["biosignal_interval"],
             interval_seconds,
         )
 
     return entries
+
+
+def _question_is_required(question: dict[str, Any]) -> bool:
+    value = question.get("required", True)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
 
 
 _SENSOR_LABELS = {

@@ -1,10 +1,16 @@
 ﻿import { getJson, postJson } from './api-client.js';
 import { initializeAdminDashboard } from './admin-dashboard-controller.js';
 import { initializeNotionSettings } from './notion-settings-controller.js';
+import { initializeNextcloudSettings } from './admin/nextcloud-settings-controller.js';
+import { initializeCertificateSettings } from './admin/certificate-settings-controller.js';
+import { initializeSessionsBrowser, loadCompletedSessions } from './admin/sessions-browser.js';
+import { initializeUploadMonitor } from './admin/upload-monitor.js';
+import { initializeRecoveryPanel, loadRecoveryCandidates } from './admin/recovery-panel.js';
 import { CARDS, CARD_TYPES, defaultFor } from './cards/index.js';
 import { renderInfoBottom, renderInfoEditor, collectInfo } from './cards/card-info.js';
 import { initI18n, setLanguage, getLanguage, t } from './i18n.js';
 import { createQrSvg } from './qr-code.js';
+import { escapeHtml } from './lib/dom-utils.js';
 
 // Load the saved or default UI language and wire the EN/DE switcher.
 // A locale failure must never break the admin page, so failures are swallowed.
@@ -32,10 +38,6 @@ async function setupLanguage() {
     });
   });
   markActive();
-}
-
-function escapeHtml(v) {
-  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 const state = {
@@ -118,6 +120,21 @@ async function init() {
     getCurrentStudyName,
     saveStudyConfig: saveConfig,
   });
+  initializeNextcloudSettings({
+    showToast,
+    switchView,
+    getStudyConfig: () => state.config,
+    setStudySettings: (settings) => {
+      state.config.study_settings = normalizeStudySettings(settings);
+      markUnsaved();
+    },
+    getCurrentStudyName,
+    saveStudyConfig: saveConfig,
+  });
+  initializeCertificateSettings({ showToast, switchView });
+  initializeSessionsBrowser({ showToast, switchView });
+  initializeUploadMonitor({ showToast });
+  initializeRecoveryPanel({ showToast, onFinalized: loadCompletedSessions });
 
   try {
     await loadRuntimeInfo();
@@ -128,6 +145,8 @@ async function init() {
     updateHubTitle();
     rebuildAll();
     await loadRecentStudies();
+    await loadCompletedSessions();
+    await loadRecoveryCandidates();
     await loadUpdateStatus({ silent: true });
     state.loaded = true;
     showToast(t('toast.studyLoaded', 'Study loaded'), 'info');

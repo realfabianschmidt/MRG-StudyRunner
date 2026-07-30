@@ -1,7 +1,8 @@
 import { getJson, postJson } from './api-client.js';
 import { startCameraCaptureSession } from './camera-capture.js';
 import { CARDS } from './cards/index.js';
-import { renderInfoBottom } from './cards/card-info.js';
+import { renderInfoBottom, renderOptionalTag } from './cards/card-info.js';
+import { escapeHtml } from './lib/dom-utils.js';
 import { onInput as sliderInput } from './cards/card-slider.js';
 import { bindDrag as rankBindDrag } from './cards/card-ranking.js';
 import { onClick as moodMeterClick } from './cards/card-mood-meter.js';
@@ -35,15 +36,6 @@ const RUNTIME_POLL_INTERVAL_MS = 1500;
 
 function getElement(id) {
   return document.getElementById(id);
-}
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 async function init() {
@@ -547,7 +539,7 @@ function buildEventPayload(questionIndex, question, phase, clientTriggerMs = per
     phase,
     client_trigger_ms: clientTriggerMs,
     client_trigger_epoch_ms: estimateServerEpochMs(clientTriggerMs),
-    clock_offset_ms: state.clockOffsetMs,
+    clock_offset_ms: getClientClockOffsetMs(),
   };
 }
 
@@ -678,7 +670,7 @@ function buildQuestions(options = {}) {
     const cardElement = document.createElement('div');
     cardElement.className = 'q-card-study';
     cardElement.id = `card-q-${questionIndex}`;
-    cardElement.innerHTML = cardModule.renderStudy(question, questionIndex) + renderInfoBottom(question);
+    cardElement.innerHTML = renderOptionalTag(question) + cardModule.renderStudy(question, questionIndex) + renderInfoBottom(question);
     container.appendChild(cardElement);
 
     if (question.type === 'ranking') {
@@ -1523,7 +1515,8 @@ function updateNavigation() {
 
   const isFirst = currentIndex === 0;
   const isStimulusBusy = Boolean(state.activeStimulus);
-  const answered = isAnswered(currentIndex) && !isStimulusBusy;
+  const isOptional = currentQuestion?.required === false;
+  const answered = (isOptional || isAnswered(currentIndex)) && !isStimulusBusy;
 
   const isLastNormalCard = (currentIndex === total - 1) || (questions[currentIndex + 1]?.type === 'finish');
   const isPreStudyStart = !state.startTime && currentQuestion?.type === 'participant-id';
@@ -1596,6 +1589,11 @@ function collectAnswers() {
     if (question.type === 'stimulus' || question.type === 'participant-id' || question.type === 'finish') {
       return;
     }
+    // An optional, untouched question is omitted entirely so the server can
+    // tell "shown but skipped" apart from "answered" - never send a default.
+    if (question.required === false && !isAnswered(questionIndex)) {
+      return;
+    }
 
     const cardModule = CARDS[question.type];
     if (cardModule) {
@@ -1616,13 +1614,16 @@ function collectAnswerEvents() {
     }
 
     const metrics = state.questionMetrics[questionIndex] || {};
+    if (!metrics.answered_at) {
+      return;
+    }
     const answerKey = question.type === 'participant-id' ? null : `q${questionIndex}`;
     events.push({
       question_index: questionIndex,
       question_type: question.type,
       answer_key: answerKey,
-      shown_at: metrics.shown_at || new Date(state.startTime || Date.now()).toISOString(),
-      answered_at: metrics.answered_at || new Date().toISOString(),
+      shown_at: metrics.shown_at || metrics.answered_at,
+      answered_at: metrics.answered_at,
     });
   });
 
@@ -1639,10 +1640,13 @@ function collectCardEvents() {
     }
 
     const metrics = state.questionMetrics[questionIndex] || {};
+    if (!metrics.shown_at) {
+      return;
+    }
     const event = {
       question_index: questionIndex,
       question_type: question.type,
-      shown_at: metrics.shown_at || new Date(state.startTime || Date.now()).toISOString(),
+      shown_at: metrics.shown_at,
       shown_at_server_epoch_ms: metrics.shown_at_server_epoch_ms || null,
     };
 
@@ -1659,7 +1663,7 @@ function collectCardEvents() {
       event.start_marker = metrics.start_marker || '';
       event.stop_marker = metrics.stop_marker || '';
     } else {
-      event.answered_at = metrics.answered_at || new Date().toISOString();
+      event.answered_at = metrics.answered_at || null;
       event.answered_at_server_epoch_ms = metrics.answered_at_server_epoch_ms || null;
       event.completed_at = metrics.answered_at || null;
     }

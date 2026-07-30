@@ -35,6 +35,7 @@ Edit-safety legend:
 | `routes/sessions.py` | Read-only completed-session list, detail, and timeline-signal APIs | careful |
 | `routes/certificate.py` | Certificate status plus guarded root-CA export/import endpoints | no |
 | `routes/uploads.py` | Background-upload status/retry and validated result-folder opening | no |
+| `routes/recovery.py` | Lists crash-orphaned sessions and finalizes or discards them | no |
 | `routes/helpers.py` | Shared request helpers: runtime config, sessions, sensor runtime | careful |
 
 ## Backend - services (`software/study_runner/backend/services/`)
@@ -46,6 +47,9 @@ Edit-safety legend:
 | `services/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
 | `services/results_service.py` | Builds answer details, slices biosignals per card, writes result files | no |
 | `services/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |
+| `services/session_store.py` | Persistent, rehydrating registry of active tablet study sessions | no |
+| `services/sensor_flush_service.py` | Periodic background export of live sensor history for crash recovery | no |
+| `services/recovery_service.py` | Finds crash-orphaned sessions and finalizes or discards them | no |
 | `services/nextcloud_service.py` | Uploads session files to writable Nextcloud public shares over WebDAV | careful |
 | `services/update_service.py` | In-app updater: manifest fetch, signature check, download, staging | no |
 | `services/ssl_service.py` | Local HTTPS certificate authority for tablet camera access | no |
@@ -125,6 +129,9 @@ mapping:
 | `admin/nextcloud-settings-controller.js` | The shared-shell Nextcloud setup and connection-test page | careful |
 | `admin/certificate-settings-controller.js` | The shared-shell certificate status, setup, export, and import page | no |
 | `admin/session-timeline.js` | Renders completed-session sensor lanes and answer markers as offline SVG | careful |
+| `admin/sessions-browser.js` | Completed-session hub list, detail panel, and timeline data fetching | careful |
+| `admin/upload-monitor.js` | Background-upload completion modal and the corner progress widget it shrinks to | careful |
+| `admin/recovery-panel.js` | Hub banner listing crash-orphaned sessions, with finalize/discard actions | careful |
 | `lib/dom-utils.js` | Shared safe DOM lookup, text/HTML assignment, and escaping helpers | careful |
 | `lib/modal.js` | Shared accessible modal lifecycle and existing modal-shell markup | careful |
 | `lib/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
