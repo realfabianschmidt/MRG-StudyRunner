@@ -13,10 +13,18 @@ import time
 import webbrowser
 
 from study_runner.backend import create_app
+from study_runner.backend.services.certificate_download_service import (
+    CertificateDownloadError,
+    CertificateDownloadServer,
+    certificate_download_url,
+    start_certificate_download_server,
+)
 from study_runner.backend.services.runtime_config import (
     get_app_mode,
     get_local_private_ips,
+    is_background_disabled,
     is_https_enabled,
+    read_certificate_download_port,
     read_server_host,
     read_server_port,
 )
@@ -25,6 +33,7 @@ from study_runner.backend.services.ssl_service import ensure_local_ssl_certifica
 
 app = create_app()
 _SSL_CERTIFICATE_INFO: dict = {}
+_CERTIFICATE_DOWNLOAD_SERVER: CertificateDownloadServer | None = None
 
 
 def get_local_ip() -> str:
@@ -74,6 +83,57 @@ def _set_ssl_certificate_info(info: dict) -> None:
     global _SSL_CERTIFICATE_INFO
     _SSL_CERTIFICATE_INFO = dict(info)
     app.config["HTTPS_CERTIFICATE"] = dict(info)
+
+
+def _start_certificate_download(local_ips: list[str]) -> None:
+    global _CERTIFICATE_DOWNLOAD_SERVER
+
+    certificate_info = app.config.get("HTTPS_CERTIFICATE", {})
+    root_ca_file = certificate_info.get("root_ca_file")
+    if certificate_info.get("mode") != "generated" or not root_ca_file:
+        return
+    if is_background_disabled():
+        _set_ssl_certificate_info(
+            {**certificate_info, "download_status": "disabled", "download_urls": []}
+        )
+        return
+
+    port = read_certificate_download_port()
+    try:
+        _CERTIFICATE_DOWNLOAD_SERVER = start_certificate_download_server(
+            Path(root_ca_file),
+            host=read_server_host(),
+            port=port,
+        )
+    except CertificateDownloadError as error:
+        _set_ssl_certificate_info(
+            {
+                **certificate_info,
+                "download_status": "failed",
+                "download_error": str(error),
+                "download_urls": [],
+            }
+        )
+        print(f"  Certificate download could not start: {error}")
+        return
+
+    urls = [certificate_download_url(ip_address, _CERTIFICATE_DOWNLOAD_SERVER.port) for ip_address in local_ips]
+    _set_ssl_certificate_info(
+        {
+            **certificate_info,
+            "download_status": "ready",
+            "download_port": _CERTIFICATE_DOWNLOAD_SERVER.port,
+            "download_urls": urls,
+        }
+    )
+
+
+def _stop_certificate_download() -> None:
+    global _CERTIFICATE_DOWNLOAD_SERVER
+    if _CERTIFICATE_DOWNLOAD_SERVER is None:
+        return
+    _CERTIFICATE_DOWNLOAD_SERVER.stop()
+    _CERTIFICATE_DOWNLOAD_SERVER = None
 
 
 def should_open_admin_browser() -> bool:
@@ -129,6 +189,7 @@ def run_app() -> None:
     _ensure_port_is_free(host, port)
     local_ips = get_local_private_ips()
     ssl_context = get_ssl_context()
+    _start_certificate_download(local_ips)
     scheme = "https" if ssl_context else "http"
     admin_url = f"{scheme}://localhost:{port}/admin"
 
@@ -146,6 +207,10 @@ def run_app() -> None:
             print(f"  iPad trust certificate: {certificate_info.get('root_ca_file')}")
             print("  Install this Root CA on the iPad and enable full trust in iOS settings.")
             print(f"  Root CA SHA256: {certificate_info.get('root_ca_fingerprint_sha256')}")
+            if certificate_info.get("download_status") == "ready":
+                print(f"  Certificate download: {certificate_info.get('download_urls', [''])[0]}")
+            elif certificate_info.get("download_status") == "failed":
+                print("  Warning: certificate download is unavailable; HTTPS itself is still running.")
         elif certificate_info.get("mode") == "adhoc":
             print("  Warning: using temporary adhoc certificate. Tablets may reject it.")
     print("-" * 50 + "\n")
@@ -160,6 +225,8 @@ def run_app() -> None:
         if error.errno in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", 10048)):
             _fail_for_port_conflict(port)
         raise
+    finally:
+        _stop_certificate_download()
 
 
 if __name__ == "__main__":

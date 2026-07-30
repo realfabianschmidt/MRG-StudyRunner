@@ -82,7 +82,7 @@ jobs:
       - name: Write Python updater public key
         env:
           PYTHON_UPDATER_PUBLIC_KEY: ${{ secrets.PYTHON_UPDATER_PUBLIC_KEY || vars.PYTHON_UPDATER_PUBLIC_KEY }}
-        run: python release_tools/write-python-update-key.py
+        run: python release_tools/write_python_update_key.py
 
       - name: Verify updater signing secret
         shell: bash
@@ -95,7 +95,7 @@ jobs:
           fi
 
       - name: Build Python one-dir package
-        run: python release_tools/build-python-onedir.py
+        run: python release_tools/build_python_onedir.py
 
       # On failure the JSON verdict is emitted as an ::error:: annotation so
       # the diagnosis is readable via the public API without opening the log.
@@ -122,15 +122,15 @@ jobs:
           fi
 
       - name: Package Python update asset
-        run: python release_tools/package-python-onedir.py --source software/dist/study-runner-server --output "${{ matrix.python_asset }}"
+        run: python release_tools/package_python_onedir.py --source software/dist/study-runner-server --output "${{ matrix.python_asset }}"
 
       - name: Build manager package
         if: matrix.manager_asset != ''
-        run: python release_tools/build-python-onedir.py --spec release_tools/pyinstaller/study_runner_manager_onedir.spec
+        run: python release_tools/build_python_onedir.py --spec release_tools/pyinstaller/study_runner_manager_onedir.spec
 
       - name: Package manager asset
         if: matrix.manager_asset != ''
-        run: python release_tools/package-python-onedir.py --source software/dist/study-runner-manager --output "${{ matrix.manager_asset }}"
+        run: python release_tools/package_python_onedir.py --source software/dist/study-runner-manager --output "${{ matrix.manager_asset }}"
 
       - name: Upload Python update workflow artifact
         uses: actions/upload-artifact@v5
@@ -181,7 +181,7 @@ jobs:
             exit 1
           fi
           version="${RELEASE_TAG#app-v}"
-          python release_tools/build-python-update-manifest.py \
+          python release_tools/build_python_update_manifest.py \
             --version "$version" \
             --repo "$GITHUB_REPOSITORY" \
             --tag "$RELEASE_TAG" \

@@ -32,7 +32,38 @@ from typing import Any
 from ..history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 
 from ..dependency_utils import ensure_requirements
+from .brainbit_realtime_cli import (
+    EXIT_BLE_UNAVAILABLE,
+    EXIT_MISSING_DEPENDENCY,
+    EXIT_NO_DEVICE_FOUND,
+)
 
+
+# How the CLI's exit codes translate for the operator. "retry" means a restart
+# can plausibly help (device switched on late, transient crash); the others need
+# a human, so retrying would only hide the real message.
+_EXIT_REASONS: dict[int, dict[str, Any]] = {
+    EXIT_MISSING_DEPENDENCY: {
+        "detail_key": "brainbit.error.missingDependency",
+        "message": "The BrainBit software libraries are missing and could not be installed automatically.",
+        "retry": False,
+    },
+    EXIT_NO_DEVICE_FOUND: {
+        "detail_key": "brainbit.error.deviceNotFound",
+        "message": "No BrainBit headset was found. Switch it on, keep it close, then start BrainBit again.",
+        "retry": True,
+    },
+    EXIT_BLE_UNAVAILABLE: {
+        "detail_key": "brainbit.error.bluetoothUnavailable",
+        "message": "Bluetooth is switched off or unavailable on this computer.",
+        "retry": False,
+    },
+}
+_CRASH_REASON: dict[str, Any] = {
+    "detail_key": "brainbit.error.crashed",
+    "message": "The BrainBit connection stopped unexpectedly.",
+    "retry": True,
+}
 
 _lock = threading.Lock()
 _state_lock = threading.Lock()
@@ -60,6 +91,11 @@ _routing_state = {
 }
 _auto_restart_count = 0
 _last_auto_restart_at = 0.0
+# Set by start()/stop() so the watchdog knows whether an exited process should
+# be revived or was stopped on purpose.
+_desired_running = False
+_last_exit_code: int | None = None
+_last_exit_at = 0.0
 # The CLI emits a handful of JSON lines per second; sized for a full session.
 _history: deque[dict[str, Any]] = deque(maxlen=history_maxlen(10.0))
 _SENSOR_ACTIVITY_TAGS = {
@@ -79,16 +115,66 @@ _DERIVED_TAGS = {"BANDS", "MENTAL"}
 
 
 def _default_python_executable(python_executable: str | None) -> str:
+    """Return the interpreter used to run the CLI script, or "" in packaged builds.
+
+    Packaged builds have no interpreter to hand and do not need one: they
+    re-invoke their own executable through the --brainbit-cli entrypoint.
+    """
     if python_executable:
         return python_executable
 
-    app_mode = os.getenv("STUDY_RUNNER_APP_MODE", "").strip().lower()
-    if not app_mode:
-        app_mode = "packaged" if getattr(sys, "frozen", False) else "python"
-    if getattr(sys, "frozen", False) and app_mode in {"desktop", "packaged"}:
+    from study_runner.backend.services.runtime_config import get_app_mode, is_frozen
+
+    if is_frozen() and get_app_mode() in {"desktop", "packaged"}:
         return ""
 
     return sys.executable
+
+
+def _uses_frozen_self_dispatch() -> bool:
+    """True when the CLI must be started as `<own exe> --brainbit-cli ...`."""
+    from study_runner.backend.services.runtime_config import is_frozen
+
+    return not _config.get("python_executable") and is_frozen()
+
+
+def _build_cli_command() -> list[str] | None:
+    """Build the CLI command line, or None when no way to launch it exists.
+
+    Two launch modes:
+      - source checkout: `<python> <script.py> <args>`
+      - packaged build:  `<own executable> --brainbit-cli <args>`
+    """
+    if _uses_frozen_self_dispatch():
+        launcher = [sys.executable, "--brainbit-cli"]
+    elif _config.get("python_executable"):
+        launcher = [_config["python_executable"], _config["script_path"]]
+    else:
+        return None
+
+    command = [
+        *launcher,
+        "--no-osc",
+        "--scan-seconds",
+        str(_config.get("scan_seconds", 5)),
+        "--device-index",
+        str(_config["device_index"] if _config.get("device_index") is not None else 0),
+        "--resist-seconds",
+        str(_config.get("resist_seconds", 6)),
+        "--signal-seconds",
+        str(_config.get("signal_seconds", 0)),
+    ]
+    if _config.get("serial_number"):
+        command.extend(["--serial-number", str(_config["serial_number"])])
+    if _config.get("device_address"):
+        command.extend(["--device-address", str(_config["device_address"])])
+    if _config.get("device_name"):
+        command.extend(["--device-name", str(_config["device_name"])])
+    if _config.get("pretty"):
+        command.append("--pretty")
+    if _config.get("debug"):
+        command.append("--debug")
+    return command
 
 
 # ============================================================
@@ -127,18 +213,39 @@ def initialize(
         renamed = script_file.with_name("brainbit_realtime_cli.py")
         if renamed.exists():
             script_file = renamed
-    if not script_file.exists():
+
+    from study_runner.backend.services.runtime_config import is_frozen
+
+    resolved_python = _default_python_executable(python_executable)
+    # Packaged builds run the CLI through their own executable, so the script
+    # file is not on disk there and its absence is not an error.
+    self_dispatch = not resolved_python and is_frozen()
+    if not script_file.exists() and not self_dispatch:
         print(f"[BrainBit] Script not found: {script_file}")
         return
 
     resolved_working_dir = Path(working_dir).expanduser() if working_dir else script_file.parent
     resolved_log_dir = Path(log_dir).expanduser() if log_dir else resolved_working_dir / "logs"
-    resolved_log_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        resolved_log_dir.mkdir(parents=True, exist_ok=True)
+        resolved_working_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        message = f"BrainBit cannot write to its log folder ({resolved_log_dir}): {error}"
+        print(f"[BrainBit] {message}")
+        _set_state(
+            {
+                "status": "failed",
+                "status_detail_key": "brainbit.error.logFolderUnwritable",
+                "last_message": message,
+            },
+            force=True,
+        )
+        return
 
     _config = {
         "script_path": str(script_file),
         "working_dir": str(resolved_working_dir),
-        "python_executable": _default_python_executable(python_executable),
+        "python_executable": resolved_python,
         "osc_host": osc_host,
         "osc_port": int(osc_port),
         "scan_seconds": int(scan_seconds),
@@ -192,7 +299,7 @@ def initialize(
 
 def start() -> None:
     """Start the repo-local BrainBit process if it is not already running."""
-    global _process, _reader_thread, _log_handle, _watchdog_thread
+    global _process, _reader_thread, _log_handle, _watchdog_thread, _desired_running
     global _last_activity_at, _last_any_line_at, _last_sensor_activity_at
     global _last_eeg_at, _last_quality_at, _last_derived_at
 
@@ -204,38 +311,23 @@ def start() -> None:
         if _process is not None and _process.poll() is None:
             return
 
-        if not _config.get("python_executable"):
+        command = _build_cli_command()
+        if command is None:
             message = (
-                "BrainBit needs a normal Python interpreter path in packaged builds. "
+                "BrainBit needs a Python interpreter path on this installation. "
                 "Set brainbit.python_executable in hardware settings."
             )
             print(f"[BrainBit] {message}")
-            _set_state({"status": "not_configured", "last_message": message}, force=True)
+            _set_state(
+                {
+                    "status": "not_configured",
+                    "status_detail_key": "brainbit.error.noInterpreter",
+                    "last_message": message,
+                },
+                force=True,
+            )
             return
-
-        command = [
-            _config["python_executable"],
-            _config["script_path"],
-            "--no-osc",
-            "--scan-seconds",
-            str(_config["scan_seconds"]),
-            "--device-index",
-            str(_config["device_index"] if _config.get("device_index") is not None else 0),
-            "--resist-seconds",
-            str(_config["resist_seconds"]),
-            "--signal-seconds",
-            str(_config["signal_seconds"]),
-        ]
-        if _config.get("serial_number"):
-            command.extend(["--serial-number", str(_config["serial_number"])])
-        if _config.get("device_address"):
-            command.extend(["--device-address", str(_config["device_address"])])
-        if _config.get("device_name"):
-            command.extend(["--device-name", str(_config["device_name"])])
-        if _config["pretty"]:
-            command.append("--pretty")
-        if _config["debug"]:
-            command.append("--debug")
+        _desired_running = True
 
         creationflags = 0
         if os.name == "nt":
@@ -289,9 +381,10 @@ def start() -> None:
         if _watchdog_thread is None or not _watchdog_thread.is_alive():
             _watchdog_thread = threading.Thread(target=_watch_connection_health, daemon=True)
             _watchdog_thread.start()
+        launch_label = "--brainbit-cli" if _uses_frozen_self_dispatch() else Path(_config["script_path"]).name
         print(
             "[BrainBit] External CLI started "
-            f"({Path(_config['script_path']).name} -> OSC {_config['osc_host']}:{_config['osc_port']})"
+            f"({launch_label} -> OSC {_config['osc_host']}:{_config['osc_port']})"
         )
         print(f"[BrainBit] State file: {_config['state_path']}")
         print(f"[BrainBit] Raw log: {_config['raw_log_path']}")
@@ -299,8 +392,9 @@ def start() -> None:
 
 def stop() -> None:
     """Stop the repo-local BrainBit process if it is running."""
-    global _process
+    global _process, _desired_running
 
+    _desired_running = False
     with _lock:
         process = _process
         if process is None or process.poll() is not None:
@@ -412,25 +506,47 @@ def _read_output(process: subprocess.Popen[str]) -> None:
     finally:
         exit_code = process.poll()
         with _lock:
-            global _process
+            global _process, _last_exit_code, _last_exit_at
             if _process is process:
                 _process = None
+            _last_exit_code = exit_code
+            _last_exit_at = time.time()
         with _state_lock:
             previous_status = _latest_state.get("status")
             previous_message = _latest_state.get("last_message")
-        final_status = "failed" if previous_status == "failed" else "exited"
-        final_message = previous_message if previous_status == "failed" else f"BrainBit CLI exited with code {exit_code}."
-        _set_state(
-            {
-                "status": final_status,
-                "exit_code": exit_code,
-                "last_scan_finished_at": _timestamp(),
-                "last_message": final_message,
-            },
-            force=True,
-        )
+
+        reason = _exit_reason(exit_code)
+        if reason is not None:
+            final_status = "failed"
+            final_message = reason["message"]
+            detail_key = reason["detail_key"]
+        elif previous_status == "failed":
+            final_status = "failed"
+            final_message = previous_message
+            detail_key = None
+        else:
+            final_status = "exited"
+            final_message = f"BrainBit CLI exited with code {exit_code}."
+            detail_key = None
+
+        update: dict[str, Any] = {
+            "status": final_status,
+            "exit_code": exit_code,
+            "last_scan_finished_at": _timestamp(),
+            "last_message": final_message,
+        }
+        if detail_key:
+            update["status_detail_key"] = detail_key
+        _set_state(update, force=True)
         _close_log_handle()
-        print(f"[BrainBit] External CLI exited with code {exit_code}.")
+        print(f"[BrainBit] External CLI exited with code {exit_code}. {final_message or ''}".rstrip())
+
+
+def _exit_reason(exit_code: int | None) -> dict[str, Any] | None:
+    """Translate a CLI exit code into an operator-facing reason, or None if clean."""
+    if exit_code is None or exit_code == 0:
+        return None
+    return _EXIT_REASONS.get(exit_code, _CRASH_REASON)
 
 
 def _update_state_from_line(line: str) -> bool:
@@ -474,10 +590,19 @@ def _update_state_from_line(line: str) -> bool:
                 state_update["selected_device"] = payload
                 state_update["last_message"] = "BrainBit device selected. Waiting for live sensor data."
                 important = True
-            elif tag == "DEVICE_SELECT_FAIL":
-                state_update["status"] = "failed"
+            elif tag == "DEVICE_TARGET_MISSING":
+                # Not a failure: the CLI falls back to the headset that is
+                # actually in range. Say which one, so the operator can tell.
                 state_update["selection_error"] = payload
-                state_update["last_message"] = payload.get("message") or "Configured BrainBit target was not found."
+                state_update["status_detail_key"] = "brainbit.error.targetMissingFallback"
+                state_update["last_message"] = (
+                    "The BrainBit saved in the settings was not found. Using the headset that is in range instead."
+                )
+                important = True
+            elif tag in {"NO_DEVICE_FOUND", "SETUP_FAIL", "BLE_UNAVAILABLE"}:
+                # The CLI exits right after these; the exit-code handler in
+                # _read_output writes the operator-facing message.
+                state_update["selection_error"] = payload
                 important = True
             elif tag == "BATTERY":
                 state_update["battery"] = payload
@@ -1089,12 +1214,18 @@ def _watch_connection_health() -> None:
 
 
 def _check_connection_health_once(now: float | None = None) -> bool:
+    """Run one health check. Returns False when the watchdog should stop."""
     global _auto_restart_count
 
     stale_timeout = max(1.0, _config.get("disconnect_timeout_ms", 20000) / 1000.0)
     process = _process
     if process is None or process.poll() is not None:
-        return False
+        # The CLI is gone. Before 0.5 the watchdog ended here, which meant a CLI
+        # that exited within seconds (no headset, Bluetooth off) was never
+        # retried and left no visible trace in packaged builds.
+        if not _desired_running:
+            return False
+        return _maybe_restart_after_exit(now or time.time())
 
     last_epoch = max(_last_any_line_at, _last_sensor_activity_at, _last_activity_at)
     if last_epoch <= 0:
@@ -1125,6 +1256,80 @@ def _check_connection_health_once(now: float | None = None) -> bool:
     return True
 
 
+def _restart_backoff_seconds(attempt_count: int) -> float:
+    """Wait before the next restart attempt: 5s, 15s, then 60s and up."""
+    return min(300.0, 5.0 * (3 ** attempt_count))
+
+
+def _maybe_restart_after_exit(now_value: float) -> bool:
+    """Revive a CLI that exited on its own. Returns False to stop watching.
+
+    Only exit codes where a retry can plausibly help are retried; a missing
+    dependency or switched-off Bluetooth needs a human, so the watchdog stops
+    and leaves the explanation on the dashboard.
+    """
+    global _auto_restart_count, _last_auto_restart_at
+
+    reason = _exit_reason(_last_exit_code)
+    if reason is None:
+        return False  # clean exit: signal-seconds elapsed or stopped on purpose
+    if not reason.get("retry") or not _config.get("auto_restart", True):
+        return False
+
+    max_attempts = int(_config.get("auto_restart_max_attempts", 3))
+    if _auto_restart_count >= max_attempts:
+        with _state_lock:
+            already_final = _latest_state.get("auto_restart_exhausted")
+        if not already_final:
+            _set_state(
+                {
+                    "status": "failed",
+                    "status_detail_key": reason["detail_key"],
+                    "status_detail_hint_key": "brainbit.error.retriesExhausted",
+                    "auto_restart_exhausted": True,
+                    "last_message": (
+                        f"{reason['message']} Study Runner tried {max_attempts} times. "
+                        "Use Restart on the dashboard once the headset is ready."
+                    ),
+                },
+                force=True,
+            )
+        return False
+
+    backoff_seconds = _restart_backoff_seconds(_auto_restart_count)
+    if _last_auto_restart_at and now_value - _last_auto_restart_at < backoff_seconds:
+        return True
+    if now_value - _last_exit_at < backoff_seconds:
+        return True
+
+    _auto_restart_count += 1
+    _last_auto_restart_at = now_value
+    print(
+        f"[BrainBit] CLI exited with code {_last_exit_code} - retrying "
+        f"(attempt {_auto_restart_count}/{max_attempts})."
+    )
+    _set_state(
+        {
+            "status": "restarting",
+            "status_detail_key": "brainbit.error.restarting",
+            "auto_restart_count": _auto_restart_count,
+            "last_message": (
+                f"{reason['message']} Trying again automatically "
+                f"(attempt {_auto_restart_count} of {max_attempts})."
+            ),
+        },
+        force=True,
+    )
+    try:
+        start()
+    except Exception as error:
+        _set_state(
+            {"status": "failed", "last_message": f"Automatic BrainBit restart failed: {error}"},
+            force=True,
+        )
+    return True
+
+
 def _maybe_auto_restart(age: float, stale_timeout: float, now_value: float) -> None:
     """Relaunch a hung CLI instead of waiting for the operator to notice.
 
@@ -1134,7 +1339,7 @@ def _maybe_auto_restart(age: float, stale_timeout: float, now_value: float) -> N
     """
     global _auto_restart_count, _last_auto_restart_at
 
-    if not _config.get("auto_restart", True) or not _config.get("script_path"):
+    if not _config.get("auto_restart", True) or _build_cli_command() is None:
         return
     max_attempts = int(_config.get("auto_restart_max_attempts", 3))
     if _auto_restart_count >= max_attempts:

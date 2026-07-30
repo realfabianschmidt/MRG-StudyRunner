@@ -62,10 +62,10 @@ From the repository root:
 
 ```bash
 python -m pip install -r software/requirements.txt -r release_tools/pyinstaller/requirements-build.txt
-python release_tools/build-python-onedir.py
-python release_tools/package-python-onedir.py --source software/dist/study-runner-server --output study-runner-server-local.zip
-python release_tools/build-python-onedir.py --spec release_tools/pyinstaller/study_runner_manager_onedir.spec
-python release_tools/package-python-onedir.py --source software/dist/study-runner-manager --output study-runner-manager-local.zip
+python release_tools/build_python_onedir.py
+python release_tools/package_python_onedir.py --source software/dist/study-runner-server --output study-runner-server-local.zip
+python release_tools/build_python_onedir.py --spec release_tools/pyinstaller/study_runner_manager_onedir.spec
+python release_tools/package_python_onedir.py --source software/dist/study-runner-manager --output study-runner-manager-local.zip
 ```
 
 The executable name must remain `study-runner-server(.exe)` because the updater

@@ -16,6 +16,7 @@ from study_runner.integrations.local_emotion_worker import plugin as worker_plug
 from study_runner.integrations.local_emotion_worker import server as worker_server
 from study_runner.integrations.plugin_api import IntegrationContext
 from study_runner.integrations.tablet_camera_emotion import adapter as camera_adapter
+from study_runner.integrations.tablet_camera_emotion.plugin import PLUGIN as CAMERA_EMOTION_PLUGIN
 
 
 class FakeWorkerProcess:
@@ -96,6 +97,26 @@ class CameraEmotionWorkerTests(unittest.TestCase):
         self.assertTrue(preview_status["available"])
         self.assertEqual(preview_status["latest"]["analysis"]["emotion"], "happy")
         self.assertEqual(preview_status["latest"]["frame"]["width"], 320)
+
+    def test_recorded_emotion_samples_are_exported_through_sidecar_plugin(self) -> None:
+        camera_adapter._history.extend(
+            [
+                {"_epoch": 10.0, "analysis": {"emotion": "neutral"}},
+                {"_epoch": 20.0, "analysis": {"emotion": "happy"}},
+                {"_epoch": 30.0, "analysis": {"emotion": "sad"}},
+            ]
+        )
+        context = _context({"camera_emotion": {"enabled": True}})
+
+        samples = CAMERA_EMOTION_PLUGIN.export_interval_samples(context, 15.0, 25.0)
+
+        self.assertEqual(samples, [{"_epoch": 20.0, "analysis": {"emotion": "happy"}}])
+        self.assertEqual(CAMERA_EMOTION_PLUGIN.sidecar_sensor, "camera_emotion")
+        self.assertEqual(
+            CAMERA_EMOTION_PLUGIN.sidecar_filename_suffix,
+            "camera_emotion_signals",
+        )
+        self.assertEqual(CAMERA_EMOTION_PLUGIN.sidecar_output_key, "camera_emotion_file")
 
     def test_worker_plugin_start_stop_with_mocked_process(self) -> None:
         context = _context(

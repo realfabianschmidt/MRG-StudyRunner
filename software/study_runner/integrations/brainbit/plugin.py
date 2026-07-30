@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..adapter_utils import config_section
 from ..plugin_api import IntegrationContext, IntegrationPlugin
 
 
@@ -22,13 +23,39 @@ def _read_json_file(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _config_section(context: IntegrationContext) -> dict[str, Any]:
-    section = context.hardware_config.get("brainbit", {})
-    return section if isinstance(section, dict) else {}
+def _runtime_dir(context: IntegrationContext, configured: Any, default_relative: str, name: str) -> str | None:
+    """Resolve a BrainBit working/log folder to somewhere writable.
+
+    In packaged builds the bundled project folder can be read-only (or a temp
+    extraction dir), so anything the CLI writes at runtime goes next to the
+    saved results instead. Settings files from earlier versions pin the in-repo
+    paths explicitly, so those are redirected too rather than trusted blindly.
+    """
+    from study_runner.backend.services.runtime_config import is_frozen
+
+    writable = str(context.data_dir.parent / "brainbit" / name)
+    resolved = context.resolve_platform_value(configured)
+    if not resolved:
+        return writable if is_frozen() else context.resolve_project_path(default_relative)
+
+    resolved_path = context.resolve_project_path(resolved)
+    if is_frozen() and resolved_path and _is_inside_bundle(context, resolved_path):
+        return writable
+    return resolved_path
+
+
+def _is_inside_bundle(context: IntegrationContext, candidate: str) -> bool:
+    # resolve_project_path() resolves its result, so resolve base_dir too -
+    # otherwise the comparison silently fails on relative or drive-less paths.
+    try:
+        Path(candidate).resolve().relative_to(Path(context.base_dir).resolve())
+    except (ValueError, OSError):
+        return False
+    return True
 
 
 def _initialize(context: IntegrationContext) -> None:
-    config = _config_section(context)
+    config = config_section(context, "brainbit")
     if not config.get("enabled"):
         return
 
@@ -39,9 +66,7 @@ def _initialize(context: IntegrationContext) -> None:
         script_path=context.resolve_project_path(
             context.resolve_platform_value(config.get("script_path")) or DEFAULT_BRAINBIT["script_path"]
         ),
-        working_dir=context.resolve_project_path(
-            context.resolve_platform_value(config.get("working_dir")) or DEFAULT_BRAINBIT["working_dir"]
-        ),
+        working_dir=_runtime_dir(context, config.get("working_dir"), DEFAULT_BRAINBIT["working_dir"], "runtime"),
         python_executable=context.resolve_project_path(context.resolve_platform_value(config.get("python_executable"))),
         osc_host=config.get("osc_host", "127.0.0.1"),
         osc_port=config.get("osc_port", 8000),
@@ -60,19 +85,19 @@ def _initialize(context: IntegrationContext) -> None:
         quiet_output=config.get("quiet_output", True),
         monitor_refresh_ms=config.get("monitor_refresh_ms", 1000),
         disconnect_timeout_ms=config.get("disconnect_timeout_ms", 20000),
-        log_dir=context.resolve_project_path(
-            context.resolve_platform_value(config.get("log_dir")) or DEFAULT_BRAINBIT["log_dir"]
-        ),
+        log_dir=_runtime_dir(context, config.get("log_dir"), DEFAULT_BRAINBIT["log_dir"], "logs"),
     )
 
 
 def _status(context: IntegrationContext) -> dict[str, Any]:
-    config = _config_section(context)
+    config = config_section(context, "brainbit")
     from . import adapter
 
     adapter_status = adapter.get_status()
-    log_dir_value = context.resolve_platform_value(config.get("log_dir")) or DEFAULT_BRAINBIT["log_dir"]
-    log_dir = Path(context.resolve_project_path(log_dir_value) or context.base_dir / DEFAULT_BRAINBIT["log_dir"])
+    log_dir = Path(
+        _runtime_dir(context, config.get("log_dir"), DEFAULT_BRAINBIT["log_dir"], "logs")
+        or context.base_dir / DEFAULT_BRAINBIT["log_dir"]
+    )
     state_path = log_dir / "brainbit_state.json"
     state_payload = _read_json_file(state_path)
     latest = adapter_status.get("latest") or state_payload
@@ -102,7 +127,7 @@ def _status(context: IntegrationContext) -> dict[str, Any]:
 def _start(context: IntegrationContext) -> Any:
     from . import adapter
 
-    if not adapter.is_configured() and _config_section(context).get("enabled"):
+    if not adapter.is_configured() and config_section(context, "brainbit").get("enabled"):
         _initialize(context)
         return adapter.get_status()
     adapter.start()
@@ -119,7 +144,7 @@ def _stop(context: IntegrationContext) -> Any:
 def _restart(context: IntegrationContext) -> Any:
     from . import adapter
 
-    if not adapter.is_configured() and _config_section(context).get("enabled"):
+    if not adapter.is_configured() and config_section(context, "brainbit").get("enabled"):
         _initialize(context)
     else:
         adapter.restart()

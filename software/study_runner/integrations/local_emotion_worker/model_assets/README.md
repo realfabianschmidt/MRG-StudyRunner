@@ -21,5 +21,5 @@ DeepFace model download.
 Prepare the folder for offline/lab releases from the repository root:
 
 ```bash
-python release_tools/fetch-deepface-model-assets.py
+python release_tools/fetch_deepface_model_assets.py
 ```

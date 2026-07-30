@@ -20,7 +20,7 @@ from .helpers import (
     _integration_context,
     _rebuild_active_study_runtime_config,
     _refresh_trial_runtime,
-    _save_notion_secret_payload,
+    _save_hardware_secret_payload,
     _sensor_runtime_state,
     _session_overrides,
     _set_runtime_enabled,
@@ -41,7 +41,7 @@ def update_hardware_config():
     if not isinstance(config_data, dict):
         return jsonify({"ok": False, "error": "hardware_config payload must be a JSON object."}), 400
 
-    sanitized_config, _secret_updated = _save_notion_secret_payload(config_data)
+    sanitized_config, _secret_updated = _save_hardware_secret_payload(config_data)
     save_hardware_config(current_app.config["HARDWARE_CONFIG_FILE"], sanitized_config)
     current_app.config["HARDWARE_CONFIG"] = sanitized_config
     _refresh_trial_runtime()

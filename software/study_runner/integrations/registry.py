@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .adapter_utils import config_section
 from .brainbit import PLUGIN as BRAINBIT_PLUGIN
 from .labrecorder_xdf import PLUGIN as LABRECORDER_PLUGIN
 from .local_emotion_worker import PLUGIN as EMOTION_WORKER_PLUGIN
@@ -205,7 +206,7 @@ def _standardize_status(
     context: IntegrationContext,
     raw_status: dict[str, Any],
 ) -> dict[str, Any]:
-    config = _config_section(context, plugin.config_key)
+    config = config_section(context, plugin.config_key)
     configured_enabled = bool(raw_status.get("configured_enabled", config.get("enabled", False)))
     runtime_enabled = bool(raw_status.get("runtime_enabled", raw_status.get("enabled", configured_enabled)))
     status_value = str(raw_status.get("status") or ("enabled" if runtime_enabled else "disabled"))
@@ -234,7 +235,7 @@ def _standardize_status(
     )
 
     if plugin.has_lsl and "lsl_enabled" not in payload:
-        payload["lsl_enabled"] = bool((_config_section(context, plugin.config_key).get("lsl") or {}).get("enabled", False))
+        payload["lsl_enabled"] = bool((config_section(context, plugin.config_key).get("lsl") or {}).get("enabled", False))
     return payload
 
 
@@ -250,13 +251,8 @@ def _require_plugin(key: str) -> IntegrationPlugin:
     return plugin
 
 
-def _config_section(context: IntegrationContext, key: str) -> dict[str, Any]:
-    section = context.hardware_config.get(key, {})
-    return section if isinstance(section, dict) else {}
-
-
 def _is_config_enabled(context: IntegrationContext, plugin: IntegrationPlugin) -> bool:
-    return bool(_config_section(context, plugin.config_key).get("enabled", False))
+    return bool(config_section(context, plugin.config_key).get("enabled", False))
 
 
 def _empty_interval_summary() -> dict[str, dict[str, Any]]:

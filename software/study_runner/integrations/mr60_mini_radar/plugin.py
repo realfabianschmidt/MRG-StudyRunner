@@ -2,16 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..adapter_utils import config_section
 from ..plugin_api import IntegrationContext, IntegrationPlugin
 
 
-def _config_section(context: IntegrationContext) -> dict[str, Any]:
-    config = context.hardware_config.get("mini_radar") or context.hardware_config.get("radar") or {}
-    return config if isinstance(config, dict) else {}
-
-
 def _initialize(context: IntegrationContext) -> None:
-    config = _config_section(context)
+    config = config_section(context, "mini_radar", "radar")
     if not config:
         return
 
@@ -41,7 +37,7 @@ def _initialize(context: IntegrationContext) -> None:
 
 
 def _status(context: IntegrationContext) -> dict[str, Any]:
-    config = _config_section(context)
+    config = config_section(context, "mini_radar", "radar")
     from . import adapter
 
     status = adapter.get_status()

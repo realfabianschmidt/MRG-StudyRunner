@@ -17,6 +17,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+from ..adapter_utils import set_state, timestamp
 from ..dependency_utils import ensure_requirements
 from ..history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 
@@ -187,7 +188,7 @@ def ingest_sample(payload: dict[str, Any], *, source: str = "manual") -> dict[st
     sample = _normalize_sample(payload)
     sample["source"] = source
     sample["connection_type"] = _connection_type()
-    sample["server_received_at"] = _timestamp()
+    sample["server_received_at"] = timestamp()
     sample["_epoch"] = time.time()
     _history.append(dict(sample))
 
@@ -369,7 +370,7 @@ async def _ble_async_loop() -> None:
                 _set_state(
                     {
                         "status": "waiting",
-                        "last_scan_finished_at": _timestamp(),
+                        "last_scan_finished_at": timestamp(),
                         "next_retry_at": _timestamp_from_epoch(time.time() + retry_delay),
                         "last_message": f"BLE device {_config.get('ble_device_name', BLE_DEVICE_NAME)} not found.",
                     }
@@ -402,14 +403,14 @@ async def _find_ble_device() -> Any:
         {
             "status": "scanning",
             "scan_timeout_seconds": timeout,
-            "last_scan_started_at": _timestamp(),
+            "last_scan_started_at": timestamp(),
             "last_scan_finished_at": None,
             "next_retry_at": None,
             "last_message": f"Scanning for BLE device {device_name} for {timeout:g} seconds.",
         }
     )
     devices = await BleakScanner.discover(timeout=timeout)
-    _set_state({"last_scan_finished_at": _timestamp()})
+    _set_state({"last_scan_finished_at": timestamp()})
     for device in devices:
         names = {getattr(device, "name", None)}
         details = getattr(device, "metadata", {}) or {}
@@ -665,9 +666,7 @@ def _push_lsl_values(stream_key: str, sample: dict[str, Any], fields: tuple[str,
 
 
 def _set_state(values: dict[str, Any]) -> None:
-    with _state_lock:
-        _latest_state.update(values)
-        _latest_state["updated_at"] = _timestamp()
+    set_state(_latest_state, _state_lock, values)
 
 
 def _samples_in_interval(start_epoch: float, end_epoch: float) -> list[dict[str, Any]]:
@@ -735,10 +734,6 @@ def _mean(samples: list[dict[str, Any]], key: str) -> float | None:
     return round(sum(values) / len(values), 4)
 
 
-def _timestamp() -> str:
-    return time.strftime("%Y-%m-%d %H:%M:%S")
-
-
 def _timestamp_from_epoch(epoch: float) -> str:
-    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(epoch))
+    return timestamp(epoch)
 

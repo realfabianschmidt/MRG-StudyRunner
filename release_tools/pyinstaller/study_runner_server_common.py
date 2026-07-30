@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
+
+
+# The BrainBit CLI needs these vendor SDKs, whose native libraries live inside
+# the wheels. Without them a packaged build cannot talk to the headset at all.
+BRAINBIT_SDK_PACKAGES = ("neurosdk", "em_st_artifacts")
 
 
 def software_root(spec_path: str) -> Path:
@@ -25,7 +31,7 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
         raise RuntimeError(
             "DeepFace model weights are missing: "
             f"{model_weights}. A packaged build without them cannot analyze emotions offline. "
-            "Run release_tools/fetch-deepface-model-assets.py first."
+            "Run release_tools/fetch_deepface_model_assets.py first."
         )
     datas.append((str(model_assets), "study_runner/integrations/local_emotion_worker/model_assets"))
     # DeepFace's face detector reads cv2's haarcascade XMLs at runtime;
@@ -34,11 +40,45 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
     return datas
 
 
+def common_binaries() -> list[tuple[str, str]]:
+    """Native libraries that PyInstaller's analysis does not find on its own.
+
+    The BrainBit SDKs ctypes-load their library from a fixed path inside their
+    own package (neurosdk/libs/win/neurosdk2-x64.dll and the macOS equivalent),
+    so the collected destination paths must be preserved exactly.
+
+    Linux is deliberately not strict: neurosdk loads a bare "libneurosdk2.so"
+    there, i.e. it expects a system-wide install rather than a bundled copy.
+    """
+    strict = sys.platform == "win32" or sys.platform == "darwin"
+    binaries: list[tuple[str, str]] = []
+    for package in BRAINBIT_SDK_PACKAGES:
+        collected = collect_dynamic_libs(package)
+        if not collected:
+            message = (
+                f"No native libraries found for {package}. A packaged build without them "
+                "cannot connect to the BrainBit headset. Install the BrainBit requirements "
+                "(pyneurosdk2, pyem-st-artifacts) into the build environment first."
+            )
+            if strict:
+                raise RuntimeError(message)
+            print(f"WARNING: {message}")
+            continue
+        binaries.extend(collected)
+    return binaries
+
+
 def common_hidden_imports() -> list[str]:
     return (
         collect_submodules("study_runner.backend")
         + collect_submodules("study_runner.integrations")
+        + collect_submodules("neurosdk")
+        + collect_submodules("em_st_artifacts")
         + [
+            # Launched as "<own executable> --brainbit-cli" in packaged builds,
+            # because there is no separate Python interpreter to run the script.
+            "study_runner.integrations.brainbit.brainbit_realtime_cli",
+            "pythonosc",
             "cv2",
             "deepface",
             "deepface.DeepFace",

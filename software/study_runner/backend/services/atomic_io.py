@@ -15,13 +15,19 @@ from typing import Any
 
 def atomic_write_json(path: Path, payload: Any, *, indent: int = 2) -> None:
     """Write ``payload`` as JSON to ``path`` via a same-directory temp file."""
+    encoded = json.dumps(payload, indent=indent, ensure_ascii=False).encode("utf-8")
+    atomic_write_bytes(path, encoded)
+
+
+def atomic_write_bytes(path: Path, payload: bytes) -> None:
+    """Write bytes via a flushed same-directory file and atomic replace."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     temp_path = Path(temp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as file_handle:
-            json.dump(payload, file_handle, indent=indent, ensure_ascii=False)
+        with os.fdopen(fd, "wb") as file_handle:
+            file_handle.write(payload)
             file_handle.flush()
             os.fsync(file_handle.fileno())
         os.replace(temp_path, path)

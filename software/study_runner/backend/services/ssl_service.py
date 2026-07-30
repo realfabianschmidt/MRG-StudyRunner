@@ -39,7 +39,9 @@ def ensure_local_ssl_certificate(settings_dir: Path) -> tuple[Path, Path, dict]:
 
     root_key, root_cert = _load_or_create_root_ca(root_key_file, root_cert_file)
     dns_names, ip_addresses = _local_certificate_names()
-    if not _server_certificate_matches(server_cert_file, server_key_file, dns_names, ip_addresses):
+    if not _server_certificate_matches(
+        server_cert_file, server_key_file, dns_names, ip_addresses, root_cert=root_cert
+    ):
         server_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         subject = x509.Name(
             [
@@ -93,6 +95,8 @@ def ensure_local_ssl_certificate(settings_dir: Path) -> tuple[Path, Path, dict]:
             "key_file": str(server_key_file),
             "root_ca_file": str(root_cert_file),
             "root_ca_fingerprint_sha256": fingerprint,
+            "root_ca_expires_at": certificate_expires_at(root_cert_file),
+            "server_expires_at": certificate_expires_at(server_cert_file),
             "dns_names": sorted(dns_names),
             "ip_addresses": sorted(ip_addresses),
             "trust_required": True,
@@ -149,7 +153,13 @@ def _load_or_create_root_ca(root_key_file: Path, root_cert_file: Path):
     return key, cert
 
 
-def _server_certificate_matches(cert_file: Path, key_file: Path, dns_names: set[str], ip_addresses: set[str]) -> bool:
+def _server_certificate_matches(
+    cert_file: Path,
+    key_file: Path,
+    dns_names: set[str],
+    ip_addresses: set[str],
+    root_cert=None,
+) -> bool:
     if not cert_file.exists() or not key_file.exists():
         return False
     try:
@@ -157,8 +167,17 @@ def _server_certificate_matches(cert_file: Path, key_file: Path, dns_names: set[
         from cryptography.x509.oid import ExtensionOID
 
         cert = x509.load_pem_x509_certificate(cert_file.read_bytes())
-        expires = getattr(cert, "not_valid_after_utc", cert.not_valid_after.replace(tzinfo=dt.timezone.utc))
+        expires = (
+            cert.not_valid_after_utc
+            if hasattr(cert, "not_valid_after_utc")
+            else cert.not_valid_after.replace(tzinfo=dt.timezone.utc)
+        )
         if expires <= dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=30):
+            return False
+        # A server certificate signed by a previous root CA would still match on
+        # dates and addresses, but the chain the tablet receives would be broken.
+        # This happens whenever the root CA is replaced (see the import flow).
+        if root_cert is not None and cert.issuer != root_cert.subject:
             return False
         san = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME).value
         current_dns = set(san.get_values_for_type(x509.DNSName))
@@ -166,6 +185,22 @@ def _server_certificate_matches(cert_file: Path, key_file: Path, dns_names: set[
         return dns_names.issubset(current_dns) and ip_addresses.issubset(current_ips)
     except Exception:
         return False
+
+
+def certificate_expires_at(cert_file: Path) -> str | None:
+    """Return a certificate's expiry as an ISO string, or None if unreadable."""
+    try:
+        from cryptography import x509
+
+        cert = x509.load_pem_x509_certificate(Path(cert_file).read_bytes())
+        expires = (
+            cert.not_valid_after_utc
+            if hasattr(cert, "not_valid_after_utc")
+            else cert.not_valid_after.replace(tzinfo=dt.timezone.utc)
+        )
+        return expires.isoformat()
+    except Exception:
+        return None
 
 
 def _write_private_key(path: Path, key) -> None:

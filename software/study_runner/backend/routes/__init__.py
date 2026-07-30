@@ -7,6 +7,9 @@
 - sensors.py  hardware config, sensor runtime actions, camera, worker
 - update.py   in-app updater
 - notion.py   Notion upload integration
+- nextcloud.py Nextcloud public-share connection test
+- sessions.py completed-session index and timeline data
+- certificate.py certificate status and root-CA transfer between computers
 - helpers.py  shared request-context helpers
 
 ``register_routes(app)`` keeps the same entry point the app factory
@@ -16,7 +19,7 @@ from flask import Flask, jsonify
 
 from ..services.trial_service import configure_runtime
 from ..services.validation import ValidationError
-from . import admin, notion, pages, results, sensors, study, update
+from . import admin, certificate, nextcloud, notion, pages, results, sensors, sessions, study, update
 
 
 def register_routes(app: Flask) -> None:
@@ -35,6 +38,9 @@ def register_routes(app: Flask) -> None:
     app.register_blueprint(sensors.bp)
     app.register_blueprint(update.bp)
     app.register_blueprint(notion.bp)
+    app.register_blueprint(nextcloud.bp)
+    app.register_blueprint(sessions.bp)
+    app.register_blueprint(certificate.bp)
 
     @app.errorhandler(ValidationError)
     def handle_validation_error(error: ValidationError):

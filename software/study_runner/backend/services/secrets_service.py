@@ -8,6 +8,7 @@ from typing import Any
 
 
 NOTION_API_KEY_ENV = "STUDY_RUNNER_NOTION_API_KEY"
+NEXTCLOUD_PASSWORD_ENV = "STUDY_RUNNER_NEXTCLOUD_PASSWORD"
 
 
 def load_local_secrets(path: Path) -> dict[str, Any]:
@@ -86,21 +87,46 @@ def describe_notion_api_key_storage(
     return "nicht gespeichert"
 
 
+def resolve_nextcloud_password(
+    hardware_config: dict[str, Any],
+    local_secrets: dict[str, Any],
+) -> str:
+    env_value = os.getenv(NEXTCLOUD_PASSWORD_ENV, "")
+    if env_value:
+        return env_value
+
+    local_value = (
+        local_secrets.get("nextcloud", {}).get("password", "")
+        if isinstance(local_secrets.get("nextcloud"), dict)
+        else ""
+    )
+    if isinstance(local_value, str) and local_value:
+        return local_value
+
+    legacy_value = hardware_config.get("nextcloud", {}).get("password", "")
+    return legacy_value if isinstance(legacy_value, str) else ""
+
+
 def redact_hardware_config(
     hardware_config: dict[str, Any],
     local_secrets: dict[str, Any],
 ) -> dict[str, Any]:
     redacted = deepcopy(hardware_config)
     notion_config = redacted.get("notion")
-    if not isinstance(notion_config, dict):
-        return redacted
+    if isinstance(notion_config, dict):
+        notion_config["api_key"] = ""
+        notion_config["api_key_configured"] = bool(
+            resolve_notion_api_key(hardware_config, local_secrets)
+        )
+        notion_config["api_key_source"] = describe_notion_api_key_source(
+            hardware_config,
+            local_secrets,
+        )
 
-    notion_config["api_key"] = ""
-    notion_config["api_key_configured"] = bool(
-        resolve_notion_api_key(hardware_config, local_secrets)
-    )
-    notion_config["api_key_source"] = describe_notion_api_key_source(
-        hardware_config,
-        local_secrets,
-    )
+    nextcloud_config = redacted.get("nextcloud")
+    if isinstance(nextcloud_config, dict):
+        nextcloud_config["password"] = ""
+        nextcloud_config["password_configured"] = bool(
+            resolve_nextcloud_password(hardware_config, local_secrets)
+        )
     return redacted

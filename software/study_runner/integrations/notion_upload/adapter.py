@@ -29,8 +29,11 @@ PARTICIPANT_NOTION_PROPERTIES = {
     "first_name": ("First Name", "rich_text"),
     "last_name": ("Last Name", "rich_text"),
     "age_group": ("Age Group", "select"),
+    "gender": ("Gender", "select"),
     "childhood_area": ("Childhood Area", "select"),
     "childhood_nearest_city": ("Childhood Nearest City", "rich_text"),
+    "birth_place": ("Birth Place", "rich_text"),
+    "birth_date": ("Birth Date", "date"),
 }
 
 
@@ -168,6 +171,11 @@ def test_connection(
     return {"ok": overall_ok, "checks": checks}
 
 
+# Same reason as in nextcloud_service: pytest would collect this as a test if a
+# test module ever imported it by name.
+test_connection.__test__ = False
+
+
 def get_status() -> dict[str, Any]:
     queue_size = 0
     if _queue_path and _queue_path.exists():
@@ -210,7 +218,11 @@ def _stored_participant_metadata_fields(config_data: dict[str, Any]) -> list[str
 def _build_participant_metadata_schema(config_data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     schema: dict[str, dict[str, Any]] = {}
     for field_key in _stored_participant_metadata_fields(config_data):
-        property_name, property_type = PARTICIPANT_NOTION_PROPERTIES[field_key]
+        property_spec = PARTICIPANT_NOTION_PROPERTIES.get(field_key)
+        if property_spec is None:
+            print(f"[NOTION] No property mapping for participant field '{field_key}'; skipping it.")
+            continue
+        property_name, property_type = property_spec
         schema[property_name] = {property_type: {}}
     return schema
 
@@ -229,9 +241,15 @@ def _build_participant_metadata_properties(
         if not value:
             continue
 
-        property_name, property_type = PARTICIPANT_NOTION_PROPERTIES[field_key]
+        property_spec = PARTICIPANT_NOTION_PROPERTIES.get(field_key)
+        if property_spec is None:
+            print(f"[NOTION] No property mapping for participant field '{field_key}'; skipping it.")
+            continue
+        property_name, property_type = property_spec
         if property_type == "select":
             properties[property_name] = {"select": {"name": value}}
+        elif property_type == "date":
+            properties[property_name] = {"date": {"start": value}}
         else:
             properties[property_name] = {
                 "rich_text": [{"type": "text", "text": {"content": _truncate(value)}}],

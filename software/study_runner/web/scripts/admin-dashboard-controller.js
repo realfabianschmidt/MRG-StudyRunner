@@ -240,10 +240,23 @@ function renderBrainBit(target, brainbit) {
       <dt>${fieldLabel('brainbitDataLsl', 'BrainBit data LSL')}</dt><dd>${formatEnabled(brainbit.lsl_enabled)}</dd>
       <dt>${fieldLabel('touchdesigner', 'TouchDesigner')}</dt><dd>${formatEnabled(brainbit.touchdesigner_forwarding_enabled)}</dd>
       <dt>${fieldLabel('lastActive', 'Last active')}</dt><dd>${formatTimestampAge(latest.last_activity_at || brainbit.last_activity_at, brainbit.seconds_since_last_activity)}</dd>
-      <dt>${fieldLabel('message', 'Message')}</dt><dd>${escapeHtml(latest.last_message || brainbit.last_message || '-')}</dd>
+      <dt>${fieldLabel('message', 'Message')}</dt><dd>${formatBrainBitMessage(brainbit, latest)}</dd>
     </dl>
     ${renderRuntimeButtons(brainbit)}
   `;
+}
+
+function formatBrainBitMessage(brainbit, latest) {
+  // The adapter tags known failures (headset off, Bluetooth off, missing
+  // libraries) with a key so the operator sees a translated sentence instead of
+  // the raw English fallback.
+  const fallback = latest.last_message || brainbit.last_message || '-';
+  const detailKey = latest.status_detail_key || brainbit.status_detail_key;
+  const hintKey = latest.status_detail_hint_key || brainbit.status_detail_hint_key;
+  const message = detailKey ? t(detailKey, fallback) : fallback;
+  const hint = hintKey ? t(hintKey, '') : '';
+  if (!hint) return escapeHtml(message);
+  return `${escapeHtml(message)}<br><span class="status-muted">${escapeHtml(hint)}</span>`;
 }
 
 function renderMiniRadar(target, radar) {

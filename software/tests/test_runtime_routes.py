@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import sys
@@ -208,6 +209,67 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(payload["ok"])
         self.assertIn("Study Runner", payload["path"])
+
+    def test_nextcloud_password_stays_backend_local_and_is_redacted(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            client = app.test_client()
+            saved = client.post(
+                "/api/hardware-config",
+                json={
+                    "nextcloud": {
+                        "password": "share-secret",
+                    }
+                },
+            )
+            returned = client.get("/api/hardware-config").get_json()
+            secrets_file = Path(data_dir) / "settings" / "local_secrets.json"
+            secrets = json.loads(secrets_file.read_text(encoding="utf-8"))
+            hardware_file = Path(data_dir) / "settings" / "hardware_settings.json"
+            hardware = json.loads(hardware_file.read_text(encoding="utf-8"))
+
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(secrets["nextcloud"]["password"], "share-secret")
+        self.assertNotIn("password", hardware["nextcloud"])
+        self.assertEqual(returned["nextcloud"]["password"], "")
+        self.assertTrue(returned["nextcloud"]["password_configured"])
+        self.assertNotIn("share-secret", json.dumps(returned))
+
+    def test_nextcloud_test_route_uses_provided_values_without_echoing_password(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            with patch(
+                "study_runner.backend.routes.nextcloud.test_connection",
+                return_value={"ok": True, "endpoint": "dav"},
+            ) as connection_test:
+                response = app.test_client().post(
+                    "/api/nextcloud/test",
+                    json={
+                        "share_link": "https://cloud.example/s/token",
+                        "password": "temporary-secret",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["ok"])
+        connection_test.assert_called_once_with(
+            "https://cloud.example/s/token",
+            password="temporary-secret",
+            timeout_seconds=10,
+        )
+        self.assertNotIn("temporary-secret", response.get_data(as_text=True))
 
 
 if __name__ == "__main__":

@@ -13,7 +13,15 @@ Recommended starting points:
 - `developer-guide.md`: code structure, naming rules and integration plugin pattern.
 - `file-guide.md`: one line per source file - what it does and how safely it can be edited.
 - `release-and-update.md`: PyInstaller server ZIPs, updater keys, release flow and shortcuts.
+- `roadmap-0.5.md`: planned work for 0.5, with decisions, phases and open questions.
 - `../CONTRIBUTING.md`: project rules for clear, maintainable changes.
+
+Per-sensor troubleshooting lives next to each integration:
+
+- `../software/study_runner/integrations/brainbit/README.md`: BrainBit status
+  values, exit codes, log files and the manual CLI check.
+- `../software/study_runner/integrations/local_emotion_worker/README.md`:
+  DeepFace worker setup and repair.
 
 Naming rules:
 

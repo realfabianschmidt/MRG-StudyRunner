@@ -24,6 +24,12 @@ if __name__ == "__main__":
         from study_runner.integrations.local_emotion_worker.server import self_test_main
 
         raise SystemExit(self_test_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "--brainbit-cli":
+        # Packaged builds have no separate Python interpreter to run the BrainBit
+        # CLI script with, so the frozen executable re-invokes itself instead.
+        from study_runner.integrations.brainbit.brainbit_realtime_cli import main as run_brainbit_cli
+
+        raise SystemExit(run_brainbit_cli(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "--apply-update":
         from study_runner.update_helper import main as run_update_helper
 

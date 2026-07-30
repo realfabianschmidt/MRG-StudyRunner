@@ -4,7 +4,13 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(SPECPATH)))
-from study_runner_server_common import common_datas, common_excludes, common_hidden_imports, software_root
+from study_runner_server_common import (
+    common_binaries,
+    common_datas,
+    common_excludes,
+    common_hidden_imports,
+    software_root,
+)
 
 root = software_root(SPECPATH)
 # Make the editable Python software importable so collect_submodules finds study_runner.
@@ -13,7 +19,7 @@ sys.path.insert(0, str(root))
 a = Analysis(
     [str(root / "server.py")],
     pathex=[str(root)],
-    binaries=[],
+    binaries=common_binaries(),
     datas=common_datas(root),
     hiddenimports=common_hidden_imports(),
     hookspath=[],

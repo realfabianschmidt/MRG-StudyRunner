@@ -39,8 +39,9 @@ Important fields:
 - `brainbit.device_index`: scan list index fallback; only use this in stable lab setups.
 - `brainbit.resist_seconds`: how long electrode resistance is measured before EEG.
 - `brainbit.signal_seconds`: EEG duration; `0` means run until stopped.
-- `brainbit.python_executable.windows`: required in packaged builds when the
-  embedded app cannot start an external Python process.
+- `brainbit.python_executable.windows`: optional. Packaged builds run the CLI
+  through their own executable (`--brainbit-cli`), so leave this empty unless a
+  specific interpreter must be used.
 - `brainbit.lsl.enabled`: mirrors BrainBit data continuously to LSL.
 - `brainbit.osc_host` and `brainbit.osc_port`: TouchDesigner OSC target.
 
@@ -58,12 +59,15 @@ Useful status values:
 - `scanning`: the CLI is scanning for a BrainBit device.
 - `connected`: data was received recently.
 - `stale`: the process is still known, but no data arrived within the timeout.
-- `failed`: the CLI could not start or crashed.
-- `not_configured`: packaged build needs a normal Python path.
+- `failed`: the CLI could not start or crashed. The card then names the cause in
+  plain language (headset not found, Bluetooth off, libraries missing).
+- `restarting`: the CLI exited and is being retried automatically.
+- `not_configured`: no way to launch the CLI on this installation.
 
-BrainBit scanning is one-shot on start. If the device was off or already
-connected elsewhere, turn the headset on, wait a few seconds, then click
-`Restart`.
+Scanning happens once per start, but a CLI that exits because the headset was
+off is now retried automatically (after 5 s, 15 s, then 45 s, up to
+`auto_restart_max_attempts`, default 3). So switching the headset on shortly
+after the server starts is usually enough; otherwise click `Restart`.
 
 ## Connect a Different Band
 
@@ -83,8 +87,24 @@ Target priority is:
 3. `device_name`
 4. `device_index`
 
-If a serial, address, or name target is configured and not found, the CLI exits
-instead of silently connecting to another headset.
+If no target is configured, the CLI connects to the first BrainBit it finds.
+
+If a configured serial, address, or name is **not** found, the CLI does not give
+up: it connects to the headset that is actually in range and reports the swap
+(`DEVICE_TARGET_MISSING`), which the dashboard shows as "The BrainBit saved in
+the settings was not found. Using the headset that is in range instead." This
+changed in 0.5 - before that the CLI exited, which meant a saved headset from
+another computer silently blocked every session.
+
+Exit codes the adapter reacts to:
+
+| Code | Meaning | Retried automatically |
+|---|---|---|
+| 0 | clean stop | no |
+| 2 | SDK libraries missing and not installable | no |
+| 5 | no BrainBit found during the scan | yes |
+| 103 | Bluetooth off or unavailable | no |
+| other | unexpected crash | yes |
 
 ## Log Files
 
@@ -187,8 +207,22 @@ If this fails, fix the Python environment before debugging Study Runner.
 
 ### Packaged build cannot start BrainBit
 
-Packaged Study Runner cannot always start an external CLI with the embedded
-Python runtime. Set a normal Python executable path:
+Since 0.5 packaged builds run the CLI through their own executable
+(`study-runner-server --brainbit-cli ...`), and the SDK libraries are bundled
+into the release. No Python installation is needed on the operator's machine.
+
+Releases up to and including 0.4.0 did **not** ship the CLI script at all, so
+BrainBit could never connect from a packaged install - the dashboard just showed
+`not_configured` with no visible error. If a release behaves that way, it is
+older than 0.5; update instead of configuring around it.
+
+To check a packaged build by hand:
+
+```powershell
+.\study-runner-server.exe --brainbit-cli --no-osc --scan-seconds 5 --signal-seconds 5
+```
+
+Only set `python_executable` if a specific interpreter must be used:
 
 ```json
 "python_executable": {

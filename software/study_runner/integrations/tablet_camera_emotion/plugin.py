@@ -2,16 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..adapter_utils import config_section
 from ..plugin_api import IntegrationContext, IntegrationPlugin
 
 
-def _config_section(context: IntegrationContext) -> dict[str, Any]:
-    config = context.hardware_config.get("camera_emotion") or context.hardware_config.get("camera") or {}
-    return config if isinstance(config, dict) else {}
-
-
 def _initialize(context: IntegrationContext) -> None:
-    config = _config_section(context)
+    config = config_section(context, "camera_emotion", "camera")
     if not config:
         return
 
@@ -49,7 +45,7 @@ def _start(context: IntegrationContext) -> Any:
     if not adapter.is_configured():
         _initialize(context)
     result = adapter.start()
-    config = _config_section(context)
+    config = config_section(context, "camera_emotion", "camera")
     if config.get("worker_mode", "local_worker") == "local_worker":
         from ..local_emotion_worker import plugin as emotion_worker_plugin
 
@@ -72,6 +68,12 @@ def _interval(context: IntegrationContext, start_epoch: float, end_epoch: float)
     return adapter.get_interval_summary(start_epoch, end_epoch)
 
 
+def _export(context: IntegrationContext, start_epoch: float, end_epoch: float) -> list[dict[str, Any]]:
+    from . import adapter
+
+    return adapter.export_interval_samples(start_epoch, end_epoch)
+
+
 PLUGIN = IntegrationPlugin(
     key="camera_emotion",
     label="Tablet camera emotion",
@@ -86,4 +88,8 @@ PLUGIN = IntegrationPlugin(
     start=_start,
     stop=_stop,
     get_interval_summary=_interval,
+    export_interval_samples=_export,
+    sidecar_sensor="camera_emotion",
+    sidecar_filename_suffix="camera_emotion_signals",
+    sidecar_output_key="camera_emotion_file",
 )

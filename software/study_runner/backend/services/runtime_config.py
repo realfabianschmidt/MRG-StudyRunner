@@ -12,6 +12,7 @@ from typing import Any
 
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 3000
+DEFAULT_CERTIFICATE_DOWNLOAD_PORT = 3002
 
 
 @dataclass(frozen=True)
@@ -28,9 +29,18 @@ class RuntimePaths:
     uses_external_storage: bool
 
 
+def is_frozen() -> bool:
+    """Return True when running from a packaged (PyInstaller) build.
+
+    Single source of truth: helpers that need to behave differently in packaged
+    builds must call this instead of checking sys.frozen themselves.
+    """
+    return bool(getattr(sys, "frozen", False))
+
+
 def get_project_base_dir() -> Path:
     """Return the folder that contains bundled project resources."""
-    if getattr(sys, "frozen", False):
+    if is_frozen():
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent)).resolve()
     return Path(__file__).resolve().parents[3]
 
@@ -39,7 +49,7 @@ def get_app_mode() -> str:
     configured_mode = os.getenv("STUDY_RUNNER_APP_MODE", "").strip().lower()
     if configured_mode:
         return configured_mode
-    return "packaged" if getattr(sys, "frozen", False) else "python"
+    return "packaged" if is_frozen() else "python"
 
 
 def read_server_host() -> str:
@@ -55,6 +65,26 @@ def read_server_port() -> int:
     except ValueError:
         return DEFAULT_PORT
     return port if 1 <= port <= 65535 else DEFAULT_PORT
+
+
+def read_certificate_download_port() -> int:
+    raw_value = os.getenv("STUDY_RUNNER_CERTIFICATE_DOWNLOAD_PORT", "").strip()
+    if not raw_value:
+        return DEFAULT_CERTIFICATE_DOWNLOAD_PORT
+    try:
+        port = int(raw_value)
+    except ValueError:
+        return DEFAULT_CERTIFICATE_DOWNLOAD_PORT
+    return port if 1 <= port <= 65535 else DEFAULT_CERTIFICATE_DOWNLOAD_PORT
+
+
+def is_background_disabled() -> bool:
+    return os.getenv("STUDY_RUNNER_DISABLE_BACKGROUND", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def is_https_enabled() -> bool:

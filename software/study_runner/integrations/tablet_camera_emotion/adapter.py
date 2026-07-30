@@ -13,6 +13,7 @@ from collections import deque
 from threading import Lock
 from typing import Any
 
+from ..adapter_utils import set_state, timestamp
 from ..dependency_utils import ensure_requirements
 from ..history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 
@@ -105,7 +106,7 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
         _set_state({"status": "disabled", "last_message": "Camera affect frame ignored because analysis is disabled."})
         return {"accepted": False, "reason": "disabled", **get_status()}
 
-    received_at = _timestamp()
+    received_at = timestamp()
     frame_info = _extract_frame_info(payload)
     analysis = _analyze_frame(payload)
     if payload.get("preview") is True:
@@ -118,7 +119,7 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
             "active_phase": False,
             "client_captured_at": payload.get("client_captured_at") or payload.get("client_timestamp"),
             "server_received_at": received_at,
-            "processed_at": _timestamp(),
+            "processed_at": timestamp(),
             "sequence_number": payload.get("sequence_number"),
             "frame": frame_info,
             "analysis": analysis,
@@ -134,7 +135,7 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
         "active_phase": bool(payload.get("active_phase", False)),
         "client_captured_at": payload.get("client_captured_at") or payload.get("client_timestamp"),
         "server_received_at": received_at,
-        "processed_at": _timestamp(),
+        "processed_at": timestamp(),
         "sequence_number": payload.get("sequence_number"),
         "frame": frame_info,
         "analysis": analysis,
@@ -226,6 +227,11 @@ def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]
         "max_gap_seconds": max_gap_seconds(samples),
         **truncation_info(_history, start_epoch),
     }
+
+
+def export_interval_samples(start_epoch: float, end_epoch: float) -> list[dict[str, Any]]:
+    """Return processed emotion samples for the persisted session sidecar."""
+    return [dict(sample) for sample in samples_in_interval(_history, start_epoch, end_epoch)]
 
 
 def _extract_frame_info(payload: dict[str, Any]) -> dict[str, Any]:
@@ -547,9 +553,7 @@ def _push_lsl_result(result: dict[str, Any]) -> None:
 
 
 def _set_state(values: dict[str, Any]) -> None:
-    with _state_lock:
-        _latest_state.update(values)
-        _latest_state["updated_at"] = _timestamp()
+    set_state(_latest_state, _state_lock, values)
 
 
 def _set_preview_state(result: dict[str, Any], payload: dict[str, Any]) -> None:
@@ -566,10 +570,6 @@ def _set_preview_state(result: dict[str, Any], payload: dict[str, Any]) -> None:
             "latest": result,
             "image": image_data,
         }
-
-
-def _timestamp() -> str:
-    return time.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _mean(values: list[float]) -> float | None:

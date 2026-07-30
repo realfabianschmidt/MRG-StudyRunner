@@ -22,7 +22,9 @@ Requires:
   pip install pyneurosdk2 python-osc pyem-st-artifacts
 """
 
-import argparse, json, math, platform, re, signal as os_signal, threading, time, subprocess, sys
+from __future__ import annotations
+
+import argparse, json, math, os, platform, re, signal as os_signal, threading, time, subprocess, sys
 import importlib.util
 from typing import Any, Iterable, List, Optional, Tuple, Dict
 
@@ -31,6 +33,14 @@ REQUIRED_MODULES = [
     ("pythonosc", "python-osc"),
     ("em_st_artifacts", "pyem-st-artifacts"),
 ]
+
+# Exit codes the supervising adapter maps to plain-language operator messages.
+# Keep these stable: adapter.py turns them into dashboard states.
+EXIT_OK = 0
+EXIT_MISSING_DEPENDENCY = 2
+EXIT_NO_DEVICE_FOUND = 5
+EXIT_BLE_UNAVAILABLE = 103
+
 
 def _is_module_available(module_name: str) -> bool:
     return importlib.util.find_spec(module_name) is not None
@@ -48,36 +58,81 @@ def _install_package(package_name: str) -> None:
     ])
 
 
+def _runtime_pip_install_disabled() -> bool:
+    """Mirror of dependency_utils._runtime_pip_install_disabled.
+
+    Duplicated on purpose: this file also runs as a standalone script, where the
+    study_runner package is not importable.
+    """
+    if os.getenv("STUDY_RUNNER_DISABLE_RUNTIME_PIP", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    app_mode = os.getenv("STUDY_RUNNER_APP_MODE", "").strip().lower()
+    if not app_mode:
+        app_mode = "packaged" if getattr(sys, "frozen", False) else "python"
+    return app_mode in {"desktop", "packaged"}
+
+
 def _ensure_requirements() -> None:
-    missing = []
-    for module_name, package_name in REQUIRED_MODULES:
-        if not _is_module_available(module_name):
-            missing.append((module_name, package_name))
-    if missing:
-        print(f"[SETUP] Missing required libraries: {', '.join(m for m,_ in missing)}", flush=True)
-        for module_name, package_name in missing:
-            try:
-                _install_package(package_name)
-            except Exception as exc:
-                raise SystemExit(f"[ERROR] Could not install {package_name}: {exc}")
-    for module_name, _ in REQUIRED_MODULES:
-        if not _is_module_available(module_name):
-            raise SystemExit(f"[ERROR] Missing required module {module_name} after installation")
-    print(f"[SETUP] Required libraries are installed: {', '.join(m for m,_ in REQUIRED_MODULES)}", flush=True)
+    """Check the SDK dependencies, installing them only in source checkouts.
+
+    Packaged builds bundle these libraries, so pip must never run there - it
+    would need a compiler toolchain the operator's machine does not have.
+    """
+    missing = [
+        (module_name, package_name)
+        for module_name, package_name in REQUIRED_MODULES
+        if not _is_module_available(module_name)
+    ]
+    if not missing:
+        print(f"[SETUP] Required libraries are installed: {', '.join(m for m, _ in REQUIRED_MODULES)}", flush=True)
+        return
+
+    names = ", ".join(package_name for _, package_name in missing)
+    print(f"[SETUP] Missing required libraries: {names}", flush=True)
+
+    if _runtime_pip_install_disabled():
+        _print_json("SETUP_FAIL", {"missing": [p for _, p in missing], "auto_install": False})
+        raise SystemExit(EXIT_MISSING_DEPENDENCY)
+
+    for _, package_name in missing:
+        try:
+            _install_package(package_name)
+        except Exception as exc:
+            print(f"[ERROR] Could not install {package_name}: {exc}", flush=True)
+            _print_json("SETUP_FAIL", {"missing": [p for _, p in missing], "error": str(exc)})
+            raise SystemExit(EXIT_MISSING_DEPENDENCY)
+
+    still_missing = [package_name for module_name, package_name in missing if not _is_module_available(module_name)]
+    if still_missing:
+        print(f"[ERROR] Missing required module after installation: {', '.join(still_missing)}", flush=True)
+        _print_json("SETUP_FAIL", {"missing": still_missing, "after_install": True})
+        raise SystemExit(EXIT_MISSING_DEPENDENCY)
+
+    print(f"[SETUP] Required libraries are installed: {', '.join(m for m, _ in REQUIRED_MODULES)}", flush=True)
 
 
-_ensure_requirements()
+def _load_sdk_modules() -> None:
+    """Import the vendor SDKs into module globals.
 
-# --- NeuroSDK2
-from neurosdk.scanner import Scanner
-from neurosdk.cmn_types import SensorFamily, SensorFeature, SensorCommand, SensorGain, BrainBit2ChannelMode, GenCurrent
+    Deferred until after _ensure_requirements so that a missing dependency
+    produces a tagged, machine-readable line instead of an import traceback.
+    """
+    global Scanner, SensorFamily, SensorFeature, SensorCommand, SensorGain
+    global BrainBit2ChannelMode, GenCurrent, SimpleUDPClient
+    global lib_settings, support_classes, emotional_math
 
-# --- OSC
-from pythonosc.udp_client import SimpleUDPClient
-
-# --- Emotions (official)
-from em_st_artifacts.utils import lib_settings, support_classes
-from em_st_artifacts import emotional_math
+    from neurosdk.scanner import Scanner
+    from neurosdk.cmn_types import (
+        SensorFamily,
+        SensorFeature,
+        SensorCommand,
+        SensorGain,
+        BrainBit2ChannelMode,
+        GenCurrent,
+    )
+    from pythonosc.udp_client import SimpleUDPClient
+    from em_st_artifacts.utils import lib_settings, support_classes
+    from em_st_artifacts import emotional_math
 
 
 # ----------------- small utils -----------------
@@ -256,9 +311,10 @@ def _start_scan_or_explain(scanner, seconds: int):
         msg = str(e)
         if "Code 103" in msg or "BLE adapter not found or disabled" in msg:
             print("# FATAL: BLE adapter not found or disabled.", flush=True)
+            _print_json("BLE_UNAVAILABLE", {"message": "Bluetooth adapter not found or disabled."})
             if platform.system() == "Darwin":
                 print("# macOS checklist:\n#  1) Bluetooth ON.\n#  2) Privacy → Bluetooth: allow your terminal.\n#  3) Headband not connected elsewhere.\n#  4) If stuck: sudo killall -9 bluetoothd; toggle BT.\n#  5) which python3", flush=True)
-            raise SystemExit(103)
+            raise SystemExit(EXIT_BLE_UNAVAILABLE)
         else:
             raise
     try:
@@ -268,7 +324,7 @@ def _start_scan_or_explain(scanner, seconds: int):
 
 
 # ----------------- main -----------------
-def main():
+def main(argv: Optional[List[str]] = None):
     ap = argparse.ArgumentParser(description="BrainBit CLI + OSC + Emotions (Bands + Mind) with calibration watchdog")
     ap.add_argument("--scan-seconds", type=int, default=5)
     ap.add_argument("--device-index", type=int, default=0)
@@ -314,8 +370,10 @@ def main():
     ap.add_argument("--pretty", action="store_true", help="Show readable terminal status output in addition to JSON.")
     ap.add_argument("--debug", action="store_true", help="Print debug event nodes and data flow details.")
 
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     _set_output_mode(debug=args.debug, pretty=args.pretty)
+    _ensure_requirements()
+    _load_sdk_modules()
     osc = None if args.no_osc else SimpleUDPClient(args.osc_host, int(args.osc_port))
 
     # --- Scan / select device ---
@@ -336,10 +394,15 @@ def main():
     _start_scan_or_explain(scanner, args.scan_seconds)
     sensors = scanner.sensors()
     if not sensors:
-        print("# No compatible BrainBit-family sensor found. Exiting.", flush=True)
-        return
+        message = "No compatible BrainBit-family sensor found."
+        _print_json("NO_DEVICE_FOUND", {"message": message, "scan_seconds": int(args.scan_seconds)})
+        print(f"# {message} Exiting.", flush=True)
+        raise SystemExit(EXIT_NO_DEVICE_FOUND)
     sel_idx, info, selection_source = _select_sensor_info(sensors, args)
     if info is None or sel_idx is None:
+        # A configured headset that is not in range must not block the session:
+        # fall back to whatever BrainBit is actually there and report the swap,
+        # so the operator sees which device is in use.
         target = {
             "serial_number": args.serial_number,
             "device_address": args.device_address,
@@ -347,9 +410,12 @@ def main():
             "device_index": args.device_index,
         }
         message = f"Configured BrainBit target not found: {selection_source}"
-        _print_json("DEVICE_SELECT_FAIL", {"message": message, "target": target})
-        print(f"# {message}. Exiting.", flush=True)
-        raise SystemExit(4)
+        _print_json(
+            "DEVICE_TARGET_MISSING",
+            {"message": message, "target": target, "fallback": "first_available"},
+        )
+        print(f"# {message}. Using the first BrainBit found instead.", flush=True)
+        sel_idx, info, selection_source = 0, sensors[0], "first_available"
     selected_payload = _sensor_info_payload(info, sel_idx)
     selected_payload["selection_source"] = selection_source
     _print_json("DEVICE_SELECTED", selected_payload)
@@ -767,4 +833,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

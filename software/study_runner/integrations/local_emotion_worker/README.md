@@ -84,7 +84,7 @@ For release packaging, build platform-specific wheels from the repository root
 on the target platform:
 
 ```bash
-python release_tools/build-offline-wheelhouse.py
+python release_tools/build_offline_wheelhouse.py
 ```
 
 Install from a prepared wheelhouse without PyPI:
@@ -122,7 +122,7 @@ If the vendored model ever needs to be refreshed, run this from the repository
 root before building a release:
 
 ```bash
-python release_tools/fetch-deepface-model-assets.py
+python release_tools/fetch_deepface_model_assets.py
 ```
 
 PyInstaller includes `model_assets/` in the server build, and the dashboard

@@ -201,7 +201,7 @@ def _delayed_shutdown(shutdown_func) -> None:
     shutdown_func()
 
 
-def _save_notion_secret_payload(config_data: dict) -> tuple[dict, bool]:
+def _save_hardware_secret_payload(config_data: dict) -> tuple[dict, bool]:
     sanitized_config = json.loads(json.dumps(config_data))
     notion_config = sanitized_config.get("notion")
     local_secrets = dict(current_app.config.get("LOCAL_SECRETS", {}))
@@ -223,6 +223,24 @@ def _save_notion_secret_payload(config_data: dict) -> tuple[dict, bool]:
         notion_config.pop("api_key_configured", None)
         notion_config.pop("api_key_source", None)
         notion_config.pop("clear_api_key", None)
+
+    nextcloud_config = sanitized_config.get("nextcloud")
+    if isinstance(nextcloud_config, dict):
+        if "password" in nextcloud_config:
+            provided_password = str(nextcloud_config.get("password") or "")
+            if provided_password:
+                local_secrets.setdefault("nextcloud", {})["password"] = provided_password
+                secret_updated = True
+
+        if nextcloud_config.get("clear_password"):
+            local_secrets.setdefault("nextcloud", {}).pop("password", None)
+            if not local_secrets.get("nextcloud"):
+                local_secrets.pop("nextcloud", None)
+            secret_updated = True
+
+        nextcloud_config.pop("password", None)
+        nextcloud_config.pop("password_configured", None)
+        nextcloud_config.pop("clear_password", None)
 
     if secret_updated:
         save_local_secrets(current_app.config["LOCAL_SECRETS_FILE"], local_secrets)

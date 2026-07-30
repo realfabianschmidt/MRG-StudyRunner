@@ -1,3 +1,4 @@
+"""Fetch DeepFace model assets required by offline packaged builds."""
 from __future__ import annotations
 
 import argparse

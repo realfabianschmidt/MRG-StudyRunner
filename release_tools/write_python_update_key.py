@@ -1,3 +1,4 @@
+"""Write the trusted updater public key into a packaged build."""
 from __future__ import annotations
 
 import argparse

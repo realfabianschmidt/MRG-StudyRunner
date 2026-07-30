@@ -1,3 +1,4 @@
+"""Package a Study Runner PyInstaller onedir build as a zip asset."""
 from __future__ import annotations
 
 import argparse

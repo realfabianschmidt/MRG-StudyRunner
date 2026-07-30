@@ -6,7 +6,7 @@ Single source of truth for:
 - Ed25519 public-key loading and signature verification.
 
 This logic used to exist as three copies (backend update service,
-tools/study_runner_manager.py, release_tools/build-python-update-manifest.py);
+tools/study_runner_manager.py, release_tools/build_python_update_manifest.py);
 a fix applied to one copy silently broke compatibility with the others.
 
 The wire format is FROZEN: installed 0.3.x clients verify release

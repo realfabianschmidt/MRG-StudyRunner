@@ -14,7 +14,7 @@ Edit-safety legend:
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `software/server.py` | Start Study Runner from source (`python server.py`); dispatches the worker/updater CLI flags | careful |
+| `software/server.py` | Start Study Runner from source (`python server.py`); dispatches the `--emotion-worker`, `--brainbit-cli` and updater CLI flags | careful |
 | `software/study_runner/app_server.py` | Wires up the Flask server: port check, HTTPS, startup banner, browser open | careful |
 | `software/study_runner/version.py` | The single version number of the app | yes |
 | `tools/study_runner_manager.py` | Standalone Install & Repair Wizard (downloads, verifies, installs releases) | no |
@@ -31,6 +31,9 @@ Edit-safety legend:
 | `routes/sensors.py` | Hardware config, sensor start/stop/restart, camera frames, worker repair | careful |
 | `routes/update.py` | In-app updater endpoints (check/download/install) | no |
 | `routes/notion.py` | Notion status, queue flush, connection test | careful |
+| `routes/nextcloud.py` | Tests a study's writable Nextcloud public-share connection | careful |
+| `routes/sessions.py` | Read-only completed-session list, detail, and timeline-signal APIs | careful |
+| `routes/certificate.py` | Certificate status plus guarded root-CA export/import endpoints | no |
 | `routes/helpers.py` | Shared request helpers: runtime config, sessions, sensor runtime | careful |
 
 ## Backend - services (`software/study_runner/backend/services/`)
@@ -41,8 +44,12 @@ Edit-safety legend:
 | `services/atomic_io.py` | Crash-safe JSON writes (temp file + replace) for all study data | no |
 | `services/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
 | `services/results_service.py` | Builds answer details, slices biosignals per card, writes result files | no |
+| `services/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |
+| `services/nextcloud_service.py` | Uploads session files to writable Nextcloud public shares over WebDAV | careful |
 | `services/update_service.py` | In-app updater: manifest fetch, signature check, download, staging | no |
 | `services/ssl_service.py` | Local HTTPS certificate authority for tablet camera access | no |
+| `services/certificate_download_service.py` | Plain-HTTP, one-file bootstrap download for the local root CA | careful |
+| `services/certificate_transfer_service.py` | Validates, exports, and transactionally imports the reusable local root CA | no |
 | `services/runtime_config.py` | Paths, ports, app mode, data-folder resolution | careful |
 | `services/study_config_service.py` | Load/save the active study and the saved-studies folder | careful |
 | `services/study_sensor_runtime.py` | Which sensors are effectively on (study settings + overrides) | careful |
@@ -63,15 +70,31 @@ Edit-safety legend:
 
 ## Integrations (`software/study_runner/integrations/`)
 
+The folder name, public plugin key, and hardware-config key are deliberately
+not assumed to be identical. `test_plugin_registry.py` freezes this compatibility
+mapping:
+
+| Folder | Plugin key | Config key |
+|---|---|---|
+| `brainbit` | `brainbit` | `brainbit` |
+| `mr60_mini_radar` | `mini_radar` | `mini_radar` |
+| `tablet_camera_emotion` | `camera_emotion` | `camera_emotion` |
+| `local_emotion_worker` | `emotion_worker` | `camera_emotion` |
+| `lsl_markers` | `lsl` | `lsl` |
+| `osc_touchdesigner` | `osc` | `osc` |
+| `labrecorder_xdf` | `labrecorder` | `labrecorder` |
+| `notion_upload` | `notion` | `notion` |
+
 | File | Purpose | Edit? |
 |---|---|---|
 | `plugin_api.py` | The IntegrationContext/plugin interface every sensor implements | careful |
+| `adapter_utils.py` | Shared timestamps, locked state updates, and config-section lookup | careful |
 | `registry.py` | Lists all plugins; builds interval summaries and sidecar exports | careful |
 | `history_buffer.py` | Session-sized ring buffers + gap/truncation detection for all sensors | careful |
 | `dependency_utils.py` | Optional auto-install of Python packages sensors need | careful |
 | `__init__.py` (all) | Empty package markers | yes |
 | `brainbit/adapter.py` | Supervises the BrainBit CLI process (has a TOC docstring) | careful |
-| `brainbit/brainbit_realtime_cli.py` | The external BrainBit EEG CLI itself (SOURCE OF TRUTH, mirrored in Sensorik/) | careful |
+| `brainbit/brainbit_realtime_cli.py` | The external BrainBit EEG CLI itself (SOURCE OF TRUTH, mirrored in Sensorik/); also runs inside packaged builds via `--brainbit-cli` | careful |
 | `brainbit/plugin.py` | Plugin wrapper: config defaults + lifecycle for BrainBit | careful |
 | `mr60_mini_radar/adapter.py` | MR60 heart/breathing radar via serial or BLE, with auto-reconnect | careful |
 | `mr60_mini_radar/plugin.py` | Plugin wrapper for the radar | careful |
@@ -95,6 +118,11 @@ Edit-safety legend:
 | `admin-controller.js` | Study editor, save/load, QR codes, updates | careful |
 | `admin-dashboard-controller.js` | Live sensor dashboard with plain-language statuses | careful |
 | `notion-settings-controller.js` | The Notion settings page | careful |
+| `admin/nextcloud-settings-controller.js` | The shared-shell Nextcloud setup and connection-test page | careful |
+| `admin/certificate-settings-controller.js` | The shared-shell certificate status, setup, export, and import page | no |
+| `lib/dom-utils.js` | Shared safe DOM lookup, text/HTML assignment, and escaping helpers | careful |
+| `lib/modal.js` | Shared accessible modal lifecycle and existing modal-shell markup | careful |
+| `lib/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
 | `api-client.js` | Tiny fetch helpers (getJson/postJson) | careful |
 | `i18n.js` | Translation loading and the `t()` helper | careful |
 | `camera-capture.js` | Captures tablet camera frames and posts them to the server | careful |
@@ -123,12 +151,12 @@ holds offline copies of third-party assets (icons).
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `release_tools/build-python-onedir.py` | Runs PyInstaller for server/manager | careful |
-| `release_tools/package-python-onedir.py` | Zips a onedir build into a release asset | careful |
-| `release_tools/build-python-update-manifest.py` | Signs release assets into the update manifest | no |
-| `release_tools/write-python-update-key.py` | Bakes the trusted public key into a CI build | no |
-| `release_tools/fetch-deepface-model-assets.py` | Downloads the DeepFace weights into model_assets/ | careful |
-| `release_tools/build-offline-wheelhouse.py` | Builds an offline pip wheelhouse | careful |
+| `release_tools/build_python_onedir.py` | Runs PyInstaller for server/manager | careful |
+| `release_tools/package_python_onedir.py` | Zips a onedir build into a release asset | careful |
+| `release_tools/build_python_update_manifest.py` | Signs release assets into the update manifest | no |
+| `release_tools/write_python_update_key.py` | Bakes the trusted public key into CI builds | no |
+| `release_tools/fetch_deepface_model_assets.py` | Downloads the DeepFace weights into model_assets/ | careful |
+| `release_tools/build_offline_wheelhouse.py` | Builds an offline pip wheelhouse | careful |
 | `release_tools/pyinstaller/study_runner_server_common.py` | Shared PyInstaller spec pieces (datas, hidden imports) | careful |
 | `release_tools/release-study-runner.mjs` | The release script: bump, check, tag, push (run via release.ps1) | no |
 | `release_tools/verify-release-version.mjs` | CI guard: tag matches version.py | no |

@@ -13,10 +13,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend.services.runtime_config import (
+    DEFAULT_CERTIFICATE_DOWNLOAD_PORT,
     get_app_mode,
     get_server_scheme,
     initialize_runtime_storage,
+    is_background_disabled,
     is_https_enabled,
+    read_certificate_download_port,
     resolve_runtime_paths,
 )
 
@@ -35,6 +38,31 @@ class RuntimeConfigTests(unittest.TestCase):
         with patch.dict(os.environ, {"STUDY_RUNNER_HTTPS": "0"}, clear=True):
             self.assertFalse(is_https_enabled())
             self.assertEqual(get_server_scheme(), "http")
+
+    def test_certificate_download_port_is_configurable_and_validated(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"STUDY_RUNNER_CERTIFICATE_DOWNLOAD_PORT": "43123"},
+            clear=True,
+        ):
+            self.assertEqual(read_certificate_download_port(), 43123)
+
+        for invalid_value in ("invalid", "0", "65536"):
+            with self.subTest(value=invalid_value), patch.dict(
+                os.environ,
+                {"STUDY_RUNNER_CERTIFICATE_DOWNLOAD_PORT": invalid_value},
+                clear=True,
+            ):
+                self.assertEqual(
+                    read_certificate_download_port(),
+                    DEFAULT_CERTIFICATE_DOWNLOAD_PORT,
+                )
+
+    def test_background_services_can_be_disabled_for_tests(self) -> None:
+        with patch.dict(os.environ, {"STUDY_RUNNER_DISABLE_BACKGROUND": "1"}, clear=True):
+            self.assertTrue(is_background_disabled())
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(is_background_disabled())
 
     def test_default_paths_stay_inside_project(self) -> None:
         with patch.dict(os.environ, {}, clear=True):

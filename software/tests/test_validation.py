@@ -312,6 +312,36 @@ class ValidationTests(unittest.TestCase):
                 }
             )
 
+    def test_nextcloud_study_settings_are_normalized_and_validated(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Nextcloud Study",
+                "study_settings": {
+                    "nextcloud_enabled": "true",
+                    "nextcloud_share_link": " https://cloud.example/s/shareToken ",
+                },
+                "questions": [{"type": "finish"}],
+            }
+        )
+
+        self.assertTrue(config["study_settings"]["nextcloud_enabled"])
+        self.assertEqual(
+            config["study_settings"]["nextcloud_share_link"],
+            "https://cloud.example/s/shareToken",
+        )
+
+        with self.assertRaises(ValidationError):
+            validate_and_normalize_config(
+                {
+                    "study_id": "Bad Nextcloud Study",
+                    "study_settings": {
+                        "nextcloud_enabled": True,
+                        "nextcloud_share_link": "https://cloud.example/not-a-share",
+                    },
+                    "questions": [{"type": "finish"}],
+                }
+            )
+
     def test_participant_configurable_options_and_new_fields(self) -> None:
         config = validate_and_normalize_config(
             {

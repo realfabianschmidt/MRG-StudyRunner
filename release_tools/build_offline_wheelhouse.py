@@ -1,3 +1,4 @@
+"""Build the offline dependency wheelhouse used by packaged releases."""
 from __future__ import annotations
 
 import argparse

@@ -1,3 +1,4 @@
+"""Build one Study Runner PyInstaller onedir target."""
 from __future__ import annotations
 
 import argparse

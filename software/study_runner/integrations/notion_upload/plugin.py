@@ -2,16 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..adapter_utils import config_section
 from ..plugin_api import IntegrationContext, IntegrationPlugin
 
 
-def _config_section(context: IntegrationContext) -> dict[str, Any]:
-    section = context.hardware_config.get("notion", {})
-    return section if isinstance(section, dict) else {}
-
-
 def _initialize(context: IntegrationContext) -> None:
-    config = _config_section(context)
+    config = config_section(context, "notion")
     from . import adapter
 
     adapter.initialize(
@@ -24,7 +20,7 @@ def _initialize(context: IntegrationContext) -> None:
 
 
 def _status(context: IntegrationContext) -> dict[str, Any]:
-    config = _config_section(context)
+    config = config_section(context, "notion")
     from . import adapter
 
     status = adapter.get_status()

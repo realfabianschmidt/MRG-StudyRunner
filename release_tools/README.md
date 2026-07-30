@@ -39,8 +39,8 @@ the tag is pushed:
 Manual local manager build:
 
 ```powershell
-python release_tools/build-python-onedir.py --spec release_tools/pyinstaller/study_runner_manager_onedir.spec
-python release_tools/package-python-onedir.py --source software/dist/study-runner-manager --output study-runner-manager-local.zip
+python release_tools/build_python_onedir.py --spec release_tools/pyinstaller/study_runner_manager_onedir.spec
+python release_tools/package_python_onedir.py --source software/dist/study-runner-manager --output study-runner-manager-local.zip
 ```
 
 The manager is the Install & Repair Wizard. It verifies the signed
@@ -52,7 +52,7 @@ is already committed under
 fresh copy only when the model asset should be refreshed:
 
 ```powershell
-python release_tools/fetch-deepface-model-assets.py
+python release_tools/fetch_deepface_model_assets.py
 ```
 
 The release build includes that `model_assets/` folder, so the dashboard repair

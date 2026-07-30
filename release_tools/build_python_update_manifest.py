@@ -1,3 +1,4 @@
+"""Build and sign the Python release update manifest."""
 from __future__ import annotations
 
 import argparse

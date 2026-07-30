@@ -182,8 +182,8 @@ From the repository root:
 
 ```bash
 python -m pip install -r software/requirements.txt -r release_tools/pyinstaller/requirements-build.txt
-python release_tools/build-python-onedir.py
-python release_tools/package-python-onedir.py --source software/dist/study-runner-server --output study-runner-server-local.zip
+python release_tools/build_python_onedir.py
+python release_tools/package_python_onedir.py --source software/dist/study-runner-server --output study-runner-server-local.zip
 ```
 
 ## One-Command Release
@@ -226,7 +226,7 @@ finishes, packaged builds can update from the Admin page update card.
 python -m unittest discover software/tests
 node --check release_tools/verify-release-version.mjs
 node --check release_tools/release-study-runner.mjs
-python -m py_compile release_tools/package-python-onedir.py release_tools/write-python-update-key.py release_tools/build-python-update-manifest.py release_tools/build-python-onedir.py
+python -m py_compile release_tools/package_python_onedir.py release_tools/write_python_update_key.py release_tools/build_python_update_manifest.py release_tools/build_python_onedir.py
 node release_tools/verify-release-version.mjs app-v0.2.4
 git diff --check
 ```
@@ -234,7 +234,7 @@ git diff --check
 Optional full local build check:
 
 ```bash
-python release_tools/build-python-onedir.py
+python release_tools/build_python_onedir.py
 ```
 
 ## Source Of Truth

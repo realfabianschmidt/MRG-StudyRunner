@@ -3,11 +3,10 @@
   "brainbit": {
     "debug": false,
     "disconnect_timeout_ms": 20000,
-    "device_address": "DA:AC:A1:99:7B:BA",
+    "device_address": "",
     "device_index": 0,
-    "device_name": "BrainBit",
+    "device_name": "",
     "enabled": true,
-    "log_dir": "study_runner/integrations/brainbit/logs",
     "lsl": {
       "auto_install": false,
       "enabled": true,
@@ -25,9 +24,8 @@
     "resist_seconds": 6,
     "scan_seconds": 5,
     "script_path": "study_runner/integrations/brainbit/brainbit_realtime_cli.py",
-    "serial_number": "04030072",
-    "signal_seconds": 0,
-    "working_dir": "study_runner/integrations/brainbit"
+    "serial_number": "",
+    "signal_seconds": 0
   },
   "camera_emotion": {
     "auto_install": false,

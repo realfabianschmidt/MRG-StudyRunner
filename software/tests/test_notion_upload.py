@@ -61,6 +61,35 @@ class NotionParticipantMetadataTests(unittest.TestCase):
             "Munich",
         )
 
+    def test_optional_metadata_fields_have_complete_notion_mappings(self) -> None:
+        config = self._config()
+        fields = config["questions"][0]["fields"]
+        for field_key in ("gender", "birth_place", "birth_date"):
+            fields[field_key]["enabled"] = True
+            fields[field_key]["store"] = True
+
+        schema = adapter._build_participant_metadata_schema(config)
+        props = adapter._build_participant_metadata_properties(
+            {
+                "participant_metadata": {
+                    "gender": "Non-binary",
+                    "birth_place": "Berlin",
+                    "birth_date": "1990-05-04",
+                }
+            },
+            config,
+        )
+
+        self.assertEqual(schema["Gender"], {"select": {}})
+        self.assertEqual(schema["Birth Place"], {"rich_text": {}})
+        self.assertEqual(schema["Birth Date"], {"date": {}})
+        self.assertEqual(props["Gender"], {"select": {"name": "Non-binary"}})
+        self.assertEqual(
+            props["Birth Place"]["rich_text"][0]["text"]["content"],
+            "Berlin",
+        )
+        self.assertEqual(props["Birth Date"], {"date": {"start": "1990-05-04"}})
+
     def test_answer_detail_format_includes_stimulus_interval_and_biomarkers(self) -> None:
         lines = adapter._format_answer_details(
             [

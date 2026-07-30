@@ -561,5 +561,14 @@
   "dashboard.status.configured": "Ready",
   "dashboard.status.ready": "Ready",
   "dashboard.status.connecting": "Connecting...",
-  "dashboard.status.disconnected": "Disconnected"
+  "dashboard.status.disconnected": "Disconnected",
+  "brainbit.error.deviceNotFound": "No BrainBit headset found. Switch it on and keep it close to this computer.",
+  "brainbit.error.bluetoothUnavailable": "Bluetooth is switched off or unavailable on this computer. Switch Bluetooth on, then restart BrainBit.",
+  "brainbit.error.missingDependency": "The BrainBit software libraries are missing and could not be installed automatically.",
+  "brainbit.error.crashed": "The BrainBit connection stopped unexpectedly. Study Runner is trying again.",
+  "brainbit.error.restarting": "Reconnecting to the BrainBit headset...",
+  "brainbit.error.retriesExhausted": "Automatic retries are used up. Press Restart once the headset is ready.",
+  "brainbit.error.targetMissingFallback": "The BrainBit saved in the settings was not found. Using the headset that is in range instead.",
+  "brainbit.error.noInterpreter": "BrainBit needs a Python path on this installation. Set it in the hardware settings.",
+  "brainbit.error.logFolderUnwritable": "BrainBit cannot write its log folder. Check the folder permissions."
 }

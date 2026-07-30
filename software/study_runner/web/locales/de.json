@@ -561,5 +561,14 @@
   "dashboard.status.configured": "Bereit",
   "dashboard.status.ready": "Bereit",
   "dashboard.status.connecting": "Verbindet...",
-  "dashboard.status.disconnected": "Getrennt"
+  "dashboard.status.disconnected": "Getrennt",
+  "brainbit.error.deviceNotFound": "Kein BrainBit gefunden. Bitte einschalten und nahe an diesen Computer legen.",
+  "brainbit.error.bluetoothUnavailable": "Bluetooth ist auf diesem Computer aus oder nicht verfuegbar. Bluetooth einschalten und BrainBit neu starten.",
+  "brainbit.error.missingDependency": "Die BrainBit-Programmbibliotheken fehlen und konnten nicht automatisch installiert werden.",
+  "brainbit.error.crashed": "Die BrainBit-Verbindung ist unerwartet abgebrochen. Study Runner versucht es erneut.",
+  "brainbit.error.restarting": "Verbindung zum BrainBit wird neu aufgebaut...",
+  "brainbit.error.retriesExhausted": "Die automatischen Versuche sind aufgebraucht. Auf Neu starten druecken, sobald das Headset bereit ist.",
+  "brainbit.error.targetMissingFallback": "Das in den Einstellungen gespeicherte BrainBit wurde nicht gefunden. Es wird das Headset in Reichweite verwendet.",
+  "brainbit.error.noInterpreter": "BrainBit braucht auf dieser Installation einen Python-Pfad. Bitte in den Hardware-Einstellungen setzen.",
+  "brainbit.error.logFolderUnwritable": "BrainBit kann seinen Protokollordner nicht schreiben. Bitte die Ordnerrechte pruefen."
 }

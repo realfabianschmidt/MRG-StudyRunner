@@ -57,6 +57,19 @@ class FileGuideTests(unittest.TestCase):
             "add one line per file to docs/file-guide.md: " + ", ".join(missing),
         )
 
+    def test_release_python_scripts_use_snake_case(self) -> None:
+        release_tools = REPO_ROOT / "release_tools"
+        kebab_case_scripts = sorted(
+            path.name
+            for path in release_tools.glob("*.py")
+            if "-" in path.stem
+        )
+        self.assertEqual(
+            kebab_case_scripts,
+            [],
+            "release_tools Python scripts must use snake_case",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

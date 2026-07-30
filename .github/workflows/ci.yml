@@ -52,7 +52,7 @@ jobs:
           node --check release_tools/release-study-runner.mjs
 
       - name: Check release Python helpers
-        run: python -m py_compile release_tools/package-python-onedir.py release_tools/write-python-update-key.py release_tools/build-python-update-manifest.py release_tools/build-python-onedir.py tools/study_runner_manager.py
+        run: python -m py_compile release_tools/package_python_onedir.py release_tools/write_python_update_key.py release_tools/build_python_update_manifest.py release_tools/build_python_onedir.py tools/study_runner_manager.py
 
       - name: Verify Python app version
         shell: bash
@@ -64,4 +64,4 @@ jobs:
         run: python -m pytest software
 
       - name: Build Python one-dir package
-        run: python release_tools/build-python-onedir.py
+        run: python release_tools/build_python_onedir.py

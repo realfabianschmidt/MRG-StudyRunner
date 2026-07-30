@@ -819,6 +819,15 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
                 + "."
             )
 
+    nextcloud_share_link = _normalize_text(value.get("nextcloud_share_link"))
+    if nextcloud_share_link:
+        try:
+            from .nextcloud_service import parse_share_link
+
+            parse_share_link(nextcloud_share_link)
+        except ValueError as error:
+            raise ValidationError(f"study_settings.nextcloud_share_link: {error}") from error
+
     sensors_enabled = _normalize_boolean(value.get("sensors_enabled", True))
     return {
         "sensors_enabled": sensors_enabled,
@@ -833,6 +842,8 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
         "notion_parent_page_id": _normalize_text(value.get("notion_parent_page_id")),
         "notion_database_id": _normalize_text(value.get("notion_database_id")),
         "notion_data_source_id": _normalize_text(value.get("notion_data_source_id")),
+        "nextcloud_enabled": _normalize_boolean(value.get("nextcloud_enabled", False)),
+        "nextcloud_share_link": nextcloud_share_link,
     }
 
 

@@ -14,6 +14,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from ..adapter_utils import config_section, timestamp
 from ..plugin_api import IntegrationContext, IntegrationPlugin
 from .model_errors import (
     DEEPFACE_EMOTION_MODEL_MIN_BYTES,
@@ -146,15 +147,10 @@ def repair_runtime(context: IntegrationContext) -> dict[str, Any]:
     return _repair_status()
 
 
-def _config_section(context: IntegrationContext) -> dict[str, Any]:
-    config = context.hardware_config.get("camera_emotion") or context.hardware_config.get("camera") or {}
-    return config if isinstance(config, dict) else {}
-
-
 def _configure(context: IntegrationContext) -> None:
     global _config
 
-    config = _config_section(context)
+    config = config_section(context, "camera_emotion", "camera")
     worker_config = config.get("emotion_worker") if isinstance(config.get("emotion_worker"), dict) else {}
     storage_root = _runtime_storage_root(context)
     worker_mode = str(config.get("worker_mode") or "local_worker")
@@ -714,8 +710,9 @@ def _worker_command(script_path: Path) -> tuple[list[str], Path]:
 
 
 def _is_packaged_runtime() -> bool:
-    app_mode = os.getenv("STUDY_RUNNER_APP_MODE", "").strip().lower()
-    return bool(getattr(sys, "frozen", False) or app_mode in {"packaged", "desktop"})
+    from study_runner.backend.services.runtime_config import get_app_mode
+
+    return get_app_mode() in {"packaged", "desktop"}
 
 
 def _runtime_storage_root(context: IntegrationContext) -> Path:
@@ -789,7 +786,7 @@ def _close_log_handle() -> None:
 
 
 def _timestamp() -> str:
-    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    return timestamp()
 
 
 PLUGIN = IntegrationPlugin(
