@@ -125,7 +125,11 @@ def _run_integration_action_json(integration_key: str, action: str):
         if integration_key in STUDY_SENSOR_KEYS and normalized_action in {"start", "stop", "restart"}:
             _set_session_override(integration_key, normalized_action != "stop")
             _rebuild_active_study_runtime_config()
-        result = run_runtime_action(integration_key, action, _integration_context())
+        coordinator = current_app.config.get("SENSOR_COORDINATOR")
+        if coordinator:
+            result = coordinator.run_action(integration_key, action, _integration_context())
+        else:
+            result = run_runtime_action(integration_key, action, _integration_context())
         if integration_key == "camera_emotion" and str(action).strip().lower() == "stop":
             current_app.config["CAMERA_PREVIEW_ACTIVE"] = False
         result["temporary_override"] = integration_key in STUDY_SENSOR_KEYS

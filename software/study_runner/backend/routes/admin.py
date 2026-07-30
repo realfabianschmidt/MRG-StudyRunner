@@ -109,7 +109,11 @@ def admin_delete_study(study_id):
 
 @bp.route("/api/admin/status")
 def admin_status():
-    payload = build_admin_status(_integration_context())
+    payload = build_admin_status(
+        _integration_context(),
+        sensor_coordinator=current_app.config.get("SENSOR_COORDINATOR"),
+        clock_sync_service=current_app.config.get("CLOCK_SYNC_SERVICE"),
+    )
     payload["active_study_session"] = bool(current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"))
     payload["study_controlled_sensor_keys"] = list(STUDY_SENSOR_KEYS)
     payload["sensor_runtime"] = _sensor_runtime_state()

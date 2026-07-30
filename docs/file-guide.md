@@ -49,6 +49,8 @@ Edit-safety legend:
 | `services/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |
 | `services/session_store.py` | Persistent, rehydrating registry of active tablet study sessions | no |
 | `services/sensor_flush_service.py` | Periodic background export of live sensor history for crash recovery | no |
+| `services/sensor_coordinator_service.py` | Central plugin lifecycle/status wrapper with manifest, backpressure, and timing diagnostics | careful |
+| `services/clock_sync_service.py` | Bounded tablet/worker offset and RTT histories for timing diagnostics | careful |
 | `services/recovery_service.py` | Finds crash-orphaned sessions and finalizes or discards them | no |
 | `services/nextcloud_service.py` | Uploads session files to writable Nextcloud public shares over WebDAV | careful |
 | `services/update_service.py` | In-app updater: manifest fetch, signature check, download, staging | no |

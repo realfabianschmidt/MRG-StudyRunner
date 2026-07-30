@@ -10,7 +10,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.integrations.registry import PLUGINS, PLUGINS_BY_KEY
+from study_runner.integrations.registry import (
+    PLUGINS,
+    PLUGINS_BY_KEY,
+    get_plugin_manifest,
+    get_plugin_manifests,
+    get_sample_metadata_model,
+)
 
 
 EXPECTED_PLUGIN_MAPPING = {
@@ -66,6 +72,35 @@ class PluginRegistryContractTests(unittest.TestCase):
         self.assertEqual(
             duplicates,
             {"camera_emotion": {"camera_emotion", "emotion_worker"}},
+        )
+
+    def test_each_registered_plugin_has_a_manifest(self) -> None:
+        manifests = get_plugin_manifests()
+        self.assertEqual(set(manifests), {plugin.key for plugin in PLUGINS})
+
+        for plugin in PLUGINS:
+            with self.subTest(plugin=plugin.key):
+                manifest = get_plugin_manifest(plugin.key)
+                self.assertEqual(manifest["plugin_key"], plugin.key)
+                self.assertEqual(manifest["config_key"], plugin.config_key)
+                self.assertGreater(manifest["poll_interval_ms"], 0)
+                self.assertGreater(manifest["request_timeout_ms"], 0)
+                self.assertGreaterEqual(manifest["backpressure"]["max_in_flight"], 1)
+                self.assertIsInstance(manifest["capabilities"], list)
+                self.assertIn("status_poll", manifest["capabilities"])
+
+    def test_sample_metadata_model_has_required_timing_fields(self) -> None:
+        fields = set(get_sample_metadata_model())
+        self.assertTrue(
+            {
+                "source_epoch_ms",
+                "server_received_epoch_ms",
+                "processing_epoch_ms",
+                "sequence_number",
+                "latency_ms",
+                "clock_domain",
+                "drop_count",
+            }.issubset(fields)
         )
 
 

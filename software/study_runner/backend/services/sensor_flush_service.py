@@ -104,7 +104,12 @@ class SensorFlushService:
         if now <= start_epoch:
             return 0
 
-        exports = export_interval_sidecars(context, start_epoch, now)
+        coordinator = self.app.config.get("SENSOR_COORDINATOR")
+        exports = (
+            coordinator.export_interval_sidecars(context, start_epoch, now)
+            if coordinator
+            else export_interval_sidecars(context, start_epoch, now)
+        )
         if not exports:
             return 0
 

@@ -330,6 +330,36 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertTrue(payload["sensor_runtime"]["override_active"]["camera_emotion"])
         self.assertTrue(payload["sensor_runtime"]["effective"]["camera_emotion"])
 
+    def test_admin_status_includes_coordinator_and_clock_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            client = app.test_client()
+            heartbeat = client.post(
+                "/api/study-client/heartbeat",
+                json={
+                    "client_id": "tablet-1",
+                    "study_id": "study-a",
+                    "clock_offset_ms": 12.5,
+                    "clock_sync_rtt_ms": 24,
+                },
+            )
+            status = client.get("/api/admin/status")
+
+        payload = status.get_json()
+        self.assertEqual(heartbeat.status_code, 200)
+        self.assertEqual(status.status_code, 200)
+        self.assertIn("sensor_coordinator", payload)
+        self.assertIn("sample_metadata_model", payload["sensor_coordinator"])
+        self.assertEqual(payload["integrations"]["camera_emotion"]["manifest"]["poll_interval_ms"], 1000)
+        self.assertEqual(payload["clock_sync"]["sources"]["tablet-1"]["median_offset_ms"], 12.5)
+
     def test_emotion_worker_repair_runtime_route_reports_package_and_model_state(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {

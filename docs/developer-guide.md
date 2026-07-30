@@ -18,10 +18,12 @@ Study Runner uses built-in integration plugins. A plugin is a normal Python fold
 
 - `software/study_runner/integrations/plugin_api.py`: shared `IntegrationContext` and `IntegrationPlugin` types.
 - `software/study_runner/integrations/registry.py`: explicit list of active built-in plugins.
+- `software/study_runner/integrations/plugin_manifests.json`: declarative timing/backpressure/stream metadata for each registered plugin.
 - `software/study_content/settings/hardware_settings.json`: persisted plugin settings.
 - `software/study_runner/backend/services/trial_service.py`: sends trial start and stop through the registry.
 - `software/study_runner/backend/services/results_service.py`: asks plugins for interval summaries and sidecar samples.
-- `software/study_runner/backend/services/admin_status_service.py`: builds dashboard status from the registry.
+- `software/study_runner/backend/services/sensor_coordinator_service.py`: central lifecycle/status wrapper over the registry.
+- `software/study_runner/backend/services/admin_status_service.py`: builds dashboard status from the coordinator and registry.
 
 ## Sensor Hardware Source Files
 
@@ -66,7 +68,23 @@ PLUGIN = IntegrationPlugin(
 )
 ```
 
-To enable the plugin, import it explicitly in `software/study_runner/integrations/registry.py` and add it to the `PLUGINS` tuple. Then add its settings section to `software/study_content/settings/hardware_settings.json`.
+To enable the plugin, import it explicitly in `software/study_runner/integrations/registry.py` and add it to the `PLUGINS` tuple. Then add its settings section to `software/study_content/settings/hardware_settings.json` and one manifest entry in `software/study_runner/integrations/plugin_manifests.json`.
+
+## Manifest Contract
+
+Every registered plugin has one JSON manifest entry. The manifest is declarative: it describes what the coordinator should assume, but it does not replace the Python callbacks.
+
+Required fields after normalization:
+
+- `capabilities`: status, runtime, recording, LSL, upload, processing, or repair abilities.
+- `streams`: source streams with `key`, `clock_domain`, format, and timestamp origin.
+- `poll_interval_ms`: how often coordinator/admin status should poll that plugin.
+- `request_timeout_ms`: status/request timeout budget.
+- `clock_domain`: `lsl`, `server`, `tablet_performance`, or another explicit domain.
+- `backpressure`: at least `max_in_flight` and `drop_policy`.
+- `runtime_settings`: machine-level settings that belong in the Settings hub, not per-study sensor selection.
+
+For scientific stream alignment, keep LSL/XDF timestamps and source timestamps authoritative. Coordinator timing is for lifecycle, status, diagnostics, browser/worker RTT, and non-LSL metadata.
 
 ## Lifecycle Callbacks
 

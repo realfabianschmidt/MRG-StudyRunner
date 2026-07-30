@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,28 @@ def get_plugin(key: str) -> IntegrationPlugin | None:
 def get_plugin_config_key(key: str) -> str | None:
     plugin = get_plugin(key)
     return plugin.config_key if plugin else None
+
+
+def get_plugin_manifests() -> dict[str, dict[str, Any]]:
+    raw_catalog = _load_manifest_catalog()
+    raw_plugins = raw_catalog.get("plugins") if isinstance(raw_catalog.get("plugins"), dict) else {}
+    return {
+        plugin.key: _standardize_manifest(plugin, raw_plugins.get(plugin.key) if isinstance(raw_plugins, dict) else {})
+        for plugin in PLUGINS
+    }
+
+
+def get_plugin_manifest(key: str) -> dict[str, Any]:
+    plugin = _require_plugin(key)
+    return get_plugin_manifests()[plugin.key]
+
+
+def get_sample_metadata_model() -> list[str]:
+    raw_catalog = _load_manifest_catalog()
+    fields = raw_catalog.get("sample_metadata_model")
+    if isinstance(fields, list) and all(isinstance(field, str) and field for field in fields):
+        return list(fields)
+    return list(DEFAULT_SAMPLE_METADATA_MODEL)
 
 
 def initialize_plugins(context: IntegrationContext) -> None:
@@ -239,6 +262,77 @@ def _standardize_status(
     return payload
 
 
+def _load_manifest_catalog() -> dict[str, Any]:
+    global _MANIFEST_CATALOG_CACHE
+    if _MANIFEST_CATALOG_CACHE is not None:
+        return _MANIFEST_CATALOG_CACHE
+    try:
+        payload = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"[INTEGRATION] Could not read plugin manifests: {error}")
+        _MANIFEST_CATALOG_CACHE = {}
+        return _MANIFEST_CATALOG_CACHE
+    _MANIFEST_CATALOG_CACHE = payload if isinstance(payload, dict) else {}
+    return _MANIFEST_CATALOG_CACHE
+
+
+def _standardize_manifest(plugin: IntegrationPlugin, raw_manifest: Any) -> dict[str, Any]:
+    manifest = raw_manifest if isinstance(raw_manifest, dict) else {}
+    streams = manifest.get("streams") if isinstance(manifest.get("streams"), list) else []
+    backpressure = manifest.get("backpressure") if isinstance(manifest.get("backpressure"), dict) else {}
+    runtime_settings = manifest.get("runtime_settings") if isinstance(manifest.get("runtime_settings"), dict) else {}
+    expected_data_rate = manifest.get("expected_data_rate") if isinstance(manifest.get("expected_data_rate"), dict) else {}
+
+    return {
+        "plugin_key": plugin.key,
+        "config_key": plugin.config_key,
+        "capabilities": _string_list(manifest.get("capabilities")) or _default_capabilities(plugin),
+        "streams": [dict(stream) for stream in streams if isinstance(stream, dict)],
+        "poll_interval_ms": _positive_int(manifest.get("poll_interval_ms"), DEFAULT_POLL_INTERVAL_MS),
+        "request_timeout_ms": _positive_int(manifest.get("request_timeout_ms"), DEFAULT_REQUEST_TIMEOUT_MS),
+        "clock_domain": str(manifest.get("clock_domain") or _default_clock_domain(plugin)),
+        "expected_data_rate": dict(expected_data_rate),
+        "backpressure": {
+            "max_in_flight": _positive_int(backpressure.get("max_in_flight"), 1),
+            "drop_policy": str(backpressure.get("drop_policy") or "latest_status_wins"),
+        },
+        "runtime_settings": dict(runtime_settings),
+    }
+
+
+def _default_capabilities(plugin: IntegrationPlugin) -> list[str]:
+    capabilities = ["status_poll"]
+    if plugin.can_start or plugin.can_stop or plugin.can_restart:
+        capabilities.append("runtime_control")
+    if plugin.has_recording:
+        capabilities.append("recording")
+    if plugin.has_lsl:
+        capabilities.append("lsl_stream")
+    if plugin.get_interval_summary:
+        capabilities.append("interval_summary")
+    if plugin.export_interval_samples:
+        capabilities.append("sidecar_export")
+    return capabilities
+
+
+def _default_clock_domain(plugin: IntegrationPlugin) -> str:
+    return "lsl" if plugin.has_lsl else "server"
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item or "").strip()]
+
+
+def _positive_int(value: Any, fallback: int) -> int:
+    try:
+        candidate = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return candidate if candidate > 0 else fallback
+
+
 def _default_status_message(configured_enabled: bool) -> str:
     return "Integration is enabled." if configured_enabled else "Integration is disabled in hardware settings."
 
@@ -275,3 +369,16 @@ PLUGINS: tuple[IntegrationPlugin, ...] = (
 )
 
 PLUGINS_BY_KEY = {plugin.key: plugin for plugin in PLUGINS}
+MANIFEST_FILE = Path(__file__).with_name("plugin_manifests.json")
+DEFAULT_POLL_INTERVAL_MS = 2000
+DEFAULT_REQUEST_TIMEOUT_MS = 1000
+DEFAULT_SAMPLE_METADATA_MODEL = (
+    "source_epoch_ms",
+    "server_received_epoch_ms",
+    "processing_epoch_ms",
+    "sequence_number",
+    "latency_ms",
+    "clock_domain",
+    "drop_count",
+)
+_MANIFEST_CATALOG_CACHE: dict[str, Any] | None = None

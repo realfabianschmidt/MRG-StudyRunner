@@ -23,6 +23,7 @@ const state = {
   cameraLastError: '',
   cameraMonitorActive: false,
   clockOffsetMs: null,  // estimated server epoch ms minus tablet performance.now()
+  clockRttMs: null,
   touchedFields: {},
   questionMetrics: {},
   sensorSessionStarted: false,
@@ -209,16 +210,21 @@ function handleStudyRunState(runState) {
 async function syncClock() {
   const ROUNDS = 3;
   const offsets = [];
+  const rtts = [];
 
   for (let i = 0; i < ROUNDS; i++) {
     const clientSendMs = performance.now();
     try {
-      const resp = await postJson('/api/sync-clock', { client_send_ms: clientSendMs }, { timeoutMs: CLOCK_SYNC_TIMEOUT_MS });
+      const resp = await postJson('/api/sync-clock', {
+        client_id: getStudyClientId(),
+        client_send_ms: clientSendMs,
+      }, { timeoutMs: CLOCK_SYNC_TIMEOUT_MS });
       const clientRecvMs = performance.now();
       const srvRecv = resp.server_receive_ms;
       const srvSend = resp.server_send_ms;
       const offset = ((srvRecv - clientSendMs) + (srvSend - clientRecvMs)) / 2;
       offsets.push(offset);
+      rtts.push(Math.max(0, clientRecvMs - clientSendMs));
     } catch {
       // Server unreachable; skip this round.
     }
@@ -229,6 +235,9 @@ async function syncClock() {
   if (offsets.length > 0) {
     offsets.sort((a, b) => a - b);
     state.clockOffsetMs = offsets[Math.floor(offsets.length / 2)];
+    rtts.sort((a, b) => a - b);
+    const medianRtt = rtts[Math.floor(rtts.length / 2)];
+    state.clockRttMs = Number.isFinite(medianRtt) ? medianRtt : null;
     console.debug('[study] Clock offset estimated:', state.clockOffsetMs.toFixed(2), 'ms');
   }
 }
@@ -1421,6 +1430,8 @@ function getStudyClientHeartbeatPayload() {
     study_started: Boolean(state.startTime),
     study_run_status: state.studyRunState?.status || 'loaded',
     waiting_for_admin_start: Boolean(state.waitingForAdminStart),
+    clock_offset_ms: getClientClockOffsetMs(),
+    clock_sync_rtt_ms: Number.isFinite(state.clockRttMs) ? Math.round(state.clockRttMs) : null,
   };
 }
 

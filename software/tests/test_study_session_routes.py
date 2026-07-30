@@ -87,8 +87,8 @@ class StudySessionRouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             with (
                 patch("study_runner.backend.initialize_plugins"),
-                patch("study_runner.backend.routes.helpers.initialize_plugin") as initialize_plugin,
-                patch("study_runner.backend.routes.helpers.run_runtime_action", return_value={"ok": True}) as run_action,
+                patch("study_runner.backend.services.sensor_coordinator_service.initialize_plugin") as initialize_plugin,
+                patch("study_runner.backend.services.sensor_coordinator_service.run_runtime_action", return_value={"ok": True}) as run_action,
             ):
                 first_app = _app(temp_dir, disable_hardware=False)
                 first_client = first_app.test_client()

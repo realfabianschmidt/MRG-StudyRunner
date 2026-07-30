@@ -157,6 +157,10 @@ def _set_session_override(integration_key: str, enabled: bool) -> dict[str, bool
     return overrides
 
 
+def _sensor_coordinator():
+    return current_app.config.get("SENSOR_COORDINATOR")
+
+
 def _clear_session_overrides() -> None:
     current_app.config["SESSION_SENSOR_OVERRIDES"] = {}
 
@@ -345,32 +349,42 @@ def _start_study_sensor_runtime(study_settings: dict) -> dict:
             "sensor_runtime": runtime_state,
             "active_plugins": [],
             "runtime": {key: _hardware_disabled_result(key) for key in STUDY_SENSOR_KEYS},
+            "coordinator": {},
         }
 
     _refresh_trial_runtime()
 
     context = _integration_context(effective_hardware_config)
-    results: dict[str, dict] = {}
-    for sensor_key in STUDY_SENSOR_KEYS:
-        if selected_sensors.get(sensor_key):
+    coordinator = _sensor_coordinator()
+    if coordinator:
+        coordinator_result = coordinator.start_selected(selected_sensors, STUDY_SENSOR_KEYS, context)
+        current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = list(coordinator_result.get("active_plugins") or [])
+        results = coordinator_result.get("runtime") or {}
+        coordinator_payload = coordinator_result.get("coordinator") or {}
+    else:
+        results: dict[str, dict] = {}
+        for sensor_key in STUDY_SENSOR_KEYS:
+            if selected_sensors.get(sensor_key):
+                try:
+                    initialize_plugin(sensor_key, context)
+                    results[sensor_key] = run_runtime_action(sensor_key, "start", context)
+                    current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"].append(sensor_key)
+                except Exception as error:
+                    results[sensor_key] = {"ok": False, "error": str(error)}
+                continue
+
             try:
-                initialize_plugin(sensor_key, context)
-                results[sensor_key] = run_runtime_action(sensor_key, "start", context)
-                current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"].append(sensor_key)
+                results[sensor_key] = run_runtime_action(sensor_key, "stop", context)
             except Exception as error:
                 results[sensor_key] = {"ok": False, "error": str(error)}
-            continue
-
-        try:
-            results[sensor_key] = run_runtime_action(sensor_key, "stop", context)
-        except Exception as error:
-            results[sensor_key] = {"ok": False, "error": str(error)}
+        coordinator_payload = {}
 
     return {
         "sensors": selected_sensors,
         "sensor_runtime": runtime_state,
         "active_plugins": list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS", [])),
         "runtime": results,
+        "coordinator": coordinator_payload,
     }
 
 
@@ -378,17 +392,24 @@ def _stop_study_sensor_runtime() -> dict:
     active_hardware_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
     active_plugins = list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or [])
     context = _integration_context(active_hardware_config) if active_hardware_config else _integration_context()
-    results: dict[str, dict] = {}
-    for sensor_key in active_plugins:
-        try:
-            results[sensor_key] = run_runtime_action(sensor_key, "stop", context)
-        except Exception as error:
-            results[sensor_key] = {"ok": False, "error": str(error)}
+    coordinator = _sensor_coordinator()
+    if coordinator:
+        coordinator_result = coordinator.stop_plugins(active_plugins, context)
+        results = coordinator_result.get("runtime") or {}
+        coordinator_payload = coordinator_result.get("coordinator") or {}
+    else:
+        results: dict[str, dict] = {}
+        for sensor_key in active_plugins:
+            try:
+                results[sensor_key] = run_runtime_action(sensor_key, "stop", context)
+            except Exception as error:
+                results[sensor_key] = {"ok": False, "error": str(error)}
+        coordinator_payload = {}
 
     current_app.config.pop("ACTIVE_STUDY_HARDWARE_CONFIG", None)
     current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = []
     _refresh_trial_runtime()
-    return {"stopped_plugins": active_plugins, "runtime": results}
+    return {"stopped_plugins": active_plugins, "runtime": results, "coordinator": coordinator_payload}
 
 
 def _start_study_camera_monitor_runtime() -> dict:

@@ -14,7 +14,9 @@ from .services.runtime_config import (
     read_server_port,
     resolve_runtime_paths,
 )
+from .services.clock_sync_service import ClockSyncService
 from .services.secrets_service import load_local_secrets
+from .services.sensor_coordinator_service import SensorCoordinator
 from .services.sensor_flush_service import SensorFlushService
 from .services.study_client_service import reset_client_status
 from .services.session_store import SessionStore
@@ -92,6 +94,8 @@ def create_app() -> Flask:
     app.config["LOCAL_SECRETS"] = local_secrets
     app.config["SESSION_SENSOR_OVERRIDES"] = {}
     reset_client_status()
+    app.config["CLOCK_SYNC_SERVICE"] = ClockSyncService()
+    app.config["SENSOR_COORDINATOR"] = SensorCoordinator()
     app.config["SESSION_STORE"] = SessionStore(app.config["DATA_DIR"])
     app.config["STUDY_RUN_STATE"] = StudyRunStateStore(app.config["DATA_DIR"])
     try:

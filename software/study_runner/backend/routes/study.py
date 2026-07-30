@@ -169,10 +169,24 @@ def trial_marker():
 def study_client_heartbeat():
     payload = request.get_json() or {}
     heartbeat_result = register_heartbeat(payload, request.remote_addr, request.headers.get("User-Agent", ""))
+    clock_sync = current_app.config.get("CLOCK_SYNC_SERVICE")
+    if clock_sync:
+        clock_sync.record_offset_sample(
+            source_id=heartbeat_result.get("client_id", ""),
+            source_type="tablet",
+            offset_ms=payload.get("clock_offset_ms", payload.get("client_clock_offset_ms")),
+            rtt_ms=payload.get("clock_sync_rtt_ms"),
+            sequence_number=payload.get("sequence_number"),
+            metadata={"study_id": payload.get("study_id") or ""},
+        )
+        source_clock = clock_sync.source_summary(heartbeat_result.get("client_id", ""))
+    else:
+        source_clock = None
     return jsonify(
         {
             "ok": True,
             **heartbeat_result,
+            "clock_sync": source_clock,
             "sensor_runtime": _sensor_runtime_state(),
             "study_run_state": _participant_study_run_state(heartbeat_result.get("client_id")),
         }
@@ -184,10 +198,21 @@ def sync_clock():
     """Clock-sync endpoint for tablet trigger precision against the Study Runner server."""
     data = request.get_json(force=True) or {}
     server_receive_ms = time.time() * 1000
+    server_send_ms = time.time() * 1000
+    clock_sync = current_app.config.get("CLOCK_SYNC_SERVICE")
+    if clock_sync:
+        clock_sync.record_server_exchange(
+            source_id=data.get("client_id") or "",
+            source_type="tablet",
+            client_send_ms=data.get("client_send_ms"),
+            server_receive_ms=server_receive_ms,
+            server_send_ms=server_send_ms,
+            metadata={"endpoint": "sync-clock"},
+        )
     return jsonify(
         {
             "client_send_ms": data.get("client_send_ms"),
             "server_receive_ms": server_receive_ms,
-            "server_send_ms": time.time() * 1000,
+            "server_send_ms": server_send_ms,
         }
     )

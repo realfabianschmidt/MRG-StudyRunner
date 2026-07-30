@@ -491,6 +491,8 @@ function settingsHubPlugins() {
 
 function renderPluginSettingsPanel(plugin) {
   const status = plugin.status || 'unknown';
+  const manifest = plugin.manifest || {};
+  const coordinator = plugin.coordinator || {};
   return `
     <div class="settings-hub-plugin">
       <div class="status-grid status-grid--row">
@@ -505,6 +507,11 @@ function renderPluginSettingsPanel(plugin) {
         ${settingsHubDetailLine(t('settingsHub.pluginLsl', 'LSL'), plugin.lsl_enabled ?? plugin.has_lsl)}
         ${settingsHubDetailLine(t('settingsHub.pluginScan', 'Scan'), plugin.scan_timeout_seconds !== undefined ? `${plugin.scan_timeout_seconds}s` : '')}
         ${settingsHubDetailLine(t('settingsHub.pluginEndpoint', 'Endpoint'), plugin.url || (plugin.host ? `${plugin.host}:${plugin.port || ''}` : ''))}
+        ${settingsHubDetailLine(t('settingsHub.pluginPoll', 'Poll'), formatMs(manifest.poll_interval_ms || coordinator.poll_interval_ms))}
+        ${settingsHubDetailLine(t('settingsHub.pluginTimeout', 'Timeout'), formatMs(manifest.request_timeout_ms || coordinator.request_timeout_ms))}
+        ${settingsHubDetailLine(t('settingsHub.pluginClockDomain', 'Clock'), manifest.clock_domain || coordinator.clock_domain || '')}
+        ${settingsHubDetailLine(t('settingsHub.pluginBackpressure', 'Backpressure'), formatBackpressure(manifest.backpressure || coordinator.backpressure))}
+        ${settingsHubDetailLine(t('settingsHub.pluginPollLatency', 'Status latency'), formatMs(coordinator.last_poll_latency_ms))}
       </div>
       <div class="dashboard-actions">
         ${settingsHubAction('dashboard', pluginIcon(plugin), t('settingsHub.openLiveControls', 'Open live controls'), t('settingsHub.openLiveControlsHint', 'Live start, stop, recovery, and monitoring stay on the dashboard.'))}
@@ -544,6 +551,29 @@ function settingsStatusLabel(status) {
 
 function yesNo(value) {
   return value ? t('dashboard.yes', 'yes') : t('dashboard.no', 'no');
+}
+
+function formatMs(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return '';
+  }
+  return `${Math.round(numeric)}ms`;
+}
+
+function formatBackpressure(backpressure) {
+  if (!backpressure || typeof backpressure !== 'object') {
+    return '';
+  }
+  const maxInFlight = Number(backpressure.max_in_flight);
+  const policy = String(backpressure.drop_policy || '').replace(/_/g, ' ');
+  if (!Number.isFinite(maxInFlight) && !policy) {
+    return '';
+  }
+  if (Number.isFinite(maxInFlight) && policy) {
+    return `${maxInFlight} / ${policy}`;
+  }
+  return Number.isFinite(maxInFlight) ? String(maxInFlight) : policy;
 }
 
 function switchView(viewId) {
