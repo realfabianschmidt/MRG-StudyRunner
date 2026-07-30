@@ -8,7 +8,7 @@ Baseline: version **0.4.0** — local checkout `main` == `origin/main` == commit
 
 ## How to use this document
 
-- Each topic (T1–T10) has: **Current state** (verified facts with file references), **Approach** (the decided design), **Work items** (with size, risk, and implementer tier), **Open questions** (marked ❓), and a **GPT 5.6 Sol input** block.
+- Each topic (T1–T11) has: **Current state** (verified facts with file references), **Approach** (the decided design), **Work items** (with size, risk, and implementer tier), **Open questions** (marked ❓), and a **GPT 5.6 Sol input** block.
 - **GPT 5.6 Sol:** please write your contributions ONLY inside the `> GPT 5.6 Sol:` blocks (challenge the design, add missed risks, propose alternatives). Do not rewrite the decided sections — decisions in the Decision Log are settled unless Fabian reopens them.
 - Implementer tiers for later execution:
   - **hard** → strongest model (Fable 5): architectural, subtle, or touching the most protected code paths.
@@ -505,6 +505,60 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 
 ---
 
+## T11 - Admin shell, study launch, and settings hub (planned)
+
+**In plain terms:** the admin start page should behave like a small control room: load a study, then either edit it or start it for the tablet. Settings move into one top-right hub with clear tabs instead of scattered pages/buttons. The dashboard becomes a run-control/status view, not the place where every plugin setting lives.
+
+### Current state (2026-07-30)
+
+- The hub already has separate entry points for editor, live dashboard, Notion, Nextcloud, Certificate, Audit/Sensor Setup, shortcut creation, and update-related UI. This works, but it spreads "system settings" across the first screen.
+- The participant page currently opens the study UI as soon as it can load config. There is no admin-controlled "armed but not started yet" waiting room for tablets.
+- Study selection and study execution are still coupled loosely: a study can be loaded/edited, but there is no explicit operator flow of "load study" -> "edit or start" -> "tablet begins now".
+- Completed studies should be browseable and visualizable like a folder/file-based result browser. A live bug report says saved completed sessions are currently not appearing in the lower preview/list, so this must be investigated before or as part of the shell cleanup.
+
+### Approach
+
+1. **Top-right settings hub:** add a settings icon next to the EN/DE language switch. It opens a shared settings modal/shell with a left-side tab list and adapted pages for Notion, Nextcloud, Certificate, Audit Sensor Setup, Create Shortcut, Update, and plugin settings.
+2. **Plugin settings inside the hub:** each registered plugin gets a tab/section for machine-level settings such as worker speed, timeouts, capture rate, resolution, install/repair state, device selection, and diagnostics. These are not per-study sensor choices; per-study settings stay with the study. This lines up with T10 manifests.
+3. **Simplified hub actions:** turn "Open Editor" and "Live Dashboard" into icon buttons, add a Play/Start button, and add an explicit Load button for each study in the study list.
+4. **Explicit study lifecycle:** operator first loads a study. After that the admin can edit it or press Start. Pressing Start arms the selected study for connected tablets, starts the run lifecycle, and makes dashboard access relevant for the active run.
+5. **Participant waiting room:** if a tablet opens the participant page before the admin has started the loaded study, it shows the Study Runner logo and a plain "Study will start soon" state. When the admin presses Start, the tablet transitions to the first participant-id slide; timers and recording start from that controlled start point.
+6. **Run dashboard scope:** during a running study, the dashboard focuses on start/stop/recovery/status and live monitoring. Plugin configuration moves to Settings, so live-run controls are not mixed with setup knobs.
+7. **Completed-session browser fix:** make the completed-study area behave like the study browser above it: folder/file based, refreshable, and obvious when results exist. Clicking a completed session should open the visualization/timeline path from T5.
+
+### Work items
+
+| Item | Size | Risk | Tier |
+|---|---|---|---|
+| Shared settings hub shell with left tabs and top-right gear | M | must preserve existing Notion/Nextcloud/Certificate flows | medium |
+| Move/adapt Notion, Nextcloud, Certificate, Audit, Shortcut, Update into the hub | L | many entry points, i18n, route assumptions | medium |
+| Plugin-settings tab model, fed initially by current registry and later by T10 manifests | M | avoid duplicating per-study sensor settings | medium |
+| Hub action redesign: icon buttons, Load buttons, Play/Start button | M | operator confusion if loaded vs running state is unclear | medium |
+| Admin-controlled study start + tablet waiting room | L | timing and session semantics; must not regress resume/recovery | hard |
+| Dashboard scope cleanup for active-run control/status only | M | must keep current live-monitor visibility | medium |
+| Completed-session browser bugfix + file/folder style result browser | M | result-index cache, repeated sessions, stale UI state | medium |
+
+### Acceptance tests
+
+- Admin can load a study from the study list, then choose Edit or Start from clear icon actions.
+- A tablet opened before Start shows only the waiting-room state; after admin Start it moves to the first participant-id card without a reload.
+- Recording/session timing starts only on admin Start, not merely because the tablet page loaded.
+- Settings gear opens one hub with tabs for Notion, Nextcloud, Certificate, Audit/Sensor Setup, Shortcut, Update, and each plugin.
+- Dashboard during a run shows live status/control/recovery, while plugin configuration lives in Settings.
+- Completed saved sessions appear in the lower browser after save/reload and open into the visualization/timeline view.
+
+### Open questions
+
+1. ❓ Should admin Start target exactly one connected tablet, all waiting tablets, or a selectable subset?
+2. ❓ Should a participant-id be created before admin Start, or should admin Start reveal the participant-id card and the generated ID becomes part of the run after entry?
+3. ❓ Should Stop mean "abort/recovery candidate" during a run, or also allow a clean early finalize?
+4. ❓ Should plugin tabs be shown for all registered plugins or only enabled/configured ones?
+
+> **GPT 5.6 Sol input:**
+> This is a good T11, not an extension of T10. T10 defines the plugin/coordinator contract; T11 defines the operator workflow that consumes it. The strongest architectural point is the explicit loaded-vs-running split: "load study" becomes a preparation state, "start" becomes the single clock/control event, and tablets wait until the admin begins the run. That can make timing, session state, and user expectations much clearer. The risk is scope: moving all settings into one hub while also changing run lifecycle touches many surfaces, so implementation should be staged. First fix the completed-session browser visibility and add the loaded/running state model; then add the tablet waiting room; only then migrate settings pages into the hub and plugin tabs.
+
+---
+
 ## Dependency order
 
 ```
@@ -512,13 +566,15 @@ T2-A shared utils + modal + settings-page shell ──┬─→ T1 (frozen-detec
                                                   ├─→ T4 modal + widget
                                                   ├─→ T6 Nextcloud settings page
                                                   ├─→ T7 recovery card
-                                                  └─→ T8 certificate settings page
+                                                  ├─→ T8 certificate settings page
+                                                  └─→ T11 settings hub
 T4 job service ──→ T6 (nextcloud job kind)
 T4 job service ──→ T7 finalize (enqueues uploads for recovered sessions)
 T9 optional-answers ──→ T7 finalize (recovered sessions are incomplete)
 T5 emotion sidecar (tiny, early) ──→ T7 flush covers emotions
 T1 ──→ T2-B brainbit split          T9 ──→ T2-B study-controller split
 T4/T7 stabilization + existing IntegrationPlugin registry ──→ T10 coordinator
+T5 sessions browser + T10 plugin manifests ──→ T11 admin shell
 T2-C cosmetics last
 
 The settings-page shell in T2-A is now a hard prerequisite for T6 and T8, not a nicety:
@@ -538,6 +594,7 @@ both are supposed to be further instances of the Notion page, not new designs (r
 | **P7** | T8 certificate settings page (shared shell) + download QR + CA export/import | on Windows **and** macOS, packaged: a tablet with nothing installed completes setup from the page's steps alone and the camera works; the same tablet then trusts a second computer after a CA import, with no new install; a broken import is refused without breaking HTTPS |
 | **P8** | T2-B splits + T2-C cosmetics | pytest green; route surface byte-identical; manual participant-flow smoke |
 | **P9** | T10 Sensor Coordinator + clock-domain contract | manifest validation tests; coordinator lifecycle tests; manual all-sensors run with documented latency/drop counters and XDF/LSL timestamp sanity check |
+| **P10** | T11 Admin shell + settings hub + admin-controlled launch | browser smoke: load/edit/start study; tablet waiting room transitions on Start; completed-session browser shows saved runs |
 
 Route-inventory additions across the whole roadmap: **13 tuples** — T4: 3, T5: 3, T6: 1, T7: 3, T8: 3 (`GET /api/admin/certificate/status`, `GET /api/admin/certificate/export`, `POST /api/admin/certificate/import`; the CA download itself runs on the separate listener and adds no Flask route). Each is added to `EXPECTED_ROUTES` in the same commit as its route.
 
