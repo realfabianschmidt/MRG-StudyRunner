@@ -31,6 +31,8 @@ def register_heartbeat(payload: dict[str, Any], remote_addr: str | None, user_ag
         "camera_monitor_active": bool(payload.get("camera_monitor_active", False)),
         "camera_last_error": str(payload.get("camera_last_error") or "").strip(),
         "study_started": bool(payload.get("study_started", False)),
+        "study_run_status": str(payload.get("study_run_status") or "").strip(),
+        "waiting_for_admin_start": bool(payload.get("waiting_for_admin_start", False)),
         "session_id": str(payload.get("session_id") or "").strip(),
         "client_captured_at": payload.get("client_timestamp"),
         "sequence_number": payload.get("sequence_number"),
@@ -47,7 +49,7 @@ def register_heartbeat(payload: dict[str, Any], remote_addr: str | None, user_ag
     return {"client_id": client_id, "server_received_at": _format_time(now)}
 
 
-def get_client_status() -> dict[str, Any]:
+def get_client_status(active_study_id: str = "", assigned_client_id: str = "") -> dict[str, Any]:
     """Return active or recently stale study clients for the admin dashboard."""
     now = time.time()
     with _lock:
@@ -61,6 +63,7 @@ def get_client_status() -> dict[str, Any]:
         "clients": clients,
         "active_count": sum(1 for client in clients if client["status"] == "active"),
         "stale_count": sum(1 for client in clients if client["status"] == "stale"),
+        "single_tablet": _single_tablet_state(clients, active_study_id, assigned_client_id),
     }
 
 
@@ -79,6 +82,8 @@ def _public_client_state(client: dict[str, Any], now: float) -> dict[str, Any]:
         "camera_monitor_active": client.get("camera_monitor_active", False),
         "camera_last_error": client.get("camera_last_error", ""),
         "study_started": client.get("study_started", False),
+        "study_run_status": client.get("study_run_status", ""),
+        "waiting_for_admin_start": client.get("waiting_for_admin_start", False),
         "session_id": client.get("session_id", ""),
         "client_captured_at": client.get("client_captured_at"),
         "server_received_at": client.get("last_seen_at"),
@@ -90,6 +95,16 @@ def _public_client_state(client: dict[str, Any], now: float) -> dict[str, Any]:
     }
 
 
+def reset_client_status() -> None:
+    """Clear in-memory tablet heartbeat state.
+
+    Heartbeats are process-local runtime signals, so a fresh Flask app/process
+    starts without any remembered tablet clients.
+    """
+    with _lock:
+        _clients.clear()
+
+
 def _drop_old_clients(now: float) -> None:
     old_client_ids = [
         client_id
@@ -98,6 +113,54 @@ def _drop_old_clients(now: float) -> None:
     ]
     for client_id in old_client_ids:
         _clients.pop(client_id, None)
+
+
+def _single_tablet_state(clients: list[dict[str, Any]], active_study_id: str, assigned_client_id: str) -> dict[str, Any]:
+    study_id = str(active_study_id or "").strip()
+    assigned = str(assigned_client_id or "").strip()
+    active_clients = [client for client in clients if client.get("status") == "active"]
+    study_clients = [
+        client
+        for client in active_clients
+        if not study_id or str(client.get("study_id") or "").strip() == study_id
+    ]
+    selected = None
+    if assigned:
+        selected = next((client for client in active_clients if client.get("client_id") == assigned), None)
+    elif len(study_clients) == 1:
+        selected = study_clients[0]
+
+    conflict_clients = [
+        client
+        for client in study_clients
+        if not selected or client.get("client_id") != selected.get("client_id")
+    ]
+
+    if assigned and selected is None:
+        status = "assigned_missing"
+        can_start = False
+    elif len(study_clients) == 0:
+        status = "waiting_for_tablet"
+        can_start = False
+    elif len(study_clients) > 1 and not assigned:
+        status = "conflict"
+        can_start = False
+    elif conflict_clients:
+        status = "conflict"
+        can_start = False
+    else:
+        status = "ready"
+        can_start = selected is not None
+
+    return {
+        "status": status,
+        "can_start": bool(can_start),
+        "active_client_count": len(active_clients),
+        "active_study_client_count": len(study_clients),
+        "assigned_client_id": assigned,
+        "selected_client_id": selected.get("client_id") if selected else "",
+        "conflict_client_ids": [client.get("client_id") for client in conflict_clients],
+    }
 
 
 def _format_time(timestamp: float) -> str:

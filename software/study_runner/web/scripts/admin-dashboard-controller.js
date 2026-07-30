@@ -6,8 +6,11 @@ import { escapeHtml } from './lib/dom-utils.js';
 const POLL_INTERVAL_MS = 2000;
 
 let pollTimer = null;
+let callbacks = {};
 
-export function initializeAdminDashboard({ showToast } = {}) {
+export function initializeAdminDashboard(options = {}) {
+  callbacks = options;
+  const { showToast } = options;
   const elements = getDashboardElements();
   if (!elements.dashboardButton || !elements.dashboard) {
     return;
@@ -43,6 +46,10 @@ async function runDashboardAction(actionSource, elements, showToast) {
   }
   if (action === 'reset_sensor_overrides') {
     await resetSensorOverrides(elements, showToast);
+    return;
+  }
+  if (action === 'open_settings') {
+    callbacks.openSettingsHub?.();
     return;
   }
   const toggleMatch = action.match(/^toggle_(.+)_(on|off)$/);
@@ -396,9 +403,11 @@ function renderIntegrationControls(target, integrations, status = {}) {
   const resetButton = hasOverrides
     ? `<button type="button" class="btn-secondary btn-xs" data-dashboard-action="reset_sensor_overrides">${escapeHtml(t('dashboard.overrideReset', 'Reset to study settings'))}</button>`
     : '';
+  const settingsButton = `<button type="button" class="btn-secondary btn-xs" data-dashboard-action="open_settings"><i class="iconoir-settings"></i> ${escapeHtml(t('dashboard.openSettings', 'Open settings'))}</button>`;
   target.innerHTML = `<div class="integration-controls">
+    <div class="integration-control-warning integration-control-warning--info">${escapeHtml(t('dashboard.settingsHint', 'Plugin setup lives in Settings. This dashboard focuses on live status, start, stop, and recovery.'))}</div>
     ${warning}
-    ${resetButton ? `<div class="integration-control-reset">${resetButton}</div>` : ''}
+    <div class="integration-control-reset">${settingsButton}${resetButton}</div>
     ${rows.map((row) => renderIntegrationControlRow(row, sensorRuntime)).join('')}
   </div>`;
 }
@@ -408,10 +417,6 @@ function renderIntegrationControlRow(item, sensorRuntime = {}) {
   const hasSensorState = Object.prototype.hasOwnProperty.call(sensorEffective, item.key);
   const configured = hasSensorState ? Boolean(sensorEffective[item.key]) : Boolean(item.configured_enabled ?? item.enabled);
   const status = item.status || (configured ? 'enabled' : 'disabled');
-  const toggleButtons = item.can_toggle ? `
-    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_on"${configured ? ' disabled' : ''}>${escapeHtml(t('dashboard.action.enable', 'Enable'))}</button>
-    <button type="button" class="btn-secondary btn-xs" data-dashboard-action="toggle_${escapeHtml(item.key)}_off"${!configured ? ' disabled' : ''}>${escapeHtml(t('dashboard.action.disable', 'Disable'))}</button>
-  ` : `<span class="integration-control-note">${escapeHtml(t('dashboard.managedByParent', 'Managed by parent integration'))}</span>`;
   const runtimeDetail = hasSensorState ? renderSensorRuntimeDetail(item.key, sensorRuntime) : '';
 
   return `
@@ -425,8 +430,7 @@ function renderIntegrationControlRow(item, sensorRuntime = {}) {
         </div>
       </div>
       <div class="integration-control-actions">
-        ${toggleButtons}
-        ${renderRuntimeButtons(item, true)}
+        <span class="integration-control-note">${escapeHtml(item.can_toggle ? t('dashboard.settingsManagedInHub', 'Settings hub') : t('dashboard.managedByParent', 'Managed by parent integration'))}</span>
       </div>
     </div>`;
 }

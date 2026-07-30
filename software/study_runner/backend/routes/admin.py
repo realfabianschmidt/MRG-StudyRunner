@@ -8,6 +8,7 @@ from study_runner.integrations.registry import initialize_plugin, run_runtime_ac
 from ..services.admin_status_service import build_admin_status
 from ..services.runtime_config import build_runtime_info
 from ..services.shortcut_service import ShortcutError, create_desktop_shortcut
+from ..services.study_client_service import get_client_status
 from ..services.study_config_service import delete_study, list_studies, load_config, load_study, save_config
 from ..services.study_sensor_runtime import STUDY_SENSOR_KEYS
 from ..services.validation import validate_and_normalize_config
@@ -113,13 +114,23 @@ def admin_status():
     payload["study_controlled_sensor_keys"] = list(STUDY_SENSOR_KEYS)
     payload["sensor_runtime"] = _sensor_runtime_state()
     payload["session_sensor_overrides"] = _session_overrides()
-    payload["study_run_state"] = _study_run_state()
+    run_state = _study_run_state()
+    payload["study_run_state"] = run_state
+    payload["study_clients"] = get_client_status(
+        active_study_id=str(run_state.get("study_id") or ""),
+        assigned_client_id=str(run_state.get("active_client_id") or ""),
+    )
     return jsonify(payload)
 
 
 @bp.route("/api/admin/study-run", methods=["GET"])
 def admin_study_run_status():
-    return jsonify({"ok": True, "run_state": _study_run_state()})
+    run_state = _study_run_state()
+    client_status = get_client_status(
+        active_study_id=str(run_state.get("study_id") or ""),
+        assigned_client_id=str(run_state.get("active_client_id") or ""),
+    )
+    return jsonify({"ok": True, "run_state": run_state, "tablet_gate": client_status.get("single_tablet", {})})
 
 
 @bp.route("/api/admin/study-run/load", methods=["POST"])
@@ -133,8 +144,16 @@ def admin_load_study_run():
         validated_config = validate_and_normalize_config(config_data)
         save_config(current_app.config["CONFIG_FILE"], validated_config)
         run_state = _load_study_run(validated_config["study_id"])
+        client_status = get_client_status(active_study_id=str(run_state.get("study_id") or ""))
         print(f"[STUDY-RUN] Loaded study: {study_id}")
-        return jsonify({"ok": True, "config": validated_config, "run_state": run_state})
+        return jsonify(
+            {
+                "ok": True,
+                "config": validated_config,
+                "run_state": run_state,
+                "tablet_gate": client_status.get("single_tablet", {}),
+            }
+        )
     except Exception as error:
         return jsonify({"ok": False, "error": str(error)}), 404
 
@@ -145,9 +164,22 @@ def admin_start_study_run():
         config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
     except Exception as error:
         return jsonify({"ok": False, "error": str(error)}), 400
-    run_state = _start_study_run(config_data["study_id"])
+    client_status = get_client_status(active_study_id=str(config_data["study_id"]))
+    tablet_gate = client_status.get("single_tablet", {})
+    if not tablet_gate.get("can_start"):
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "Exactly one participant tablet must be connected to this study before it can start.",
+                    "tablet_gate": tablet_gate,
+                }
+            ),
+            409,
+        )
+    run_state = _start_study_run(config_data["study_id"], str(tablet_gate.get("selected_client_id") or ""))
     print(f"[STUDY-RUN] Started study: {config_data['study_id']}")
-    return jsonify({"ok": True, "run_state": run_state})
+    return jsonify({"ok": True, "run_state": run_state, "tablet_gate": tablet_gate})
 
 
 @bp.route("/api/admin/study-run/stop", methods=["POST"])

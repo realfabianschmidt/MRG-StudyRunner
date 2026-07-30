@@ -13,6 +13,18 @@ import { createModal } from './lib/modal.js';
 import { createQrSvg } from './qr-code.js';
 import { escapeHtml } from './lib/dom-utils.js';
 
+const STUDY_RUN_POLL_INTERVAL_MS = 1500;
+const PLUGIN_ICONS = {
+  brainbit: 'iconoir-brain',
+  mini_radar: 'iconoir-activity',
+  camera_emotion: 'iconoir-camera',
+  emotion_worker: 'iconoir-cpu',
+  lsl: 'iconoir-pulse',
+  osc: 'iconoir-network',
+  labrecorder: 'iconoir-save-action-floppy',
+  notion: 'iconoir-database',
+};
+
 // Load the saved or default UI language and wire the EN/DE switcher.
 // A locale failure must never break the admin page, so failures are swallowed.
 async function setupLanguage() {
@@ -52,7 +64,11 @@ const state = {
   updateStatus: null,
   updatePollTimer: null,
   studyRunState: null,
+  tabletGate: null,
+  studyRunPollTimer: null,
   settingsHubModal: null,
+  settingsHubStatus: null,
+  settingsHubActiveTab: 'study',
 };
 
 
@@ -111,7 +127,7 @@ function normalizeStudySettings(settings) {
 async function init() {
   await setupLanguage();
   bindEvents();
-  initializeAdminDashboard({ showToast });
+  initializeAdminDashboard({ showToast, openSettingsHub });
   initializeNotionSettings({
     showToast,
     switchView,
@@ -146,6 +162,7 @@ async function init() {
     applyLoadedConfig(config);
     await loadRecentStudies();
     await loadStudyRunState();
+    startStudyRunPolling();
     await loadCompletedSessions();
     await loadRecoveryCandidates();
     await loadUpdateStatus({ silent: true });
@@ -177,21 +194,36 @@ function applyLoadedConfig(config) {
   state.loaded = true;
 }
 
-async function loadStudyRunState() {
+async function loadStudyRunState(options = {}) {
   try {
     const response = await getJson('/api/admin/study-run');
     state.studyRunState = response?.run_state || null;
+    state.tabletGate = response?.tablet_gate || null;
     renderStudyRunState();
     return state.studyRunState;
   } catch (error) {
-    console.error('[admin] Could not load study run state:', error);
+    if (!options.silent) {
+      console.error('[admin] Could not load study run state:', error);
+    }
     renderStudyRunState();
     return null;
   }
 }
 
+function startStudyRunPolling() {
+  if (state.studyRunPollTimer !== null) {
+    window.clearInterval(state.studyRunPollTimer);
+  }
+  state.studyRunPollTimer = window.setInterval(() => {
+    if (!document.hidden) {
+      void loadStudyRunState({ silent: true });
+    }
+  }, STUDY_RUN_POLL_INTERVAL_MS);
+}
+
 function renderStudyRunState() {
   const runState = state.studyRunState || {};
+  const tabletGate = state.tabletGate || {};
   const status = runState.status || 'loaded';
   const label = $('hub-active-label');
   const hint = $('hub-active-run-hint');
@@ -209,8 +241,10 @@ function renderStudyRunState() {
   }
   if (startButton) {
     const running = status === 'running';
-    startButton.disabled = running || !getCurrentStudyName();
+    const gateBlocksStart = status !== 'running' && tabletGate.can_start !== true;
+    startButton.disabled = running || !getCurrentStudyName() || gateBlocksStart;
     startButton.classList.toggle('is-running', running);
+    startButton.classList.toggle('is-blocked', gateBlocksStart);
   }
   if (startLabel) {
     startLabel.textContent = status === 'running'
@@ -230,19 +264,37 @@ function runStatusLabel(status) {
 }
 
 function runStatusHint(status, runState) {
+  const gateHint = tabletGateHint(state.tabletGate);
   if (status === 'running') {
-    return t('hub.runHint.running', 'The participant tablet can enter the study now.');
+    return gateHint || t('hub.runHint.running', 'The participant tablet can enter the study now.');
   }
   if (status === 'completed') {
-    return t('hub.runHint.completed', 'The last run was saved. Start again when the tablet should continue.');
+    return gateHint || t('hub.runHint.completed', 'The last run was saved. Start again when the tablet should continue.');
   }
   if (status === 'stopped') {
-    return t('hub.runHint.stopped', 'The run was stopped. The tablet waits for the next start.');
+    return gateHint || t('hub.runHint.stopped', 'The run was stopped. The tablet waits for the next start.');
   }
   if (runState?.study_id) {
-    return t('hub.runHint.loaded', 'Loaded on the tablet as a waiting room until you press Play.');
+    return gateHint || t('hub.runHint.loaded', 'Loaded on the tablet as a waiting room until you press Play.');
   }
   return t('hub.runHint.empty', 'Load a study, then press Play when the tablet is ready.');
+}
+
+function tabletGateHint(tabletGate) {
+  const status = tabletGate?.status || '';
+  if (status === 'ready') {
+    return t('hub.tabletGate.ready', 'One tablet is waiting. Press Play to start it.');
+  }
+  if (status === 'waiting_for_tablet') {
+    return t('hub.tabletGate.waiting', 'Open the participant page on one tablet before pressing Play.');
+  }
+  if (status === 'conflict') {
+    return t('hub.tabletGate.conflict', 'More than one tablet is connected. Keep only the tablet that should run this study.');
+  }
+  if (status === 'assigned_missing') {
+    return t('hub.tabletGate.assignedMissing', 'The assigned tablet is no longer visible. Stop or reload before starting again.');
+  }
+  return '';
 }
 
 async function startLoadedStudyRun() {
@@ -260,11 +312,12 @@ async function startLoadedStudyRun() {
     }
     const response = await postJson('/api/admin/study-run/start', {}, { timeoutMs: 2000 });
     state.studyRunState = response?.run_state || null;
+    state.tabletGate = response?.tablet_gate || state.tabletGate;
     renderStudyRunState();
     showToast(t('toast.studyStarted', 'Study started'), 'success');
   } catch (error) {
     console.error('[admin] Could not start study run:', error);
-    showToast(t('toast.studyStartFailed', 'Could not start the study'), 'error');
+    showToast(error.message || t('toast.studyStartFailed', 'Could not start the study'), 'error');
   } finally {
     if (button) {
       button.innerHTML = previousHtml;
@@ -285,6 +338,7 @@ function openSettingsHub() {
   if (!state.settingsHubModal.isOpen()) {
     state.settingsHubModal.open();
   }
+  void loadSettingsHubStatus();
 }
 
 function renderSettingsHubIntoModal() {
@@ -296,46 +350,61 @@ function renderSettingsHubIntoModal() {
 }
 
 function renderSettingsHub() {
+  const pluginTabs = settingsHubPlugins().map((plugin) => [
+    `plugin:${plugin.key}`,
+    pluginIcon(plugin),
+    plugin.label || plugin.key,
+  ]);
   const tabs = [
     ['study', 'iconoir-journal-page', t('settingsHub.tabStudy', 'Study')],
     ['uploads', 'iconoir-cloud-upload', t('settingsHub.tabUploads', 'Uploads')],
     ['tablet', 'iconoir-tablet', t('settingsHub.tabTablet', 'Tablet')],
     ['system', 'iconoir-settings', t('settingsHub.tabSystem', 'System')],
+    ...pluginTabs,
   ];
+  if (!tabs.some(([key]) => key === state.settingsHubActiveTab)) {
+    state.settingsHubActiveTab = 'study';
+  }
   return `
     <div class="settings-hub">
       <div class="settings-hub-tabs" role="tablist">
         ${tabs.map(([key, icon, label], index) => `
-          <button class="settings-hub-tab${index === 0 ? ' active' : ''}" type="button" data-settings-tab="${escapeHtml(key)}" role="tab" aria-selected="${index === 0 ? 'true' : 'false'}">
+          <button class="settings-hub-tab${key === state.settingsHubActiveTab ? ' active' : ''}" type="button" data-settings-tab="${escapeHtml(key)}" role="tab" aria-selected="${key === state.settingsHubActiveTab ? 'true' : 'false'}">
             <i class="${escapeHtml(icon)}"></i><span>${escapeHtml(label)}</span>
           </button>
         `).join('')}
       </div>
       <div class="settings-hub-panels">
-        ${settingsHubPanel('study', false, [
+        ${settingsHubPanel('study', state.settingsHubActiveTab !== 'study', [
           settingsHubAction('study-settings', 'iconoir-settings-cloud', t('sidebar.studySettings', 'Study settings'), t('settingsHub.studyHint', 'Sensors and progress bar for the loaded study.')),
           settingsHubAction('audit', 'iconoir-book', t('hub.auditSensorSetup', 'Audit & Sensor Setup'), t('settingsHub.auditHint', 'Check local sensor readiness and setup state.')),
         ])}
-        ${settingsHubPanel('uploads', true, [
+        ${settingsHubPanel('uploads', state.settingsHubActiveTab !== 'uploads', [
           settingsHubAction('notion', 'iconoir-database', t('hub.notionSettings', 'Notion settings'), t('settingsHub.notionHint', 'Backend token, study target, and upload queue.')),
           settingsHubAction('nextcloud', 'iconoir-cloud-upload', t('hub.nextcloudSettings', 'Nextcloud settings'), t('settingsHub.nextcloudHint', 'Public share link and optional share password.')),
         ])}
-        ${settingsHubPanel('tablet', true, [
+        ${settingsHubPanel('tablet', state.settingsHubActiveTab !== 'tablet', [
           settingsHubAction('certificate', 'iconoir-shield-check', t('hub.certificateSettings', 'Certificate'), t('settingsHub.certificateHint', 'Tablet trust setup for HTTPS camera access.')),
         ])}
-        ${settingsHubPanel('system', true, [
+        ${settingsHubPanel('system', state.settingsHubActiveTab !== 'system', [
           settingsHubAction('update', 'iconoir-download-circled-outline', t('update.title', 'Python app update'), t('settingsHub.updateHint', 'Check, download, and install Study Runner updates.')),
           settingsHubAction('shortcut', 'iconoir-desktop', t('hub.createShortcut', 'Create desktop shortcut'), t('settingsHub.shortcutHint', 'Create a local launcher for this computer.')),
         ])}
+        ${settingsHubPlugins().map((plugin) => settingsHubPanel(
+          `plugin:${plugin.key}`,
+          state.settingsHubActiveTab !== `plugin:${plugin.key}`,
+          renderPluginSettingsPanel(plugin),
+        )).join('')}
       </div>
     </div>
   `;
 }
 
-function settingsHubPanel(key, hidden, actions) {
+function settingsHubPanel(key, hidden, content) {
+  const body = Array.isArray(content) ? content.join('') : String(content || '');
   return `
     <div class="settings-hub-panel" data-settings-panel="${escapeHtml(key)}"${hidden ? ' hidden' : ''}>
-      ${actions.join('')}
+      ${body}
     </div>`;
 }
 
@@ -364,6 +433,7 @@ function bindSettingsHub() {
 function activateSettingsHubTab(tabKey) {
   const body = state.settingsHubModal?.body;
   if (!body) return;
+  state.settingsHubActiveTab = tabKey;
   body.querySelectorAll('[data-settings-tab]').forEach((tab) => {
     const active = tab.dataset.settingsTab === tabKey;
     tab.classList.toggle('active', active);
@@ -393,7 +463,87 @@ function handleSettingsHubAction(action) {
     $('admin-update-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   } else if (action === 'shortcut') {
     void createDesktopShortcut();
+  } else if (action === 'dashboard') {
+    switchView('view-dashboard');
   }
+}
+
+async function loadSettingsHubStatus() {
+  try {
+    state.settingsHubStatus = await getJson('/api/admin/status', { timeoutMs: 1500 });
+    state.tabletGate = state.settingsHubStatus?.study_clients?.single_tablet || state.tabletGate;
+    state.studyRunState = state.settingsHubStatus?.study_run_state || state.studyRunState;
+    renderStudyRunState();
+    if (state.settingsHubModal?.isOpen()) {
+      renderSettingsHubIntoModal();
+    }
+  } catch (error) {
+    console.debug('[admin] Could not load settings hub plugin status:', error);
+  }
+}
+
+function settingsHubPlugins() {
+  const integrations = state.settingsHubStatus?.integrations || {};
+  return Object.values(integrations)
+    .filter((plugin) => plugin && plugin.key)
+    .sort((left, right) => String(left.label || left.key).localeCompare(String(right.label || right.key)));
+}
+
+function renderPluginSettingsPanel(plugin) {
+  const status = plugin.status || 'unknown';
+  return `
+    <div class="settings-hub-plugin">
+      <div class="status-grid status-grid--row">
+        ${settingsHubStatusCard(t('settingsHub.pluginStatus', 'Status'), settingsStatusLabel(status), plugin.last_message || '')}
+        ${settingsHubStatusCard(t('settingsHub.pluginCategory', 'Category'), plugin.category || '-')}
+        ${settingsHubStatusCard(t('settingsHub.pluginDevice', 'Device'), plugin.device_label || plugin.label || plugin.key)}
+        ${settingsHubStatusCard(t('settingsHub.pluginRecording', 'Recording'), yesNo(plugin.has_recording))}
+      </div>
+      <div class="settings-hub-plugin-details">
+        ${settingsHubDetailLine(t('settingsHub.pluginConfigKey', 'Config key'), plugin.config_key || '-')}
+        ${settingsHubDetailLine(t('settingsHub.pluginRuntime', 'Runtime'), plugin.runtime_enabled ?? plugin.enabled)}
+        ${settingsHubDetailLine(t('settingsHub.pluginLsl', 'LSL'), plugin.lsl_enabled ?? plugin.has_lsl)}
+        ${settingsHubDetailLine(t('settingsHub.pluginScan', 'Scan'), plugin.scan_timeout_seconds !== undefined ? `${plugin.scan_timeout_seconds}s` : '')}
+        ${settingsHubDetailLine(t('settingsHub.pluginEndpoint', 'Endpoint'), plugin.url || (plugin.host ? `${plugin.host}:${plugin.port || ''}` : ''))}
+      </div>
+      <div class="dashboard-actions">
+        ${settingsHubAction('dashboard', pluginIcon(plugin), t('settingsHub.openLiveControls', 'Open live controls'), t('settingsHub.openLiveControlsHint', 'Live start, stop, recovery, and monitoring stay on the dashboard.'))}
+      </div>
+    </div>
+  `;
+}
+
+function settingsHubStatusCard(label, value, hint = '') {
+  return `
+    <div class="status-card">
+      <div class="status-card-label">${escapeHtml(label)}</div>
+      <div class="status-card-value">${escapeHtml(value)}</div>
+      ${hint ? `<div class="status-card-hint">${escapeHtml(hint)}</div>` : ''}
+    </div>`;
+}
+
+function settingsHubDetailLine(label, value) {
+  if (value === '' || value === null || value === undefined) {
+    return '';
+  }
+  return `
+    <div class="settings-hub-detail-row">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(typeof value === 'boolean' ? yesNo(value) : value)}</strong>
+    </div>`;
+}
+
+function pluginIcon(plugin) {
+  return PLUGIN_ICONS[plugin.key] || 'iconoir-settings-profiles';
+}
+
+function settingsStatusLabel(status) {
+  const raw = String(status || 'unknown');
+  return t(`dashboard.status.${raw}`, raw.replace(/_/g, ' '));
+}
+
+function yesNo(value) {
+  return value ? t('dashboard.yes', 'yes') : t('dashboard.no', 'no');
 }
 
 function switchView(viewId) {
@@ -411,6 +561,7 @@ function startNewStudy() {
     study_settings: defaultStudySettings(),
   };
   state.studyRunState = { status: 'loaded', study_id: studyName };
+  state.tabletGate = null;
   $('cfg-id').value = studyName;
   updateHubTitle();
   rebuildAll();
@@ -1376,6 +1527,7 @@ async function _activateStudyFromHub(id, options = {}) {
     const response = await postJson('/api/admin/study-run/load', { id });
     applyLoadedConfig(response.config || {});
     state.studyRunState = response.run_state || { status: 'loaded', study_id: state.config.study_id || id };
+    state.tabletGate = response.tablet_gate || null;
     renderStudyRunState();
     showToast(t('toast.studyLoadedWaiting', 'Study loaded - tablet is waiting'), 'success');
     checkIntegrationReadinessForStudy();

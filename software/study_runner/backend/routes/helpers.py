@@ -107,8 +107,8 @@ def _load_study_run(study_id: str) -> dict:
     return _study_run_state_store().set_loaded(study_id)
 
 
-def _start_study_run(study_id: str) -> dict:
-    return _study_run_state_store().start(study_id)
+def _start_study_run(study_id: str, active_client_id: str = "") -> dict:
+    return _study_run_state_store().start(study_id, active_client_id)
 
 
 def _complete_study_run(study_id: str, session_id: str) -> dict:
@@ -117,6 +117,27 @@ def _complete_study_run(study_id: str, session_id: str) -> dict:
 
 def _stop_study_run(study_id: str = "") -> dict:
     return _study_run_state_store().stop(study_id)
+
+
+def _participant_study_run_state(client_id: str | None = None, study_id: str | None = None) -> dict:
+    run_state = _study_run_state(study_id)
+    public_state = dict(run_state)
+    normalized_client_id = str(client_id or "").strip()
+    active_client_id = str(run_state.get("active_client_id") or "").strip()
+    if (
+        run_state.get("status") == "running"
+        and active_client_id
+        and normalized_client_id
+        and normalized_client_id != active_client_id
+    ):
+        public_state["status"] = "blocked"
+        public_state["participant_allowed"] = False
+        public_state["conflict"] = True
+        public_state["message"] = "Another tablet is already assigned to this study run."
+        return public_state
+    public_state["participant_allowed"] = run_state.get("status") == "running"
+    public_state["conflict"] = False
+    return public_state
 
 
 def _current_study_settings() -> dict:

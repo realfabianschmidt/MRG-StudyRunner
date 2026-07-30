@@ -110,10 +110,19 @@ class RuntimeRoutesTests(unittest.TestCase):
                     "require_admin_start": True,
                 },
             )
+            heartbeat = client.post(
+                "/api/study-client/heartbeat",
+                json={
+                    "client_id": "tablet-1",
+                    "study_id": "study-a",
+                    "waiting_for_admin_start": True,
+                },
+            )
             started = client.post("/api/admin/study-run/start", json={})
             allowed = client.post(
                 "/api/study/session/start",
                 json={
+                    "client_id": "tablet-1",
                     "study_id": "study-a",
                     "participant_id": "p01",
                     "require_admin_start": True,
@@ -126,8 +135,10 @@ class RuntimeRoutesTests(unittest.TestCase):
 
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(blocked.status_code, 409)
+        self.assertEqual(heartbeat.status_code, 200)
         self.assertEqual(started.status_code, 200)
         self.assertEqual(started.get_json()["run_state"]["status"], "running")
+        self.assertEqual(started.get_json()["run_state"]["active_client_id"], "tablet-1")
         self.assertEqual(allowed.status_code, 200)
         self.assertEqual(allowed.get_json()["study_run_state"]["status"], "running")
         self.assertEqual(persisted.status_code, 200)
@@ -154,6 +165,10 @@ class RuntimeRoutesTests(unittest.TestCase):
                     ],
                 },
             )
+            client.post(
+                "/api/study-client/heartbeat",
+                json={"client_id": "tablet-1", "study_id": "study-a", "waiting_for_admin_start": True},
+            )
             started = client.post("/api/admin/study-run/start", json={})
             loaded = client.post("/api/admin/study-run/load", json={"id": "study-a"})
             config = client.get("/api/config")
@@ -164,6 +179,89 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertEqual(loaded.get_json()["config"]["study_id"], "study-a")
         self.assertEqual(loaded.get_json()["run_state"]["status"], "loaded")
         self.assertEqual(config.get_json()["_runtime"]["study_run_state"]["status"], "loaded")
+
+    def test_admin_study_run_start_requires_exactly_one_matching_tablet(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            client = app.test_client()
+            saved = client.post(
+                "/api/config",
+                json={"study_id": "study-a", "questions": [{"type": "participant-id"}, {"type": "finish"}]},
+            )
+            no_tablet = client.post("/api/admin/study-run/start", json={})
+            client.post(
+                "/api/study-client/heartbeat",
+                json={"client_id": "tablet-1", "study_id": "study-a", "waiting_for_admin_start": True},
+            )
+            client.post(
+                "/api/study-client/heartbeat",
+                json={"client_id": "tablet-2", "study_id": "study-a", "waiting_for_admin_start": True},
+            )
+            conflict = client.post("/api/admin/study-run/start", json={})
+
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(no_tablet.status_code, 409)
+        self.assertEqual(no_tablet.get_json()["tablet_gate"]["status"], "waiting_for_tablet")
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(conflict.get_json()["tablet_gate"]["status"], "conflict")
+
+    def test_non_assigned_tablet_is_blocked_after_admin_start(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            client = app.test_client()
+            client.post(
+                "/api/config",
+                json={"study_id": "study-a", "questions": [{"type": "participant-id"}, {"type": "finish"}]},
+            )
+            client.post(
+                "/api/study-client/heartbeat",
+                json={"client_id": "tablet-1", "study_id": "study-a", "waiting_for_admin_start": True},
+            )
+            started = client.post("/api/admin/study-run/start", json={})
+            wrong_heartbeat = client.post(
+                "/api/study-client/heartbeat",
+                json={"client_id": "tablet-2", "study_id": "study-a", "waiting_for_admin_start": True},
+            )
+            wrong_start = client.post(
+                "/api/study/session/start",
+                json={
+                    "client_id": "tablet-2",
+                    "study_id": "study-a",
+                    "participant_id": "p02",
+                    "require_admin_start": True,
+                    "study_run_id": started.get_json()["run_state"]["run_id"],
+                },
+            )
+            allowed = client.post(
+                "/api/study/session/start",
+                json={
+                    "client_id": "tablet-1",
+                    "study_id": "study-a",
+                    "participant_id": "p01",
+                    "require_admin_start": True,
+                    "study_run_id": started.get_json()["run_state"]["run_id"],
+                },
+            )
+
+        self.assertEqual(started.status_code, 200)
+        self.assertEqual(wrong_heartbeat.status_code, 200)
+        self.assertEqual(wrong_heartbeat.get_json()["study_run_state"]["status"], "blocked")
+        self.assertEqual(wrong_start.status_code, 409)
+        self.assertEqual(allowed.status_code, 200)
 
     def test_active_study_sensor_toggle_sets_temporary_override(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:

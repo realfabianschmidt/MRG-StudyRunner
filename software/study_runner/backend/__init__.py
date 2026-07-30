@@ -16,6 +16,7 @@ from .services.runtime_config import (
 )
 from .services.secrets_service import load_local_secrets
 from .services.sensor_flush_service import SensorFlushService
+from .services.study_client_service import reset_client_status
 from .services.session_store import SessionStore
 from .services.study_config_service import load_config
 from .services.study_run_state_service import StudyRunStateStore
@@ -90,6 +91,7 @@ def create_app() -> Flask:
     app.config["HARDWARE_CONFIG"] = hardware_config
     app.config["LOCAL_SECRETS"] = local_secrets
     app.config["SESSION_SENSOR_OVERRIDES"] = {}
+    reset_client_status()
     app.config["SESSION_STORE"] = SessionStore(app.config["DATA_DIR"])
     app.config["STUDY_RUN_STATE"] = StudyRunStateStore(app.config["DATA_DIR"])
     try:

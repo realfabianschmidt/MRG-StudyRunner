@@ -36,6 +36,7 @@ const state = {
   questionsBuilt: false,
   activationInProgress: false,
   completedLocally: false,
+  completedRunId: '',
 };
 
 const STUDY_SESSION_STATE_KEY = 'study-runner-active-session';
@@ -84,7 +85,7 @@ async function init() {
 }
 
 async function loadStudyConfig() {
-  state.config = await getJson('/api/config');
+  state.config = await getJson(`/api/config?client_id=${encodeURIComponent(getStudyClientId())}`);
   state.studyRunState = state.config._runtime?.study_run_state || null;
   updateSensorRuntime(state.config._runtime?.sensor_runtime || {});
 }
@@ -93,10 +94,18 @@ function isStudyRunRunning(runState = state.studyRunState) {
   return runState?.status === 'running';
 }
 
-function showWaitingForAdminStart() {
+function showWaitingForAdminStart(options = {}) {
   state.completedLocally = false;
   state.waitingForAdminStart = true;
   state.questionsBuilt = false;
+  const title = getElement('study-waiting-title');
+  const body = getElement('study-waiting-body');
+  if (title) {
+    title.textContent = options.title || t('study.waiting.title', 'Study will start soon');
+  }
+  if (body) {
+    body.textContent = options.body || t('study.waiting.body', 'Please keep this page open.');
+  }
   showScreen('waiting');
   updateProgressBar(0, 0);
 }
@@ -140,7 +149,42 @@ function handleStudyRunState(runState) {
   if (!runState || typeof runState !== 'object') {
     return;
   }
+  const previousRunId = state.studyRunState?.run_id || '';
+  const nextRunId = runState.run_id || '';
+  if (previousRunId && nextRunId && previousRunId !== nextRunId) {
+    state.completedLocally = false;
+    state.completedRunId = '';
+    state.questionsBuilt = false;
+    state.startTime = null;
+    state.sessionId = '';
+    state.sensorSessionStarted = false;
+  }
   state.studyRunState = runState;
+  if (state.completedLocally && runState.status === 'loaded') {
+    state.completedLocally = false;
+    state.completedRunId = '';
+    state.questionsBuilt = false;
+    state.startTime = null;
+    state.sessionId = '';
+    state.sensorSessionStarted = false;
+    showWaitingForAdminStart();
+    return;
+  }
+  if (state.completedLocally && runState.status === 'running' && nextRunId !== state.completedRunId) {
+    state.completedLocally = false;
+    state.completedRunId = '';
+    state.questionsBuilt = false;
+    state.startTime = null;
+    state.sessionId = '';
+    state.sensorSessionStarted = false;
+  }
+  if (runState.conflict === true || runState.status === 'blocked') {
+    showWaitingForAdminStart({
+      title: t('study.tabletConflict.title', 'This tablet is not assigned'),
+      body: runState.message || t('study.tabletConflict.body', 'Another tablet is already assigned to this study run. Please tell the study supervisor.'),
+    });
+    return;
+  }
   if (state.completedLocally) {
     return;
   }
@@ -248,7 +292,7 @@ function startRuntimePolling() {
   }
   const poll = async () => {
     try {
-      const runtime = await getJson('/api/study/runtime', { timeoutMs: RUNTIME_POLL_TIMEOUT_MS });
+      const runtime = await getJson(`/api/study/runtime?client_id=${encodeURIComponent(getStudyClientId())}`, { timeoutMs: RUNTIME_POLL_TIMEOUT_MS });
       updateSensorRuntime(runtime?.sensor_runtime || {});
       handleStudyRunState(runtime?.study_run_state);
     } catch (error) {
@@ -1847,6 +1891,7 @@ async function submitResults() {
     });
     state.studyRunState = response?.study_run_state || state.studyRunState;
     state.completedLocally = true;
+    state.completedRunId = state.studyRunState?.run_id || '';
     clearSessionSnapshot();
     state.startTime = null;
     state.sessionId = '';

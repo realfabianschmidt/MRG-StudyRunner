@@ -21,6 +21,7 @@ from .helpers import (
     _sensor_runtime_state,
     _session_overrides,
     _load_study_run,
+    _participant_study_run_state,
     _start_or_reuse_study_session,
     _start_study_camera_monitor_runtime,
     _start_study_sensor_runtime,
@@ -36,13 +37,16 @@ bp = Blueprint("study", __name__)
 @bp.route("/api/config")
 def get_config():
     config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
+    client_id = request.args.get("client_id", "")
     config_data["_capabilities"] = {
         "unsafe_stimulus_code": bool(current_app.config.get("ALLOW_UNSAFE_STIMULUS_CODE", False))
     }
     config_data["_runtime"] = {
         "sensor_runtime": _sensor_runtime_state(config_data.get("study_settings", {})),
         "session_overrides": _session_overrides(),
-        "study_run_state": _study_run_state(config_data["study_id"]),
+        "study_run_state": _participant_study_run_state(client_id, config_data["study_id"])
+        if client_id
+        else _study_run_state(config_data["study_id"]),
     }
     return jsonify(config_data)
 
@@ -69,9 +73,23 @@ def start_study_session():
     run_state = _study_run_state(config_data["study_id"])
     if payload.get("require_admin_start") and run_state.get("status") != "running":
         return jsonify({"ok": False, "error": "The study has not been started by the admin yet."}), 409
+    client_id = str(payload.get("client_id") or "").strip()
+    active_client_id = str(run_state.get("active_client_id") or "").strip()
+    if payload.get("require_admin_start") and active_client_id and client_id != active_client_id:
+        return jsonify({"ok": False, "error": "Another tablet is already assigned to this study run."}), 409
+    payload_run_id = str(payload.get("study_run_id") or "").strip()
+    if payload.get("require_admin_start") and payload_run_id and payload_run_id != str(run_state.get("run_id") or ""):
+        return jsonify({"ok": False, "error": "The tablet is using an older study run. Please wait for the latest start signal."}), 409
     session = _start_or_reuse_study_session(payload)
     result = _start_study_sensor_runtime(config_data.get("study_settings", {}))
-    return jsonify({"ok": True, "session": _public_study_session(session), "study_run_state": run_state, **result})
+    return jsonify(
+        {
+            "ok": True,
+            "session": _public_study_session(session),
+            "study_run_state": _participant_study_run_state(client_id, config_data["study_id"]),
+            **result,
+        }
+    )
 
 
 @bp.route("/api/study/session/stop", methods=["POST"])
@@ -107,7 +125,7 @@ def study_runtime():
             "ok": True,
             "sensor_runtime": _sensor_runtime_state(),
             "session_overrides": _session_overrides(),
-            "study_run_state": _study_run_state(),
+            "study_run_state": _participant_study_run_state(request.args.get("client_id", "")),
             "active_study_session": bool(current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")),
             "camera_live_active": bool(current_app.config.get("CAMERA_PREVIEW_ACTIVE", False)),
         }
@@ -151,7 +169,14 @@ def trial_marker():
 def study_client_heartbeat():
     payload = request.get_json() or {}
     heartbeat_result = register_heartbeat(payload, request.remote_addr, request.headers.get("User-Agent", ""))
-    return jsonify({"ok": True, **heartbeat_result, "sensor_runtime": _sensor_runtime_state(), "study_run_state": _study_run_state()})
+    return jsonify(
+        {
+            "ok": True,
+            **heartbeat_result,
+            "sensor_runtime": _sensor_runtime_state(),
+            "study_run_state": _participant_study_run_state(heartbeat_result.get("client_id")),
+        }
+    )
 
 
 @bp.route("/api/sync-clock", methods=["POST"])

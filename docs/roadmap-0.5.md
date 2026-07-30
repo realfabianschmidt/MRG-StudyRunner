@@ -469,7 +469,7 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 
 ---
 
-## T10 - Sensor Coordinator + timing contract (planned)
+## T10 - Sensor Coordinator + timing contract (next implementation block)
 
 **In plain terms:** keep LSL/XDF as the scientific sync layer for real sample streams, but add one clear central coordinator for lifecycle, plugin registration, polling cadence, backpressure, status, flush/export, and operator visibility.
 
@@ -504,10 +504,12 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 > **Architecture decision recorded (2026-07-30):** Fabian's proposed central worker model is accepted with one correction: the coordinator should coordinate control/status/backpressure and record timing diagnostics, but it should not replace LSL/XDF sample timestamps for scientific multi-stream synchronization. Poll-response delay can estimate RTT/offset for remote workers and web clients, but it is not a substitute for hardware/source timestamps plus LSL clock correction. T10 therefore builds on the existing `IntegrationPlugin` registry with declarative manifests and a new `SensorCoordinator`/`ClockSyncService`, while the immediate tablet-run fixes stay in the current stabilization commit.
 >
 > **Implementation status (2026-07-30):** no sensor-coordinator behavior has been moved yet. The first T11 run-state slice deliberately keeps today's plugin lifecycle intact and only exposes clearer loaded/running/completed state around it. T10 remains the next architecture block: manifests, coordinator polling, `ClockSyncService`, and unified sample metadata.
+>
+> **T11 handoff note (2026-07-30):** the admin shell now consumes registry-derived plugin status tabs, but editable machine-level plugin settings remain intentionally deferred to T10. The next implementation slice should add the manifest schema and coordinator-owned runtime settings first, then wire those settings into the existing Settings hub tabs.
 
 ---
 
-## T11 - Admin shell, study launch, and settings hub (planned)
+## T11 - Admin shell, study launch, and settings hub (0.5 shell slice implemented)
 
 **In plain terms:** the admin start page should behave like a small control room: load a study, then either edit it or start it for the tablet. Settings move into one top-right hub with clear tabs instead of scattered pages/buttons. The dashboard becomes a run-control/status view, not the place where every plugin setting lives.
 
@@ -579,6 +581,8 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 > **Fabian scope clarification applied (2026-07-30):** T11 is single-tablet/single-device first. Future multi-tablet, multi-participant, and repeated-sensor support can be prepared in naming and data boundaries, but it must not leak into the 0.5 operator UI. The implementation should also be token- and component-reuse heavy: use the existing settings shell, shared modal, status cards, setup steps, switch controls, icon button patterns, and CSS variables instead of creating another admin design language.
 >
 > **Implementation slice started (2026-07-30):** the completed-session hub list now refreshes while visible and is refreshed immediately by local result-save notifications. A persisted `StudyRunStateStore` records the active study as `loaded`, `running`, `completed`, or `stopped`, survives app restarts, is exposed through `/api/config`, runtime, heartbeat, result-save, and admin run routes, and marks a successful `/api/results` commit as completed. The hub now has a top-right settings gear, icon-only editor/dashboard buttons, an explicit Play button, and separate Load/Edit buttons for saved studies. The settings gear opens the shared modal as a first hub launcher for Study settings, Notion, Nextcloud, Certificate, Audit/Sensor Setup, Update, and Create Shortcut. The participant page now parks on a waiting screen until admin Start, then transitions to the participant-id slide; local submit completion keeps the thank-you screen stable even after the run state becomes completed. Still pending in later T11/T10 slices: full plugin-specific settings tabs, single-tablet conflict UX, dashboard scope cleanup, and the actual SensorCoordinator manifest/polling implementation.
+>
+> **Implementation close-out (2026-07-30):** T11 is closed for the 0.5 shell scope. Admin Start now requires exactly one active participant tablet for the loaded study; no-tablet and multi-tablet states block Play with plain operator hints. The selected tablet id is persisted in run state, and participant `/api/config`, runtime polling, heartbeat responses, and session start all block non-assigned tablets once a run is active. The Settings hub now includes per-plugin tabs generated from the current integration registry/status payload, with status, device, runtime, LSL, scan/endpoint diagnostics, and a deep link back to live dashboard controls. The dashboard integration list is now a live-status/control surface with a Settings launcher instead of a second broad plugin-configuration surface. Deep editable per-plugin settings such as frame rate, resolution, timeouts, and backpressure limits move to T10 manifests/coordinator config, not another T11 UI pass.
 
 ---
 

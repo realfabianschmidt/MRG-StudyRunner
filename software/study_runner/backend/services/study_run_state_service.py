@@ -79,14 +79,16 @@ class StudyRunStateStore:
                 "completed_at": None,
                 "completed_at_epoch": None,
                 "completed_session_id": "",
+                "active_client_id": "",
                 "updated_at": _format_time(now),
                 "updated_at_epoch": now,
             }
             self._persist_locked()
             return self.public()
 
-    def start(self, study_id: str) -> dict[str, Any]:
+    def start(self, study_id: str, active_client_id: str = "") -> dict[str, Any]:
         normalized = _clean_study_id(study_id)
+        client_id = str(active_client_id or "").strip()
         now = self._now()
         with self._lock:
             if self._state.get("status") == RUNNING_STATUS and self._state.get("study_id") == normalized:
@@ -107,6 +109,7 @@ class StudyRunStateStore:
                 "completed_at": None,
                 "completed_at_epoch": None,
                 "completed_session_id": "",
+                "active_client_id": client_id,
                 "updated_at": _format_time(now),
                 "updated_at_epoch": now,
             }
@@ -126,6 +129,7 @@ class StudyRunStateStore:
                 "completed_at": _format_time(now),
                 "completed_at_epoch": now,
                 "completed_session_id": str(session_id or "").strip(),
+                "active_client_id": str(self._state.get("active_client_id") or "").strip(),
                 "updated_at": _format_time(now),
                 "updated_at_epoch": now,
             }
@@ -142,6 +146,7 @@ class StudyRunStateStore:
                 "status": STOPPED_STATUS,
                 "study_id": normalized,
                 "sequence": previous_sequence + 1,
+                "active_client_id": str(self._state.get("active_client_id") or "").strip(),
                 "updated_at": _format_time(now),
                 "updated_at_epoch": now,
             }
