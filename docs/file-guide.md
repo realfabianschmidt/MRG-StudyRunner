@@ -120,6 +120,7 @@ mapping:
 | `notion-settings-controller.js` | The Notion settings page | careful |
 | `admin/nextcloud-settings-controller.js` | The shared-shell Nextcloud setup and connection-test page | careful |
 | `admin/certificate-settings-controller.js` | The shared-shell certificate status, setup, export, and import page | no |
+| `admin/session-timeline.js` | Renders completed-session sensor lanes and answer markers as offline SVG | careful |
 | `lib/dom-utils.js` | Shared safe DOM lookup, text/HTML assignment, and escaping helpers | careful |
 | `lib/modal.js` | Shared accessible modal lifecycle and existing modal-shell markup | careful |
 | `lib/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
