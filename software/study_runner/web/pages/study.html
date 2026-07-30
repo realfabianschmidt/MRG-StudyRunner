@@ -16,7 +16,13 @@
 </div>
 
 <!-- One card is visible at a time. Navigation controls appear below. -->
-<div id="screen-questions" class="screen active">
+<div id="screen-waiting" class="screen screen--center active">
+  <div class="study-waiting-logo"><i class="iconoir-brain"></i></div>
+  <h1 class="screen-title" data-i18n="study.waiting.title">Study will start soon</h1>
+  <p class="screen-sub" data-i18n="study.waiting.body">Please keep this page open.</p>
+</div>
+
+<div id="screen-questions" class="screen">
   <div id="q-container"></div>
   <div class="q-nav">
     <button class="q-nav-btn q-nav-btn--back" id="btn-prev" type="button" data-i18n-aria-label="study.prev" aria-label="Previous question">

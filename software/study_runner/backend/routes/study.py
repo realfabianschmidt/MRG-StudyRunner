@@ -20,9 +20,11 @@ from .helpers import (
     _resume_study_session,
     _sensor_runtime_state,
     _session_overrides,
+    _load_study_run,
     _start_or_reuse_study_session,
     _start_study_camera_monitor_runtime,
     _start_study_sensor_runtime,
+    _study_run_state,
     _stop_study_session_tracking,
     _stop_study_sensor_runtime,
     _valid_participant_id,
@@ -40,6 +42,7 @@ def get_config():
     config_data["_runtime"] = {
         "sensor_runtime": _sensor_runtime_state(config_data.get("study_settings", {})),
         "session_overrides": _session_overrides(),
+        "study_run_state": _study_run_state(config_data["study_id"]),
     }
     return jsonify(config_data)
 
@@ -50,6 +53,9 @@ def update_config():
     validated_config = validate_and_normalize_config(config_data)
     save_config(current_app.config["CONFIG_FILE"], validated_config)
     save_study(current_app.config["SAVED_STUDIES_DIR"], validated_config)
+    current_run_state = _study_run_state(validated_config["study_id"])
+    if current_run_state.get("status") != "running":
+        _load_study_run(validated_config["study_id"])
     print("[CONFIG] Saved.")
     return jsonify({"ok": True})
 
@@ -60,9 +66,12 @@ def start_study_session():
     if not _valid_participant_id(payload.get("participant_id")):
         return jsonify({"ok": False, "error": "Participant ID is required before a study can start."}), 400
     config_data = _current_config_data()
+    run_state = _study_run_state(config_data["study_id"])
+    if payload.get("require_admin_start") and run_state.get("status") != "running":
+        return jsonify({"ok": False, "error": "The study has not been started by the admin yet."}), 409
     session = _start_or_reuse_study_session(payload)
     result = _start_study_sensor_runtime(config_data.get("study_settings", {}))
-    return jsonify({"ok": True, "session": _public_study_session(session), **result})
+    return jsonify({"ok": True, "session": _public_study_session(session), "study_run_state": run_state, **result})
 
 
 @bp.route("/api/study/session/stop", methods=["POST"])
@@ -98,6 +107,7 @@ def study_runtime():
             "ok": True,
             "sensor_runtime": _sensor_runtime_state(),
             "session_overrides": _session_overrides(),
+            "study_run_state": _study_run_state(),
             "active_study_session": bool(current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")),
             "camera_live_active": bool(current_app.config.get("CAMERA_PREVIEW_ACTIVE", False)),
         }
@@ -141,7 +151,7 @@ def trial_marker():
 def study_client_heartbeat():
     payload = request.get_json() or {}
     heartbeat_result = register_heartbeat(payload, request.remote_addr, request.headers.get("User-Agent", ""))
-    return jsonify({"ok": True, **heartbeat_result, "sensor_runtime": _sensor_runtime_state()})
+    return jsonify({"ok": True, **heartbeat_result, "sensor_runtime": _sensor_runtime_state(), "study_run_state": _study_run_state()})
 
 
 @bp.route("/api/sync-clock", methods=["POST"])

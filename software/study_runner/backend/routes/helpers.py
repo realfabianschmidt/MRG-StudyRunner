@@ -94,6 +94,31 @@ def _current_config_data() -> dict:
     return validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
 
 
+def _study_run_state_store():
+    return current_app.config["STUDY_RUN_STATE"]
+
+
+def _study_run_state(study_id: str | None = None) -> dict:
+    config_study_id = study_id if study_id is not None else _current_config_data().get("study_id", "")
+    return _study_run_state_store().ensure_loaded(str(config_study_id or ""))
+
+
+def _load_study_run(study_id: str) -> dict:
+    return _study_run_state_store().set_loaded(study_id)
+
+
+def _start_study_run(study_id: str) -> dict:
+    return _study_run_state_store().start(study_id)
+
+
+def _complete_study_run(study_id: str, session_id: str) -> dict:
+    return _study_run_state_store().complete(study_id, session_id)
+
+
+def _stop_study_run(study_id: str = "") -> dict:
+    return _study_run_state_store().stop(study_id)
+
+
 def _current_study_settings() -> dict:
     return _current_config_data().get("study_settings", {})
 

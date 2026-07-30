@@ -17,6 +17,8 @@ from .services.runtime_config import (
 from .services.secrets_service import load_local_secrets
 from .services.sensor_flush_service import SensorFlushService
 from .services.session_store import SessionStore
+from .services.study_config_service import load_config
+from .services.study_run_state_service import StudyRunStateStore
 from .services.upload_runtime import configure_upload_jobs
 
 
@@ -89,6 +91,11 @@ def create_app() -> Flask:
     app.config["LOCAL_SECRETS"] = local_secrets
     app.config["SESSION_SENSOR_OVERRIDES"] = {}
     app.config["SESSION_STORE"] = SessionStore(app.config["DATA_DIR"])
+    app.config["STUDY_RUN_STATE"] = StudyRunStateStore(app.config["DATA_DIR"])
+    try:
+        app.config["STUDY_RUN_STATE"].ensure_loaded(load_config(app.config["CONFIG_FILE"]).get("study_id", ""))
+    except Exception as error:
+        print(f"[STUDY-RUN] Could not initialize run state: {error}")
     app.config["SENSOR_FLUSH_SERVICE"] = SensorFlushService(app)
 
     hardware_disabled = _hardware_disabled()

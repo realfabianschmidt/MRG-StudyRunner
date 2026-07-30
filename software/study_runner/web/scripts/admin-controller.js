@@ -9,6 +9,7 @@ import { initializeRecoveryPanel, loadRecoveryCandidates } from './admin/recover
 import { CARDS, CARD_TYPES, defaultFor } from './cards/index.js';
 import { renderInfoBottom, renderInfoEditor, collectInfo } from './cards/card-info.js';
 import { initI18n, setLanguage, getLanguage, t } from './i18n.js';
+import { createModal } from './lib/modal.js';
 import { createQrSvg } from './qr-code.js';
 import { escapeHtml } from './lib/dom-utils.js';
 
@@ -50,6 +51,8 @@ const state = {
   accessQrKind: null,
   updateStatus: null,
   updatePollTimer: null,
+  studyRunState: null,
+  settingsHubModal: null,
 };
 
 
@@ -133,18 +136,16 @@ async function init() {
   });
   initializeCertificateSettings({ showToast, switchView });
   initializeSessionsBrowser({ showToast, switchView });
-  initializeUploadMonitor({ showToast });
+  initializeUploadMonitor({ showToast, onLocalCompletion: () => void loadCompletedSessions() });
   initializeRecoveryPanel({ showToast, onFinalized: loadCompletedSessions });
 
   try {
     await loadRuntimeInfo();
-    state.config = await getJson('/api/config');
-    state.config.study_settings = normalizeStudySettings(state.config.study_settings);
-    ensureBookends(state.config.questions);
-    $('cfg-id').value = state.config.study_id || '';
-    updateHubTitle();
-    rebuildAll();
+    const config = await getJson('/api/config');
+    state.studyRunState = config._runtime?.study_run_state || null;
+    applyLoadedConfig(config);
     await loadRecentStudies();
+    await loadStudyRunState();
     await loadCompletedSessions();
     await loadRecoveryCandidates();
     await loadUpdateStatus({ silent: true });
@@ -160,9 +161,239 @@ function updateHubTitle() {
   const studyId = $('cfg-id').value.trim() || t('admin.unnamedStudy', 'Untitled study');
   const hubTitle = $('hub-active-title');
   if (hubTitle) hubTitle.textContent = studyId;
+  renderStudyRunState();
 }
 function getCurrentStudyName() {
   return $('cfg-id').value.trim() || state.config.study_id || t('admin.unnamedStudy', 'Untitled study');
+}
+
+function applyLoadedConfig(config) {
+  config.study_settings = normalizeStudySettings(config.study_settings);
+  ensureBookends(config.questions);
+  state.config = config;
+  $('cfg-id').value = config.study_id || '';
+  updateHubTitle();
+  rebuildAll();
+  state.loaded = true;
+}
+
+async function loadStudyRunState() {
+  try {
+    const response = await getJson('/api/admin/study-run');
+    state.studyRunState = response?.run_state || null;
+    renderStudyRunState();
+    return state.studyRunState;
+  } catch (error) {
+    console.error('[admin] Could not load study run state:', error);
+    renderStudyRunState();
+    return null;
+  }
+}
+
+function renderStudyRunState() {
+  const runState = state.studyRunState || {};
+  const status = runState.status || 'loaded';
+  const label = $('hub-active-label');
+  const hint = $('hub-active-run-hint');
+  const startButton = $('btn-hub-start-study');
+  const startLabel = $('btn-hub-start-study-label');
+  const dashboardButton = $('btn-admin-dashboard');
+
+  if (label) {
+    label.removeAttribute('data-i18n');
+    label.textContent = runStatusLabel(status);
+  }
+  if (hint) {
+    hint.removeAttribute('data-i18n');
+    hint.textContent = runStatusHint(status, runState);
+  }
+  if (startButton) {
+    const running = status === 'running';
+    startButton.disabled = running || !getCurrentStudyName();
+    startButton.classList.toggle('is-running', running);
+  }
+  if (startLabel) {
+    startLabel.textContent = status === 'running'
+      ? t('hub.runRunning', 'Running')
+      : t('hub.startStudy', 'Start study');
+  }
+  if (dashboardButton && status === 'running') {
+    dashboardButton.hidden = false;
+  }
+}
+
+function runStatusLabel(status) {
+  if (status === 'running') return t('hub.runStatus.running', 'RUNNING');
+  if (status === 'completed') return t('hub.runStatus.completed', 'COMPLETED');
+  if (status === 'stopped') return t('hub.runStatus.stopped', 'STOPPED');
+  return t('hub.runStatus.loaded', 'LOADED');
+}
+
+function runStatusHint(status, runState) {
+  if (status === 'running') {
+    return t('hub.runHint.running', 'The participant tablet can enter the study now.');
+  }
+  if (status === 'completed') {
+    return t('hub.runHint.completed', 'The last run was saved. Start again when the tablet should continue.');
+  }
+  if (status === 'stopped') {
+    return t('hub.runHint.stopped', 'The run was stopped. The tablet waits for the next start.');
+  }
+  if (runState?.study_id) {
+    return t('hub.runHint.loaded', 'Loaded on the tablet as a waiting room until you press Play.');
+  }
+  return t('hub.runHint.empty', 'Load a study, then press Play when the tablet is ready.');
+}
+
+async function startLoadedStudyRun() {
+  const button = $('btn-hub-start-study');
+  const previousHtml = button?.innerHTML || '';
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = `<i class="iconoir-refresh"></i><span>${escapeHtml(t('hub.startingStudy', 'Starting...'))}</span>`;
+  }
+
+  try {
+    if ($('btn-save-config')?.classList.contains('btn-primary--dirty')) {
+      const saved = await saveConfig({ skipToast: true });
+      if (saved === false) return;
+    }
+    const response = await postJson('/api/admin/study-run/start', {}, { timeoutMs: 2000 });
+    state.studyRunState = response?.run_state || null;
+    renderStudyRunState();
+    showToast(t('toast.studyStarted', 'Study started'), 'success');
+  } catch (error) {
+    console.error('[admin] Could not start study run:', error);
+    showToast(t('toast.studyStartFailed', 'Could not start the study'), 'error');
+  } finally {
+    if (button) {
+      button.innerHTML = previousHtml;
+      renderStudyRunState();
+    }
+  }
+}
+
+function openSettingsHub() {
+  if (!state.settingsHubModal) {
+    state.settingsHubModal = createModal({
+      kicker: t('settingsHub.kicker', 'Operator settings'),
+      title: t('settingsHub.title', 'Settings'),
+      closeLabel: t('settings.close', 'Close'),
+    });
+  }
+  renderSettingsHubIntoModal();
+  if (!state.settingsHubModal.isOpen()) {
+    state.settingsHubModal.open();
+  }
+}
+
+function renderSettingsHubIntoModal() {
+  if (!state.settingsHubModal) return;
+  state.settingsHubModal.setKicker?.(t('settingsHub.kicker', 'Operator settings'));
+  state.settingsHubModal.setTitle?.(t('settingsHub.title', 'Settings'));
+  state.settingsHubModal.body.innerHTML = renderSettingsHub();
+  bindSettingsHub();
+}
+
+function renderSettingsHub() {
+  const tabs = [
+    ['study', 'iconoir-journal-page', t('settingsHub.tabStudy', 'Study')],
+    ['uploads', 'iconoir-cloud-upload', t('settingsHub.tabUploads', 'Uploads')],
+    ['tablet', 'iconoir-tablet', t('settingsHub.tabTablet', 'Tablet')],
+    ['system', 'iconoir-settings', t('settingsHub.tabSystem', 'System')],
+  ];
+  return `
+    <div class="settings-hub">
+      <div class="settings-hub-tabs" role="tablist">
+        ${tabs.map(([key, icon, label], index) => `
+          <button class="settings-hub-tab${index === 0 ? ' active' : ''}" type="button" data-settings-tab="${escapeHtml(key)}" role="tab" aria-selected="${index === 0 ? 'true' : 'false'}">
+            <i class="${escapeHtml(icon)}"></i><span>${escapeHtml(label)}</span>
+          </button>
+        `).join('')}
+      </div>
+      <div class="settings-hub-panels">
+        ${settingsHubPanel('study', false, [
+          settingsHubAction('study-settings', 'iconoir-settings-cloud', t('sidebar.studySettings', 'Study settings'), t('settingsHub.studyHint', 'Sensors and progress bar for the loaded study.')),
+          settingsHubAction('audit', 'iconoir-book', t('hub.auditSensorSetup', 'Audit & Sensor Setup'), t('settingsHub.auditHint', 'Check local sensor readiness and setup state.')),
+        ])}
+        ${settingsHubPanel('uploads', true, [
+          settingsHubAction('notion', 'iconoir-database', t('hub.notionSettings', 'Notion settings'), t('settingsHub.notionHint', 'Backend token, study target, and upload queue.')),
+          settingsHubAction('nextcloud', 'iconoir-cloud-upload', t('hub.nextcloudSettings', 'Nextcloud settings'), t('settingsHub.nextcloudHint', 'Public share link and optional share password.')),
+        ])}
+        ${settingsHubPanel('tablet', true, [
+          settingsHubAction('certificate', 'iconoir-shield-check', t('hub.certificateSettings', 'Certificate'), t('settingsHub.certificateHint', 'Tablet trust setup for HTTPS camera access.')),
+        ])}
+        ${settingsHubPanel('system', true, [
+          settingsHubAction('update', 'iconoir-download-circled-outline', t('update.title', 'Python app update'), t('settingsHub.updateHint', 'Check, download, and install Study Runner updates.')),
+          settingsHubAction('shortcut', 'iconoir-desktop', t('hub.createShortcut', 'Create desktop shortcut'), t('settingsHub.shortcutHint', 'Create a local launcher for this computer.')),
+        ])}
+      </div>
+    </div>
+  `;
+}
+
+function settingsHubPanel(key, hidden, actions) {
+  return `
+    <div class="settings-hub-panel" data-settings-panel="${escapeHtml(key)}"${hidden ? ' hidden' : ''}>
+      ${actions.join('')}
+    </div>`;
+}
+
+function settingsHubAction(action, icon, title, hint) {
+  return `
+    <button class="settings-hub-action" type="button" data-settings-action="${escapeHtml(action)}">
+      <i class="${escapeHtml(icon)}"></i>
+      <span>
+        <strong>${escapeHtml(title)}</strong>
+        <small>${escapeHtml(hint)}</small>
+      </span>
+    </button>`;
+}
+
+function bindSettingsHub() {
+  const body = state.settingsHubModal?.body;
+  if (!body) return;
+  body.querySelectorAll('[data-settings-tab]').forEach((tab) => {
+    tab.addEventListener('click', () => activateSettingsHubTab(tab.dataset.settingsTab || 'study'));
+  });
+  body.querySelectorAll('[data-settings-action]').forEach((button) => {
+    button.addEventListener('click', () => handleSettingsHubAction(button.dataset.settingsAction || ''));
+  });
+}
+
+function activateSettingsHubTab(tabKey) {
+  const body = state.settingsHubModal?.body;
+  if (!body) return;
+  body.querySelectorAll('[data-settings-tab]').forEach((tab) => {
+    const active = tab.dataset.settingsTab === tabKey;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  body.querySelectorAll('[data-settings-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.settingsPanel !== tabKey;
+  });
+}
+
+function handleSettingsHubAction(action) {
+  if (action !== 'shortcut') {
+    state.settingsHubModal?.close();
+  }
+  if (action === 'study-settings') {
+    openStudySettings();
+  } else if (action === 'notion') {
+    $('btn-notion-settings')?.click();
+  } else if (action === 'nextcloud') {
+    $('btn-nextcloud-settings')?.click();
+  } else if (action === 'certificate') {
+    $('btn-certificate-settings')?.click();
+  } else if (action === 'audit') {
+    window.open('/audit', '_blank', 'noreferrer');
+  } else if (action === 'update') {
+    switchView('view-hub');
+    $('admin-update-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else if (action === 'shortcut') {
+    void createDesktopShortcut();
+  }
 }
 
 function switchView(viewId) {
@@ -179,6 +410,7 @@ function startNewStudy() {
     questions: [defaultFor('participant-id'), defaultFor('finish')],
     study_settings: defaultStudySettings(),
   };
+  state.studyRunState = { status: 'loaded', study_id: studyName };
   $('cfg-id').value = studyName;
   updateHubTitle();
   rebuildAll();
@@ -215,6 +447,8 @@ function bindEvents() {
   $('btn-hub-new').addEventListener('click', startNewStudy);
   $('btn-hub-editor').addEventListener('click', () => switchView('view-workspace'));
   $('btn-admin-dashboard').addEventListener('click', () => switchView('view-dashboard'));
+  $('btn-hub-start-study')?.addEventListener('click', () => void startLoadedStudyRun());
+  $('btn-hub-settings')?.addEventListener('click', openSettingsHub);
   $('btn-workspace-home').addEventListener('click', () => switchView('view-hub'));
   $('btn-admin-edit-view').addEventListener('click', () => switchView('view-hub'));
   $('btn-create-shortcut')?.addEventListener('click', () => createDesktopShortcut());
@@ -281,6 +515,10 @@ function bindEvents() {
   document.addEventListener('languagechange', () => {
     if (state.accessQrKind && !$('access-qr-modal')?.hidden) {
       updateAccessQrModalText(state.accessQrKind, getAccessUrl(state.accessQrKind));
+    }
+    renderStudyRunState();
+    if (state.settingsHubModal?.isOpen()) {
+      renderSettingsHubIntoModal();
     }
   });
 }
@@ -1083,6 +1321,7 @@ async function saveConfig(options = {}) {
 
     $('btn-save-config').classList.remove('btn-primary--dirty');
     await loadRecentStudies();
+    await loadStudyRunState();
     rebuildAll();
     if (!skipToast) {
       showToast(successMessage, 'success');
@@ -1120,13 +1359,8 @@ function loadFromFile() {
     if (!file) return;
     try {
       const config = JSON.parse(await file.text());
-      config.study_settings = normalizeStudySettings(config.study_settings);
-      ensureBookends(config.questions);
-      state.config = config;
-      $('cfg-id').value = config.study_id || '';
-      updateHubTitle();
-      rebuildAll();
-      state.loaded = true;
+      state.studyRunState = { status: 'loaded', study_id: config.study_id || '' };
+      applyLoadedConfig(config);
       markUnsaved();
       showToast(t('toast.loadedFile', 'Loaded: {name}').replace('{name}', file.name), 'info');
       checkIntegrationReadinessForStudy();
@@ -1137,19 +1371,17 @@ function loadFromFile() {
   input.click();
 }
 
-async function _activateStudyFromHub(id) {
+async function _activateStudyFromHub(id, options = {}) {
   try {
-    const config = await postJson('/api/admin/studies/active', { id });
-    config.study_settings = normalizeStudySettings(config.study_settings);
-    ensureBookends(config.questions);
-    state.config = config;
-    $('cfg-id').value = config.study_id || '';
-    updateHubTitle();
-    rebuildAll();
-    state.loaded = true;
-    showToast(t('toast.studyLoaded'), 'success');
+    const response = await postJson('/api/admin/study-run/load', { id });
+    applyLoadedConfig(response.config || {});
+    state.studyRunState = response.run_state || { status: 'loaded', study_id: state.config.study_id || id };
+    renderStudyRunState();
+    showToast(t('toast.studyLoadedWaiting', 'Study loaded - tablet is waiting'), 'success');
     checkIntegrationReadinessForStudy();
-    switchView('view-workspace');
+    if (options.openEditor) {
+      switchView('view-workspace');
+    }
   } catch (e) {
     showToast(t('toast.loadFailed'), 'error');
   }
@@ -1209,7 +1441,8 @@ async function loadRecentStudies() {
           </div>
         </div>
         <div class="hub-recent-actions" style="display: flex; gap: 6px;">
-          <button class="btn-icon-only" data-action="load" title="${escapeHtml(t('hub.recent.loadEdit', 'Load / edit'))}"><i class="iconoir-edit-pencil"></i></button>
+          <button class="btn-icon-only" data-action="load" title="${escapeHtml(t('hub.recent.load', 'Load'))}"><i class="iconoir-import"></i></button>
+          <button class="btn-icon-only" data-action="edit" title="${escapeHtml(t('hub.recent.edit', 'Edit'))}"><i class="iconoir-edit-pencil"></i></button>
           <button class="btn-icon-only" data-action="download" title="${escapeHtml(t('hub.recent.download', 'Download'))}"><i class="iconoir-download"></i></button>
           <button class="btn-icon-only" data-action="delete" title="${escapeHtml(t('hub.recent.delete', 'Delete'))}" style="color: #D32F2F; border-color: rgba(211,47,47,0.3);"><i class="iconoir-trash"></i></button>
         </div>
@@ -1220,6 +1453,7 @@ async function loadRecentStudies() {
       const id = item.dataset.studyId;
       item.querySelector('.hub-recent-item-main').addEventListener('click', () => _activateStudyFromHub(id));
       item.querySelector('[data-action="load"]').addEventListener('click', () => _activateStudyFromHub(id));
+      item.querySelector('[data-action="edit"]').addEventListener('click', () => _activateStudyFromHub(id, { openEditor: true }));
       item.querySelector('[data-action="download"]').addEventListener('click', () => downloadStudy(id));
       item.querySelector('[data-action="delete"]').addEventListener('click', () => deleteStudy(id));
     });

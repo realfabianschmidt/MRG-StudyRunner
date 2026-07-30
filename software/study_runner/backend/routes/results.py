@@ -28,7 +28,7 @@ from ..services.validation import (
     validate_and_normalize_config,
     validate_and_normalize_results,
 )
-from .helpers import _integration_context, _runtime_hardware_config, _stop_study_session_tracking
+from .helpers import _complete_study_run, _integration_context, _runtime_hardware_config, _stop_study_session_tracking
 
 bp = Blueprint("results", __name__)
 
@@ -187,7 +187,9 @@ def save_results():
     print(f"[DATA] Saved: {saved_output['json_file']}")
     if saved_output.get("xdf_file"):
         print(f"[DATA] XDF: {saved_output['xdf_file']}")
-    session_completed = _stop_study_session_tracking(str(result_payload.get("session_id") or ""))
+    session_id = str(result_payload.get("session_id") or "")
+    session_completed = _stop_study_session_tracking(session_id)
+    run_state = _complete_study_run(config_data["study_id"], session_id)
     _discard_partial_snapshot(result_payload)
     discard_session_flush_files(
         current_app.config["DATA_DIR"],
@@ -208,7 +210,7 @@ def save_results():
         # Local results are already durable. A secondary bookkeeping failure
         # must never turn a successful participant submit into an HTTP 500.
         print(f"[UPLOADS] Could not prepare upload jobs after save: {error}")
-    return jsonify({"ok": True, **saved_output, "session_completed": session_completed})
+    return jsonify({"ok": True, **saved_output, "session_completed": session_completed, "study_run_state": run_state})
 
 
 def _enqueue_upload_jobs(

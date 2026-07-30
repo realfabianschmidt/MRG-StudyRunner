@@ -142,6 +142,7 @@ class ResultsRoutesTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertTrue(payload["ok"])
             self.assertTrue(payload["session_completed"])
+            self.assertEqual(payload["study_run_state"]["status"], "completed")
             self.assertEqual(app.config["SESSION_STORE"].get(session_id)["status"], "completed")
             self.assertIsNone(app.config["SESSION_STORE"].find_active("teststudy", "p01", "tablet-1"))
 

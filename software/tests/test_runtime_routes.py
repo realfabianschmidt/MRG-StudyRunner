@@ -80,6 +80,91 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertIn("Participant ID", payload["error"])
 
+    def test_admin_study_run_start_gates_new_tablet_flow_and_persists(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            client = app.test_client()
+            saved = client.post(
+                "/api/config",
+                json={
+                    "study_id": "study-a",
+                    "questions": [
+                        {"type": "participant-id"},
+                        {"type": "likert", "prompt": "How do you feel?"},
+                        {"type": "finish"},
+                    ],
+                },
+            )
+            blocked = client.post(
+                "/api/study/session/start",
+                json={
+                    "study_id": "study-a",
+                    "participant_id": "p01",
+                    "require_admin_start": True,
+                },
+            )
+            started = client.post("/api/admin/study-run/start", json={})
+            allowed = client.post(
+                "/api/study/session/start",
+                json={
+                    "study_id": "study-a",
+                    "participant_id": "p01",
+                    "require_admin_start": True,
+                },
+            )
+
+            with patch.dict(os.environ, env, clear=False):
+                restarted_app = create_app()
+            persisted = restarted_app.test_client().get("/api/admin/study-run")
+
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(blocked.status_code, 409)
+        self.assertEqual(started.status_code, 200)
+        self.assertEqual(started.get_json()["run_state"]["status"], "running")
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(allowed.get_json()["study_run_state"]["status"], "running")
+        self.assertEqual(persisted.status_code, 200)
+        self.assertEqual(persisted.get_json()["run_state"]["status"], "running")
+
+    def test_admin_study_run_load_returns_config_and_waiting_state(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            client = app.test_client()
+            saved = client.post(
+                "/api/config",
+                json={
+                    "study_id": "study-a",
+                    "questions": [
+                        {"type": "participant-id"},
+                        {"type": "finish"},
+                    ],
+                },
+            )
+            started = client.post("/api/admin/study-run/start", json={})
+            loaded = client.post("/api/admin/study-run/load", json={"id": "study-a"})
+            config = client.get("/api/config")
+
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(started.get_json()["run_state"]["status"], "running")
+        self.assertEqual(loaded.status_code, 200)
+        self.assertEqual(loaded.get_json()["config"]["study_id"], "study-a")
+        self.assertEqual(loaded.get_json()["run_state"]["status"], "loaded")
+        self.assertEqual(config.get_json()["_runtime"]["study_run_state"]["status"], "loaded")
+
     def test_active_study_sensor_toggle_sets_temporary_override(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {

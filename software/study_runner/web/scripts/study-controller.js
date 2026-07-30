@@ -31,6 +31,11 @@ const state = {
   runtimePollTimer: null,
   navigationBusy: false,
   submitInFlight: false,
+  studyRunState: null,
+  waitingForAdminStart: false,
+  questionsBuilt: false,
+  activationInProgress: false,
+  completedLocally: false,
 };
 
 const STUDY_SESSION_STATE_KEY = 'study-runner-active-session';
@@ -60,34 +65,96 @@ async function init() {
   initFullscreenUi();
   startStudyClientHeartbeat(getStudyClientHeartbeatPayload, { onHeartbeat: handleHeartbeatResponse });
   bindPageLifecycleEvents();
+  // Estimate clock offset in the background; the waiting room must not skip it.
+  void syncClock();
 
   try {
-    state.config = await getJson('/api/config');
-    updateSensorRuntime(state.config._runtime?.sensor_runtime || {});
-    if (!hasParticipantIdStartCard()) {
-      renderParticipantIdRequiredBlock();
-      showScreen('questions');
+    startRuntimePolling();
+    await loadStudyConfig();
+    if (!isStudyRunRunning()) {
+      showWaitingForAdminStart();
       return;
     }
-    buildQuestions({ markInitialShown: false, startFirstStimulus: false });
-    showScreen('questions');
-    const recoveryVisible = renderRecoveryBlockIfNeeded();
-    if (!recoveryVisible) {
-      void startCameraMonitorIfNeeded();
-    }
-    startRuntimePolling();
-    if (shouldStartStudyImmediately()) {
-      void startTrial({ rebuild: false });
-    }
-    void requestStudyFullscreen();
+    await activateStudyUiAfterAdminStart();
   } catch (error) {
     console.error('[study] Could not load configuration:', error);
     showStudyNotice(t('study.loadFailed', 'The study could not be loaded. Please tell the study supervisor.'));
   }
 
-  // Estimate clock offset between tablet and Study Runner server for precise trigger timestamps.
-  // Runs in the background and does not block study start.
-  void syncClock();
+}
+
+async function loadStudyConfig() {
+  state.config = await getJson('/api/config');
+  state.studyRunState = state.config._runtime?.study_run_state || null;
+  updateSensorRuntime(state.config._runtime?.sensor_runtime || {});
+}
+
+function isStudyRunRunning(runState = state.studyRunState) {
+  return runState?.status === 'running';
+}
+
+function showWaitingForAdminStart() {
+  state.completedLocally = false;
+  state.waitingForAdminStart = true;
+  state.questionsBuilt = false;
+  showScreen('waiting');
+  updateProgressBar(0, 0);
+}
+
+async function activateStudyUiAfterAdminStart() {
+  if (state.activationInProgress || state.questionsBuilt) {
+    return;
+  }
+  state.activationInProgress = true;
+  try {
+    await loadStudyConfig();
+    if (!isStudyRunRunning()) {
+      showWaitingForAdminStart();
+      return;
+    }
+    state.waitingForAdminStart = false;
+    if (!hasParticipantIdStartCard()) {
+      renderParticipantIdRequiredBlock();
+      state.questionsBuilt = true;
+      showScreen('questions');
+      return;
+    }
+    buildQuestions({ markInitialShown: false, startFirstStimulus: false });
+    state.questionsBuilt = true;
+    state.waitingForAdminStart = false;
+    showScreen('questions');
+    const recoveryVisible = renderRecoveryBlockIfNeeded();
+    if (!recoveryVisible) {
+      void startCameraMonitorIfNeeded();
+    }
+    if (shouldStartStudyImmediately()) {
+      void startTrial({ rebuild: false });
+    }
+    void requestStudyFullscreen();
+  } finally {
+    state.activationInProgress = false;
+  }
+}
+
+function handleStudyRunState(runState) {
+  if (!runState || typeof runState !== 'object') {
+    return;
+  }
+  state.studyRunState = runState;
+  if (state.completedLocally) {
+    return;
+  }
+  if (isStudyRunRunning(runState)) {
+    if (state.waitingForAdminStart || !state.questionsBuilt) {
+      void activateStudyUiAfterAdminStart();
+    }
+    return;
+  }
+
+  const doneVisible = getElement('screen-done')?.classList.contains('active');
+  if (!state.startTime && state.questionsBuilt && !doneVisible) {
+    showWaitingForAdminStart();
+  }
 }
 
 /**
@@ -157,13 +224,17 @@ function handleHeartbeatResponse(response) {
   if (response?.sensor_runtime) {
     updateSensorRuntime(response.sensor_runtime);
   }
+  if (response?.study_run_state) {
+    handleStudyRunState(response.study_run_state);
+  }
 }
 
 function updateSensorRuntime(sensorRuntime) {
   const previousCameraEnabled = isStudySensorEnabled('camera_emotion');
   state.sensorRuntime = sensorRuntime && typeof sensorRuntime === 'object' ? sensorRuntime : {};
   const nextCameraEnabled = isStudySensorEnabled('camera_emotion');
-  if (nextCameraEnabled && !state.cameraMonitorCleanup && !state.cameraMonitorStarting) {
+  const cameraMayRun = Boolean(state.startTime) || (isStudyRunRunning() && state.questionsBuilt);
+  if (nextCameraEnabled && cameraMayRun && !state.cameraMonitorCleanup && !state.cameraMonitorStarting) {
     void startCameraMonitorIfNeeded();
   }
   if (!nextCameraEnabled && previousCameraEnabled && state.cameraMonitorCleanup) {
@@ -179,6 +250,7 @@ function startRuntimePolling() {
     try {
       const runtime = await getJson('/api/study/runtime', { timeoutMs: RUNTIME_POLL_TIMEOUT_MS });
       updateSensorRuntime(runtime?.sensor_runtime || {});
+      handleStudyRunState(runtime?.study_run_state);
     } catch (error) {
       console.debug('[study] Runtime poll failed:', error);
     }
@@ -631,6 +703,7 @@ async function startTrial(options = {}) {
   const rebuild = options.rebuild !== false;
   state.participantIdOverride = resolveParticipantId();
   state.participantMetadataOverride = collectParticipantMetadata();
+  state.completedLocally = false;
   state.startTime = Date.now();
   const sessionStarted = await startStudySensorSession();
   if (!sessionStarted) {
@@ -1302,6 +1375,8 @@ function getStudyClientHeartbeatPayload() {
     camera_monitor_active: state.cameraMonitorActive,
     camera_last_error: state.cameraLastError,
     study_started: Boolean(state.startTime),
+    study_run_status: state.studyRunState?.status || 'loaded',
+    waiting_for_admin_start: Boolean(state.waitingForAdminStart),
   };
 }
 
@@ -1434,6 +1509,8 @@ async function startStudySensorSession() {
       participant_id: resolveParticipantId(),
       current_index: state.currentIndex,
       current_type: (state.config.questions || [])[state.currentIndex]?.type || null,
+      require_admin_start: true,
+      study_run_id: state.studyRunState?.run_id || '',
     });
     state.sessionId = response.session?.session_id || state.sessionId;
     state.sensorSessionStarted = true;
@@ -1756,7 +1833,7 @@ async function submitResults() {
     const studyId = state.config.study_id;
     void sendMarker('study_end', state.currentIndex, currentQuestion, 'study_end');
     stopCameraMonitor();
-    await postJson('/api/results', {
+    const response = await postJson('/api/results', {
       session_id: sessionId,
       participant_id: participantId,
       study_id: studyId,
@@ -1768,6 +1845,8 @@ async function submitResults() {
       answer_events: collectAnswerEvents(),
       card_events: collectCardEvents(),
     });
+    state.studyRunState = response?.study_run_state || state.studyRunState;
+    state.completedLocally = true;
     clearSessionSnapshot();
     state.startTime = null;
     state.sessionId = '';

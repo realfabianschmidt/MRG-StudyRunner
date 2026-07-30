@@ -17,9 +17,14 @@
         <h1 data-i18n="hub.welcome.title">Welcome to Study Runner</h1>
         <p data-i18n="hub.welcome.subtitle">Choose a study or create a new one.</p>
       </div>
-      <div class="lang-switcher" id="lang-switcher" role="group" aria-label="Language">
-        <button type="button" class="lang-btn" data-lang="en">EN</button>
-        <button type="button" class="lang-btn" data-lang="de">DE</button>
+      <div class="hub-header-actions">
+        <button class="btn-icon-only" type="button" id="btn-hub-settings" data-i18n-title="settingsHub.title" data-i18n-aria-label="settingsHub.title" title="Settings" aria-label="Settings">
+          <i class="iconoir-settings"></i>
+        </button>
+        <div class="lang-switcher" id="lang-switcher" role="group" aria-label="Language">
+          <button type="button" class="lang-btn" data-lang="en">EN</button>
+          <button type="button" class="lang-btn" data-lang="de">DE</button>
+        </div>
       </div>
     </header>
 
@@ -79,16 +84,22 @@
           <div class="hub-active-header">
             <div class="hub-active-icon"><i class="iconoir-journal-page"></i></div>
             <div>
-              <div class="hub-active-label" data-i18n="hub.loaded">LOADED</div>
+              <div class="hub-active-label" id="hub-active-label" data-i18n="hub.loaded">LOADED</div>
               <div class="hub-active-title" id="hub-active-title" data-i18n="hub.loading">Loading...</div>
+              <div class="hub-access-hint" id="hub-active-run-hint"></div>
             </div>
           </div>
           <div class="hub-active-actions">
-            <button class="btn-secondary" id="btn-hub-editor" type="button"><i class="iconoir-edit-pencil"></i> <span data-i18n="hub.openEditor">Open editor</span></button>
-            <button class="btn-secondary" id="btn-admin-dashboard" type="button" hidden><i class="iconoir-pulse"></i> <span data-i18n="hub.liveDashboard">Live dashboard</span></button>
-            <button class="btn-secondary" id="btn-notion-settings" type="button"><i class="iconoir-database"></i> <span data-i18n="hub.notionSettings">Notion settings</span></button>
-          <button class="btn-secondary" id="btn-nextcloud-settings" type="button"><i class="iconoir-cloud-upload"></i> <span data-i18n="hub.nextcloudSettings">Nextcloud settings</span></button>
-          <button class="btn-secondary" id="btn-certificate-settings" type="button"><i class="iconoir-shield-check"></i> <span data-i18n="hub.certificateSettings">Certificate</span></button>
+            <button class="btn-primary" id="btn-hub-start-study" type="button">
+              <i class="iconoir-play-solid"></i> <span id="btn-hub-start-study-label" data-i18n="hub.startStudy">Start study</span>
+            </button>
+            <div class="hub-active-icon-row">
+              <button class="btn-icon-only" id="btn-hub-editor" type="button" data-i18n-title="hub.openEditor" data-i18n-aria-label="hub.openEditor" title="Open editor" aria-label="Open editor"><i class="iconoir-edit-pencil"></i></button>
+              <button class="btn-icon-only" id="btn-admin-dashboard" type="button" data-i18n-title="hub.liveDashboard" data-i18n-aria-label="hub.liveDashboard" title="Live dashboard" aria-label="Live dashboard" hidden><i class="iconoir-pulse"></i></button>
+            </div>
+            <button class="btn-secondary" id="btn-notion-settings" type="button" hidden><i class="iconoir-database"></i> <span data-i18n="hub.notionSettings">Notion settings</span></button>
+            <button class="btn-secondary" id="btn-nextcloud-settings" type="button" hidden><i class="iconoir-cloud-upload"></i> <span data-i18n="hub.nextcloudSettings">Nextcloud settings</span></button>
+            <button class="btn-secondary" id="btn-certificate-settings" type="button" hidden><i class="iconoir-shield-check"></i> <span data-i18n="hub.certificateSettings">Certificate</span></button>
         </div>
       </div>
 

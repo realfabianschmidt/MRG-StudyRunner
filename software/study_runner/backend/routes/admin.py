@@ -8,17 +8,22 @@ from study_runner.integrations.registry import initialize_plugin, run_runtime_ac
 from ..services.admin_status_service import build_admin_status
 from ..services.runtime_config import build_runtime_info
 from ..services.shortcut_service import ShortcutError, create_desktop_shortcut
-from ..services.study_config_service import delete_study, list_studies, load_study, save_config
+from ..services.study_config_service import delete_study, list_studies, load_config, load_study, save_config
 from ..services.study_sensor_runtime import STUDY_SENSOR_KEYS
 from ..services.validation import validate_and_normalize_config
 from .helpers import (
     _clear_session_overrides,
     _delayed_shutdown,
     _integration_context,
+    _load_study_run,
     _rebuild_active_study_runtime_config,
     _sensor_runtime_state,
     _session_overrides,
     _spawn_server_restart,
+    _start_study_run,
+    _stop_study_run,
+    _study_run_state,
+    _stop_study_sensor_runtime,
 )
 
 bp = Blueprint("admin", __name__)
@@ -79,6 +84,7 @@ def admin_set_active_study():
         config_data = load_study(current_app.config["SAVED_STUDIES_DIR"], study_id)
         validated_config = validate_and_normalize_config(config_data)
         save_config(current_app.config["CONFIG_FILE"], validated_config)
+        _load_study_run(validated_config["study_id"])
         print(f"[CONFIG] Activated study: {study_id}")
         return jsonify(validated_config)
     except Exception as error:
@@ -107,7 +113,49 @@ def admin_status():
     payload["study_controlled_sensor_keys"] = list(STUDY_SENSOR_KEYS)
     payload["sensor_runtime"] = _sensor_runtime_state()
     payload["session_sensor_overrides"] = _session_overrides()
+    payload["study_run_state"] = _study_run_state()
     return jsonify(payload)
+
+
+@bp.route("/api/admin/study-run", methods=["GET"])
+def admin_study_run_status():
+    return jsonify({"ok": True, "run_state": _study_run_state()})
+
+
+@bp.route("/api/admin/study-run/load", methods=["POST"])
+def admin_load_study_run():
+    payload = request.get_json() or {}
+    study_id = payload.get("id")
+    if not study_id:
+        return jsonify({"ok": False, "error": "No study ID provided"}), 400
+    try:
+        config_data = load_study(current_app.config["SAVED_STUDIES_DIR"], study_id)
+        validated_config = validate_and_normalize_config(config_data)
+        save_config(current_app.config["CONFIG_FILE"], validated_config)
+        run_state = _load_study_run(validated_config["study_id"])
+        print(f"[STUDY-RUN] Loaded study: {study_id}")
+        return jsonify({"ok": True, "config": validated_config, "run_state": run_state})
+    except Exception as error:
+        return jsonify({"ok": False, "error": str(error)}), 404
+
+
+@bp.route("/api/admin/study-run/start", methods=["POST"])
+def admin_start_study_run():
+    try:
+        config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
+    except Exception as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    run_state = _start_study_run(config_data["study_id"])
+    print(f"[STUDY-RUN] Started study: {config_data['study_id']}")
+    return jsonify({"ok": True, "run_state": run_state})
+
+
+@bp.route("/api/admin/study-run/stop", methods=["POST"])
+def admin_stop_study_run():
+    run_state = _stop_study_run()
+    sensor_result = _stop_study_sensor_runtime()
+    print(f"[STUDY-RUN] Stopped study: {run_state.get('study_id')}")
+    return jsonify({"ok": True, "run_state": run_state, **sensor_result})
 
 
 @bp.route("/api/admin/session-overrides/reset", methods=["POST"])

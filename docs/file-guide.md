@@ -60,6 +60,7 @@ Edit-safety legend:
 | `services/folder_open_service.py` | Validates and opens result folders on Windows or macOS | no |
 | `services/runtime_config.py` | Paths, ports, app mode, data-folder resolution | careful |
 | `services/study_config_service.py` | Load/save the active study and the saved-studies folder | careful |
+| `services/study_run_state_service.py` | Persists the operator-controlled loaded/running/completed run state | careful |
 | `services/study_sensor_runtime.py` | Which sensors are effectively on (study settings + overrides) | careful |
 | `services/trial_service.py` | Sends stimulus start/stop markers to the integrations | careful |
 | `services/study_client_service.py` | Tablet heartbeat bookkeeping | careful |

@@ -502,6 +502,8 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 
 > **GPT 5.6 Sol input:**
 > **Architecture decision recorded (2026-07-30):** Fabian's proposed central worker model is accepted with one correction: the coordinator should coordinate control/status/backpressure and record timing diagnostics, but it should not replace LSL/XDF sample timestamps for scientific multi-stream synchronization. Poll-response delay can estimate RTT/offset for remote workers and web clients, but it is not a substitute for hardware/source timestamps plus LSL clock correction. T10 therefore builds on the existing `IntegrationPlugin` registry with declarative manifests and a new `SensorCoordinator`/`ClockSyncService`, while the immediate tablet-run fixes stay in the current stabilization commit.
+>
+> **Implementation status (2026-07-30):** no sensor-coordinator behavior has been moved yet. The first T11 run-state slice deliberately keeps today's plugin lifecycle intact and only exposes clearer loaded/running/completed state around it. T10 remains the next architecture block: manifests, coordinator polling, `ClockSyncService`, and unified sample metadata.
 
 ---
 
@@ -575,6 +577,8 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 > This is a good T11, not an extension of T10. T10 defines the plugin/coordinator contract; T11 defines the operator workflow that consumes it. The strongest architectural point is the explicit loaded-vs-running split: "load study" becomes a preparation state, "start" becomes the single clock/control event, and tablets wait until the admin begins the run. That can make timing, session state, and user expectations much clearer. The risk is scope: moving all settings into one hub while also changing run lifecycle touches many surfaces, so implementation should be staged. First fix the completed-session browser visibility and add the loaded/running state model; then add the tablet waiting room; only then migrate settings pages into the hub and plugin tabs.
 >
 > **Fabian scope clarification applied (2026-07-30):** T11 is single-tablet/single-device first. Future multi-tablet, multi-participant, and repeated-sensor support can be prepared in naming and data boundaries, but it must not leak into the 0.5 operator UI. The implementation should also be token- and component-reuse heavy: use the existing settings shell, shared modal, status cards, setup steps, switch controls, icon button patterns, and CSS variables instead of creating another admin design language.
+>
+> **Implementation slice started (2026-07-30):** the completed-session hub list now refreshes while visible and is refreshed immediately by local result-save notifications. A persisted `StudyRunStateStore` records the active study as `loaded`, `running`, `completed`, or `stopped`, survives app restarts, is exposed through `/api/config`, runtime, heartbeat, result-save, and admin run routes, and marks a successful `/api/results` commit as completed. The hub now has a top-right settings gear, icon-only editor/dashboard buttons, an explicit Play button, and separate Load/Edit buttons for saved studies. The settings gear opens the shared modal as a first hub launcher for Study settings, Notion, Nextcloud, Certificate, Audit/Sensor Setup, Update, and Create Shortcut. The participant page now parks on a waiting screen until admin Start, then transitions to the participant-id slide; local submit completion keeps the thank-you screen stable even after the run state becomes completed. Still pending in later T11/T10 slices: full plugin-specific settings tabs, single-tablet conflict UX, dashboard scope cleanup, and the actual SensorCoordinator manifest/polling implementation.
 
 ---
 
@@ -615,7 +619,7 @@ both are supposed to be further instances of the Notion page, not new designs (r
 | **P9** | T10 Sensor Coordinator + clock-domain contract | manifest validation tests; coordinator lifecycle tests; manual all-sensors run with documented latency/drop counters and XDF/LSL timestamp sanity check |
 | **P10** | T11 Admin shell + settings hub + admin-controlled launch | browser smoke: load/edit/start study; tablet waiting room transitions on Start; completed-session browser shows saved runs |
 
-Route-inventory additions across the whole roadmap: **13 tuples** — T4: 3, T5: 3, T6: 1, T7: 3, T8: 3 (`GET /api/admin/certificate/status`, `GET /api/admin/certificate/export`, `POST /api/admin/certificate/import`; the CA download itself runs on the separate listener and adds no Flask route). Each is added to `EXPECTED_ROUTES` in the same commit as its route.
+Route-inventory additions across the whole roadmap: **17 tuples** — T4: 3, T5: 3, T6: 1, T7: 3, T8: 3 (`GET /api/admin/certificate/status`, `GET /api/admin/certificate/export`, `POST /api/admin/certificate/import`; the CA download itself runs on the separate listener and adds no Flask route), T11: 4 (`GET /api/admin/study-run`, `POST /api/admin/study-run/load`, `POST /api/admin/study-run/start`, `POST /api/admin/study-run/stop`). Each is added to `EXPECTED_ROUTES` in the same commit as its route.
 
 ---
 

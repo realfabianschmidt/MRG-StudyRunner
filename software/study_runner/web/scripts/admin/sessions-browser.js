@@ -11,10 +11,12 @@ import { byId, escapeHtml, formatDateTime, formatFileSize, setHidden, setText } 
 import { bindTimelineMarkers, renderSessionTimeline } from './session-timeline.js';
 
 const MAX_HUB_ITEMS = 25;
+const HUB_REFRESH_INTERVAL_MS = 10000;
 
 let callbacks = {};
 let initialized = false;
 let currentMarkers = [];
+let refreshTimer = null;
 
 export function initializeSessionsBrowser(options = {}) {
   callbacks = options;
@@ -22,6 +24,16 @@ export function initializeSessionsBrowser(options = {}) {
   initialized = true;
 
   byId('btn-session-back')?.addEventListener('click', () => callbacks.switchView?.('view-hub'));
+  refreshTimer = window.setInterval(() => {
+    if (!document.hidden && byId('view-hub')?.classList.contains('active')) {
+      void loadCompletedSessions();
+    }
+  }, HUB_REFRESH_INTERVAL_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      void loadCompletedSessions();
+    }
+  });
 }
 
 export async function loadCompletedSessions() {

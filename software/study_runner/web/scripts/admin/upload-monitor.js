@@ -101,6 +101,7 @@ async function poll() {
     if (freshLocalSession) {
       const uploadSession = uploadSessions.find((session) => session.session_id === freshLocalSession.session_id);
       openModal(localCompletionSession(freshLocalSession, uploadSession?.jobs || []));
+      callbacks.onLocalCompletion?.(freshLocalSession);
     } else {
       const freshUploadSession = uploadSessions.find((session) => !knownUploadSessionIds.has(session.session_id));
       if (freshUploadSession) {
