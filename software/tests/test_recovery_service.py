@@ -17,6 +17,7 @@ from study_runner.backend.services.recovery_service import (
     discard_recovery_candidate,
     finalize_recovery_candidate,
     list_recovery_candidates,
+    recovery_session_sets,
 )
 from study_runner.integrations.plugin_api import IntegrationContext
 
@@ -161,6 +162,43 @@ class RecoveryServiceTests(unittest.TestCase):
         candidates = list_recovery_candidates(self.data_dir, active_session_ids={"session-1"})
 
         self.assertEqual(candidates, [])
+
+    def test_active_finish_session_becomes_recovery_candidate_after_timeout(self) -> None:
+        self._write_partial("session-1")
+
+        candidates = list_recovery_candidates(
+            self.data_dir,
+            active_session_states=[
+                {
+                    "session_id": "session-1",
+                    "status": "active",
+                    "current_type": "finish",
+                    "last_seen": 100.0,
+                }
+            ],
+            now_epoch=200.0,
+            stuck_after_seconds=90.0,
+        )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertTrue(candidates[0]["stuck_active"])
+
+    def test_recent_finish_session_stays_resumable(self) -> None:
+        still_resumable, stuck_active = recovery_session_sets(
+            [
+                {
+                    "session_id": "session-1",
+                    "status": "active",
+                    "current_type": "finish",
+                    "last_seen": 150.0,
+                }
+            ],
+            now_epoch=200.0,
+            stuck_after_seconds=90.0,
+        )
+
+        self.assertEqual(still_resumable, {"session-1"})
+        self.assertEqual(stuck_active, set())
 
     def test_partial_snapshot_becomes_a_candidate_once_no_longer_active(self) -> None:
         self._write_partial("session-1")

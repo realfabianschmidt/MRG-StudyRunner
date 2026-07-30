@@ -66,10 +66,15 @@ export function createModal({ kicker = '', title = '', variant = '', closeLabel 
     if (heading) heading.textContent = value;
   }
 
+  function setKicker(value) {
+    const kickerEl = dialog?.querySelector('.dashboard-kicker');
+    if (kickerEl) kickerEl.textContent = value;
+  }
+
   function destroy() {
     close();
     backdrop.remove();
   }
 
-  return { element: backdrop, body, open, close, isOpen, setTitle, destroy };
+  return { element: backdrop, body, open, close, isOpen, setTitle, setKicker, destroy };
 }

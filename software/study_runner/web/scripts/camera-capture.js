@@ -2,11 +2,13 @@ import { postJson } from './api-client.js';
 
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 720;
-const DEFAULT_INTERVAL_MS = 200;
+const DEFAULT_INTERVAL_MS = 1000;
+const MIN_INTERVAL_MS = 1000;
+const FRAME_UPLOAD_TIMEOUT_MS = 2500;
 const JPEG_QUALITY = 0.85;
 
 export async function startCameraCaptureSession(options) {
-  const intervalMs = Math.max(DEFAULT_INTERVAL_MS, Number(options.intervalMs || DEFAULT_INTERVAL_MS));
+  const intervalMs = Math.max(MIN_INTERVAL_MS, Number(options.intervalMs || DEFAULT_INTERVAL_MS));
   const getPayload = typeof options.getPayload === 'function' ? options.getPayload : () => ({});
   const onState = typeof options.onState === 'function' ? options.onState : () => {};
   const preview = Boolean(options.preview);
@@ -56,6 +58,10 @@ export async function startCameraCaptureSession(options) {
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d', { willReadFrequently: false });
   let sequenceNumber = 0;
+  let framesSent = 0;
+  let framesDropped = 0;
+  let uploadInFlight = false;
+  let activeUploadController = null;
   let stopped = false;
   let timerId = null;
 
@@ -67,6 +73,16 @@ export async function startCameraCaptureSession(options) {
 
   const captureFrame = () => {
     if (stopped || !context || video.readyState < 2) {
+      return;
+    }
+    if (uploadInFlight) {
+      framesDropped += 1;
+      onState({
+        permission: 'uploading',
+        message: 'Camera upload busy; frame dropped.',
+        frames_sent: framesSent,
+        frames_dropped: framesDropped,
+      });
       return;
     }
 
@@ -85,6 +101,10 @@ export async function startCameraCaptureSession(options) {
     const frameState = getFrameState() || {};
     const framePreview = frameState.preview === undefined ? preview : Boolean(frameState.preview);
     const frameActivePhase = frameState.activePhase === undefined ? activePhase : Boolean(frameState.activePhase);
+    const frameSequenceNumber = sequenceNumber;
+    sequenceNumber += 1;
+    uploadInFlight = true;
+    activeUploadController = new AbortController();
 
     void postJson('/api/camera/frame', {
       ...getPayload(),
@@ -94,16 +114,23 @@ export async function startCameraCaptureSession(options) {
       width: targetWidth,
       height: targetHeight,
       client_captured_at: clientCapturedAt,
-      sequence_number: sequenceNumber,
+      sequence_number: frameSequenceNumber,
       active_phase: frameActivePhase,
+    }, {
+      signal: activeUploadController.signal,
+      timeoutMs: FRAME_UPLOAD_TIMEOUT_MS,
     })
       .then((response) => {
-        const nextFrameCount = sequenceNumber + 1;
+        if (stopped) {
+          return;
+        }
         if (response?.accepted) {
+          framesSent += 1;
           onState({
             permission: 'uploading',
-            message: `Camera frame ${nextFrameCount} uploaded.`,
-            frames_sent: nextFrameCount,
+            message: `Camera frame ${frameSequenceNumber + 1} uploaded.`,
+            frames_sent: framesSent,
+            frames_dropped: framesDropped,
             analysis: response.analysis || null,
             frame: response.frame || null,
           });
@@ -115,18 +142,25 @@ export async function startCameraCaptureSession(options) {
           message: response?.reason
             ? `Camera frame rejected by backend: ${response.reason}`
             : 'Camera frame rejected by backend.',
-          frames_sent: sequenceNumber,
+          frames_sent: framesSent,
+          frames_dropped: framesDropped,
         });
       })
       .catch((error) => {
+        if (stopped && error?.name === 'AbortError') {
+          return;
+        }
         onState({
           permission: 'upload_failed',
           message: error.message || 'Camera frame upload failed.',
-          frames_sent: sequenceNumber,
+          frames_sent: framesSent,
+          frames_dropped: framesDropped,
         });
+      })
+      .finally(() => {
+        uploadInFlight = false;
+        activeUploadController = null;
       });
-
-    sequenceNumber += 1;
   };
 
   captureFrame();
@@ -136,6 +170,10 @@ export async function startCameraCaptureSession(options) {
     stopped = true;
     if (timerId !== null) {
       window.clearInterval(timerId);
+    }
+    if (activeUploadController) {
+      activeUploadController.abort();
+      activeUploadController = null;
     }
     stream.getTracks().forEach((track) => track.stop());
     video.srcObject = null;

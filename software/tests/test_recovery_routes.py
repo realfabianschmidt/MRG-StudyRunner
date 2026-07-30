@@ -94,6 +94,29 @@ class RecoveryRoutesTests(unittest.TestCase):
 
         self.assertEqual(response.get_json()["candidates"], [])
 
+    def test_candidates_route_lists_a_finish_session_stuck_in_active_store(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = _app(temp_dir)
+            client = app.test_client()
+            _load_a_study(client)
+            start = client.post(
+                "/api/study/session/start",
+                json={"participant_id": "hash1234", "current_index": 2, "current_type": "finish"},
+            )
+            session_id = start.get_json()["session"]["session_id"]
+            _write_partial(app.config["DATA_DIR"], session_id)
+            store = app.config["SESSION_STORE"]
+            store._sessions[session_id]["current_type"] = "finish"
+            store._sessions[session_id]["last_seen"] = 0.0
+            store._persist()
+
+            response = client.get("/api/admin/recovery")
+
+        body = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(body["candidates"]), 1)
+        self.assertTrue(body["candidates"][0]["stuck_active"])
+
     def test_finalize_route_saves_a_result_and_returns_its_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             app = _app(temp_dir)

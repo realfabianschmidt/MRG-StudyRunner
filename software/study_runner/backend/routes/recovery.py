@@ -11,7 +11,7 @@ from ..services.recovery_service import (
 )
 from ..services.study_config_service import load_config
 from ..services.validation import validate_and_normalize_config
-from .helpers import _integration_context, _runtime_hardware_config
+from .helpers import _integration_context, _runtime_hardware_config, _stop_study_session_tracking
 from .results import _enqueue_upload_jobs
 
 bp = Blueprint("recovery", __name__)
@@ -19,13 +19,11 @@ bp = Blueprint("recovery", __name__)
 
 @bp.route("/api/admin/recovery", methods=["GET"])
 def admin_recovery_candidates():
-    active_session_ids = {
-        session["session_id"] for session in current_app.config["SESSION_STORE"].list_active()
-    }
+    active_sessions = current_app.config["SESSION_STORE"].list_active()
     candidates = list_recovery_candidates(
         current_app.config["DATA_DIR"],
         _runtime_hardware_config(),
-        active_session_ids,
+        active_session_states=active_sessions,
     )
     return jsonify({"ok": True, "candidates": candidates})
 
@@ -59,6 +57,7 @@ def admin_recovery_finalize():
         _enqueue_upload_jobs(result["result_payload"], config_data, hardware_config, result["saved_output"])
     except Exception as error:
         print(f"[RECOVERY] Could not queue uploads for the finalized session: {error}")
+    _stop_study_session_tracking(str(result["result_payload"].get("session_id") or ""))
 
     return jsonify({"ok": True, **result["saved_output"]})
 
@@ -73,4 +72,5 @@ def admin_recovery_discard():
         result = discard_recovery_candidate(current_app.config["DATA_DIR"], recovery_id)
     except RecoveryError as error:
         return jsonify({"ok": False, "error": str(error)}), 404
+    _stop_study_session_tracking(str(result.get("session_id") or ""))
     return jsonify(result)

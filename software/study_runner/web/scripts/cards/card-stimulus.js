@@ -1,6 +1,10 @@
 import { t } from '../i18n.js';
 import { escapeHtml } from '../lib/dom-utils.js';
 
+const CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS = 1000;
+const CAMERA_SNAPSHOT_MIN_INTERVAL_MS = 1000;
+const CAMERA_SNAPSHOT_MAX_INTERVAL_MS = 60000;
+
 export const meta = {
   type: 'stimulus',
   icon: 'timer',
@@ -20,7 +24,7 @@ export const defaultQuestion = {
   brainbit_to_lsl: true,
   brainbit_to_touchdesigner: true,
   camera_capture_enabled: false,
-  camera_snapshot_interval_ms: 200,
+  camera_snapshot_interval_ms: CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS,
   mini_radar_recording_enabled: true,
 };
 
@@ -84,7 +88,10 @@ export function renderEditor(q) {
   const triggerTypes = ['timer', 'image', 'video', 'audio', 'html', 'js'];
   const isContentHidden = triggerType === 'timer';
   const isCode = triggerType === 'html' || triggerType === 'js';
-  const cameraInterval = Number(q.camera_snapshot_interval_ms || 200);
+  const cameraInterval = Math.max(
+    CAMERA_SNAPSHOT_MIN_INTERVAL_MS,
+    Number(q.camera_snapshot_interval_ms || CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS),
+  );
 
   return `
     <div class="field">
@@ -209,7 +216,11 @@ function closeStimulusModal() {
 function openCameraSettingsModal(editorEl) {
   closeStimulusModal();
   const intervalInput = editorEl.querySelector('.se-camera-interval');
-  const currentInterval = Number.parseInt(intervalInput?.value || '200', 10) || 200;
+  const currentInterval = Math.max(
+    CAMERA_SNAPSHOT_MIN_INTERVAL_MS,
+    Number.parseInt(intervalInput?.value || String(CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS), 10)
+      || CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS,
+  );
 
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
@@ -224,7 +235,7 @@ function openCameraSettingsModal(editorEl) {
       <div class="settings-modal-body">
         <div class="field">
           <label>${escapeHtml(t('stimulus.cameraIntervalLabel', 'Camera snapshot interval (ms)'))}</label>
-          <input type="number" class="fi-input stimulus-modal-camera-interval" min="200" max="60000" step="50" value="${currentInterval}">
+          <input type="number" class="fi-input stimulus-modal-camera-interval" min="${CAMERA_SNAPSHOT_MIN_INTERVAL_MS}" max="${CAMERA_SNAPSHOT_MAX_INTERVAL_MS}" step="100" value="${currentInterval}">
         </div>
         <button class="btn-primary stimulus-modal-apply" type="button" style="width:100%; justify-content:center; margin-top:16px;">
           ${escapeHtml(t('settings.apply', 'Apply'))}
@@ -240,9 +251,15 @@ function openCameraSettingsModal(editorEl) {
   });
   backdrop.querySelector('.stimulus-modal-close')?.addEventListener('click', closeStimulusModal);
   backdrop.querySelector('.stimulus-modal-apply')?.addEventListener('click', () => {
-    const nextValue = Number.parseInt(backdrop.querySelector('.stimulus-modal-camera-interval')?.value || '200', 10) || 200;
+    const nextValue = Number.parseInt(
+      backdrop.querySelector('.stimulus-modal-camera-interval')?.value || String(CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS),
+      10,
+    ) || CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS;
     if (intervalInput) {
-      intervalInput.value = String(Math.max(200, Math.min(60000, nextValue)));
+      intervalInput.value = String(Math.max(
+        CAMERA_SNAPSHOT_MIN_INTERVAL_MS,
+        Math.min(CAMERA_SNAPSHOT_MAX_INTERVAL_MS, nextValue),
+      ));
       intervalInput.dispatchEvent(new Event('input', { bubbles: true }));
     }
     closeStimulusModal();
@@ -266,7 +283,11 @@ export function collectConfig(el) {
     brainbit_to_touchdesigner: el.querySelector('.se-brainbit-touchdesigner')?.checked ?? true,
     mini_radar_recording_enabled: el.querySelector('.se-mini-radar-recording')?.checked ?? true,
     camera_capture_enabled: el.querySelector('.se-camera-capture')?.checked ?? false,
-    camera_snapshot_interval_ms: Number.parseInt(el.querySelector('.se-camera-interval')?.value || '200', 10),
+    camera_snapshot_interval_ms: Math.max(
+      CAMERA_SNAPSHOT_MIN_INTERVAL_MS,
+      Number.parseInt(el.querySelector('.se-camera-interval')?.value || String(CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS), 10)
+        || CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS,
+    ),
   };
 }
 

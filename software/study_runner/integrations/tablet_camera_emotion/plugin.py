@@ -16,7 +16,7 @@ def _initialize(context: IntegrationContext) -> None:
     lsl_config = config.get("lsl") or {}
     adapter.initialize(
         enabled=config.get("enabled", False),
-        snapshot_interval_ms=config.get("snapshot_interval_ms", 200),
+        snapshot_interval_ms=config.get("snapshot_interval_ms", 1000),
         store_raw_frames=config.get("store_raw_frames", False),
         overlay_enabled=config.get("overlay_enabled", True),
         worker_mode=config.get("worker_mode", "local_worker"),

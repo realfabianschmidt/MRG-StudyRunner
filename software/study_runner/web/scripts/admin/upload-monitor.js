@@ -24,10 +24,11 @@ let initialized = false;
 let modal = null;
 let widget = null;
 let pollTimer = null;
-let knownSessionIds = null;
+let knownUploadSessionIds = null;
+let knownCompletionIds = null;
 let focusSession = null;
 let modalDismissed = true;
-let modalSessionId = null;
+let modalSessionKey = null;
 
 export function initializeUploadMonitor(options = {}) {
   callbacks = options;
@@ -70,34 +71,51 @@ function buildWidget() {
 }
 
 async function poll() {
-  let status;
+  let status = null;
+  let completedSessions = null;
   try {
-    status = await getJson('/api/uploads/status');
+    status = await getJson('/api/uploads/status', { timeoutMs: 1500 });
   } catch (error) {
     console.error('[uploads] Could not load upload status:', error);
+  }
+  try {
+    completedSessions = await getJson('/api/admin/sessions', { timeoutMs: 1500 });
+  } catch (error) {
+    console.error('[uploads] Could not load completed sessions:', error);
+  }
+  if (!status && !completedSessions) {
     return;
   }
 
-  const sessions = Array.isArray(status?.sessions) ? status.sessions : [];
+  const uploadSessions = Array.isArray(status?.sessions) ? status.sessions : [];
+  const localSessions = Array.isArray(completedSessions) ? completedSessions : [];
+  const sessions = mergeSessions(uploadSessions, localSessions);
 
-  if (knownSessionIds === null) {
+  if (knownUploadSessionIds === null || knownCompletionIds === null) {
     // First poll: establish the baseline without surfacing a modal for work
     // that was already queued before this admin page was opened.
-    knownSessionIds = new Set(sessions.map((session) => session.session_id));
+    knownUploadSessionIds = new Set(uploadSessions.map((session) => session.session_id));
+    knownCompletionIds = new Set(localSessions.map(completionId));
   } else {
-    const freshSession = sessions.find((session) => !knownSessionIds.has(session.session_id));
-    if (freshSession) {
-      knownSessionIds.add(freshSession.session_id);
-      openModal(freshSession);
+    const freshLocalSession = localSessions.find((session) => !knownCompletionIds.has(completionId(session)));
+    if (freshLocalSession) {
+      const uploadSession = uploadSessions.find((session) => session.session_id === freshLocalSession.session_id);
+      openModal(localCompletionSession(freshLocalSession, uploadSession?.jobs || []));
+    } else {
+      const freshUploadSession = uploadSessions.find((session) => !knownUploadSessionIds.has(session.session_id));
+      if (freshUploadSession) {
+        openModal(uploadOnlySession(freshUploadSession));
+      }
     }
-    sessions.forEach((session) => knownSessionIds.add(session.session_id));
+    uploadSessions.forEach((session) => knownUploadSessionIds.add(session.session_id));
+    localSessions.forEach((session) => knownCompletionIds.add(completionId(session)));
   }
 
   focusSession = pickFocusSession(sessions);
 
-  if (modal.isOpen() && modalSessionId) {
+  if (modal.isOpen() && modalSessionKey) {
     // Keep an open modal live as job statuses change (queued -> running -> done).
-    const shown = sessions.find((session) => session.session_id === modalSessionId);
+    const shown = sessions.find((session) => session.session_key === modalSessionKey);
     if (shown) renderModalBody(shown);
   }
 
@@ -109,8 +127,13 @@ function pickFocusSession(sessions) {
 }
 
 function openModal(session) {
-  modalSessionId = session.session_id;
-  modal.setTitle(`${session.study_id} / ${session.participant_id}`);
+  modalSessionKey = session.session_key || session.session_id;
+  modal.setKicker?.(session.local_saved
+    ? t('uploads.completionKicker', 'Completed study')
+    : t('uploads.kicker', 'Background upload'));
+  modal.setTitle(session.local_saved
+    ? `${t('uploads.completionTitle', 'Study saved')}: ${session.study_id} / ${session.participant_id}`
+    : `${session.study_id} / ${session.participant_id}`);
   renderModalBody(session);
   modal.open();
   modalDismissed = false;
@@ -121,6 +144,26 @@ function renderModalBody(session) {
   const jobs = session.jobs || [];
   const metadata = session.metadata || {};
   const files = Array.isArray(metadata.recorded_files) ? metadata.recorded_files : [];
+  const localSavedRow = session.local_saved
+    ? `
+      <div class="upload-job-row">
+        <i class="iconoir-check-circle upload-job-icon--done"></i>
+        <div class="upload-job-body">
+          <div class="upload-job-label">${escapeHtml(t('uploads.localSaved', 'Saved locally'))}</div>
+          <div class="upload-job-status">${escapeHtml(t('uploads.localSavedBody', 'The result is already saved on this computer.'))}</div>
+        </div>
+      </div>`
+    : '';
+  const emptyUploadRow = session.local_saved && !jobs.length
+    ? `
+      <div class="upload-job-row">
+        <i class="iconoir-info-circle"></i>
+        <div class="upload-job-body">
+          <div class="upload-job-label">${escapeHtml(t('uploads.kicker', 'Background upload'))}</div>
+          <div class="upload-job-status">${escapeHtml(t('uploads.noUploadDestinations', 'No background upload jobs were created for this study.'))}</div>
+        </div>
+      </div>`
+    : '';
 
   modal.body.innerHTML = `
     <p class="settings-hint" style="margin-bottom: 12px;">
@@ -130,7 +173,9 @@ function renderModalBody(session) {
     </p>
     ${files.length ? `<div class="upload-file-list">${files.map((file) => `<span class="upload-file-chip">${escapeHtml(String(file).split(/[\\/]/).pop())}</span>`).join('')}</div>` : ''}
     <div class="upload-job-list">
+      ${localSavedRow}
       ${jobs.map(renderJobRow).join('')}
+      ${emptyUploadRow}
     </div>
     <div class="dashboard-actions" style="margin-top: 14px;">
       <button class="btn-secondary" type="button" data-action="open-files">
@@ -145,6 +190,57 @@ function renderModalBody(session) {
   modal.body.querySelector('[data-action="open-files"]')?.addEventListener('click', () => {
     void openResultsFolder(session.study_id, session.participant_id);
   });
+}
+
+function mergeSessions(uploadSessions, localSessions) {
+  const uploadsBySessionId = new Map(uploadSessions.map((session) => [session.session_id, session]));
+  const localSessionIds = new Set();
+  const localItems = localSessions.map((session) => {
+    localSessionIds.add(session.session_id);
+    const uploadSession = uploadsBySessionId.get(session.session_id);
+    return localCompletionSession(session, uploadSession?.jobs || []);
+  });
+  const uploadItems = uploadSessions
+    .filter((session) => !localSessionIds.has(session.session_id))
+    .map(uploadOnlySession);
+  return [...localItems, ...uploadItems];
+}
+
+function localCompletionSession(session, jobs = []) {
+  const files = Array.isArray(session.files)
+    ? session.files.map((file) => file.name || file.path || file).filter(Boolean)
+    : [];
+  return {
+    session_key: completionId(session),
+    session_id: session.session_id,
+    study_id: session.study_id,
+    participant_id: session.participant_id,
+    created_at: session.saved_at,
+    local_saved: true,
+    local_session: session,
+    jobs,
+    metadata: {
+      answer_count: session.answers_count,
+      recorded_files: files,
+    },
+  };
+}
+
+function uploadOnlySession(session) {
+  return {
+    ...session,
+    session_key: `upload:${session.session_id}`,
+    local_saved: false,
+  };
+}
+
+function completionId(session) {
+  return [
+    session.study_id || '',
+    session.participant_id || '',
+    session.session_id || '',
+    session.result_file || '',
+  ].join('::');
 }
 
 function renderJobRow(job) {

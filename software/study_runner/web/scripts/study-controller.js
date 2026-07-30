@@ -29,10 +29,21 @@ const state = {
   cameraMonitorCleanup: null,
   cameraMonitorStarting: false,
   runtimePollTimer: null,
+  navigationBusy: false,
+  submitInFlight: false,
 };
 
 const STUDY_SESSION_STATE_KEY = 'study-runner-active-session';
 const RUNTIME_POLL_INTERVAL_MS = 1500;
+const CLOCK_SYNC_TIMEOUT_MS = 1000;
+const RUNTIME_POLL_TIMEOUT_MS = 1000;
+const MARKER_TIMEOUT_MS = 1200;
+const TRIAL_START_TIMEOUT_MS = 3000;
+const TRIAL_STOP_TIMEOUT_MS = 1500;
+const STUDY_SESSION_STOP_TIMEOUT_MS = 1500;
+const CAMERA_MONITOR_START_TIMEOUT_MS = 3000;
+const CAMERA_CAPTURE_DEFAULT_INTERVAL_MS = 1000;
+const CAMERA_CAPTURE_MIN_INTERVAL_MS = 1000;
 
 function getElement(id) {
   return document.getElementById(id);
@@ -91,7 +102,7 @@ async function syncClock() {
   for (let i = 0; i < ROUNDS; i++) {
     const clientSendMs = performance.now();
     try {
-      const resp = await postJson('/api/sync-clock', { client_send_ms: clientSendMs });
+      const resp = await postJson('/api/sync-clock', { client_send_ms: clientSendMs }, { timeoutMs: CLOCK_SYNC_TIMEOUT_MS });
       const clientRecvMs = performance.now();
       const srvRecv = resp.server_receive_ms;
       const srvSend = resp.server_send_ms;
@@ -166,7 +177,7 @@ function startRuntimePolling() {
   }
   const poll = async () => {
     try {
-      const runtime = await getJson('/api/study/runtime');
+      const runtime = await getJson('/api/study/runtime', { timeoutMs: RUNTIME_POLL_TIMEOUT_MS });
       updateSensorRuntime(runtime?.sensor_runtime || {});
     } catch (error) {
       console.debug('[study] Runtime poll failed:', error);
@@ -258,7 +269,7 @@ function sendPartialResults({ useBeacon = false } = {}) {
       navigator.sendBeacon('/api/results/partial', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
       return;
     }
-    void postJson('/api/results/partial', payload).catch(() => {});
+    void postJson('/api/results/partial', payload, { timeoutMs: 1500 }).catch(() => {});
   } catch {
     // Partial saves are best-effort; the final submit is authoritative.
   }
@@ -553,7 +564,7 @@ async function sendMarker(markerEvent, questionIndex, question, phase = markerEv
       brainbit_to_lsl: false,
       brainbit_to_touchdesigner: false,
       mini_radar_recording_enabled: false,
-    });
+    }, { timeoutMs: MARKER_TIMEOUT_MS });
   } catch (error) {
     console.error('[study] Could not send /api/marker:', error);
   }
@@ -728,38 +739,55 @@ function clearCardAnimationClasses(cardElement) {
     cardElement.__cardAnimationEndHandler = null;
   }
 }
-async function goTo(targetIndex) {
+async function goTo(targetIndex, options = {}) {
   const total = (state.config.questions || []).length;
   if (targetIndex < 0 || targetIndex >= total) {
     return;
   }
-
-  const shouldSendStop = Boolean(state.activeStimulus?.signalStarted);
-  await stopActiveStimulus({ shouldSendStop });
-
-  const currentCard = getElement(`card-q-${state.currentIndex}`);
-  const targetCard = getElement(`card-q-${targetIndex}`);
-  if (!currentCard || !targetCard) {
+  const lockNavigation = options.lockNavigation !== false;
+  const force = options.force === true;
+  if ((state.navigationBusy || state.submitInFlight) && !force) {
     return;
   }
 
-  await recordQuestionCompletion(state.currentIndex);
+  if (lockNavigation) {
+    state.navigationBusy = true;
+    updateNavigation();
+  }
 
-  const goingForward = targetIndex > state.currentIndex;
+  try {
+    const shouldSendStop = Boolean(state.activeStimulus?.signalStarted);
+    await stopActiveStimulus({ shouldSendStop });
 
-  currentCard.classList.remove('active');
-  clearCardAnimationClasses(currentCard);
-  playCardEntrance(targetCard, goingForward ? 'enter-right' : 'enter-left');
+    const currentCard = getElement(`card-q-${state.currentIndex}`);
+    const targetCard = getElement(`card-q-${targetIndex}`);
+    if (!currentCard || !targetCard) {
+      return;
+    }
 
-  state.currentIndex = targetIndex;
-  markQuestionShown(targetIndex);
-  updateNavigation();
-  saveSessionSnapshot();
-  sendPartialResults();
+    await recordQuestionCompletion(state.currentIndex);
 
-  const targetQuestion = (state.config.questions || [])[targetIndex];
-  if (targetQuestion?.type === 'stimulus') {
-    void startStimulusCard(targetIndex, targetQuestion);
+    const goingForward = targetIndex > state.currentIndex;
+
+    currentCard.classList.remove('active');
+    clearCardAnimationClasses(currentCard);
+    playCardEntrance(targetCard, goingForward ? 'enter-right' : 'enter-left');
+
+    state.currentIndex = targetIndex;
+    markQuestionShown(targetIndex);
+    updateNavigation();
+    saveSessionSnapshot();
+    sendPartialResults();
+
+    const targetQuestion = (state.config.questions || [])[targetIndex];
+    if (targetQuestion?.type === 'stimulus') {
+      void startStimulusCard(targetIndex, targetQuestion);
+    }
+  } finally {
+    if (lockNavigation) {
+      state.navigationBusy = false;
+      updateNavigation();
+    }
   }
 }
 
@@ -843,7 +871,7 @@ async function startActiveStimulusPhase(stimulusRun) {
         brainbit_to_lsl: isStudySensorEnabled('brainbit') && question.brainbit_to_lsl !== false,
         brainbit_to_touchdesigner: isStudySensorEnabled('brainbit') && question.brainbit_to_touchdesigner !== false,
         mini_radar_recording_enabled: isStudySensorEnabled('mini_radar') && question.mini_radar_recording_enabled !== false,
-      });
+      }, { timeoutMs: TRIAL_START_TIMEOUT_MS });
       state.questionMetrics[index] = {
         ...state.questionMetrics[index],
         server_start_received_at: response.server_received_at || null,
@@ -916,7 +944,7 @@ async function maybeStartCameraCapture(stimulusRun) {
   }
 
   return startCameraCaptureSession({
-    intervalMs: question.camera_snapshot_interval_ms || 200,
+    intervalMs: Math.max(CAMERA_CAPTURE_MIN_INTERVAL_MS, Number(question.camera_snapshot_interval_ms || CAMERA_CAPTURE_DEFAULT_INTERVAL_MS)),
     getPayload: () => ({
       participant_id: resolveParticipantId(),
       study_id: state.config.study_id || '',
@@ -941,7 +969,7 @@ async function startCameraMonitorIfNeeded() {
   try {
     await postJson('/api/study/camera-monitor/start', {
       study_id: state.config.study_id || '',
-    });
+    }, { timeoutMs: CAMERA_MONITOR_START_TIMEOUT_MS });
     const cleanup = await startCameraCaptureSession({
       intervalMs: getCameraMonitorIntervalMs(),
       preview: true,
@@ -1019,7 +1047,10 @@ function getCameraMonitorIntervalMs() {
     && question.camera_capture_enabled === true
     && Number.isFinite(Number(question.camera_snapshot_interval_ms))
   ));
-  return cameraStimulus ? Number(cameraStimulus.camera_snapshot_interval_ms) : 200;
+  return Math.max(
+    CAMERA_CAPTURE_MIN_INTERVAL_MS,
+    cameraStimulus ? Number(cameraStimulus.camera_snapshot_interval_ms) : CAMERA_CAPTURE_DEFAULT_INTERVAL_MS,
+  );
 }
 
 async function stopActiveStimulus({ shouldSendStop }) {
@@ -1060,7 +1091,7 @@ async function stopActiveStimulus({ shouldSendStop }) {
         brainbit_to_lsl: isStudySensorEnabled('brainbit') && stimulusRun.question.brainbit_to_lsl !== false,
         brainbit_to_touchdesigner: isStudySensorEnabled('brainbit') && stimulusRun.question.brainbit_to_touchdesigner !== false,
         mini_radar_recording_enabled: false,
-      });
+      }, { timeoutMs: TRIAL_STOP_TIMEOUT_MS });
       state.questionMetrics[stimulusRun.index] = {
         ...state.questionMetrics[stimulusRun.index],
         server_stop_received_at: response.server_received_at || null,
@@ -1415,22 +1446,26 @@ async function startStudySensorSession() {
   }
 }
 
-async function stopStudySensorSession() {
-  if (!state.sensorSessionStarted) {
+async function stopStudySensorSession(options = {}) {
+  const sessionId = options.sessionId || state.sessionId;
+  if (!state.sensorSessionStarted && !sessionId) {
     return;
   }
+  const clearSnapshot = options.clearSnapshot !== false;
   try {
     await postJson('/api/study/session/stop', {
-      session_id: state.sessionId,
+      session_id: sessionId,
       client_id: getStudyClientId(),
-      study_id: state.config.study_id || '',
-      participant_id: resolveParticipantId(),
-    });
+      study_id: options.studyId || state.config.study_id || '',
+      participant_id: options.participantId || resolveParticipantId(),
+    }, { timeoutMs: STUDY_SESSION_STOP_TIMEOUT_MS });
   } catch (error) {
     console.error('[study] Could not stop study sensor session:', error);
   } finally {
     state.sensorSessionStarted = false;
-    clearSessionSnapshot();
+    if (clearSnapshot) {
+      clearSessionSnapshot();
+    }
   }
 }
 
@@ -1515,18 +1550,23 @@ function updateNavigation() {
 
   const isFirst = currentIndex === 0;
   const isStimulusBusy = Boolean(state.activeStimulus);
+  const isUiBusy = state.navigationBusy || state.submitInFlight;
   const isOptional = currentQuestion?.required === false;
   const answered = (isOptional || isAnswered(currentIndex)) && !isStimulusBusy;
 
   const isLastNormalCard = (currentIndex === total - 1) || (questions[currentIndex + 1]?.type === 'finish');
   const isPreStudyStart = !state.startTime && currentQuestion?.type === 'participant-id';
 
-  getElement('btn-prev').disabled = isFirst || isStimulusBusy;
-  getElement('btn-next').disabled = !answered;
+  getElement('btn-prev').disabled = isFirst || isStimulusBusy || isUiBusy;
+  getElement('btn-next').disabled = !answered || isUiBusy;
 
   renderCounter(Math.min(currentIndex + 1, totalNormal), totalNormal);
   updateProgressBar(Math.min(currentIndex + 1, totalNormal), totalNormal);
-  getElement('btn-next-label').textContent = isPreStudyStart ? t('study.start', 'Start') : (isLastNormalCard ? t('study.submit', 'Submit') : t('study.next', 'Next'));
+  getElement('btn-next-label').textContent = state.submitInFlight
+    ? t('study.saving', 'Saving...')
+    : (state.navigationBusy
+      ? (isPreStudyStart ? t('study.starting', 'Starting...') : t('study.pleaseWait', 'Please wait...'))
+      : (isPreStudyStart ? t('study.start', 'Start') : (isLastNormalCard ? t('study.submit', 'Submit') : t('study.next', 'Next'))));
   getElement('btn-next-icon').className = isLastNormalCard ? 'iconoir-check' : 'iconoir-nav-arrow-right';
 }
 
@@ -1558,28 +1598,48 @@ function updateProgressBar(current, total) {
 }
 
 async function handleNext() {
+  if (state.navigationBusy || state.submitInFlight) {
+    return;
+  }
   const total = (state.config.questions || []).length;
   const nextQuestion = state.config.questions[state.currentIndex + 1];
 
-  if (!state.startTime) {
-    await startTrial({ rebuild: false });
-    if (!state.startTime) {
-      return;
-    }
-    if ((nextQuestion && nextQuestion.type === 'finish') || state.currentIndex === total - 1) {
-      await submitResults();
-      return;
-    }
-    await goTo(state.currentIndex + 1);
-    return;
-  }
-
-  if ((nextQuestion && nextQuestion.type === 'finish') || state.currentIndex === total - 1) {
+  const willSubmit = (nextQuestion && nextQuestion.type === 'finish') || state.currentIndex === total - 1;
+  if (state.startTime && willSubmit) {
     await submitResults();
     return;
   }
 
-  await goTo(state.currentIndex + 1);
+  state.navigationBusy = true;
+  updateNavigation();
+  if (!state.startTime) {
+    try {
+      await startTrial({ rebuild: false });
+      if (!state.startTime) {
+        return;
+      }
+      if (willSubmit) {
+        state.navigationBusy = false;
+        updateNavigation();
+        await submitResults();
+        return;
+      }
+      await goTo(state.currentIndex + 1, { lockNavigation: false, force: true });
+    } finally {
+      if (!state.submitInFlight) {
+        state.navigationBusy = false;
+        updateNavigation();
+      }
+    }
+    return;
+  }
+
+  try {
+    await goTo(state.currentIndex + 1, { lockNavigation: false, force: true });
+  } finally {
+    state.navigationBusy = false;
+    updateNavigation();
+  }
 }
 
 function collectAnswers() {
@@ -1675,21 +1735,31 @@ function collectCardEvents() {
 }
 
 async function submitResults() {
+  if (state.submitInFlight) {
+    return;
+  }
+  state.submitInFlight = true;
+  state.navigationBusy = false;
   const btn = getElement('btn-next');
   if (btn) {
     btn.disabled = true;
     getElement('btn-next-label').textContent = t('study.saving', 'Saving...');
   }
+  updateNavigation();
 
   try {
-    await recordQuestionCompletion(state.currentIndex);
+    void recordQuestionCompletion(state.currentIndex);
     const timestampEnd = new Date().toISOString();
     const currentQuestion = (state.config.questions || [])[state.currentIndex] || null;
-    await sendMarker('study_end', state.currentIndex, currentQuestion, 'study_end');
+    const sessionId = state.sessionId;
+    const participantId = resolveParticipantId();
+    const studyId = state.config.study_id;
+    void sendMarker('study_end', state.currentIndex, currentQuestion, 'study_end');
+    stopCameraMonitor();
     await postJson('/api/results', {
-      session_id: state.sessionId,
-      participant_id: resolveParticipantId(),
-      study_id: state.config.study_id,
+      session_id: sessionId,
+      participant_id: participantId,
+      study_id: studyId,
       client_clock_offset_ms: getClientClockOffsetMs(),
       timestamp_start: new Date(state.startTime).toISOString(),
       timestamp_end: timestampEnd,
@@ -1698,22 +1768,35 @@ async function submitResults() {
       answer_events: collectAnswerEvents(),
       card_events: collectCardEvents(),
     });
-    await stopStudySensorSession();
-    stopCameraMonitor();
+    clearSessionSnapshot();
+    state.startTime = null;
+    state.sessionId = '';
+    state.sensorSessionStarted = false;
+    void stopStudySensorSession({
+      sessionId,
+      participantId,
+      studyId,
+      clearSnapshot: false,
+    });
 
     const finishIndex = (state.config.questions || []).findIndex(q => q.type === 'finish');
     if (finishIndex !== -1) {
-      await goTo(finishIndex);
+      await goTo(finishIndex, { force: true, lockNavigation: false });
     } else {
       showScreen('done'); // Fallback when the finish card is missing
     }
+    state.submitInFlight = false;
+    updateNavigation();
   } catch (error) {
     console.error('[study] Could not save results:', error);
     showStudyNotice(t('study.saveFailedBody', 'Your answers could not be saved. Please tell the study supervisor - your answers are still on this screen.'), 'error', 10000);
+    state.submitInFlight = false;
+    state.navigationBusy = false;
     if (btn) {
       btn.disabled = false;
       getElement('btn-next-label').textContent = t('study.submit', 'Submit');
     }
+    updateNavigation();
   }
 }
 

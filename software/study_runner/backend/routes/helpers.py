@@ -412,9 +412,10 @@ def _restart_sensor_runtime_if_needed(session: dict) -> None:
         print(f"[SESSIONS] Could not restart sensors for resumed session: {error}")
 
 
-def _stop_study_session_tracking(session_id: str) -> None:
-    if session_id:
-        _session_store().mark_completed(session_id)
+def _stop_study_session_tracking(session_id: str) -> bool:
+    if not session_id:
+        return False
+    return _session_store().mark_completed(session_id)
 
 
 def _record_study_client_event(payload: dict) -> dict:

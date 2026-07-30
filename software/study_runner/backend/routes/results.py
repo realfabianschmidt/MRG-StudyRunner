@@ -5,6 +5,7 @@ preserve the raw submission on disk (see _write_results_recovery_file)
 and the partial-snapshot endpoint keeps a server-side copy of everything
 answered so far in case the tablet dies before the final submit.
 """
+import json
 import time
 import uuid
 from pathlib import Path
@@ -27,7 +28,7 @@ from ..services.validation import (
     validate_and_normalize_config,
     validate_and_normalize_results,
 )
-from .helpers import _integration_context, _runtime_hardware_config
+from .helpers import _integration_context, _runtime_hardware_config, _stop_study_session_tracking
 
 bp = Blueprint("results", __name__)
 
@@ -72,6 +73,79 @@ def _discard_partial_snapshot(payload: dict) -> None:
         print(f"[DATA] Could not remove partial snapshot: {cleanup_error}")
 
 
+def _is_empty_snapshot_value(value) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value == ""
+    if isinstance(value, (dict, list)):
+        return len(value) == 0
+    return False
+
+
+def _merge_mapping_preserving_values(previous, incoming) -> dict:
+    merged = dict(previous) if isinstance(previous, dict) else {}
+    if not isinstance(incoming, dict):
+        return merged
+    for key, value in incoming.items():
+        if _is_empty_snapshot_value(value) and not _is_empty_snapshot_value(merged.get(key)):
+            continue
+        merged[key] = value
+    return merged
+
+
+def _merge_event_list(previous, incoming) -> list:
+    merged: list = []
+    seen: set[str] = set()
+    for event_list in (previous, incoming):
+        if not isinstance(event_list, list):
+            continue
+        for item in event_list:
+            try:
+                marker = json.dumps(item, sort_keys=True, separators=(",", ":"), default=str)
+            except TypeError:
+                marker = str(item)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            merged.append(item)
+    return merged
+
+
+def _merge_current_index(previous, incoming):
+    try:
+        previous_index = int(previous)
+        incoming_index = int(incoming)
+    except (TypeError, ValueError):
+        return incoming if incoming is not None else previous
+    return max(previous_index, incoming_index)
+
+
+def _merge_partial_snapshot(previous, incoming: dict) -> dict:
+    if not isinstance(previous, dict):
+        return dict(incoming)
+
+    merged = dict(previous)
+    for key, value in incoming.items():
+        if key in {"answers", "participant_metadata", "answer_events", "card_events"}:
+            continue
+        if key == "current_index":
+            merged[key] = _merge_current_index(previous.get(key), value)
+            continue
+        if _is_empty_snapshot_value(value) and not _is_empty_snapshot_value(previous.get(key)):
+            continue
+        merged[key] = value
+
+    merged["answers"] = _merge_mapping_preserving_values(previous.get("answers"), incoming.get("answers"))
+    merged["participant_metadata"] = _merge_mapping_preserving_values(
+        previous.get("participant_metadata"),
+        incoming.get("participant_metadata"),
+    )
+    merged["answer_events"] = _merge_event_list(previous.get("answer_events"), incoming.get("answer_events"))
+    merged["card_events"] = _merge_event_list(previous.get("card_events"), incoming.get("card_events"))
+    return merged
+
+
 @bp.route("/api/results", methods=["POST"])
 def save_results():
     result_payload = request.get_json() or {}
@@ -79,6 +153,9 @@ def save_results():
         config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
         hardware_config = _runtime_hardware_config()
         validated_results = validate_and_normalize_results(result_payload, config_data)
+        session_id = str(result_payload.get("session_id") or "").strip()
+        if session_id:
+            validated_results["session_id"] = session_id
         validated_results["answer_details"] = build_answer_details(
             validated_results,
             config_data,
@@ -110,6 +187,7 @@ def save_results():
     print(f"[DATA] Saved: {saved_output['json_file']}")
     if saved_output.get("xdf_file"):
         print(f"[DATA] XDF: {saved_output['xdf_file']}")
+    session_completed = _stop_study_session_tracking(str(result_payload.get("session_id") or ""))
     _discard_partial_snapshot(result_payload)
     discard_session_flush_files(
         current_app.config["DATA_DIR"],
@@ -130,7 +208,7 @@ def save_results():
         # Local results are already durable. A secondary bookkeeping failure
         # must never turn a successful participant submit into an HTTP 500.
         print(f"[UPLOADS] Could not prepare upload jobs after save: {error}")
-    return jsonify({"ok": True, **saved_output})
+    return jsonify({"ok": True, **saved_output, "session_completed": session_completed})
 
 
 def _enqueue_upload_jobs(
@@ -210,7 +288,13 @@ def save_partial_results():
         return jsonify({"ok": False, "error": "session_id is required"}), 400
     try:
         payload["server_received_at"] = time.time()
-        atomic_write_json(snapshot_path, payload)
+        previous_payload = None
+        if snapshot_path.is_file():
+            try:
+                previous_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                previous_payload = None
+        atomic_write_json(snapshot_path, _merge_partial_snapshot(previous_payload, payload))
         return jsonify({"ok": True})
     except Exception as error:
         print(f"[DATA] Could not write partial snapshot: {error}")

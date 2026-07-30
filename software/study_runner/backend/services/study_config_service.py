@@ -17,7 +17,7 @@ DEFAULT_STIMULUS_CARD: dict[str, Any] = {
     "brainbit_to_lsl": True,
     "brainbit_to_touchdesigner": True,
     "camera_capture_enabled": False,
-    "camera_snapshot_interval_ms": 200,
+    "camera_snapshot_interval_ms": 1000,
     "mini_radar_recording_enabled": True,
 }
 
@@ -46,7 +46,7 @@ def normalize_config(config_data: dict[str, Any]) -> dict[str, Any]:
             question_data.setdefault("brainbit_to_lsl", default_signal)
             question_data.setdefault("brainbit_to_touchdesigner", default_signal)
             question_data.setdefault("camera_capture_enabled", False)
-            question_data.setdefault("camera_snapshot_interval_ms", 200)
+            question_data.setdefault("camera_snapshot_interval_ms", 1000)
             question_data.setdefault("mini_radar_recording_enabled", default_signal)
 
     return config_data

@@ -24,8 +24,11 @@ _lsl_outlets: dict[str, Any] = {}
 _cv2: Any = None
 _np: Any = None
 _face_cascade: Any = None
-# Frames arrive at most every 200 ms (5 Hz); sized for a full session.
-_history: deque[dict[str, Any]] = deque(maxlen=history_maxlen(5.0))
+# Browser capture is intentionally throttled to 1 Hz by default to avoid tablet
+# and network backpressure during live runs.
+MIN_SNAPSHOT_INTERVAL_MS = 1000
+DEFAULT_SNAPSHOT_INTERVAL_MS = 1000
+_history: deque[dict[str, Any]] = deque(maxlen=history_maxlen(1.0))
 _preview_state: dict[str, Any] = {
     "available": False,
     "last_message": "No tablet camera live frame received yet.",
@@ -42,7 +45,7 @@ _EMOTIONS = ("angry", "disgust", "fear", "happy", "sad", "surprise", "neutral", 
 def initialize(
     *,
     enabled: bool = False,
-    snapshot_interval_ms: int = 200,
+    snapshot_interval_ms: int = DEFAULT_SNAPSHOT_INTERVAL_MS,
     store_raw_frames: bool = False,
     overlay_enabled: bool = True,
     worker_mode: str = "local_worker",
@@ -58,7 +61,7 @@ def initialize(
 
     _config = {
         "enabled": bool(enabled),
-        "snapshot_interval_ms": max(200, int(snapshot_interval_ms)),
+        "snapshot_interval_ms": max(MIN_SNAPSHOT_INTERVAL_MS, int(snapshot_interval_ms)),
         "store_raw_frames": bool(store_raw_frames),
         "overlay_enabled": bool(overlay_enabled),
         "worker_mode": worker_mode or "local_worker",
@@ -171,7 +174,7 @@ def get_status() -> dict[str, Any]:
     status["enabled"] = bool(_config.get("enabled", False))
     status["lsl_enabled"] = bool(_config.get("lsl_enabled", False))
     status["worker_mode"] = _config.get("worker_mode", "local_worker")
-    status["snapshot_interval_ms"] = _config.get("snapshot_interval_ms", 200)
+    status["snapshot_interval_ms"] = _config.get("snapshot_interval_ms", DEFAULT_SNAPSHOT_INTERVAL_MS)
     status["emotion_worker_url"] = _config.get("emotion_worker_url", "")
     status["streams"] = list(_lsl_outlets.keys())
     return status

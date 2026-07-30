@@ -740,9 +740,9 @@ def _validate_question_by_type(question_data: Any, question_index: int) -> dict[
                 question_data.get("camera_capture_enabled", False)
             ),
             "camera_snapshot_interval_ms": _normalize_integer(
-                question_data.get("camera_snapshot_interval_ms", 200),
+                question_data.get("camera_snapshot_interval_ms", 1000),
                 field_name=f"Question {question_index} camera snapshot interval",
-                minimum=200,
+                minimum=1000,
                 maximum=60_000,
             ),
             "mini_radar_recording_enabled": _normalize_boolean(

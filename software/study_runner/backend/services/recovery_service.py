@@ -45,6 +45,7 @@ from .sessions_index_service import list_sessions
 from .validation import skipped_optional_questions_for_result
 
 XDF_GRACE_SECONDS = 600
+STUCK_FINISH_RECOVERY_SECONDS = 90
 
 
 class RecoveryError(RuntimeError):
@@ -55,6 +56,9 @@ def list_recovery_candidates(
     data_dir: Path,
     hardware_config: dict[str, Any] | None = None,
     active_session_ids: set[str] | None = None,
+    active_session_states: list[dict[str, Any]] | None = None,
+    now_epoch: float | None = None,
+    stuck_after_seconds: float = STUCK_FINISH_RECOVERY_SECONDS,
 ) -> list[dict[str, Any]]:
     """List sessions that need an operator decision.
 
@@ -66,6 +70,11 @@ def list_recovery_candidates(
     fine. A ``_recovery`` dump is different: it only exists because the
     participant already finished and the save itself failed, so it is
     always immediately actionable regardless of session-store state.
+
+    ``active_session_states`` carries the same active sessions with their
+    current card state. If an active session is already stuck on the finish
+    card for long enough, it is surfaced as a recovery candidate instead of
+    being hidden behind the normal resume path.
     """
     data_dir = Path(data_dir)
     if not data_dir.is_dir():
@@ -77,15 +86,46 @@ def list_recovery_candidates(
         if session.get("session_id")
     }
     still_resumable = active_session_ids or set()
+    stuck_active = set()
+    if active_session_states is not None:
+        still_resumable, stuck_active = recovery_session_sets(
+            active_session_states,
+            now_epoch=now_epoch,
+            stuck_after_seconds=stuck_after_seconds,
+        )
 
     candidates: list[dict[str, Any]] = []
     for study_dir in sorted(path for path in data_dir.iterdir() if path.is_dir() and not path.name.startswith("_")):
         study_id = study_dir.name
-        candidates.extend(_partial_candidates(study_dir, study_id, already_saved, still_resumable, hardware_config))
+        candidates.extend(
+            _partial_candidates(study_dir, study_id, already_saved, still_resumable, stuck_active, hardware_config)
+        )
         candidates.extend(_recovery_dump_candidates(study_dir, study_id, already_saved, hardware_config))
 
     candidates.sort(key=lambda item: str(item.get("last_activity") or ""), reverse=True)
     return candidates
+
+
+def recovery_session_sets(
+    active_session_states: list[dict[str, Any]],
+    *,
+    now_epoch: float | None = None,
+    stuck_after_seconds: float = STUCK_FINISH_RECOVERY_SECONDS,
+) -> tuple[set[str], set[str]]:
+    now = time.time() if now_epoch is None else float(now_epoch)
+    still_resumable: set[str] = set()
+    stuck_active: set[str] = set()
+    for session in active_session_states:
+        if not isinstance(session, dict):
+            continue
+        session_id = str(session.get("session_id") or "").strip()
+        if not session_id:
+            continue
+        if _is_stuck_finish_session(session, now, stuck_after_seconds):
+            stuck_active.add(session_id)
+        else:
+            still_resumable.add(session_id)
+    return still_resumable, stuck_active
 
 
 def finalize_recovery_candidate(
@@ -157,16 +197,18 @@ def discard_recovery_candidate(data_dir: Path, recovery_id: str) -> dict[str, An
     if not source_path.is_file():
         raise RecoveryError("This interrupted session was already handled.")
 
-    if kind == "partial":
-        try:
-            payload = json.loads(source_path.read_text(encoding="utf-8"))
+    session_id = token
+    try:
+        payload = json.loads(source_path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
             session_id = str(payload.get("session_id") or token)
-        except (OSError, ValueError):
-            session_id = token
+    except (OSError, ValueError):
+        session_id = token
+    if kind == "partial":
         discard_session_flush_files(data_dir, study_id, session_id)
 
     _archive_source(source_path, study_dir / "_recovery" / "discarded")
-    return {"ok": True}
+    return {"ok": True, "session_id": session_id}
 
 
 def _partial_candidates(
@@ -174,6 +216,7 @@ def _partial_candidates(
     study_id: str,
     already_saved: set[tuple[str, str]],
     still_resumable: set[str],
+    stuck_active: set[str],
     hardware_config: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     partial_dir = study_dir / "_partial"
@@ -205,9 +248,27 @@ def _partial_candidates(
                 "answers_count": len(answers) if isinstance(answers, dict) else 0,
                 "sensors_flushed": sensors_flushed,
                 "has_xdf_nearby": _has_xdf_nearby(hardware_config, _parse_epoch(last_activity)),
+                "stuck_active": session_id in stuck_active,
             }
         )
     return candidates
+
+
+def _is_stuck_finish_session(session: dict[str, Any], now_epoch: float, stuck_after_seconds: float) -> bool:
+    if session.get("status") != "active":
+        return False
+    current_type = session.get("current_type")
+    if current_type != "finish":
+        events = session.get("events")
+        last_event = events[-1] if isinstance(events, list) and events else {}
+        current_type = last_event.get("current_type") if isinstance(last_event, dict) else None
+    if current_type != "finish":
+        return False
+    try:
+        last_seen = float(session.get("last_seen"))
+    except (TypeError, ValueError):
+        return False
+    return now_epoch - last_seen >= stuck_after_seconds
 
 
 def _recovery_dump_candidates(

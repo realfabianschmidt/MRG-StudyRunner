@@ -106,6 +106,45 @@ class ResultsRoutesTests(unittest.TestCase):
             self.assertTrue(response.get_json()["ok"])
             self.assertFalse(snapshot_path.exists(), "partial snapshot should be removed after final save")
 
+    def test_successful_save_marks_study_session_completed(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            app = self._make_app(data_dir)
+            client = app.test_client()
+
+            start = client.post(
+                "/api/study/session/start",
+                json={
+                    "study_id": "teststudy",
+                    "participant_id": "p01",
+                    "client_id": "tablet-1",
+                    "current_index": 0,
+                    "current_type": "participant-id",
+                },
+            )
+            self.assertEqual(start.status_code, 200)
+            session_id = start.get_json()["session"]["session_id"]
+
+            def working_save(*args, **kwargs):
+                return {"json_file": "teststudy/p01/p01.json", "xdf_file": None}
+
+            submission = {
+                "session_id": session_id,
+                "study_id": "teststudy",
+                "participant_id": "p01",
+                "timestamp_start": "2026-07-10T10:00:00Z",
+                "timestamp_end": "2026-07-10T10:05:00Z",
+            }
+            patches = self._results_patches(working_save)
+            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+                response = client.post("/api/results", json=submission)
+
+            payload = response.get_json()
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(payload["ok"])
+            self.assertTrue(payload["session_completed"])
+            self.assertEqual(app.config["SESSION_STORE"].get(session_id)["status"], "completed")
+            self.assertIsNone(app.config["SESSION_STORE"].find_active("teststudy", "p01", "tablet-1"))
+
     def test_successful_save_only_journals_uploads_and_returns_without_network_calls(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             app = self._make_app(data_dir)
@@ -217,13 +256,29 @@ class ResultsRoutesTests(unittest.TestCase):
             self.assertFalse(payload["ok"])
             self.assertIn("session_id", payload["error"])
 
-    def test_partial_snapshot_roundtrip_overwrites_previous(self) -> None:
+    def test_partial_snapshot_roundtrip_merges_without_losing_previous_answers(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             app = self._make_app(data_dir)
             client = app.test_client()
 
-            first = {"session_id": "sess-3", "study_id": "teststudy", "answers": {"q0": 1}}
-            second = {"session_id": "sess-3", "study_id": "teststudy", "answers": {"q0": 1, "q1": 2}}
+            first = {
+                "session_id": "sess-3",
+                "study_id": "teststudy",
+                "current_index": 2,
+                "answers": {"q0": 1},
+                "participant_metadata": {"city": "Leipzig"},
+                "answer_events": [{"question_index": 0, "answered_at": "2026-07-10T10:01:00Z"}],
+                "card_events": [{"question_index": 0, "shown_at": "2026-07-10T10:00:30Z"}],
+            }
+            second = {
+                "session_id": "sess-3",
+                "study_id": "teststudy",
+                "current_index": 0,
+                "answers": {"q0": None, "q1": 2},
+                "participant_metadata": {"city": ""},
+                "answer_events": [],
+                "card_events": [{"question_index": 1, "shown_at": "2026-07-10T10:02:00Z"}],
+            }
             self.assertEqual(client.post("/api/results/partial", json=first).status_code, 200)
             self.assertEqual(client.post("/api/results/partial", json=second).status_code, 200)
 
@@ -231,6 +286,10 @@ class ResultsRoutesTests(unittest.TestCase):
             self.assertEqual(len(candidates), 1)
             stored = json.loads(candidates[0].read_text(encoding="utf-8"))
             self.assertEqual(stored["answers"], {"q0": 1, "q1": 2})
+            self.assertEqual(stored["participant_metadata"], {"city": "Leipzig"})
+            self.assertEqual(stored["current_index"], 2)
+            self.assertEqual(len(stored["answer_events"]), 1)
+            self.assertEqual(len(stored["card_events"]), 2)
             self.assertIn("server_received_at", stored)
 
 

@@ -8,7 +8,7 @@ Baseline: version **0.4.0** — local checkout `main` == `origin/main` == commit
 
 ## How to use this document
 
-- Each topic (T1–T9) has: **Current state** (verified facts with file references), **Approach** (the decided design), **Work items** (with size, risk, and implementer tier), **Open questions** (marked ❓), and a **GPT 5.6 Sol input** block.
+- Each topic (T1–T10) has: **Current state** (verified facts with file references), **Approach** (the decided design), **Work items** (with size, risk, and implementer tier), **Open questions** (marked ❓), and a **GPT 5.6 Sol input** block.
 - **GPT 5.6 Sol:** please write your contributions ONLY inside the `> GPT 5.6 Sol:` blocks (challenge the design, add missed risks, propose alternatives). Do not rewrite the decided sections — decisions in the Decision Log are settled unless Fabian reopens them.
 - Implementer tiers for later execution:
   - **hard** → strongest model (Fable 5): architectural, subtle, or touching the most protected code paths.
@@ -208,6 +208,10 @@ Tests: `tests/test_upload_jobs_service.py` — journal replay after simulated cr
 
 ---
 
+> **GPT 5.6 Sol stabilization follow-up (2026-07-30):** the admin completion monitor now observes both `/api/uploads/status` and the local completed-session index (`/api/admin/sessions`). A freshly saved result opens the completion modal even when no Notion/Nextcloud jobs exist; upload progress is merged in when jobs do exist. This addresses the camera tablet run where the participant reached the thank-you page but the admin dashboard showed no completion modal because there was no fresh upload-session signal.
+
+---
+
 ## T5 — Completed-studies browser + timeline view
 
 **In plain terms:** below the study list, a list of finished sessions; opening one shows a timeline — heart rate, breathing, emotions, and EEG bands stacked as lanes, with the answered questions as markers on top.
@@ -337,6 +341,8 @@ Tests: `tests/test_session_store.py` (persist/rehydrate/stale); `tests/test_reco
 > **GPT 5.6 Sol audit + clock-sync follow-up (2026-07-30):** fixed the unrelated clock-sync bug Claude flagged. The client now sends the small wall-clock offset from `getClientClockOffsetMs()` as `clock_offset_ms` while keeping the precise server-epoch marker timestamp in `client_trigger_epoch_ms`; `/api/marker` accepts the first trial/question marker again with a sane offset. Added validation and route coverage for sane vs. epoch-sized marker offsets. Verified with `python -m unittest -v software.tests.test_validation software.tests.test_route_inventory` (25 tests green; sandbox run failed only because Windows `tempfile.TemporaryDirectory()` is blocked here, so the green run was outside the sandbox).
 >
 > T7 audit follow-up fixes applied (2026-07-30): `SessionStore.resume()` now rejects a known `session_id` when supplied `study_id`/`participant_id`/`client_id` do not match the stored active session; the participant client now exports only real card/answer events instead of fallback events for never-shown future cards; `STUDY_RUNNER_DISABLE_HARDWARE=1` is persisted in `app.config` and study session start/resume no longer initializes sensor runtimes while it is set. Recovery finalization also writes top-level `skipped_questions` for shown-but-skipped optional cards, keeping recovered result JSON aligned with normal submissions. Added regression coverage for each fix. Verified with `node --check software\study_runner\web\scripts\study-controller.js`, targeted unittest coverage (76 tests green), and full `python -m unittest discover -s software\tests -p test_*.py -v` (249 tests green; run outside the sandbox because sandboxed Windows tempfile writes are blocked here).
+>
+> **GPT 5.6 Sol stabilization follow-up (2026-07-30):** `/api/results` now treats the durable local save as the session commit point: after a successful result write, the `session_id` is preserved in the saved payload, the active session is immediately marked `completed`, partial/flush files are cleaned up, and the participant client clears its own active-session state before any later pagehide can recreate a reload warning. Partial snapshots now merge forward, preserving earlier answers/metadata/events when a later reload snapshot is emptier. Recovery also surfaces active sessions stuck on a `finish` card after a timeout as operator-actionable candidates instead of hiding them forever as normally resumable sessions.
 
 ---
 
@@ -463,6 +469,42 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 
 ---
 
+## T10 - Sensor Coordinator + timing contract (planned)
+
+**In plain terms:** keep LSL/XDF as the scientific sync layer for real sample streams, but add one clear central coordinator for lifecycle, plugin registration, polling cadence, backpressure, status, flush/export, and operator visibility.
+
+### Current state (2026-07-30)
+
+- Sensor integrations already share an `IntegrationPlugin` registry shape (`plugin.py` exposes lifecycle/status/export hooks), and that should stay the base rather than being replaced.
+- Timing is split today: tablet markers use server-estimated epoch timestamps and LSL markers; continuous biosignals rely on their own samples and export windows; camera frames are browser snapshots posted to the backend; admin status polling is separate from data collection.
+- The 2026-07-30 tablet-camera run exposed operational pressure: camera frames could backlog, final submit could wait behind best-effort marker/stop work, the admin completion modal only followed upload jobs, and a finished tablet could still recreate a local active-session snapshot on reload.
+- Immediate stabilization is handled in T4/T7 follow-up code. The larger sensor architecture remains separate from this fix commit.
+
+### Approach
+
+1. Keep the existing `IntegrationPlugin` registry as the compatibility layer.
+2. Add one declarative manifest per sensor plugin: capabilities, streams, desired poll interval, request timeout, backpressure limits, clock domain, expected data rate/resolution, and export support.
+3. Add a `SensorCoordinator` service that owns lifecycle orchestration, status polling, flush/export calls, backpressure policy, and the admin-facing status model.
+4. Add a `ClockSyncService` that stores offset/RTT histories for tablet clients and remote workers. For true biosignal streams, LSL timestamps and XDF remain the reference path; coordinator timing is for control, diagnostics, and non-LSL streams.
+5. Standardize sample metadata: source timestamp, server ingress timestamp, processing timestamp, sequence number, latency/RTT estimate, clock domain, and drop counters.
+6. Let each plugin declare practical runtime settings, e.g. "slow network: 1 fps at 720p"; the coordinator enforces the interval/backpressure contract instead of each caller inventing it.
+
+### Work items
+
+| Item | Size | Risk | Tier |
+|---|---|---|---|
+| Manifest schema + loader next to existing plugins | M | backwards compatibility with current plugin modules | medium |
+| `SensorCoordinator` lifecycle/status/poll loop | L | must not block trial markers or result save | hard |
+| `ClockSyncService` for tablet + worker offset/RTT histories | M | easy to overpromise precision; must label clock domains clearly | hard |
+| Camera plugin migration onto manifest/backpressure settings | M | tablet performance and worker latency | medium |
+| BrainBit/MR60 manifest metadata + no-behavior-change adapter wiring | M | preserve LSL/XDF semantics | medium |
+| Admin status view fed by coordinator model | M | keep operator UI plain-language | medium |
+
+> **GPT 5.6 Sol input:**
+> **Architecture decision recorded (2026-07-30):** Fabian's proposed central worker model is accepted with one correction: the coordinator should coordinate control/status/backpressure and record timing diagnostics, but it should not replace LSL/XDF sample timestamps for scientific multi-stream synchronization. Poll-response delay can estimate RTT/offset for remote workers and web clients, but it is not a substitute for hardware/source timestamps plus LSL clock correction. T10 therefore builds on the existing `IntegrationPlugin` registry with declarative manifests and a new `SensorCoordinator`/`ClockSyncService`, while the immediate tablet-run fixes stay in the current stabilization commit.
+
+---
+
 ## Dependency order
 
 ```
@@ -476,6 +518,7 @@ T4 job service ──→ T7 finalize (enqueues uploads for recovered sessions)
 T9 optional-answers ──→ T7 finalize (recovered sessions are incomplete)
 T5 emotion sidecar (tiny, early) ──→ T7 flush covers emotions
 T1 ──→ T2-B brainbit split          T9 ──→ T2-B study-controller split
+T4/T7 stabilization + existing IntegrationPlugin registry ──→ T10 coordinator
 T2-C cosmetics last
 
 The settings-page shell in T2-A is now a hard prerequisite for T6 and T8, not a nicety:
@@ -494,6 +537,7 @@ both are supposed to be further instances of the Notion page, not new designs (r
 | **P6** | T5 sessions browser + timeline | fixture route tests; timeline check against a real ~30 min all-sensors session |
 | **P7** | T8 certificate settings page (shared shell) + download QR + CA export/import | on Windows **and** macOS, packaged: a tablet with nothing installed completes setup from the page's steps alone and the camera works; the same tablet then trusts a second computer after a CA import, with no new install; a broken import is refused without breaking HTTPS |
 | **P8** | T2-B splits + T2-C cosmetics | pytest green; route surface byte-identical; manual participant-flow smoke |
+| **P9** | T10 Sensor Coordinator + clock-domain contract | manifest validation tests; coordinator lifecycle tests; manual all-sensors run with documented latency/drop counters and XDF/LSL timestamp sanity check |
 
 Route-inventory additions across the whole roadmap: **13 tuples** — T4: 3, T5: 3, T6: 1, T7: 3, T8: 3 (`GET /api/admin/certificate/status`, `GET /api/admin/certificate/export`, `POST /api/admin/certificate/import`; the CA download itself runs on the separate listener and adds no Flask route). Each is added to `EXPECTED_ROUTES` in the same commit as its route.
 
