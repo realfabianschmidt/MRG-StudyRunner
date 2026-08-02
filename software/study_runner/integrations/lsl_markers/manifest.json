@@ -1,0 +1,57 @@
+{
+  "api_version": 3,
+  "plugin_key": "lsl",
+  "version": "1.0.0",
+  "category": "sync",
+  "config_key": "lsl",
+  "entry_point": "plugin:PLUGIN",
+  "ui": {
+    "label": "LSL markers",
+    "description": "Irregular study and card event marker stream.",
+    "order": 200,
+    "visibility": {
+      "dashboard": false,
+      "settings_hub": false,
+      "study_settings": false,
+      "destination_settings": false
+    }
+  },
+  "capabilities": {
+    "acquisition_transport": {
+      "transport": "internal",
+      "delivery": "host_lsl_bridge"
+    },
+    "lsl_stream_provider": {},
+    "recording_source": {"artifact": "xdf"},
+    "health": {},
+    "machine_settings": {},
+    "marker_stream": {}
+  },
+  "streams": [
+    {
+      "key": "markers",
+      "source_id": "study_runner.markers",
+      "type": "Markers",
+      "nominal_rate_hz": 0,
+      "clock_domain": "lsl",
+      "channel_format": "string",
+      "channels": ["event"],
+      "channel_units": ["event"]
+    }
+  ],
+  "settings": {
+    "machine": {
+      "stream_name": {
+        "type": "string", "path": "stream_name", "default": "StudyRunner",
+        "label_key": "pluginSettings.lsl.streamName", "apply": "restart", "scope": "machine"
+      }
+    },
+    "study": {},
+    "card_actions": {}
+  },
+  "poll_interval_ms": 2000,
+  "request_timeout_ms": 250,
+  "clock_domain": "lsl",
+  "expected_data_rate": {"markers_hz": 0},
+  "backpressure": {"max_in_flight": 1, "drop_policy": "never_drop_markers"}
+}

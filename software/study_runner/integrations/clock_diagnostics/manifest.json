@@ -1,0 +1,68 @@
+{
+  "api_version": 3,
+  "plugin_key": "clock_diagnostics",
+  "version": "1.0.0",
+  "category": "sync",
+  "config_key": "clock_diagnostics",
+  "entry_point": "plugin:PLUGIN",
+  "ui": {
+    "label": "Clock diagnostics",
+    "description": "Internal wall-clock, LSL-clock and client clock observations.",
+    "order": 210,
+    "visibility": {
+      "dashboard": false,
+      "settings_hub": false,
+      "study_settings": false,
+      "destination_settings": false
+    }
+  },
+  "capabilities": {
+    "acquisition_transport": {
+      "transport": "internal",
+      "delivery": "host_lsl_bridge"
+    },
+    "lsl_stream_provider": {},
+    "recording_source": {"artifact": "xdf"},
+    "health": {},
+    "clock_diagnostics": {}
+  },
+  "streams": [
+    {
+      "key": "clock_diagnostics",
+      "source_id": "study_runner.clock_diagnostics",
+      "type": "ClockDiagnostics",
+      "nominal_rate_hz": 0,
+      "clock_domain": "lsl",
+      "channel_format": "double64",
+      "sequence_channel": "event_sequence",
+      "channels": [
+        "server_wall_epoch_ms",
+        "lsl_local_clock_s",
+        "client_clock_offset_ms",
+        "clock_sync_rtt_ms",
+        "client_sequence",
+        "source_epoch_ms",
+        "event_sequence"
+      ],
+      "channel_units": [
+        "millisecond",
+        "second",
+        "millisecond",
+        "millisecond",
+        "count",
+        "millisecond",
+        "count"
+      ]
+    }
+  ],
+  "settings": {
+    "machine": {},
+    "study": {},
+    "card_actions": {}
+  },
+  "poll_interval_ms": 5000,
+  "request_timeout_ms": 250,
+  "clock_domain": "lsl",
+  "expected_data_rate": {"events_hz": 0},
+  "backpressure": {"max_in_flight": 1, "drop_policy": "never_drop_diagnostics"}
+}

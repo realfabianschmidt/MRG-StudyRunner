@@ -1,0 +1,47 @@
+{
+  "api_version": 3,
+  "plugin_key": "osc",
+  "version": "1.0.0",
+  "category": "output",
+  "config_key": "osc",
+  "entry_point": "plugin:PLUGIN",
+  "ui": {
+    "label": "OSC / TouchDesigner",
+    "description": "Forwards study events to TouchDesigner over OSC.",
+    "order": 400,
+    "visibility": {
+      "dashboard": true,
+      "settings_hub": true,
+      "study_settings": false,
+      "destination_settings": false
+    }
+  },
+  "capabilities": {
+    "health": {},
+    "machine_settings": {},
+    "card_actions": {},
+    "marker_forwarding": {}
+  },
+  "streams": [],
+  "settings": {
+    "machine": {
+      "host": {
+        "type": "string", "path": "host", "default": "127.0.0.1",
+        "label_key": "pluginSettings.osc.host", "apply": "immediate", "scope": "machine"
+      },
+      "port": {
+        "type": "number", "path": "port", "default": 8000, "minimum": 1, "maximum": 65535,
+        "label_key": "pluginSettings.osc.port", "apply": "immediate", "scope": "machine"
+      }
+    },
+    "study": {},
+    "card_actions": {
+      "forward_marker": {"type": "boolean", "default": true}
+    }
+  },
+  "poll_interval_ms": 2000,
+  "request_timeout_ms": 250,
+  "clock_domain": "server",
+  "expected_data_rate": {"events_hz": 0},
+  "backpressure": {"max_in_flight": 1, "drop_policy": "best_effort_udp"}
+}

@@ -1,0 +1,10 @@
+# Source repair resolves these ranges through software/constraints/py312-*.txt.
+flask>=3.0
+# There is no TensorFlow wheel for CPython 3.12 on macOS Intel. On that target
+# camera_emotion must point at a remote_worker; the server/recording stack stays
+# fully installable locally.
+deepface>=0.0.92; sys_platform != "darwin" or platform_machine != "x86_64"
+tf-keras>=2.16; sys_platform != "darwin" or platform_machine != "x86_64"
+opencv-python>=4.9
+numpy==1.26.4
+pylsl==1.18.2

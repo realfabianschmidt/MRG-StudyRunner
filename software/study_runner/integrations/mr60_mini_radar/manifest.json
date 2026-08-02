@@ -1,0 +1,95 @@
+{
+  "api_version": 3,
+  "plugin_key": "mini_radar",
+  "version": "1.0.0",
+  "category": "biosignal",
+  "config_key": "mini_radar",
+  "entry_point": "plugin:PLUGIN",
+  "lifecycle": {"reinitialize_on_disable": true},
+  "ui": {
+    "label": "MR60 Mini-radar",
+    "description": "Presence, heart-rate and respiration measurements.",
+    "order": 110,
+    "visibility": {
+      "dashboard": true,
+      "settings_hub": true,
+      "study_settings": true,
+      "destination_settings": false
+    },
+    "extensions": {"dashboard": "ui/dashboard.js"},
+    "timeline": {
+      "lane_aliases": ["mr60"],
+      "preferred_channels": ["heartRate", "breathRate"]
+    }
+  },
+  "capabilities": {
+    "study_sensor": {"default_enabled": true, "default_required": true},
+    "acquisition_transport": {
+      "transport": "local_hardware",
+      "delivery": "host_lsl_bridge"
+    },
+    "lsl_stream_provider": {},
+    "recording_source": {"artifact": "xdf", "primary_stream": "vitals"},
+    "backup_projection": {
+      "rate_hz": 1,
+      "stale_after_ms": 2500,
+      "channels": [
+        {"output": "heart_rate_bpm", "stream": "vitals", "channel": "heartRate"},
+        {"output": "respiration_rate_bpm", "stream": "vitals", "channel": "breathRate"},
+        {"output": "quality", "stream": "vitals", "channel": "quality"},
+        {"output": "distance_m", "stream": "vitals", "channel": "distance"}
+      ]
+    },
+    "readiness": {},
+    "runtime_control": {},
+    "health": {},
+    "machine_settings": {},
+    "study_settings": {},
+    "interval_summary": {},
+    "sidecar_export": {}
+  },
+  "streams": [
+    {
+      "key": "vitals", "source_id": "study_runner.mr60.vitals", "type": "VITALS",
+      "nominal_rate_hz": 10, "clock_domain": "lsl", "channel_format": "float32",
+      "channels": ["heartRate", "breathRate", "quality", "distance"],
+      "channel_units": ["beats_per_minute", "breaths_per_minute", "arbitrary_unit", "metre"]
+    },
+    {
+      "key": "phases", "source_id": "study_runner.mr60.phases", "type": "PHASES",
+      "nominal_rate_hz": 10, "clock_domain": "lsl", "channel_format": "float32",
+      "channels": ["heartPhase", "breathPhase", "totalPhase"],
+      "channel_units": ["radian", "radian", "radian"]
+    }
+  ],
+  "settings": {
+    "machine": {
+      "connection_type": {
+        "type": "choice", "path": "connection_type", "options": ["ble", "serial"], "default": "ble",
+        "label_key": "pluginSettings.miniRadar.connectionType", "apply": "restart", "scope": "machine"
+      },
+      "data_timeout_seconds": {
+        "type": "number", "unit": "s", "path": "data_timeout_seconds", "default": 5,
+        "minimum": 1, "maximum": 120, "label_key": "pluginSettings.miniRadar.dataTimeout",
+        "apply": "restart", "scope": "machine"
+      },
+      "ble.scan_timeout_seconds": {
+        "type": "number", "unit": "s", "path": "ble.scan_timeout_seconds", "default": 5,
+        "minimum": 1, "maximum": 120, "label_key": "pluginSettings.miniRadar.bleScanTimeout",
+        "apply": "restart", "scope": "machine"
+      },
+      "baudrate": {
+        "type": "number", "path": "baudrate", "default": 115200,
+        "minimum": 1200, "maximum": 1000000, "label_key": "pluginSettings.miniRadar.baudrate",
+        "apply": "restart", "scope": "machine"
+      }
+    },
+    "study": {},
+    "card_actions": {}
+  },
+  "poll_interval_ms": 1000,
+  "request_timeout_ms": 500,
+  "clock_domain": "lsl",
+  "expected_data_rate": {"vitals_hz": 10, "phases_hz": 10},
+  "backpressure": {"max_in_flight": 1, "drop_policy": "latest_status_wins"}
+}

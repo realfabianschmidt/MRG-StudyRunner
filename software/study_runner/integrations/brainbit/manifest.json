@@ -1,0 +1,132 @@
+{
+  "api_version": 3,
+  "plugin_key": "brainbit",
+  "version": "1.0.0",
+  "category": "biosignal",
+  "config_key": "brainbit",
+  "entry_point": "plugin:PLUGIN",
+  "ui": {
+    "label": "BrainBit",
+    "description": "BrainBit EEG acquisition and derived metrics.",
+    "order": 100,
+    "visibility": {
+      "dashboard": true,
+      "settings_hub": true,
+      "study_settings": true,
+      "destination_settings": false
+    },
+    "extensions": {"dashboard": "ui/dashboard.js"},
+    "timeline": {
+      "lane_aliases": [],
+      "preferred_channels": [
+        "payload.alpha", "payload.beta", "payload.theta", "payload.delta", "payload.gamma"
+      ]
+    }
+  },
+  "capabilities": {
+    "study_sensor": {"default_enabled": true, "default_required": true},
+    "acquisition_transport": {
+      "transport": "ble",
+      "delivery": "host_lsl_bridge"
+    },
+    "lsl_stream_provider": {},
+    "recording_source": {"artifact": "xdf", "primary_stream": "eeg"},
+    "backup_projection": {
+      "rate_hz": 1,
+      "stale_after_ms": 2500,
+      "channels": [
+        {"output": "attention", "stream": "mental", "channel": "Rel_Attention"},
+        {"output": "relaxation", "stream": "mental", "channel": "Rel_Relaxation"}
+      ]
+    },
+    "readiness": {},
+    "runtime_control": {},
+    "health": {},
+    "machine_settings": {},
+    "study_settings": {},
+    "card_actions": {},
+    "interval_summary": {},
+    "sidecar_export": {},
+    "admin_actions": {
+      "actions": [
+        {
+          "key": "select_device",
+          "label": "Use this band",
+          "description": "Persist this discovered BrainBit band and restart its adapter.",
+          "payload_schema": {
+            "index": {"type": "integer", "minimum": 0},
+            "name": {"type": "string", "max_length": 256},
+            "address": {"type": "string", "max_length": 256},
+            "serial_number": {"type": "string", "max_length": 256}
+          },
+          "any_of_required": ["index", "name", "address", "serial_number"],
+          "instances": {
+            "status_paths": ["scan_candidates", "latest.scan_candidates"],
+            "payload_map": {
+              "index": "index",
+              "name": "name",
+              "address": "address",
+              "serial_number": "serial"
+            },
+            "label_fields": ["name", "serial", "serial_number", "address"]
+          }
+        }
+      ]
+    }
+  },
+  "streams": [
+    {
+      "key": "eeg", "source_id": "study_runner.brainbit.eeg", "type": "EEG",
+      "nominal_rate_hz": 250, "clock_domain": "lsl", "channel_format": "float32",
+      "channels": ["O1", "O2", "T3", "T4"],
+      "channel_units": ["microvolt", "microvolt", "microvolt", "microvolt"]
+    },
+    {
+      "key": "bands", "source_id": "study_runner.brainbit.bands", "type": "BANDS",
+      "nominal_rate_hz": 0, "clock_domain": "lsl", "channel_format": "float32",
+      "channels": ["delta", "theta", "alpha", "beta", "gamma"],
+      "channel_units": ["relative_power", "relative_power", "relative_power", "relative_power", "relative_power"]
+    },
+    {
+      "key": "mental", "source_id": "study_runner.brainbit.mental", "type": "MENTAL",
+      "nominal_rate_hz": 0, "clock_domain": "lsl", "channel_format": "float32",
+      "channels": ["Inst_Attention", "Inst_Relaxation", "Rel_Attention", "Rel_Relaxation"],
+      "channel_units": ["ratio", "ratio", "ratio", "ratio"]
+    },
+    {
+      "key": "quality", "source_id": "study_runner.brainbit.quality", "type": "QUALITY",
+      "nominal_rate_hz": 0, "clock_domain": "lsl", "channel_format": "float32",
+      "channels": ["O1", "O2", "T3", "T4"],
+      "channel_units": ["ohm", "ohm", "ohm", "ohm"]
+    },
+    {
+      "key": "battery", "source_id": "study_runner.brainbit.battery", "type": "BATTERY",
+      "nominal_rate_hz": 0, "clock_domain": "lsl", "channel_format": "float32",
+      "channels": ["percent"],
+      "channel_units": ["percent"]
+    }
+  ],
+  "settings": {
+    "machine": {
+      "scan_seconds": {
+        "type": "number", "unit": "s", "path": "scan_seconds", "default": 5,
+        "minimum": 1, "maximum": 60, "label_key": "pluginSettings.brainbit.scanSeconds",
+        "apply": "restart", "scope": "machine"
+      },
+      "disconnect_timeout_ms": {
+        "type": "number", "unit": "ms", "path": "disconnect_timeout_ms", "default": 20000,
+        "minimum": 1000, "maximum": 120000,
+        "label_key": "pluginSettings.brainbit.disconnectTimeout", "apply": "restart", "scope": "machine"
+      }
+    },
+    "study": {},
+    "card_actions": {
+      "to_touchdesigner": {"type": "boolean", "default": true}
+    }
+  },
+  "poll_interval_ms": 1000,
+  "request_timeout_ms": 500,
+  "clock_domain": "lsl",
+  "expected_data_rate": {"eeg_hz": 250, "metrics_hz": 1},
+  "backpressure": {"max_in_flight": 1, "drop_policy": "latest_status_wins"}
+}

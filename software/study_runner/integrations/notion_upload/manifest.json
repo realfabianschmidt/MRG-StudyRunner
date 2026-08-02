@@ -1,0 +1,71 @@
+{
+  "api_version": 3,
+  "plugin_key": "notion",
+  "version": "1.0.0",
+  "category": "storage",
+  "config_key": "notion",
+  "entry_point": "plugin:PLUGIN",
+  "lifecycle": {"reinitialize_on_disable": true},
+  "ui": {
+    "label": "Notion upload",
+    "description": "Publishes finalized result and card-summary JSON to Notion.",
+    "order": 600,
+    "visibility": {
+      "dashboard": false,
+      "settings_hub": false,
+      "study_settings": true,
+      "destination_settings": true
+    }
+  },
+  "capabilities": {
+    "upload_destination": {
+      "destination": "notion",
+      "default_enabled": false,
+      "requires_valid_result": true,
+      "publish_on_attention": false,
+      "republish_on_degraded": false,
+      "purge_verified_sources": false,
+      "legacy": {
+        "enabled_field": "notion_enabled",
+        "settings": {
+          "parent_page_id": "notion_parent_page_id",
+          "database_id": "notion_database_id",
+          "data_source_id": "notion_data_source_id"
+        }
+      }
+    },
+    "readiness": {},
+    "health": {},
+    "machine_settings": {},
+    "study_settings": {}
+  },
+  "streams": [],
+  "settings": {
+    "machine": {
+      "enabled": {
+        "type": "boolean", "path": "enabled", "default": true,
+        "label_key": "pluginSettings.common.enabled", "apply": "immediate", "scope": "machine"
+      },
+      "auto_retry_failed": {
+        "type": "boolean", "path": "auto_retry_failed", "default": true,
+        "label_key": "pluginSettings.notion.autoRetry", "apply": "immediate", "scope": "machine"
+      },
+      "timeout_seconds": {
+        "type": "number", "unit": "s", "path": "timeout_seconds", "default": 10,
+        "minimum": 1, "maximum": 120, "label_key": "pluginSettings.common.timeoutSeconds",
+        "apply": "immediate", "scope": "machine"
+      }
+    },
+    "study": {
+      "parent_page_id": {"type": "string", "default": ""},
+      "database_id": {"type": "string", "default": ""},
+      "data_source_id": {"type": "string", "default": "", "read_only": true}
+    },
+    "card_actions": {}
+  },
+  "poll_interval_ms": 5000,
+  "request_timeout_ms": 1000,
+  "clock_domain": "server",
+  "expected_data_rate": {},
+  "backpressure": {"max_in_flight": 1, "drop_policy": "upload_job_queue"}
+}

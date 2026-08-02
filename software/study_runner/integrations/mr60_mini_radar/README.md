@@ -40,7 +40,7 @@ Important fields:
 - `mini_radar.auto_reconnect`: keeps scanning/reconnecting after disconnects.
 - `mini_radar.reconnect_delay`: delay between failed scan attempts.
 - `mini_radar.data_timeout_seconds`: dashboard stale timeout.
-- `mini_radar.lsl.enabled`: mirrors radar samples continuously to LSL.
+- `mini_radar.lsl.stream_prefix`: naming prefix for the mandatory canonical LSL bridge.
 - `mini_radar.ble.device_name`: BLE advertised name to scan for.
 - `mini_radar.ble.address.windows`: direct BLE address/identifier for Windows.
 - `mini_radar.ble.scan_timeout_seconds`: one scan window length.
@@ -105,26 +105,27 @@ packet that decodes here should also decode in Study Runner.
 
 ## LSL and XDF Check
 
-For XDF recording, enable:
+MR60 declares its canonical LSL streams, primary vitals stream, and backup
+projection in `manifest.json`. BLE itself does not transport LSL; the local
+adapter publishes decoded packets through the mandatory host bridge. Before
+the first source recording on a computer, run:
 
 ```text
-mini_radar.lsl.enabled = true
-lsl.enabled = true
-labrecorder.enabled = true
+python tools/setup_recording_worker.py
 ```
 
 Radar LSL output is continuous while the BLE reader and outlets are running. It
 is not gated by stimulus activity. The stimulus flag
-`mini_radar_recording_enabled` marks the active phase for Study Runner state and
-summaries, but it does not stop continuous LSL output.
-
-LabRecorder should see streams with the configured prefix, normally
-`MiniRadar`.
+the plugin's manifest-driven card action marks the active phase for Study
+Runner state and summaries, but it does not stop continuous LSL output. The
+detached Python worker writes append-never MR60 XDF segments using the stable
+manifest source IDs; XDF is internal infrastructure, not a plugin toggle.
 
 If LSL streams are missing:
 
 - Install dependencies with `pip install -r software/requirements.txt`.
 - Check that `bleak` and `pylsl` import in the same Python environment.
+- Check Recording infrastructure readiness in the dashboard.
 - Confirm dashboard status is `connected`.
 - Restart Study Runner after changing hardware settings.
 

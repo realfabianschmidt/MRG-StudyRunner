@@ -7,14 +7,21 @@ from pathlib import Path
 from typing import Any, Callable
 
 
+PLUGIN_API_VERSION = 3
+
+
 StatusPayload = dict[str, Any]
 InitializeHandler = Callable[["IntegrationContext"], None]
 RuntimeActionHandler = Callable[["IntegrationContext"], Any]
+AdminActionHandler = Callable[["IntegrationContext", str, dict[str, Any]], Any]
+ParticipantActionHandler = Callable[["IntegrationContext", str, dict[str, Any]], Any]
+ParticipantIngestHandler = Callable[["IntegrationContext", str, dict[str, Any]], Any]
 TrialHandler = Callable[["IntegrationContext", dict[str, Any]], None]
 MarkerHandler = Callable[["IntegrationContext", dict[str, Any]], None]
 IntervalSummaryHandler = Callable[["IntegrationContext", float, float], dict[str, Any]]
 IntervalExportHandler = Callable[["IntegrationContext", float, float], list[dict[str, Any]]]
 StatusHandler = Callable[["IntegrationContext"], StatusPayload]
+UploadDestinationHandler = Callable[["IntegrationContext", dict[str, Any]], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -31,6 +38,8 @@ class IntegrationContext:
     hardware_config: dict[str, Any]
     local_secrets: dict[str, Any]
     local_secrets_file: Path
+    runtime_locked: bool = False
+    persist_hardware_config: Callable[[dict[str, Any]], None] | None = None
 
     def resolve_platform_value(self, value: Any) -> Any:
         if not isinstance(value, dict):
@@ -90,11 +99,15 @@ class IntegrationPlugin:
     start: RuntimeActionHandler | None = None
     stop: RuntimeActionHandler | None = None
     restart: RuntimeActionHandler | None = None
+    run_admin_action: AdminActionHandler | None = None
+    run_participant_action: ParticipantActionHandler | None = None
+    ingest_participant: ParticipantIngestHandler | None = None
     on_trial_start: TrialHandler | None = None
     on_trial_stop: TrialHandler | None = None
     on_trial_marker: MarkerHandler | None = None
     get_interval_summary: IntervalSummaryHandler | None = None
     export_interval_samples: IntervalExportHandler | None = None
+    publish_destination: UploadDestinationHandler | None = None
     sidecar_sensor: str | None = None
     sidecar_filename_suffix: str | None = None
     sidecar_output_key: str | None = None

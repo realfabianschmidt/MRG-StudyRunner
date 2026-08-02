@@ -27,6 +27,14 @@ BLE_CHARACTERISTIC_UUID = "9d6f0002-7d2a-4c6b-9f4e-5c2b1f4a6e10"
 BLE_DEVICE_NAME = "MR60_BLE"
 BLE_PACKET = struct.Struct("<BBHIhhhhhh")
 MISSING_INT16 = -32768
+LSL_SOURCE_IDS = {
+    "vitals": "study_runner.mr60.vitals",
+    "phases": "study_runner.mr60.phases",
+}
+LSL_CHANNEL_UNITS = {
+    "vitals": ("beats_per_minute", "breaths_per_minute", "arbitrary_unit", "metre"),
+    "phases": ("radian", "radian", "radian"),
+}
 
 _lock = threading.Lock()
 _state_lock = threading.Lock()
@@ -624,14 +632,16 @@ def _initialize_lsl_outlets() -> None:
             name=f"{prefix}_{suffix}",
             type=suffix,
             channel_count=len(labels),
-            nominal_srate=0,
+            nominal_srate=10.0,
             channel_format="float32",
-            source_id=f"{prefix.lower()}_{suffix.lower()}",
+            source_id=LSL_SOURCE_IDS[suffix.lower()],
         )
         channels = info.desc().append_child("channels")
-        for label in labels:
+        units = LSL_CHANNEL_UNITS[suffix.lower()]
+        for label, unit in zip(labels, units, strict=True):
             channel = channels.append_child("channel")
             channel.append_child_value("label", label)
+            channel.append_child_value("unit", unit)
         return StreamOutlet(info)
 
     _lsl_outlets = {

@@ -39,6 +39,22 @@ from .brainbit_realtime_cli import (
 )
 
 
+LSL_SOURCE_IDS = {
+    "eeg": "study_runner.brainbit.eeg",
+    "bands": "study_runner.brainbit.bands",
+    "mental": "study_runner.brainbit.mental",
+    "quality": "study_runner.brainbit.quality",
+    "battery": "study_runner.brainbit.battery",
+}
+LSL_CHANNEL_UNITS = {
+    "eeg": ("microvolt",) * 4,
+    "bands": ("relative_power",) * 5,
+    "mental": ("ratio",) * 4,
+    "quality": ("ohm",) * 4,
+    "battery": ("percent",),
+}
+
+
 # How the CLI's exit codes translate for the operator. "retry" means a restart
 # can plausibly help (device switched on late, transient crash); the others need
 # a human, so retrying would only hide the real message.
@@ -931,18 +947,21 @@ def _initialize_lsl_outlets() -> None:
 
     def create_outlet(stream_suffix: str, channel_labels: tuple[str, ...]) -> Any:
         stream_prefix = _config.get("lsl_stream_prefix", "BrainBit")
+        nominal_rates = {"EEG": 250.0}
         info = StreamInfo(
             name=f"{stream_prefix}_{stream_suffix}",
             type=stream_suffix,
             channel_count=len(channel_labels),
-            nominal_srate=0,
+            nominal_srate=nominal_rates.get(stream_suffix, 0.0),
             channel_format="float32",
-            source_id=f"{stream_prefix.lower()}_{stream_suffix.lower()}",
+            source_id=LSL_SOURCE_IDS[stream_suffix.lower()],
         )
         channels = info.desc().append_child("channels")
-        for label in channel_labels:
+        units = LSL_CHANNEL_UNITS[stream_suffix.lower()]
+        for label, unit in zip(channel_labels, units, strict=True):
             channel = channels.append_child("channel")
             channel.append_child_value("label", label)
+            channel.append_child_value("unit", unit)
         return StreamOutlet(info)
 
     _lsl_outlets = {

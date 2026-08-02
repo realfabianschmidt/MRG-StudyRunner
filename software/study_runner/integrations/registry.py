@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-import json
+import math
 from pathlib import Path
 from typing import Any
 
 from .adapter_utils import config_section
-from .brainbit import PLUGIN as BRAINBIT_PLUGIN
-from .labrecorder_xdf import PLUGIN as LABRECORDER_PLUGIN
-from .local_emotion_worker import PLUGIN as EMOTION_WORKER_PLUGIN
-from .lsl_markers import PLUGIN as LSL_PLUGIN
-from .mr60_mini_radar import PLUGIN as MINI_RADAR_PLUGIN
-from .notion_upload import PLUGIN as NOTION_PLUGIN
-from .osc_touchdesigner import PLUGIN as OSC_PLUGIN
+from .plugin_catalog import (
+    PluginCatalog,
+    discover_plugin_catalog,
+    validate_admin_action_payload,
+)
 from .plugin_api import IntegrationContext, IntegrationPlugin
-from .tablet_camera_emotion import PLUGIN as CAMERA_EMOTION_PLUGIN
 
 
 def build_context(
@@ -23,6 +20,8 @@ def build_context(
     hardware_config: dict[str, Any],
     local_secrets: dict[str, Any],
     local_secrets_file: Path,
+    runtime_locked: bool = False,
+    persist_hardware_config=None,
 ) -> IntegrationContext:
     return IntegrationContext(
         base_dir=Path(base_dir),
@@ -30,6 +29,8 @@ def build_context(
         hardware_config=hardware_config,
         local_secrets=local_secrets,
         local_secrets_file=Path(local_secrets_file),
+        runtime_locked=runtime_locked,
+        persist_hardware_config=persist_hardware_config,
     )
 
 
@@ -47,12 +48,7 @@ def get_plugin_config_key(key: str) -> str | None:
 
 
 def get_plugin_manifests() -> dict[str, dict[str, Any]]:
-    raw_catalog = _load_manifest_catalog()
-    raw_plugins = raw_catalog.get("plugins") if isinstance(raw_catalog.get("plugins"), dict) else {}
-    return {
-        plugin.key: _standardize_manifest(plugin, raw_plugins.get(plugin.key) if isinstance(raw_plugins, dict) else {})
-        for plugin in PLUGINS
-    }
+    return _PLUGIN_CATALOG.manifests
 
 
 def get_plugin_manifest(key: str) -> dict[str, Any]:
@@ -61,11 +57,49 @@ def get_plugin_manifest(key: str) -> dict[str, Any]:
 
 
 def get_sample_metadata_model() -> list[str]:
-    raw_catalog = _load_manifest_catalog()
-    fields = raw_catalog.get("sample_metadata_model")
-    if isinstance(fields, list) and all(isinstance(field, str) and field for field in fields):
-        return list(fields)
     return list(DEFAULT_SAMPLE_METADATA_MODEL)
+
+
+def get_plugin_catalog() -> PluginCatalog:
+    return _PLUGIN_CATALOG
+
+
+def get_plugin_catalog_payload() -> dict[str, Any]:
+    return _PLUGIN_CATALOG.public_payload()
+
+
+def get_plugins_with_capability(capability: str) -> tuple[IntegrationPlugin, ...]:
+    name = str(capability or "").strip()
+    manifests = get_plugin_manifests()
+    return tuple(
+        plugin
+        for plugin in PLUGINS
+        if name in set((manifests.get(plugin.key) or {}).get("capabilities") or [])
+    )
+
+
+def get_backup_projection_specs(
+    active_plugin_keys: set[str] | tuple[str, ...] | list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Return worker-ready projections declared by active sensor plugins."""
+
+    selected = set(active_plugin_keys) if active_plugin_keys is not None else None
+    specs: list[dict[str, Any]] = []
+    for plugin_key, manifest in get_plugin_manifests().items():
+        if selected is not None and plugin_key not in selected:
+            continue
+        projection = (manifest.get("capability_config") or {}).get("backup_projection")
+        if not isinstance(projection, dict):
+            continue
+        specs.append(
+            {
+                "plugin_key": plugin_key,
+                "rate_hz": projection["rate_hz"],
+                "channels": [dict(channel) for channel in projection["channels"]],
+                "stale_after_ms": projection.get("stale_after_ms"),
+            }
+        )
+    return specs
 
 
 def initialize_plugins(context: IntegrationContext) -> None:
@@ -117,7 +151,8 @@ def apply_enabled_runtime(key: str, enabled: bool, context: IntegrationContext) 
 
     if plugin.stop:
         plugin.stop(context)
-    if plugin.initialize and key in {"mini_radar", "camera_emotion", "notion"}:
+    lifecycle = get_plugin_manifest(key).get("lifecycle") or {}
+    if plugin.initialize and lifecycle.get("reinitialize_on_disable") is True:
         initialize_plugin(key, context)
 
 
@@ -262,75 +297,18 @@ def _standardize_status(
     return payload
 
 
-def _load_manifest_catalog() -> dict[str, Any]:
-    global _MANIFEST_CATALOG_CACHE
-    if _MANIFEST_CATALOG_CACHE is not None:
-        return _MANIFEST_CATALOG_CACHE
-    try:
-        payload = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        print(f"[INTEGRATION] Could not read plugin manifests: {error}")
-        _MANIFEST_CATALOG_CACHE = {}
-        return _MANIFEST_CATALOG_CACHE
-    _MANIFEST_CATALOG_CACHE = payload if isinstance(payload, dict) else {}
-    return _MANIFEST_CATALOG_CACHE
+def reset_manifest_cache() -> None:
+    """Reload shipped manifests and plugin objects. Used by focused tests."""
+    reload_plugin_catalog()
 
 
-def _standardize_manifest(plugin: IntegrationPlugin, raw_manifest: Any) -> dict[str, Any]:
-    manifest = raw_manifest if isinstance(raw_manifest, dict) else {}
-    streams = manifest.get("streams") if isinstance(manifest.get("streams"), list) else []
-    backpressure = manifest.get("backpressure") if isinstance(manifest.get("backpressure"), dict) else {}
-    runtime_settings = manifest.get("runtime_settings") if isinstance(manifest.get("runtime_settings"), dict) else {}
-    expected_data_rate = manifest.get("expected_data_rate") if isinstance(manifest.get("expected_data_rate"), dict) else {}
-
-    return {
-        "plugin_key": plugin.key,
-        "config_key": plugin.config_key,
-        "capabilities": _string_list(manifest.get("capabilities")) or _default_capabilities(plugin),
-        "streams": [dict(stream) for stream in streams if isinstance(stream, dict)],
-        "poll_interval_ms": _positive_int(manifest.get("poll_interval_ms"), DEFAULT_POLL_INTERVAL_MS),
-        "request_timeout_ms": _positive_int(manifest.get("request_timeout_ms"), DEFAULT_REQUEST_TIMEOUT_MS),
-        "clock_domain": str(manifest.get("clock_domain") or _default_clock_domain(plugin)),
-        "expected_data_rate": dict(expected_data_rate),
-        "backpressure": {
-            "max_in_flight": _positive_int(backpressure.get("max_in_flight"), 1),
-            "drop_policy": str(backpressure.get("drop_policy") or "latest_status_wins"),
-        },
-        "runtime_settings": dict(runtime_settings),
-    }
-
-
-def _default_capabilities(plugin: IntegrationPlugin) -> list[str]:
-    capabilities = ["status_poll"]
-    if plugin.can_start or plugin.can_stop or plugin.can_restart:
-        capabilities.append("runtime_control")
-    if plugin.has_recording:
-        capabilities.append("recording")
-    if plugin.has_lsl:
-        capabilities.append("lsl_stream")
-    if plugin.get_interval_summary:
-        capabilities.append("interval_summary")
-    if plugin.export_interval_samples:
-        capabilities.append("sidecar_export")
-    return capabilities
-
-
-def _default_clock_domain(plugin: IntegrationPlugin) -> str:
-    return "lsl" if plugin.has_lsl else "server"
-
-
-def _string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item) for item in value if str(item or "").strip()]
-
-
-def _positive_int(value: Any, fallback: int) -> int:
-    try:
-        candidate = int(value)
-    except (TypeError, ValueError):
-        return fallback
-    return candidate if candidate > 0 else fallback
+def reload_plugin_catalog() -> PluginCatalog:
+    global _PLUGIN_CATALOG, PLUGINS, PLUGINS_BY_KEY
+    _PLUGIN_CATALOG = discover_plugin_catalog()
+    PLUGINS = _PLUGIN_CATALOG.plugins
+    PLUGINS_BY_KEY = {plugin.key: plugin for plugin in PLUGINS}
+    _report_invalid_plugins(_PLUGIN_CATALOG)
+    return _PLUGIN_CATALOG
 
 
 def _default_status_message(configured_enabled: bool) -> str:
@@ -346,32 +324,200 @@ def _require_plugin(key: str) -> IntegrationPlugin:
 
 
 def _is_config_enabled(context: IntegrationContext, plugin: IntegrationPlugin) -> bool:
+    manifest = get_plugin_manifests().get(plugin.key) or {}
+    capabilities = set(manifest.get("capabilities") or [])
+    if "recording_source" in capabilities and "study_sensor" not in capabilities:
+        # Marker and clock-diagnostic sources are internal mandatory session
+        # infrastructure and deliberately have no machine/UI enable switch.
+        return True
     return bool(config_section(context, plugin.config_key).get("enabled", False))
 
 
 def _empty_interval_summary() -> dict[str, dict[str, Any]]:
     return {
-        "brainbit": {"available": False},
-        "mini_radar": {"available": False},
-        "camera_emotion": {"available": False},
+        plugin.key: {"available": False}
+        for plugin in PLUGINS
+        if plugin.get_interval_summary is not None
     }
 
 
-PLUGINS: tuple[IntegrationPlugin, ...] = (
-    BRAINBIT_PLUGIN,
-    MINI_RADAR_PLUGIN,
-    CAMERA_EMOTION_PLUGIN,
-    EMOTION_WORKER_PLUGIN,
-    LSL_PLUGIN,
-    OSC_PLUGIN,
-    LABRECORDER_PLUGIN,
-    NOTION_PLUGIN,
-)
+def run_admin_action(
+    key: str,
+    action: str,
+    context: IntegrationContext,
+    payload: Any = None,
+) -> dict[str, Any]:
+    """Run one manifest-declared plugin action through the generic boundary."""
 
-PLUGINS_BY_KEY = {plugin.key: plugin for plugin in PLUGINS}
-MANIFEST_FILE = Path(__file__).with_name("plugin_manifests.json")
-DEFAULT_POLL_INTERVAL_MS = 2000
-DEFAULT_REQUEST_TIMEOUT_MS = 1000
+    plugin = _require_plugin(key)
+    normalized = str(action or "").strip()
+    action_config = (
+        (get_plugin_manifest(key).get("capability_config") or {})
+        .get("admin_actions", {})
+    )
+    declared = next(
+        (
+            item
+            for item in action_config.get("actions", [])
+            if isinstance(item, dict) and str(item.get("key") or "") == normalized
+        ),
+        None,
+    )
+    if declared is None:
+        raise ValueError(f"Integration '{key}' does not declare admin action '{normalized}'.")
+    if plugin.run_admin_action is None:
+        raise ValueError(f"Integration '{key}' has no admin action handler.")
+
+    validated_payload = validate_admin_action_payload(
+        declared,
+        {} if payload is None else payload,
+    )
+    result = plugin.run_admin_action(context, normalized, validated_payload)
+    response = {
+        "ok": True,
+        "plugin_key": key,
+        "action_key": normalized,
+        "integration": key,
+        "action": normalized,
+        "result": result,
+        "status": get_plugin_status(key, context),
+    }
+    if isinstance(result, dict) and result.get("study_controlled") is True:
+        response["study_controlled"] = True
+    return response
+
+
+def run_participant_action(
+    key: str,
+    action: str,
+    context: IntegrationContext,
+    payload: Any = None,
+) -> dict[str, Any]:
+    """Run one manifest-declared participant lifecycle action."""
+
+    plugin = _require_plugin(key)
+    normalized = str(action or "").strip()
+    declared = (
+        (get_plugin_manifest(key).get("capability_config") or {})
+        .get("participant_actions", {})
+        .get("actions", [])
+    )
+    if normalized not in declared:
+        raise ValueError(
+            f"Integration '{key}' does not declare participant action '{normalized}'."
+        )
+    if plugin.run_participant_action is None:
+        raise ValueError(f"Integration '{key}' has no participant action handler.")
+    normalized_payload = {} if payload is None else payload
+    if not isinstance(normalized_payload, dict):
+        raise ValueError("participant action payload must be a JSON object")
+
+    result = plugin.run_participant_action(context, normalized, normalized_payload)
+    return {
+        "ok": True,
+        "plugin_key": key,
+        "action_key": normalized,
+        "result": result,
+        "status": get_plugin_status(key, context),
+    }
+
+
+def ingest_participant_payload(
+    key: str,
+    ingest_key: str,
+    context: IntegrationContext,
+    payload: Any,
+) -> dict[str, Any]:
+    """Dispatch participant data only to a manifest-declared plugin input."""
+
+    plugin = _require_plugin(key)
+    normalized = str(ingest_key or "").strip()
+    declared = (
+        (get_plugin_manifest(key).get("capability_config") or {})
+        .get("participant_ingest", {})
+        .get("inputs", [])
+    )
+    if normalized not in declared:
+        raise ValueError(
+            f"Integration '{key}' does not declare participant ingest '{normalized}'."
+        )
+    if plugin.ingest_participant is None:
+        raise ValueError(f"Integration '{key}' has no participant ingest handler.")
+    if not isinstance(payload, dict):
+        raise ValueError("participant ingest payload must be a JSON object")
+
+    _validate_participant_transport_metadata(get_plugin_manifest(key), payload)
+
+    result = plugin.ingest_participant(context, normalized, payload)
+    accepted = bool(result.get("accepted", True)) if isinstance(result, dict) else True
+    return {
+        "ok": accepted,
+        "plugin_key": key,
+        "ingest_key": normalized,
+        "result": result,
+    }
+
+
+def _validate_participant_transport_metadata(
+    manifest: dict[str, Any],
+    payload: dict[str, Any],
+) -> None:
+    """Enforce source-quality fields declared for browser HTTPS acquisition."""
+
+    transport = (
+        (manifest.get("capability_config") or {}).get("acquisition_transport") or {}
+    )
+    if transport.get("transport") != "browser_https":
+        return
+
+    if transport.get("sequence_required") is True:
+        sequence = payload.get("sequence_number")
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
+            raise ValueError(
+                "browser participant ingest requires a non-negative integer sequence_number"
+            )
+
+    if transport.get("source_timestamp_required") is True:
+        fields = transport.get("source_timestamp_fields") or [
+            "source_epoch_ms",
+            "source_timestamp",
+        ]
+        has_source_time = any(
+            not isinstance(payload.get(field), bool)
+            and isinstance(payload.get(field), (int, float))
+            and math.isfinite(float(payload[field]))
+            for field in fields
+        )
+        if not has_source_time:
+            raise ValueError(
+                "browser participant ingest requires a finite source timestamp in one of: "
+                + ", ".join(str(field) for field in fields)
+            )
+
+
+def resolve_plugin_ui_asset(key: str, asset_path: str) -> Path:
+    """Resolve only an exact, manifest-declared asset below a trusted plugin."""
+
+    manifest = get_plugin_manifest(key)
+    ui = manifest.get("ui") or {}
+    declared = {
+        *((ui.get("extensions") or {}).values()),
+        *(ui.get("assets") or []),
+    }
+    normalized = str(asset_path or "").replace("\\", "/")
+    if normalized not in declared:
+        raise ValueError(f"Integration '{key}' does not declare UI asset '{normalized}'.")
+    plugin_root = (Path(__file__).resolve().parent / str(manifest["directory"])).resolve()
+    candidate = (plugin_root / normalized).resolve()
+    try:
+        candidate.relative_to(plugin_root)
+    except ValueError as error:
+        raise ValueError("Plugin UI asset escapes its trusted directory.") from error
+    if not candidate.is_file():
+        raise ValueError(f"Declared UI asset is missing: {normalized}")
+    return candidate
+
+
 DEFAULT_SAMPLE_METADATA_MODEL = (
     "source_epoch_ms",
     "server_received_epoch_ms",
@@ -381,4 +527,15 @@ DEFAULT_SAMPLE_METADATA_MODEL = (
     "clock_domain",
     "drop_count",
 )
-_MANIFEST_CATALOG_CACHE: dict[str, Any] | None = None
+
+
+def _report_invalid_plugins(catalog: PluginCatalog) -> None:
+    for entry in catalog.invalid_entries:
+        details = "; ".join(entry.errors)
+        print(f"[INTEGRATION] Ignoring invalid plugin folder '{entry.directory}': {details}")
+
+
+_PLUGIN_CATALOG = discover_plugin_catalog()
+PLUGINS: tuple[IntegrationPlugin, ...] = _PLUGIN_CATALOG.plugins
+PLUGINS_BY_KEY = {plugin.key: plugin for plugin in PLUGINS}
+_report_invalid_plugins(_PLUGIN_CATALOG)

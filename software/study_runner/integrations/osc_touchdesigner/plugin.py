@@ -36,7 +36,7 @@ def _status(context: IntegrationContext) -> dict[str, Any]:
 
 
 def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
-    if not options.get("send_signal", True):
+    if not _forward_marker(options):
         return
     from . import adapter
 
@@ -44,11 +44,21 @@ def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
 
 
 def _trial_stop(context: IntegrationContext, options: dict[str, Any]) -> None:
-    if not options.get("send_signal", True):
+    if not _forward_marker(options):
         return
     from . import adapter
 
     adapter.send_stop()
+
+
+def _forward_marker(options: dict[str, Any]) -> bool:
+    plugin_actions = options.get("plugin_actions")
+    plugin_actions = plugin_actions if isinstance(plugin_actions, dict) else {}
+    actions = plugin_actions.get("osc")
+    if isinstance(actions, dict) and "forward_marker" in actions:
+        return bool(actions["forward_marker"])
+    # One-release compatibility for a request from an already-open old UI.
+    return bool(options.get("send_signal", True))
 
 
 PLUGIN = IntegrationPlugin(

@@ -1,0 +1,169 @@
+{
+  "api_version": 3,
+  "plugin_key": "camera_emotion",
+  "version": "1.0.0",
+  "category": "biosignal",
+  "config_key": "camera_emotion",
+  "entry_point": "plugin:PLUGIN",
+  "lifecycle": {"reinitialize_on_disable": true},
+  "ui": {
+    "label": "Tablet camera emotion",
+    "description": "Tablet camera frames and derived emotion values through the backend LSL bridge.",
+    "order": 120,
+    "visibility": {
+      "dashboard": true,
+      "settings_hub": true,
+      "study_settings": true,
+      "destination_settings": false
+    },
+    "extensions": {
+      "dashboard": "ui/dashboard.js",
+      "participant": "ui/participant.js"
+    },
+    "assets": ["ui/camera-capture.js"],
+    "timeline": {
+      "lane_aliases": [],
+      "preferred_channels": [
+        "analysis.emotion_confidence", "analysis.face_confidence"
+      ]
+    }
+  },
+  "capabilities": {
+    "study_sensor": {"default_enabled": false, "default_required": true},
+    "acquisition_transport": {
+      "transport": "browser_https",
+      "delivery": "host_lsl_bridge",
+      "heartbeat_required": true,
+      "sequence_required": true,
+      "source_timestamp_required": true,
+      "source_timestamp_fields": ["source_epoch_ms", "source_timestamp"]
+    },
+    "lsl_stream_provider": {},
+    "recording_source": {"artifact": "xdf", "primary_stream": "emotion"},
+    "backup_projection": {
+      "rate_hz": 1,
+      "stale_after_ms": 2500,
+      "channels": [
+        {"output": "angry", "stream": "emotion", "channel": "angry"},
+        {"output": "disgust", "stream": "emotion", "channel": "disgust"},
+        {"output": "fear", "stream": "emotion", "channel": "fear"},
+        {"output": "happy", "stream": "emotion", "channel": "happy"},
+        {"output": "sad", "stream": "emotion", "channel": "sad"},
+        {"output": "surprise", "stream": "emotion", "channel": "surprise"},
+        {"output": "neutral", "stream": "emotion", "channel": "neutral"},
+        {"output": "unknown", "stream": "emotion", "channel": "unknown"},
+        {"output": "confidence", "stream": "emotion", "channel": "confidence"},
+        {"output": "face_detected", "stream": "emotion", "channel": "face_detected"}
+      ]
+    },
+    "readiness": {
+      "mode_setting": "worker_mode",
+      "default_mode": "local_worker",
+      "platform_modes": {
+        "default": ["local_worker", "remote_worker"],
+        "windows-x64": ["local_worker", "remote_worker"],
+        "macos-arm64": ["local_worker", "remote_worker"],
+        "macos-x64": ["remote_worker"]
+      }
+    },
+    "runtime_control": {},
+    "health": {},
+    "machine_settings": {},
+    "study_settings": {},
+    "card_actions": {},
+    "participant_actions": {
+      "actions": ["start_monitor", "stop_monitor"]
+    },
+    "participant_ingest": {
+      "inputs": ["frame"]
+    },
+    "interval_summary": {},
+    "sidecar_export": {},
+    "admin_actions": {
+      "actions": [
+        {
+          "key": "repair_runtime",
+          "label": "Repair emotion runtime",
+          "description": "Repair Python dependencies and check the separately licensed emotion model. Model downloads require explicit CLI acceptance of the upstream terms in THIRD_PARTY_NOTICES.md.",
+          "confirm": true
+        },
+        {
+          "key": "install_dependencies",
+          "label": "Install emotion dependencies",
+          "description": "Install compatible Python dependencies. Separately licensed model weights are not downloaded.",
+          "confirm": true
+        }
+      ]
+    },
+    "backpressure": {}
+  },
+  "streams": [
+    {
+      "key": "emotion",
+      "source_id": "study_runner.tablet_camera.emotion",
+      "type": "CameraEmotion",
+      "nominal_rate_hz": 0,
+      "clock_domain": "lsl",
+      "channel_format": "float32",
+      "sequence_channel": "sequence",
+      "channels": ["angry", "disgust", "fear", "happy", "sad", "surprise", "neutral", "unknown", "confidence", "face_detected", "sequence"],
+      "channel_units": ["probability", "probability", "probability", "probability", "probability", "probability", "probability", "probability", "probability", "boolean", "count"]
+    },
+    {
+      "key": "face_quality",
+      "source_id": "study_runner.tablet_camera.face_quality",
+      "type": "CameraFaceQuality",
+      "nominal_rate_hz": 0,
+      "clock_domain": "lsl",
+      "channel_format": "float32",
+      "sequence_channel": "sequence",
+      "channels": ["face_detected", "face_confidence", "width", "height", "sequence"],
+      "channel_units": ["boolean", "probability", "pixel", "pixel", "count"]
+    }
+  ],
+  "settings": {
+    "machine": {
+      "snapshot_interval_ms": {
+        "type": "number", "unit": "ms", "path": "snapshot_interval_ms", "default": 200,
+        "minimum": 100, "maximum": 10000, "label_key": "pluginSettings.camera.snapshotInterval",
+        "apply": "immediate", "scope": "machine"
+      },
+      "emotion_worker_timeout_ms": {
+        "type": "number", "unit": "ms", "path": "emotion_worker_timeout_ms", "default": 5000,
+        "minimum": 250, "maximum": 60000, "label_key": "pluginSettings.camera.workerTimeout",
+        "apply": "immediate", "scope": "machine"
+      },
+      "emotion_worker_url": {
+        "type": "url", "path": "emotion_worker_url", "default": "http://127.0.0.1:3001",
+        "label_key": "pluginSettings.camera.workerUrl", "apply": "restart", "scope": "machine"
+      },
+      "emotion_worker.auto_start": {
+        "type": "boolean", "path": "emotion_worker.auto_start", "default": true,
+        "label_key": "pluginSettings.camera.workerAutoStart", "apply": "restart", "scope": "machine"
+      },
+      "emotion_worker.health_timeout_seconds": {
+        "type": "number", "unit": "s", "path": "emotion_worker.health_timeout_seconds", "default": 0.75,
+        "minimum": 0.25, "maximum": 60,
+        "label_key": "pluginSettings.camera.workerHealthTimeout", "apply": "immediate", "scope": "machine"
+      },
+      "worker_mode": {
+        "type": "choice", "path": "worker_mode", "options": ["local_worker", "remote_worker"],
+        "default": "local_worker", "label_key": "pluginSettings.camera.workerMode",
+        "apply": "restart", "scope": "machine"
+      },
+      "overlay_enabled": {
+        "type": "boolean", "path": "overlay_enabled", "default": true,
+        "label_key": "pluginSettings.camera.overlay", "apply": "immediate", "scope": "machine"
+      }
+    },
+    "study": {},
+    "card_actions": {
+      "snapshot_interval_ms": {"type": "number", "default": 1000, "minimum": 100}
+    }
+  },
+  "poll_interval_ms": 1000,
+  "request_timeout_ms": 750,
+  "clock_domain": "lsl",
+  "expected_data_rate": {"frames_hz": 1},
+  "backpressure": {"max_in_flight": 1, "drop_policy": "drop_new_frame_while_busy"}
+}

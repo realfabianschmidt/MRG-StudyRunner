@@ -42,7 +42,7 @@ Important fields:
 - `brainbit.python_executable.windows`: optional. Packaged builds run the CLI
   through their own executable (`--brainbit-cli`), so leave this empty unless a
   specific interpreter must be used.
-- `brainbit.lsl.enabled`: mirrors BrainBit data continuously to LSL.
+- `brainbit.lsl.stream_prefix`: naming prefix for the mandatory canonical LSL bridge.
 - `brainbit.osc_host` and `brainbit.osc_port`: TouchDesigner OSC target.
 
 ## Dashboard Debug Flow
@@ -162,22 +162,24 @@ not expected to send OSC continuously outside the active stimulus phase.
 
 ## LSL and XDF Check
 
-For XDF recording, enable:
+BrainBit declares `recording_source`, a 250 Hz primary EEG stream, and its
+backup projection in `manifest.json`. Canonical LSL publication cannot be
+disabled independently. Before the first source recording on a computer, run:
 
 ```text
-brainbit.lsl.enabled = true
-lsl.enabled = true
-labrecorder.enabled = true
+python tools/setup_recording_worker.py
 ```
 
 BrainBit LSL output is continuous while the CLI and outlets are running. It is
-not gated by stimulus activity. LabRecorder should see streams with the
-configured prefix, normally `BrainBit`.
+not gated by stimulus activity. The detached Python worker resolves the stable
+manifest source IDs and writes BrainBit's own append-never XDF segments; XDF is
+internal infrastructure and has no plugin toggle or menu entry.
 
 If LSL streams are missing:
 
 - Install dependencies with `pip install -r software/requirements.txt`.
 - Check that `pylsl` imports in the same Python environment.
+- Check Recording infrastructure readiness in the dashboard.
 - Restart Study Runner after changing hardware settings.
 - Confirm the BrainBit dashboard status is `connected`.
 

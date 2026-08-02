@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from ..adapter_utils import config_section
@@ -56,6 +57,44 @@ def _message(enabled: bool, has_key: bool, connected: bool) -> str:
     return "Notion client is ready."
 
 
+def _publish(context: IntegrationContext, payload: dict[str, Any]) -> dict[str, Any]:
+    """Execute one queued publication through the plugin boundary.
+
+    The existing adapter still consumes its historic flat field names. They
+    are projected only into this private attempt copy; persisted study files
+    remain canonical API-v3 plugin selections.
+    """
+
+    from . import adapter
+
+    config_data = deepcopy(payload.get("config_data") or {})
+    study_settings = config_data.setdefault("study_settings", {})
+    plugins = study_settings.get("plugins")
+    selection = plugins.get("notion") if isinstance(plugins, dict) else None
+    if isinstance(selection, dict):
+        plugin_settings = selection.get("settings")
+        plugin_settings = plugin_settings if isinstance(plugin_settings, dict) else {}
+        study_settings.update(
+            {
+                "notion_enabled": bool(selection.get("enabled")),
+                "notion_parent_page_id": str(plugin_settings.get("parent_page_id") or "").strip(),
+                "notion_database_id": str(plugin_settings.get("database_id") or "").strip(),
+                "notion_data_source_id": str(plugin_settings.get("data_source_id") or "").strip(),
+            }
+        )
+
+    return adapter.upload_study_result(
+        result_payload=payload.get("result_payload") or {},
+        hardware_config=payload.get("hardware_config") or context.hardware_config,
+        saved_output=payload.get("saved_output") or {},
+        config_data=config_data,
+        # Finalization already committed an immutable per-session config
+        # snapshot. The adapter's legacy retry refresh expects flat fields and
+        # would discard this private v3 projection.
+        is_retry=False,
+    )
+
+
 PLUGIN = IntegrationPlugin(
     key="notion",
     label="Notion upload",
@@ -63,4 +102,5 @@ PLUGIN = IntegrationPlugin(
     config_key="notion",
     initialize=_initialize,
     get_status=_status,
+    publish_destination=_publish,
 )

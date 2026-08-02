@@ -3,14 +3,14 @@ LSL adapter - sends event markers via the Lab Streaming Layer protocol.
 
 How it fits into the recording workflow:
   1. This adapter creates an LSL outlet that broadcasts string markers on the network.
-  2. LabRecorder (a separate, standalone tool) listens on the LSL network and records
-     all active streams - EEG from BrainBit, markers from this adapter - into one .xdf file.
-  3. After the study, use pyxdf to load the .xdf file, then MNE-Python to process the EEG.
-  4. The participant_id and timestamp_start in the JSON result file link the answers
-     to the EEG recording by time.
+  2. The detached Study Runner recording worker captures this hidden provider into its
+     own raw XDF segment through the native XDFWriter core.
+  3. Finalization merges it exactly once with the native sensor streams and the marked
+     derived-backup stream; PyXDF validates but never writes the result.
+  4. Stable event IDs and original source times link the marker windows to the JSON result.
 
 Requires: pylsl  (auto-install optional)
-Enable:   set "lsl": { "enabled": true } in study_content/settings/hardware_settings.json
+The provider is mandatory recording infrastructure and cannot be disabled by a generic setting.
 """
 from __future__ import annotations
 from typing import Any
@@ -19,6 +19,8 @@ from ..dependency_utils import ensure_requirements
 
 # Module-level outlet reference. None means LSL is not active.
 _outlet: Any = None
+LSL_SOURCE_IDS = {"markers": "study_runner.markers"}
+LSL_CHANNEL_UNITS = {"markers": ("event",)}
 
 
 def initialize(stream_name: str, stream_type: str, auto_install: bool = True) -> None:
@@ -38,7 +40,11 @@ def initialize(stream_name: str, stream_type: str, auto_install: bool = True) ->
             channel_count=1,
             nominal_srate=0,        # irregular rate - markers are event-driven
             channel_format='string',
+            source_id=LSL_SOURCE_IDS["markers"],
         )
+        channel = info.desc().append_child("channels").append_child("channel")
+        channel.append_child_value("label", "event")
+        channel.append_child_value("unit", LSL_CHANNEL_UNITS["markers"][0])
         _outlet = StreamOutlet(info)
         print(f"[LSL] Outlet ready: {stream_name} ({stream_type})")
     except ImportError:

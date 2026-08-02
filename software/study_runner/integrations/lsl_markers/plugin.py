@@ -8,8 +8,6 @@ from ..plugin_api import IntegrationContext, IntegrationPlugin
 
 def _initialize(context: IntegrationContext) -> None:
     config = config_section(context, "lsl")
-    if not config.get("enabled"):
-        return
     from . import adapter
 
     adapter.initialize(
@@ -21,10 +19,10 @@ def _initialize(context: IntegrationContext) -> None:
 
 def _status(context: IntegrationContext) -> dict[str, Any]:
     config = config_section(context, "lsl")
-    enabled = bool(config.get("enabled", False))
     return {
-        "status": "enabled" if enabled else "disabled",
-        "runtime_enabled": enabled,
+        "status": "enabled",
+        "configured_enabled": True,
+        "runtime_enabled": True,
         "stream_name": config.get("stream_name", "StudyRunner"),
         "stream_type": config.get("stream_type", "Markers"),
         "device_label": "LSL marker stream",
@@ -50,8 +48,6 @@ def _trial_marker(context: IntegrationContext, options: dict[str, Any]) -> None:
 
 
 def _send_marker(options: dict[str, Any], fallback: str) -> None:
-    if not options.get("send_signal", True):
-        return
     from . import adapter
 
     adapter.send_marker(str(options.get("marker_value") or fallback))
@@ -62,6 +58,10 @@ PLUGIN = IntegrationPlugin(
     label="LSL markers",
     category="sync",
     config_key="lsl",
+    # Marker recording is mandatory infrastructure.  The manifest keeps it
+    # out of user-facing settings and this backend guard also prevents a
+    # crafted generic toggle request from disabling the canonical stream.
+    can_toggle=False,
     has_recording=True,
     initialize=_initialize,
     get_status=_status,

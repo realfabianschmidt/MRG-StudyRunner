@@ -24,7 +24,7 @@ def _initialize(context: IntegrationContext) -> None:
         auto_reconnect=config.get("auto_reconnect", True),
         reconnect_delay=config.get("reconnect_delay", 5),
         data_timeout_seconds=config.get("data_timeout_seconds", 5),
-        lsl_enabled=lsl_config.get("enabled", False),
+        lsl_enabled=bool(config.get("enabled", False)),
         lsl_auto_install=lsl_config.get("auto_install", True),
         lsl_stream_prefix=lsl_config.get("stream_prefix", "MiniRadar"),
         ble_device_name=ble_config.get("device_name", "MR60_BLE"),
@@ -76,7 +76,10 @@ def _restart(context: IntegrationContext) -> Any:
 def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
     from . import adapter
 
-    adapter.set_recording(bool(options.get("mini_radar_recording_enabled", True)))
+    # The registry invokes this hook only for an enabled plugin. Canonical LSL
+    # acquisition/recording is mandatory for a recording_source and therefore
+    # cannot be disabled by a card-level boolean.
+    adapter.set_recording(True)
 
 
 def _trial_stop(context: IntegrationContext, options: dict[str, Any]) -> None:
