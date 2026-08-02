@@ -11,8 +11,8 @@ docs/start-here.de.md
 
 ## Project Layout
 
-Most app work happens in `software/`. Python-only packaging and release helpers
-live in `release_tools/`.
+Most app work happens in `software/`. Source-archive and release helpers live in
+`release_tools/`; old packaged-app helpers are not part of the active release.
 
 In the local lab workspace, `../Sensorik/` is intentionally kept next to this
 repo as the hardware reference and experiment folder. Runtime-ready copies live
@@ -27,46 +27,119 @@ Software/
 |   |-- start-here.de.md        German guide for non-coders.
 |   |-- operator-guide.md       Daily operation and project overview.
 |   |-- sensors-and-data.md     Sensor flow, timing, XDF/LSL, data files.
+|   |-- plugin-recording-architecture.md  Plugin/worker/XDF architecture.
 |   |-- developer-guide.md      Backend/frontend/plugin development rules.
-|   |-- release-and-update.md   Packaging, updates, desktop shortcuts.
+|   |-- release-and-update.md   Source releases, updates, acceptance gates.
 |   |-- README.md               Documentation index.
 |   `-- archive/                Historical plans and audits.
 |-- software/              THE PROGRAM.
 |   |-- server.py          Run locally with: cd software && python server.py
 |   |-- requirements.txt   Python dependencies.
+|   |-- constraints/       Release-tested Python 3.12 compatibility pins.
 |   |-- study_runner/      Python backend, browser UI, and integrations.
 |   |-- study_content/     Editable default studies and settings.
 |   `-- tests/             Automated checks.
-`-- release_tools/         Versioning, PyInstaller packaging, manifests, release automation.
+`-- release_tools/         Versioning, source archives, validation, release automation.
 ```
 
 Local study results are written to `software/saved_results/` and are ignored by
 Git.
 
-## Install And Run From Source
+## Quick Install From GitHub
 
-Use this path when you cloned the GitHub repository. It works on Windows and
-macOS when Python 3.11+ is installed.
+The supported source-server setup uses Python 3.12 and a repository-local
+`.venv`. The install scripts also build and test the small native XDF core.
+They are safe to run again after an update and never delete studies or results.
+No Apple signing or notarization is needed for this workflow.
 
-Windows PowerShell:
+Both installers use the checked-in Python 3.12 compatibility constraints in
+`software/constraints/`. Windows and Apple Silicon install the local emotion
+stack; macOS Intel intentionally uses only the common set and `remote_worker`.
+These constraints pin the release-tested direct and high-risk ML versions, but
+are not a hash-locked offline wheel bundle.
+
+### Windows x64
+
+Open PowerShell. On a new computer, install Git once:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r software/requirements.txt
-cd software
-python server.py
+winget install --id Git.Git --exact --source winget
 ```
 
-macOS/Linux:
+Open a new PowerShell window, then clone and install:
+
+```powershell
+git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
+cd MRG-StudyRunner
+.\tools\install-windows.ps1 -InstallSystemDependencies
+```
+
+The explicit switch installs missing Python 3.12, CMake, and Visual Studio C++
+Build Tools through WinGet. Windows may show a UAC prompt. If PowerShell blocks
+local scripts, run the installer once with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\install-windows.ps1 -InstallSystemDependencies
+```
+
+Every later start is one command:
+
+```powershell
+.\tools\start-windows.ps1
+```
+
+### macOS Intel or Apple Silicon
+
+On a new Mac, install Apple's compiler tools and complete the dialog:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r software/requirements.txt
-cd software
-python server.py
+xcode-select --install
 ```
+
+Install Homebrew with its official installer, follow the printed `Next steps`
+for your shell, then clone and install Study Runner:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Continue with:
+
+```bash
+git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
+cd MRG-StudyRunner
+bash tools/install-macos.sh --install-system-dependencies
+```
+
+The script runs `brew install python@3.12 cmake` idempotently. Every later start
+is one command:
+
+```bash
+bash tools/start-macos.sh
+```
+
+On Apple Silicon, `camera_emotion` supports its local DeepFace worker. Current
+TensorFlow/tf-keras wheels do not support CPython 3.12 on macOS Intel, so the
+Intel installer provides the server and full XDF recording but intentionally
+skips the local analysis stack. Configure `camera_emotion` with
+`remote_worker` on an Intel Mac.
+
+There is no need to activate `.venv`; the scripts always use its interpreter
+directly. For a non-recording installation, pass `-SkipRecordingCore` on
+Windows or `--skip-recording-core` on macOS. Required sensor-recording studies
+will remain blocked until the full installer has successfully built the core.
+
+### Update A Source Checkout
+
+Updates preserve the ignored local study data and results:
+
+```bash
+git pull --ff-only
+```
+
+Then rerun the platform's install script without the system-dependency switch,
+and use its start script. The installer refreshes Python dependencies and only
+rebuilds the XDF core when its verified build is missing or stale.
 
 The terminal prints the available addresses:
 
@@ -102,44 +175,25 @@ STUDY_RUNNER_CONTENT_DIR=/path/to/study-content
 STUDY_RUNNER_DATA_DIR=/path/to/writable/app-data
 ```
 
-## Packaged App
+## GitHub Source Releases
 
-Official non-coder builds are PyInstaller one-dir ZIPs from GitHub Releases.
-There is no Tauri wrapper, Rust desktop shell, or separate desktop app layer:
+The active release workflow publishes auditable source archives, not a desktop
+app, Manager, PyInstaller server, or automatic updater:
 
 ```text
 https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
 ```
 
-Recommended first download:
+Use `study-runner-source.zip` on Windows or
+`study-runner-source.tar.gz` on macOS. `SHA256SUMS` and
+`study-runner-source-release.json` identify and verify the exact release. The
+archives never contain generated native libraries, local results, credentials,
+or certificates. First install builds the XDF core locally and proves it with
+the same platform smoke tests used for release acceptance.
 
-- `study-runner-manager-windows-x86_64.zip`
-- `study-runner-manager-macos-x86_64.zip`
-- `study-runner-manager-macos-arm64.zip`
-
-The manager is the Install & Repair Wizard. It downloads the latest signed
-stable server release, installs it into a versioned app folder, keeps study data
-in a separate data folder, and creates or repairs the desktop launcher. This is
-the normal path for non-coders on Windows and macOS.
-
-Manual server assets:
-
-- `study-runner-server-windows-x86_64.zip`
-- `study-runner-server-linux-x86_64.zip`
-- `study-runner-server-macos-x86_64.zip`
-- `study-runner-server-macos-arm64.zip`
-
-If you use a manual server ZIP, unpack it and start `study-runner-server(.exe)`.
-Packaged builds open the Admin page in the default browser automatically. They
-use the same per-computer HTTPS certificate flow described above.
-
-On macOS, unsigned builds may need the usual Gatekeeper step: right-click the
-executable and choose `Open` once.
-
-From the Admin hub you can click `Create desktop shortcut`. On Windows this
-creates a `.lnk` file, and on macOS it creates a `.command` file. The shortcut
-starts the current source checkout or the packaged Python server executable,
-depending on how Study Runner is running.
+Signing and notarization are unnecessary for this source-server workflow. Old
+PyInstaller/Manager/updater code is retained only as legacy or possible future
+work and is not published by the current release workflow.
 
 ## Sensor And Camera Runtime
 
@@ -148,18 +202,23 @@ Current built-in lab integrations:
 - BrainBit EEG through the repo-local NeuroSDK CLI.
 - MR60 radar through ESP32-C6 BLE firmware in
   `software/study_runner/integrations/mr60_mini_radar/firmware/`.
-- Tablet camera emotion through browser `getUserMedia` and a local DeepFace
-  worker on the server computer.
-- LSL markers and LabRecorder/XDF for synchronized raw recording.
+- Camera and emotion through the single `camera_emotion` plugin, using browser
+  `getUserMedia` plus a local or remote analysis worker.
+- Per-plugin LSL acquisition and the detached Python recording worker for
+  synchronized native and merged XDF data.
 
-In packaged builds, DeepFace, TensorFlow/tf-keras, OpenCV and the local Emotion
-Worker are bundled. The required emotion model weight
-`facial_expression_model_weights.h5` is vendored under
-`software/study_runner/integrations/local_emotion_worker/model_assets/` and is
-copied into the data-folder cache on first use. A normal release install does
-not need Python, Pip, Git or a model download on the lab computer.
-
-In source checkouts, DeepFace is installed through `software/requirements.txt`.
+On Windows x64 and macOS Apple Silicon, the source installer installs DeepFace,
+TensorFlow/tf-keras, OpenCV and the local Emotion Worker from
+`software/requirements.txt`. The separately licensed emotion-model weight is
+not bundled or silently downloaded. Review `THIRD_PARTY_NOTICES.md`; if its
+upstream non-commercial-research terms fit the study, provision the pinned,
+SHA-256-verified model explicitly with
+`python release_tools/fetch_deepface_model_assets.py
+--accept-vgg-face-non-commercial-research-terms`. Alternatively, use
+`remote_worker` with a model for which the operator has suitable rights. macOS
+Intel always uses `remote_worker`. The platform install scripts also invoke the native-core setup and tests;
+`python tools/setup_recording_worker.py` remains the advanced core-only command.
+See `docs/plugin-recording-architecture.md` for readiness and recovery.
 
 Study settings define which sensors are intended for a study. The Admin
 dashboard can set temporary runtime overrides for the current server session.
@@ -176,21 +235,20 @@ Tablet camera behavior:
   context.
 - The separate `/camera-preview` page has been removed.
 
-## Local Package Build
+## Release Artifacts
 
-From the repository root:
-
-```bash
-python -m pip install -r software/requirements.txt -r release_tools/pyinstaller/requirements-build.txt
-python release_tools/build_python_onedir.py
-python release_tools/package_python_onedir.py --source software/dist/study-runner-server --output study-runner-server-local.zip
-```
+`release_tools/build_source_release.py` creates and verifies the source ZIP,
+tar.gz, metadata, release notes, and SHA-256 file from an exact tagged commit.
+It rejects generated native binaries, secrets, runtime state, and local data.
+The tag workflow then extracts the clean archive and runs the real installation
+plus native recording smoke tests on Windows x64 and both macOS architectures.
+It also reruns the non-recording Python/JavaScript/schema suite from the
+extracted source on Linux before publication.
 
 ## One-Command Release
 
-GitHub CLI is not required for the normal release helper. The helper pushes
-`main` and then pushes a tag; GitHub Actions builds the ZIPs after that tag
-arrives.
+GitHub CLI is not required locally. The helper pushes `main` and then a tag;
+GitHub Actions builds and validates the source release after that tag arrives.
 
 Windows-friendly release command:
 
@@ -214,27 +272,23 @@ The release helper:
 2. runs fast local checks by default,
 3. commits the version bump on `main`,
 4. pushes `main`,
-5. pushes `app-v<version>` to start the GitHub Release workflow.
+5. pushes `app-v<version>` to start the source-release workflow.
 
-Normal commits and pushes do not create app updates. Only tags named
-`app-vX.Y.Z` trigger updater releases. After the GitHub Actions release workflow
-finishes, packaged builds can update from the Admin page update card.
+Normal commits and pushes do not create public releases. Only tags named
+`app-vX.Y.Z` publish the source archives, and publication happens only after all
+platform recording gates pass. Source installations update explicitly with
+`git pull --ff-only` followed by the platform install script.
 
 ## Manual Checks
 
 ```bash
-python -m unittest discover software/tests
+python -m pytest software
+python -m unittest -v release_tools.tests.test_build_source_release
+node --test software/tests/js/*.test.mjs
 node --check release_tools/verify-release-version.mjs
 node --check release_tools/release-study-runner.mjs
-python -m py_compile release_tools/package_python_onedir.py release_tools/write_python_update_key.py release_tools/build_python_update_manifest.py release_tools/build_python_onedir.py
-node release_tools/verify-release-version.mjs app-v0.2.4
+python -m py_compile release_tools/build_source_release.py tools/setup_recording_worker.py
 git diff --check
-```
-
-Optional full local build check:
-
-```bash
-python release_tools/build_python_onedir.py
 ```
 
 ## Source Of Truth
@@ -242,15 +296,23 @@ python release_tools/build_python_onedir.py
 - Non-coder start: `docs/start-here.de.md`
 - Operator guide: `docs/operator-guide.md`
 - Sensor and data model: `docs/sensors-and-data.md`
+- Plugin/recording architecture: `docs/plugin-recording-architecture.md`
 - Developer guide: `docs/developer-guide.md`
 - Editable study defaults: `software/study_content/`
 - Runtime app code: `software/study_runner/`
 - Release automation: `release_tools/`
 - Local hardware references in the lab workspace: `../Sensorik/`
-- Packaging and update details: `docs/release-and-update.md`
+- Source release and update details: `docs/release-and-update.md`
 - Docs index: `docs/README.md`
 - Historical plans and audits: `docs/archive/`
 
 Never commit local study results, generated build output, private keys,
 certificates, passwords, `.env`, `local_secrets.json`, `settings/ssl/`,
 `.crt`, `.cer`, `.pfx`, `.p12`, `.key`, `.pem`, or `.p8`.
+
+## License
+
+Copyright (c) 2026 Fabian Schmidt. Proprietary software; all rights reserved.
+Study Runner is currently proprietary and all rights are reserved. See
+[`LICENSE`](LICENSE). Included and optional third-party components retain their
+own terms; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

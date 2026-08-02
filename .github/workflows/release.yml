@@ -1,4 +1,4 @@
-name: Release Study Runner
+name: Release Study Runner source server
 
 on:
   push:
@@ -6,15 +6,119 @@ on:
       - "app-v*"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build ${{ matrix.label }}
+  source:
+    name: Build source release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout the tagged revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: lts/*
+          package-manager-cache: false
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Verify release version
+        run: node release_tools/verify-release-version.mjs "$GITHUB_REF_NAME"
+
+      - name: Build auditable source archives and metadata
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_TAG#app-v}"
+          release_commit="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          python release_tools/build_source_release.py \
+            --version "$version" \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" \
+            --commit "$release_commit" \
+            --output-dir release-assets
+
+      - name: Reject bundled native or generated files
+        run: python release_tools/build_source_release.py --verify-output release-assets
+
+      - name: Upload source workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: study-runner-source-release
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 14
+
+  source-quality:
+    name: Source regression suite (Linux, non-recording)
+    needs: source
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download source workflow artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: study-runner-source-release
+          path: release-assets
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: lts/*
+          package-manager-cache: false
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Verify and extract tagged source
+        shell: bash
+        run: |
+          python release-assets/verify_release_assets.py
+          mkdir source-release
+          tar -xzf release-assets/study-runner-source.tar.gz -C source-release
+          source_root="$(find source-release -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          if [ -z "$source_root" ] || [ ! -f "$source_root/software/server.py" ]; then
+            echo "The source archive has no usable Study Runner root." >&2
+            exit 1
+          fi
+          echo "SOURCE_ROOT=$source_root" >> "$GITHUB_ENV"
+
+      - name: Install non-recording validation dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade \
+            --constraint "$SOURCE_ROOT/software/constraints/py312-bootstrap.txt" pip
+          python -m pip install \
+            --constraint "$SOURCE_ROOT/software/constraints/py312-common.txt" \
+            --constraint "$SOURCE_ROOT/software/constraints/py312-local-emotion.txt" \
+            pytest -r "$SOURCE_ROOT/software/requirements.txt"
+
+      - name: Run Python, JavaScript, schema, and release-contract tests
+        shell: bash
+        run: |
+          python -m pytest "$SOURCE_ROOT/software"
+          (
+            cd "$SOURCE_ROOT"
+            python -m unittest -v release_tools.tests.test_build_source_release
+            node --test software/tests/js/*.test.mjs
+          )
+
+  recording-acceptance:
+    name: Source install and recording smoke (${{ matrix.label }})
+    needs: source
     runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
@@ -22,184 +126,134 @@ jobs:
         include:
           - label: Windows x64
             platform: windows-latest
-            python_asset: study-runner-server-windows-x86_64.zip
-            manager_asset: study-runner-manager-windows-x86_64.zip
-          - label: Linux x64
-            platform: ubuntu-24.04
-            python_asset: study-runner-server-linux-x86_64.zip
-            manager_asset: ""
+            archive: study-runner-source.zip
+            core_path: software/.build/xdf_core/windows-x64/xdf_core.dll
+            venv_python: .venv/Scripts/python.exe
           - label: macOS Intel
             platform: macos-15-intel
-            python_asset: study-runner-server-macos-x86_64.zip
-            manager_asset: study-runner-manager-macos-x86_64.zip
+            archive: study-runner-source.tar.gz
+            core_path: software/.build/xdf_core/macos-x64/libxdf_core.dylib
+            venv_python: .venv/bin/python
           - label: macOS Apple Silicon
             platform: macos-15
-            python_asset: study-runner-server-macos-arm64.zip
-            manager_asset: study-runner-manager-macos-arm64.zip
+            archive: study-runner-source.tar.gz
+            core_path: software/.build/xdf_core/macos-arm64/libxdf_core.dylib
+            venv_python: .venv/bin/python
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v5
+      - name: Download source workflow artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          node-version: lts/*
-
-      - name: Verify release version
-        run: node release_tools/verify-release-version.mjs "$env:GITHUB_REF_NAME"
-        if: runner.os == 'Windows'
-
-      - name: Verify release version
-        run: node release_tools/verify-release-version.mjs "$GITHUB_REF_NAME"
-        if: runner.os != 'Windows'
+          name: study-runner-source-release
+          path: release-assets
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
-      - name: Install Linux packaging dependencies
-        if: matrix.platform == 'ubuntu-24.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y patchelf
-
-      - name: Install Python build dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r software/requirements.txt -r release_tools/pyinstaller/requirements-build.txt
-
-      - name: Verify updater public key
+      - name: Verify artifact checksums
         shell: bash
-        env:
-          PYTHON_UPDATER_PUBLIC_KEY: ${{ secrets.PYTHON_UPDATER_PUBLIC_KEY || vars.PYTHON_UPDATER_PUBLIC_KEY }}
+        working-directory: release-assets
+        run: python verify_release_assets.py
+
+      - name: Extract tagged source
+        shell: bash
         run: |
-          if [ -z "$PYTHON_UPDATER_PUBLIC_KEY" ]; then
-            echo "PYTHON_UPDATER_PUBLIC_KEY is required for packaged update builds." >&2
-            echo "Use a GitHub Actions variable or secret for the public Ed25519 key." >&2
-            exit 1
+          mkdir source-release
+          if [[ "${{ matrix.archive }}" == *.zip ]]; then
+            python -m zipfile -e "release-assets/${{ matrix.archive }}" source-release
+          else
+            tar -xzf "release-assets/${{ matrix.archive }}" -C source-release
           fi
 
-      - name: Write Python updater public key
-        env:
-          PYTHON_UPDATER_PUBLIC_KEY: ${{ secrets.PYTHON_UPDATER_PUBLIC_KEY || vars.PYTHON_UPDATER_PUBLIC_KEY }}
-        run: python release_tools/write_python_update_key.py
-
-      - name: Verify updater signing secret
+      - name: Locate extracted source
+        id: source-root
         shell: bash
-        env:
-          PYTHON_UPDATER_SIGNING_PRIVATE_KEY: ${{ secrets.PYTHON_UPDATER_SIGNING_PRIVATE_KEY }}
         run: |
-          if [ -z "$PYTHON_UPDATER_SIGNING_PRIVATE_KEY" ]; then
-            echo "PYTHON_UPDATER_SIGNING_PRIVATE_KEY is required to create Python update signatures." >&2
+          source_root="$(find source-release -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          if [ -z "$source_root" ] || [ ! -f "$source_root/software/server.py" ]; then
+            echo "The source archive has no usable Study Runner root." >&2
             exit 1
           fi
+          if [ -e "$source_root/software/.build" ]; then
+            echo "Generated native build output leaked into the source archive." >&2
+            exit 1
+          fi
+          echo "path=$source_root" >> "$GITHUB_OUTPUT"
 
-      - name: Build Python one-dir package
-        run: python release_tools/build_python_onedir.py
-
-      # On failure the JSON verdict is emitted as an ::error:: annotation so
-      # the diagnosis is readable via the public API without opening the log.
-      - name: Run packaged Emotion Worker self-test
+      - name: Run the real Windows first-install workflow
         if: runner.os == 'Windows'
+        working-directory: ${{ steps.source-root.outputs.path }}
         shell: pwsh
-        run: |
-          $env:STUDY_RUNNER_DATA_DIR = Join-Path $env:RUNNER_TEMP "study-runner-self-test"
-          software\dist\study-runner-server\study-runner-server.exe --emotion-worker-self-test --json 2>&1 | Tee-Object -FilePath selftest.json
-          if ($LASTEXITCODE -ne 0) {
-            $summary = (Get-Content selftest.json -Raw) -replace "`r?`n", " "
-            Write-Output "::error::Emotion worker self-test failed: $summary"
-            exit 1
-          }
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/install-windows.ps1
 
-      - name: Run packaged Emotion Worker self-test
+      - name: Run the real macOS first-install workflow
         if: runner.os == 'macOS'
+        working-directory: ${{ steps.source-root.outputs.path }}
+        shell: bash
+        run: bash tools/install-macos.sh
+
+      - name: Run native writer, merge, and synthetic LSL smoke tests
+        shell: bash
+        env:
+          STUDY_RUNNER_XDF_CORE_TEST: ${{ github.workspace }}/${{ steps.source-root.outputs.path }}/${{ matrix.core_path }}
+        run: |
+          cd "${{ steps.source-root.outputs.path }}/software"
+          "../${{ matrix.venv_python }}" -m unittest -v tests.test_hybrid_recording_worker.NativeCoreSmokeTests
+
+      - name: Verify the locally built core and start-command contract
         shell: bash
         run: |
-          export STUDY_RUNNER_DATA_DIR="$RUNNER_TEMP/study-runner-self-test"
-          if ! software/dist/study-runner-server/study-runner-server --emotion-worker-self-test --json 2>&1 | tee selftest.json; then
-            echo "::error::Emotion worker self-test failed: $(tr '\n' ' ' < selftest.json)"
-            exit 1
+          test -f "${{ steps.source-root.outputs.path }}/${{ matrix.core_path }}"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            grep -q "server.py" "${{ steps.source-root.outputs.path }}/tools/start-windows.ps1"
+          else
+            bash "${{ steps.source-root.outputs.path }}/tools/start-macos.sh" --help
           fi
-
-      - name: Package Python update asset
-        run: python release_tools/package_python_onedir.py --source software/dist/study-runner-server --output "${{ matrix.python_asset }}"
-
-      - name: Build manager package
-        if: matrix.manager_asset != ''
-        run: python release_tools/build_python_onedir.py --spec release_tools/pyinstaller/study_runner_manager_onedir.spec
-
-      - name: Package manager asset
-        if: matrix.manager_asset != ''
-        run: python release_tools/package_python_onedir.py --source software/dist/study-runner-manager --output "${{ matrix.manager_asset }}"
-
-      - name: Upload Python update workflow artifact
-        uses: actions/upload-artifact@v5
-        with:
-          name: python-update-${{ matrix.python_asset }}
-          path: ${{ matrix.python_asset }}
-          if-no-files-found: error
-
-      - name: Upload manager workflow artifact
-        if: matrix.manager_asset != ''
-        uses: actions/upload-artifact@v5
-        with:
-          name: python-update-${{ matrix.manager_asset }}
-          path: ${{ matrix.manager_asset }}
-          if-no-files-found: error
+          echo "The native core was built locally from the clean source archive."
 
   publish:
-    name: Publish release
+    name: Publish source release
     runs-on: ubuntu-24.04
-    needs: build
+    permissions:
+      contents: write
+    needs:
+      - source
+      - source-quality
+      - recording-acceptance
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
+      - name: Download validated release assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          python-version: "3.12"
+          name: study-runner-source-release
+          path: release-assets
 
-      - name: Install manifest signing dependency
-        run: python -m pip install "cryptography>=42"
-
-      - name: Download release assets
-        uses: actions/download-artifact@v5
-        with:
-          pattern: python-update-*
-          path: python-update-assets
-          merge-multiple: true
-
-      - name: Publish completed release
+      - name: Publish completed source release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PYTHON_UPDATER_SIGNING_PRIVATE_KEY: ${{ secrets.PYTHON_UPDATER_SIGNING_PRIVATE_KEY }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           if [ -z "$RELEASE_TAG" ]; then
             echo "Release tag is empty." >&2
             exit 1
           fi
-          version="${RELEASE_TAG#app-v}"
-          python release_tools/build_python_update_manifest.py \
-            --version "$version" \
-            --repo "$GITHUB_REPOSITORY" \
-            --tag "$RELEASE_TAG" \
-            --asset-dir python-update-assets \
-            --output study-runner-python-latest.json
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" python-update-assets/*.zip study-runner-python-latest.json --clobber
+            gh release upload "$RELEASE_TAG" release-assets/study-runner-source.zip release-assets/study-runner-source.tar.gz release-assets/study-runner-source-release.json release-assets/SHA256SUMS --clobber
             gh release edit "$RELEASE_TAG" \
               --draft=false \
               --latest \
-              --title "Study Runner $RELEASE_TAG" \
-              --notes "Python-only update assets for Study Runner $RELEASE_TAG."
+              --title "Study Runner ${RELEASE_TAG#app-v}" \
+              --notes-file release-assets/RELEASE_NOTES.md
           else
             gh release create "$RELEASE_TAG" \
-              python-update-assets/*.zip \
-              study-runner-python-latest.json \
+              release-assets/study-runner-source.zip \
+              release-assets/study-runner-source.tar.gz \
+              release-assets/study-runner-source-release.json \
+              release-assets/SHA256SUMS \
               --verify-tag \
               --latest \
-              --title "Study Runner $RELEASE_TAG" \
-              --notes "Python-only update assets for Study Runner $RELEASE_TAG."
+              --title "Study Runner ${RELEASE_TAG#app-v}" \
+              --notes-file release-assets/RELEASE_NOTES.md
           fi

@@ -25,14 +25,14 @@ It keeps only the rules that are useful for this small Study Runner project. The
 - `Handler`: A small function that reacts to a click, request, or timer.
 - `Service`: A file or function with one clear job, such as loading config or saving results.
 - `Adapter`: A small bridge to external tools such as BrainBit or TouchDesigner.
-- `Integration plugin`: A small built-in registry entry that gives one adapter a common label, status shape, runtime actions, and trial callbacks. This project uses an internal registry only, not installable third-party plugins.
+- `Integration plugin`: A trusted built-in folder with `manifest.json` and `plugin.py`. The manifest gives adapters a common capability, settings, status, and study-action contract. Plugins are shipped with the app; they are not uploaded or installed from the web interface.
 - `API`: Fixed web addresses that let the browser pages and server talk to each other.
 - `Validation`: Checking whether incoming data is complete and sensible before it is saved or used.
 
 ## 1. Keep it simple
 
 - Required: Build direct, simple solutions.
-- Required: Keep the internal integration plugin registry small and explicit. Do not add dynamic package loading, entry-point discovery, or installable third-party plugins.
+- Required: Discover only trusted plugin folders shipped below `study_runner/integrations`. Never load plugin paths, packages, or dependencies supplied by a web request.
 - Required: Do not add structure for a possible future use case unless there is a clear need now.
 - Required: If a term is hard to understand, replace it or explain it immediately.
 
@@ -84,7 +84,7 @@ It keeps only the rules that are useful for this small Study Runner project. The
 - Then add answer collection.
 - Then update validation and documentation.
 - Required: External tools such as BrainBit or TouchDesigner should live in small adapter files.
-- Required: Built-in integrations should be registered in `software/study_runner/integrations/registry.py` so status, dashboard controls, trial callbacks, and sidecar exports follow one model.
+- Required: Built-in integrations declare API-v3 capabilities in their own `manifest.json`; `registry.py` remains the runtime compatibility layer for status, controls, trial callbacks, and exports.
 - Required: Extend the existing simple path instead of building a second system next to it.
 
 ## 8. Write documents for humans
@@ -103,7 +103,7 @@ It keeps only the rules that are useful for this small Study Runner project. The
 
 ## 10. What this project does not need
 
-- No dynamic or installable third-party plugin architecture
+- No uploadable or installable third-party plugin marketplace
 - No microservices
 - No heavy framework just to look architecturally clean
 - No abstract names copied from unrelated projects

@@ -2,6 +2,7 @@
 __pycache__/
 .pytest_cache/
 *.pyc
+.tmp/
 /packaging/
 /server_app/
 /tests/
@@ -20,22 +21,30 @@ saved_results/
 software/study_content/settings/local_secrets.json
 software/study_content/settings/*.local.json
 software/study_content/settings/ssl/
+# Locally authored studies are user data. Curated repository templates must be
+# added intentionally with `git add -f` after review.
+software/study_content/studies/*.study-runner
 software/study_runner/integrations/brainbit_assets_to_copy/
 software/study_runner/integrations/brainbit/logs/
 software/study_runner/integrations/brainbit/recordings/
 software/study_runner/integrations/**/logs/
 software/study_runner/integrations/**/*.log
 software/logs/
-# DeepFace runtime cache (generated at start from the vendored model_assets)
+# DeepFace runtime cache and separately licensed operator-provisioned weights.
 software/study_runner/integrations/local_emotion_worker/deepface_home/
+software/study_runner/integrations/camera_emotion/worker/deepface_home/
+software/study_runner/integrations/local_emotion_worker/model_assets/*.h5
+software/study_runner/integrations/camera_emotion/worker/model_assets/*.h5
 .secrets/
 
 # Environment and editor tooling
+.venv/
 .env
 .env.*
 .claude/
 
 # Python build output (PyInstaller writes into software/)
+software/.build/
 software/build/
 software/dist/
 build/

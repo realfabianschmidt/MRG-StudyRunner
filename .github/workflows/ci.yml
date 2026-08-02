@@ -19,32 +19,33 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify Study Runner
+    name: Verify Python, JavaScript, and schemas (Linux)
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: lts/*
+          package-manager-cache: false
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
-      - name: Install Linux packaging dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y patchelf
-
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest -r software/requirements.txt -r release_tools/pyinstaller/requirements-build.txt
+          python -m pip install --upgrade --constraint software/constraints/py312-bootstrap.txt pip
+          python -m pip install \
+            --constraint software/constraints/py312-common.txt \
+            --constraint software/constraints/py312-local-emotion.txt \
+            pytest -r software/requirements.txt
 
       - name: Check release JavaScript syntax
         run: |
@@ -52,7 +53,7 @@ jobs:
           node --check release_tools/release-study-runner.mjs
 
       - name: Check release Python helpers
-        run: python -m py_compile release_tools/package_python_onedir.py release_tools/write_python_update_key.py release_tools/build_python_update_manifest.py release_tools/build_python_onedir.py tools/study_runner_manager.py
+        run: python -m py_compile release_tools/package_python_onedir.py release_tools/write_python_update_key.py release_tools/build_python_update_manifest.py release_tools/build_python_onedir.py release_tools/build_source_release.py tools/study_runner_manager.py
 
       - name: Verify Python app version
         shell: bash
@@ -63,5 +64,52 @@ jobs:
       - name: Run Python tests
         run: python -m pytest software
 
-      - name: Build Python one-dir package
-        run: python release_tools/build_python_onedir.py
+      - name: Run source-release contract tests
+        run: python -m unittest -v release_tools.tests.test_build_source_release
+
+      - name: Run JavaScript unit tests
+        run: node --test software/tests/js/*.test.mjs
+
+  recording-core:
+    name: Canonical XDF core (${{ matrix.label }})
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows x64
+            platform: windows-latest
+            core_path: software/.build/xdf_core/windows-x64/xdf_core.dll
+          - label: macOS Intel
+            platform: macos-15-intel
+            core_path: software/.build/xdf_core/macos-x64/libxdf_core.dylib
+          - label: macOS Apple Silicon
+            platform: macos-15
+            core_path: software/.build/xdf_core/macos-arm64/libxdf_core.dylib
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install recording validation dependencies
+        run: |
+          python -m pip install --upgrade --constraint software/constraints/py312-bootstrap.txt pip
+          python -m pip install \
+            --constraint software/constraints/py312-common.txt \
+            "pylsl==1.18.2" "pyxdf==1.16.8" "numpy==1.26.4"
+
+      - name: Build and verify the current-platform XDF core
+        run: python tools/setup_recording_worker.py --require-canonical --json
+
+      - name: Run native writer, merge, and synthetic LSL smoke tests
+        working-directory: software
+        env:
+          STUDY_RUNNER_XDF_CORE_TEST: ${{ github.workspace }}/${{ matrix.core_path }}
+        run: python -m unittest -v tests.test_hybrid_recording_worker.NativeCoreSmokeTests
