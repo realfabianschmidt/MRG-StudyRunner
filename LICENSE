@@ -1,0 +1,20 @@
+Copyright (c) 2026 Fabian Schmidt
+
+All rights reserved.
+
+This software and its source code are proprietary. No permission is granted to
+use, copy, modify, merge, publish, distribute, sublicense, sell, or create
+derivative works from this software, in whole or in part, without prior written
+permission from the copyright holder.
+
+The software is provided "as is", without warranty of any kind, express or
+implied, including but not limited to the warranties of merchantability,
+fitness for a particular purpose, and noninfringement. In no event shall the
+copyright holder be liable for any claim, damages, or other liability arising
+from, out of, or in connection with the software or its use.
+
+Third-party components remain subject to their respective licenses and are not
+covered by the proprietary grant above. See THIRD_PARTY_NOTICES.md and the
+license files referenced there. In particular, the vendored
+App-LabRecorder/XDFWriter sources retain their upstream license in
+software/recording_worker/native/vendor/App-LabRecorder/LICENSE.

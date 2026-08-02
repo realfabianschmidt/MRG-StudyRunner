@@ -1,0 +1,39 @@
+# Keep cross-platform source archives and checkouts predictable.
+* text=auto
+
+# POSIX launch/install scripts must never acquire CRLF line endings.
+*.sh text eol=lf
+
+# GitHub Actions and Node/Python release helpers are also consumed on macOS/Linux.
+*.yml text eol=lf
+*.yaml text eol=lf
+*.mjs text eol=lf
+*.py text eol=lf
+
+# Native sources are hashed and built on every supported platform.
+*.c text eol=lf
+*.cc text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+
+# Windows entry points remain readable to Windows PowerShell 5.1.
+*.ps1 text eol=crlf
+
+# Never perform text conversion on binary assets.
+*.h5 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# Legacy fonts with undocumented provenance are not part of source releases.
+# The UI uses the native system-font stack and does not reference these files.
+software/study_runner/web/fonts/ export-ignore
+
+# Optional local TouchDesigner reference asset has no release provenance and is
+# not required by the OSC integration.
+software/study_runner/integrations/brainbit/HelloEEG_HelloMYO_01.3.toe export-ignore
