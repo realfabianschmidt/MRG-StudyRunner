@@ -24,11 +24,13 @@ Recommended non-coder command on Windows:
   .\\release.ps1 patch
 
 Requirements on the machine that runs a release:
-  Git, Node.js, and Python 3.12. Full local checks also need PyInstaller.
-  GitHub CLI is not required. GitHub Actions builds the Python update ZIP assets after the tag is pushed.
+  Git, Node.js, and Python 3.12. Full local checks also need CMake and the
+  platform C++ toolchain. GitHub CLI is not required.
+  GitHub Actions verifies and publishes source archives after the tag is pushed.
 
-The release command bumps the Python app version on main, runs fast local checks,
-commits, pushes main, then pushes app-v<version> to start the release workflow.
+The release command bumps the Python app version, promotes CHANGELOG.md on main,
+runs local checks, commits, pushes main, then pushes app-v<version> to start the
+source-release workflow.
 `);
 }
 
@@ -122,8 +124,16 @@ function headSha(ref = 'HEAD') {
   return git(['rev-parse', ref], { capture: true });
 }
 
+function ensureFullCommitSha(value, label = 'Release commit') {
+  if (!/^[0-9a-f]{40}$/.test(value || '')) {
+    fail(`${label} is not a full lowercase Git commit SHA: ${value || '<empty>'}`);
+  }
+  return value;
+}
+
 function ensureTagDoesNotExist(tagName) {
-  const local = git(['rev-parse', '--verify', tagName], {
+  const tagRef = `refs/tags/${tagName}`;
+  const local = git(['rev-parse', '--verify', tagRef], {
     capture: true,
     allowFailure: true,
   });
@@ -131,7 +141,7 @@ function ensureTagDoesNotExist(tagName) {
     fail(`Local tag already exists: ${tagName}`);
   }
 
-  if (git(['ls-remote', '--tags', 'origin', tagName], { capture: true })) {
+  if (git(['ls-remote', '--tags', 'origin', tagRef], { capture: true })) {
     fail(`Remote tag already exists: ${tagName}`);
   }
 }
@@ -168,8 +178,34 @@ function replacePythonVersion(nextVersion) {
   writeText(relativePath, output);
 }
 
+function promoteChangelog(nextVersion) {
+  const relativePath = 'CHANGELOG.md';
+  const input = readText(relativePath);
+  const unreleasedHeading = /^## Unreleased[ \t]*$/m;
+  if (!unreleasedHeading.test(input)) {
+    fail(`${relativePath} must contain exactly one '## Unreleased' section.`);
+  }
+  if ((input.match(/^## Unreleased[ \t]*$/gm) || []).length !== 1) {
+    fail(`${relativePath} must contain exactly one '## Unreleased' section.`);
+  }
+  const versionHeading = new RegExp(
+    `^## ${nextVersion.replaceAll('.', '\\.')}(?:[ \\t]+-|[ \\t]*$)`,
+    'm',
+  );
+  if (versionHeading.test(input)) {
+    fail(`${relativePath} already contains a release section for ${nextVersion}.`);
+  }
+  const releaseDate = new Date().toISOString().slice(0, 10);
+  const output = input.replace(
+    unreleasedHeading,
+    `## Unreleased\n\n## ${nextVersion} - ${releaseDate}`,
+  );
+  writeText(relativePath, output);
+}
+
 function bumpVersions(nextVersion) {
   replacePythonVersion(nextVersion);
+  promoteChangelog(nextVersion);
 }
 
 function ensureToolchain() {
@@ -204,14 +240,15 @@ function runChecks(nextVersion) {
     'release_tools/build_python_update_manifest.py',
     'release_tools/build_python_onedir.py',
     'release_tools/build_offline_wheelhouse.py',
+    'release_tools/build_source_release.py',
     'tools/study_runner_manager.py',
   ]);
   run('node', ['release_tools/verify-release-version.mjs', releaseTagName(nextVersion)]);
+  run('python', ['-m', 'unittest', '-v', 'release_tools.tests.test_build_source_release']);
   run('python', ['-m', 'unittest', 'discover', path.join('software', 'tests')]);
 
   if (fullChecks) {
-    run('python', ['release_tools/build_python_onedir.py']);
-    run('python', ['release_tools/build_python_onedir.py', '--spec', 'release_tools/pyinstaller/study_runner_manager_onedir.spec']);
+    run('python', ['tools/setup_recording_worker.py', '--require-canonical', '--json']);
   }
 
   git(['diff', '--check']);
@@ -263,22 +300,65 @@ function readVersionFromGit(ref, relativePath, reader) {
   return reader(content);
 }
 
-function verifyRemoteMainVersion(version) {
-  const pythonVersion = readVersionFromGit('origin/main', 'software/study_runner/version.py', readPythonVersion);
+function verifyReleaseVersionAtRef(version, ref) {
+  const pythonVersion = readVersionFromGit(
+    ref,
+    'software/study_runner/version.py',
+    readPythonVersion,
+  );
   if (pythonVersion !== version) {
-    console.error('origin/main does not contain the requested release version yet:');
+    console.error(`${ref} does not contain the requested release version:`);
     console.error(`- software/study_runner/version.py: ${pythonVersion || '<missing>'}`);
-    fail('Push the release version commit to main first, then run publish again.');
+    fail(`Expected Study Runner ${version} at ${ref}.`);
   }
 }
 
-function pushReleaseTag(version) {
-  const tagName = releaseTagName(version);
+function verifyRemoteMainCommit(intendedCommit, version) {
+  ensureFullCommitSha(intendedCommit);
   git(['fetch', 'origin', 'main', '--tags']);
+  const remoteMain = ensureFullCommitSha(headSha('origin/main'), 'origin/main');
+  if (remoteMain !== intendedCommit) {
+    fail(
+      `origin/main moved before tagging. Expected ${intendedCommit}, got ${remoteMain}. `
+      + 'No release tag was created.',
+    );
+  }
+  verifyReleaseVersionAtRef(version, intendedCommit);
+}
+
+function verifyRemoteTagCommit(tagName, intendedCommit) {
+  const tagRef = `refs/tags/${tagName}`;
+  const remote = git(
+    ['ls-remote', '--tags', 'origin', tagRef, `${tagRef}^{}`],
+    { capture: true },
+  );
+  const peeled = remote
+    .split(/\r?\n/)
+    .map((line) => line.trim().split(/\s+/, 2))
+    .find(([, ref]) => ref === `${tagRef}^{}`)?.[0];
+  if (peeled !== intendedCommit) {
+    fail(
+      `Remote ${tagName} does not resolve to the intended release commit. `
+      + `Expected ${intendedCommit}, got ${peeled || '<missing>'}.`,
+    );
+  }
+}
+
+function pushReleaseTag(version, intendedCommit) {
+  const tagName = releaseTagName(version);
+  ensureFullCommitSha(intendedCommit);
+  verifyRemoteMainCommit(intendedCommit, version);
   ensureTagDoesNotExist(tagName);
-  verifyRemoteMainVersion(version);
-  git(['tag', '-a', tagName, 'origin/main', '-m', `Study Runner ${version}`]);
-  git(['push', 'origin', tagName]);
+  git(['tag', '-a', tagName, intendedCommit, '-m', `Study Runner ${version}`]);
+  const localTagCommit = ensureFullCommitSha(
+    headSha(`${tagName}^{commit}`),
+    `Local ${tagName}`,
+  );
+  if (localTagCommit !== intendedCommit) {
+    fail(`Local ${tagName} targets ${localTagCommit}, expected ${intendedCommit}.`);
+  }
+  git(['push', 'origin', `refs/tags/${tagName}`]);
+  verifyRemoteTagCommit(tagName, intendedCommit);
   return tagName;
 }
 
@@ -287,7 +367,7 @@ function printReleaseLinks(tagName) {
   console.log('https://github.com/realfabianschmidt/MRG-StudyRunner/actions/workflows/release.yml');
   console.log('\nRelease page:');
   console.log(`https://github.com/realfabianschmidt/MRG-StudyRunner/releases/tag/${tagName}`);
-  console.log('\nGitHub Actions will build and publish the Python update ZIPs when all platform builds pass.');
+  console.log('\nGitHub Actions will publish the source ZIP/tarball, checksums, and release metadata after all Windows/macOS recording checks pass.');
 }
 
 function prepare(version) {
@@ -310,7 +390,10 @@ function prepare(version) {
 
 function publish(version) {
   ensureSemver(version);
-  const tagName = pushReleaseTag(version);
+  ensureDirectReleaseStartingPoint();
+  const intendedCommit = ensureFullCommitSha(headSha('HEAD'));
+  verifyReleaseVersionAtRef(version, intendedCommit);
+  const tagName = pushReleaseTag(version, intendedCommit);
   console.log(`\nRelease tag pushed: ${tagName}`);
   printReleaseLinks(tagName);
 }
@@ -325,7 +408,7 @@ async function release(input) {
 
   if (flags.has('--dry-run')) {
     console.log('\nDry run only. No files, commits, pushes, tags, or releases were changed.');
-    console.log('\nA real release would bump the Python app version, run local checks, commit on main, push main, and push the release tag.');
+    console.log('\nA real release would bump the Python app version, promote the changelog, run local checks, commit on main, push main, and push the release tag.');
     return;
   }
 
@@ -340,8 +423,10 @@ async function release(input) {
   }
 
   commitVersionChanges(resolvedVersion, `Release Study Runner ${resolvedVersion}`);
-  git(['push', 'origin', 'main']);
-  const pushedTag = pushReleaseTag(resolvedVersion);
+  const releaseCommit = ensureFullCommitSha(headSha('HEAD'));
+  git(['push', 'origin', `${releaseCommit}:refs/heads/main`]);
+  verifyRemoteMainCommit(releaseCommit, resolvedVersion);
+  const pushedTag = pushReleaseTag(resolvedVersion, releaseCommit);
   console.log(`\nRelease tag pushed: ${pushedTag}`);
   printReleaseLinks(pushedTag);
 }

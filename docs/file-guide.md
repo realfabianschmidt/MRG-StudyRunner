@@ -14,10 +14,14 @@ Edit-safety legend:
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `software/server.py` | Start Study Runner from source (`python server.py`); dispatches the `--emotion-worker`, `--brainbit-cli` and updater CLI flags | careful |
+| `software/server.py` | Start Study Runner from source (`python server.py`); also dispatches the detached `--recording-worker`, emotion-worker, BrainBit CLI, and updater modes | careful |
 | `software/study_runner/app_server.py` | Wires up the Flask server: port check, HTTPS, startup banner, browser open | careful |
 | `software/study_runner/version.py` | The single version number of the app | yes |
 | `tools/study_runner_manager.py` | Standalone Install & Repair Wizard (downloads, verifies, installs releases) | no |
+| `tools/setup_recording_worker.py` | One-time source setup: verifies the toolchain, builds only the current native XDF core, runs CTest and the Python/PyXDF smoke test | no |
+| `tools/install-windows.ps1` / `tools/install-macos.sh` | Idempotent first-install/repair flows: system prerequisites on request, `.venv`, Python requirements, and verified XDF core | careful |
+| `tools/start-windows.ps1` / `tools/start-macos.sh` | Daily source-server launchers that use the repository `.venv` directly | careful |
+| `software/constraints/py312-*.txt` | Bounded release-tested Python 3.12 compatibility pins: bootstrap, common runtime, and platform-selected local emotion stack | careful |
 
 ## Backend - HTTP routes (`software/study_runner/backend/routes/`)
 
@@ -36,6 +40,8 @@ Edit-safety legend:
 | `routes/certificate.py` | Certificate status plus guarded root-CA export/import endpoints | no |
 | `routes/uploads.py` | Background-upload status/retry and validated result-folder opening | no |
 | `routes/recovery.py` | Lists crash-orphaned sessions and finalizes or discards them | no |
+| `routes/finalization.py` | Read-only status plus guarded retry, degraded-confirmation, and exact-session-folder actions for durable finalization jobs | no |
+| `routes/plugins.py` | Serves the manifest-derived plugin catalog used by generic admin UI | careful |
 | `routes/helpers.py` | Shared request helpers: runtime config, sessions, sensor runtime | careful |
 
 ## Backend - services (`software/study_runner/backend/services/`)
@@ -58,7 +64,7 @@ Edit-safety legend:
 | `services/certificate_download_service.py` | Plain-HTTP, one-file bootstrap download for the local root CA | careful |
 | `services/certificate_transfer_service.py` | Validates, exports, and transactionally imports the reusable local root CA | no |
 | `services/upload_jobs_service.py` | Persistent upload journal, crash replay, backoff worker, and retry state | no |
-| `services/upload_runtime.py` | Connects upload jobs to Flask plus the Notion and Nextcloud executors | no |
+| `services/upload_runtime.py` | Registers manifest-declared destination plugin handlers with persistent upload jobs | no |
 | `services/folder_open_service.py` | Validates and opens result folders on Windows or macOS | no |
 | `services/runtime_config.py` | Paths, ports, app mode, data-folder resolution | careful |
 | `services/study_config_service.py` | Load/save the active study and the saved-studies folder | careful |
@@ -67,9 +73,52 @@ Edit-safety legend:
 | `services/trial_service.py` | Sends stimulus start/stop markers to the integrations | careful |
 | `services/study_client_service.py` | Tablet heartbeat bookkeeping | careful |
 | `services/secrets_service.py` | Keeps the Notion API key backend-local | no |
+| `services/study_secrets_service.py` | Per-study credential overrides, never written into the exported study | no |
+| `services/study_readiness_service.py` | Pre-run check: what would stop the loaded study from delivering results | careful |
+| `services/plugin_settings_service.py` | Manifest-driven machine settings: schema, validation, targeted deep-merge writes | no |
 | `services/hardware_settings_service.py` | Saves hardware_settings.json | careful |
 | `services/shortcut_service.py` | Creates the desktop shortcut | careful |
 | `services/admin_status_service.py` | Aggregates integration status for the dashboard | careful |
+| `services/artifact_manifest_service.py` | Owns artifact provenance, checksums, completion markers, and guarded source purge | no |
+| `services/card_summary_service.py` | Pure merged-XDF-to-card-statistics derivation | no |
+| `services/finalization_runtime.py` | Wires the persistent finalizer to recording and upload adapters | no |
+| `services/finalization_service.py` | Durable, idempotent session-finalization state machine and journal replay | no |
+| `services/destination_plugin_service.py` | Converts upload-destination manifests into persisted finalization steps and recovery/purge policies | no |
+| `services/plugin_health_poll_service.py` | Manifest-paced, non-blocking per-plugin health cache and bounded poll executor | careful |
+| `services/recording_runtime.py` | Public compatibility facade plus session-level recording orchestration; contains no process-launch or scientific-validation implementation | no |
+| `services/recording_dependencies.py` | liblsl dependency probe and capability-based selection of study/internal recording providers | no |
+| `services/recording_worker_launcher.py` | Detached Python/self worker process command, isolation flags, and startup health handshake | no |
+| `services/recording_runtime_support.py` | Shared recording error, constants, safe session-path/JSON helpers, recovery grid, and required-source readiness gate | no |
+| `services/recording_quality.py` | Scientific source, backup, gap/drop, lease-expiry, and finalization quality checks | no |
+| `services/recording_finalization_adapter.py` | Thin bridge from persistent finalization steps to recording freeze, validation, merge, and shutdown | no |
+| `services/study_plugin_config.py` | Migrates legacy sensor/upload/card fields into plugin API v3 settings | careful |
+| `services/trial_event_service.py` | Persists idempotent trial events and backend-enforced deadlines | no |
+
+## Backend - recording core (`software/study_runner/backend/recording/`)
+
+| File | Purpose | Edit? |
+|---|---|---|
+| `artifacts.py` | Canonical immutable session identity, path layout, and SHA-256 helpers | no |
+| `backup.py` | Validates slowest-grid backup projections and stale-value rules | no |
+| `coordinator.py` | Allocates append-never plugin segments and sends idempotent worker commands | no |
+| `errors.py` | Shared typed recording errors used across coordinator, worker client, and finalization | no |
+| `recovery.py` | Detects recoverable recording state and allocates append-never post-crash segments | no |
+| `worker_binary.py` | Locates and validates the tiny platform-native XDF core and its build manifest | no |
+| `worker_protocol.py` | Authenticated loopback protocol, persisted endpoint state, and command replay ledger | no |
+| `xdf.py` | Native-worker backend contract plus pinned PyXDF source/merge validation | no |
+
+## Detached recording worker (`software/study_runner/recording_worker/`)
+
+| File | Purpose | Edit? |
+|---|---|---|
+| `application.py` | Authenticated loopback command server with leases, generation fencing, and durable command replay | no |
+| `core.py` | Checked `ctypes` binding for the stable C ABI exposed by `xdf_core` | no |
+| `lsl_recording.py` | Threaded LSL inlet capture, validated stream headers, bounded drain, and backup projection | no |
+| `runtime.py` | Session lifecycle, segment control, merge orchestration, and worker health state | no |
+
+The audited native XDF writer lives in `software/recording_worker/native/`.
+Its CMake target wraps the pinned LabRecorder XDFWriter behind a small C ABI;
+it deliberately contains no HTTP, LSL, plugin, or study logic.
 
 ## Updater trust chain
 
@@ -89,18 +138,18 @@ mapping:
 |---|---|---|
 | `brainbit` | `brainbit` | `brainbit` |
 | `mr60_mini_radar` | `mini_radar` | `mini_radar` |
-| `tablet_camera_emotion` | `camera_emotion` | `camera_emotion` |
-| `local_emotion_worker` | `emotion_worker` | `camera_emotion` |
+| `camera_emotion` | `camera_emotion` | `camera_emotion` |
 | `lsl_markers` | `lsl` | `lsl` |
 | `osc_touchdesigner` | `osc` | `osc` |
-| `labrecorder_xdf` | `labrecorder` | `labrecorder` |
 | `notion_upload` | `notion` | `notion` |
+| `nextcloud_upload` | `nextcloud` | `nextcloud` |
 
 | File | Purpose | Edit? |
 |---|---|---|
 | `plugin_api.py` | The IntegrationContext/plugin interface every sensor implements | careful |
 | `adapter_utils.py` | Shared timestamps, locked state updates, and config-section lookup | careful |
-| `registry.py` | Lists all plugins; builds interval summaries and sidecar exports | careful |
+| `registry.py` | Manifest-driven plugin lookup, generic actions, interval summaries, and sidecar exports | careful |
+| `plugin_catalog.py` | Discovers plugin folders and validates API-v3 manifests before import | no |
 | `history_buffer.py` | Session-sized ring buffers + gap/truncation detection for all sensors | careful |
 | `dependency_utils.py` | Optional auto-install of Python packages sensors need | careful |
 | `__init__.py` (all) | Empty package markers | yes |
@@ -110,16 +159,19 @@ mapping:
 | `mr60_mini_radar/adapter.py` | MR60 heart/breathing radar via serial or BLE, with auto-reconnect | careful |
 | `mr60_mini_radar/plugin.py` | Plugin wrapper for the radar | careful |
 | `mr60_mini_radar/tools/ble_mr60_receiver.py` | Standalone BLE test receiver for debugging | yes |
-| `tablet_camera_emotion/adapter.py` | Accepts tablet camera frames, forwards them for emotion analysis | careful |
-| `tablet_camera_emotion/plugin.py` | Plugin wrapper for camera emotion | careful |
-| `local_emotion_worker/server.py` | The DeepFace worker process (Flask, `--emotion-worker`) | careful |
-| `local_emotion_worker/plugin.py` | Starts/monitors/repairs the worker; auto-restart on crash | careful |
-| `local_emotion_worker/analyzer.py` | Runs DeepFace on one frame | careful |
-| `local_emotion_worker/model_errors.py` | Shared DeepFace error classification + suggested fixes | careful |
+| `camera_emotion/adapter.py` | Accepts tablet camera frames and publishes stable LSL streams | careful |
+| `camera_emotion/plugin.py` | Single public camera/emotion plugin and generic admin actions | careful |
+| `camera_emotion/worker/server.py` | Internal DeepFace worker process (Flask, `--emotion-worker`) | careful |
+| `camera_emotion/worker/plugin.py` | Starts, monitors, and repairs the internal worker | careful |
+| `camera_emotion/worker/analyzer.py` | Runs DeepFace on one frame | careful |
+| `camera_emotion/worker/model_errors.py` | Shared DeepFace error classification + suggested fixes | careful |
+| `tablet_camera_emotion/*.py`, `local_emotion_worker/*.py` | One-release import/CLI compatibility shims; never catalog entries | careful |
 | `lsl_markers/adapter.py` + `plugin.py` | Publishes study markers as an LSL stream | careful |
+| `clock_diagnostics/adapter.py` + `plugin.py` | Hidden LSL wall/client/LSL clock observations at event boundaries | careful |
 | `osc_touchdesigner/adapter.py` + `plugin.py` | Forwards values to TouchDesigner via OSC | careful |
-| `labrecorder_xdf/plugin.py` | Collects the LabRecorder .xdf file into the result folder | careful |
+| `labrecorder_xdf/plugin.py` | Unregistered legacy collector retained temporarily for compatibility | careful |
 | `notion_upload/adapter.py` + `plugin.py` | Uploads result summaries to Notion (with offline queue) | careful |
+| `nextcloud_upload/plugin.py` | Declares the hidden Nextcloud destination capability and generic settings schema | careful |
 
 ## Web UI (`software/study_runner/web/scripts/`)
 
@@ -129,18 +181,32 @@ mapping:
 | `admin-controller.js` | Study editor, save/load, QR codes, updates | careful |
 | `admin-dashboard-controller.js` | Live sensor dashboard with plain-language statuses | careful |
 | `notion-settings-controller.js` | The Notion settings page | careful |
-| `admin/nextcloud-settings-controller.js` | The shared-shell Nextcloud setup and connection-test page | careful |
+| `admin/study-settings-panel.js` | Per-study settings shell (editor only): sensors, participant, uploads, export | careful |
+| `admin/nextcloud-settings-controller.js` | Nextcloud fields inside the per-study settings panel | careful |
 | `admin/certificate-settings-controller.js` | The shared-shell certificate status, setup, export, and import page | no |
 | `admin/session-timeline.js` | Renders completed-session sensor lanes and answer markers as offline SVG | careful |
 | `admin/sessions-browser.js` | Completed-session hub list, detail panel, and timeline data fetching | careful |
 | `admin/upload-monitor.js` | Background-upload completion modal and the corner progress widget it shrinks to | careful |
+| `admin/finalization-monitor-view.js` | Generic finalization modal/widget renderer and guarded operator actions | careful |
 | `admin/recovery-panel.js` | Hub banner listing crash-orphaned sessions, with finalize/discard actions | careful |
+| `lib/study-settings.js` | THE client-side study-settings shape; mirrors `_validate_study_settings` | no |
+| `lib/deadline-timer.js` | Monotonic deadline timer whose UI ticks never define elapsed study time | no |
+| `lib/finalization-view-model.js` | Pure finalization status/progress view model | careful |
+| `lib/plugin-catalog.js` | Fetches and indexes manifest-derived plugin UI capabilities | careful |
+| `lib/participant-plugin-extensions.js` | Failure-isolated lifecycle manager for manifest-declared participant extensions | careful |
+| `lib/reliable-event-queue.js` | Session-local idempotent marker/event buffering and retry | no |
+| `lib/view-transition.js` | Full-screen sweep between admin views; swaps the view while covered | careful |
+| `lib/settings-shell.js` | Shared left-nav/right-panel wiring for both settings surfaces | careful |
 | `lib/dom-utils.js` | Shared safe DOM lookup, text/HTML assignment, and escaping helpers | careful |
 | `lib/modal.js` | Shared accessible modal lifecycle and existing modal-shell markup | careful |
 | `lib/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
 | `api-client.js` | Tiny fetch helpers (getJson/postJson) | careful |
 | `i18n.js` | Translation loading and the `t()` helper | careful |
-| `camera-capture.js` | Captures tablet camera frames and posts them to the server | careful |
+| `integrations/camera_emotion/ui/participant.js` | Camera/emotion participant lifecycle extension for preview, stimuli, submit, and heartbeat status | careful |
+| `integrations/camera_emotion/ui/camera-capture.js` | Plugin-owned tablet camera capture and frame upload adapter | careful |
+| `integrations/brainbit/ui/dashboard.js` | Optional BrainBit rich-status renderer loaded through the manifest extension hook | careful |
+| `integrations/mr60_mini_radar/ui/dashboard.js` | Optional MR60 rich-status renderer loaded through the manifest extension hook | careful |
+| `integrations/camera_emotion/ui/dashboard.js` | Optional camera/emotion rich-status renderer loaded through the manifest extension hook | careful |
 | `study-client-heartbeat.js` | Keeps the tablet visible on the dashboard | careful |
 | `qr-code.js` | QR code rendering for the access card | no |
 | `cards/index.js` | Registers all card modules | careful |
@@ -166,16 +232,23 @@ holds offline copies of third-party assets (icons).
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `release_tools/build_python_onedir.py` | Runs PyInstaller for server/manager | careful |
-| `release_tools/package_python_onedir.py` | Zips a onedir build into a release asset | careful |
-| `release_tools/build_python_update_manifest.py` | Signs release assets into the update manifest | no |
-| `release_tools/write_python_update_key.py` | Bakes the trusted public key into CI builds | no |
-| `release_tools/fetch_deepface_model_assets.py` | Downloads the DeepFace weights into model_assets/ | careful |
+| `release_tools/build_source_release.py` | Builds and verifies the source-release archives, checksums, metadata, and release notes | careful |
+| `release_tools/tests/test_build_source_release.py` | Regression tests for safe source archives, metadata, release notes, and workflow contracts | yes |
+| `release_tools/build_python_onedir.py` | Legacy/future non-recording experiment: runs PyInstaller; not used by the active release | careful |
+| `release_tools/package_python_onedir.py` | Legacy/future non-recording experiment: packages PyInstaller output; not used by the active release | careful |
+| `release_tools/build_python_update_manifest.py` | Legacy packaged-updater manifest signer; not used by the active release | no |
+| `release_tools/write_python_update_key.py` | Legacy packaged-updater key helper; not used by the active release | no |
+| `release_tools/fetch_deepface_model_assets.py` | Explicitly provisions the separately licensed, SHA-256-pinned DeepFace emotion model after terms acceptance | careful |
 | `release_tools/build_offline_wheelhouse.py` | Builds an offline pip wheelhouse | careful |
-| `release_tools/pyinstaller/study_runner_server_common.py` | Shared PyInstaller spec pieces (datas, hidden imports) | careful |
+| `release_tools/pyinstaller/study_runner_server_common.py` | Legacy/future PyInstaller spec pieces; not used by the active source release | careful |
 | `release_tools/release-study-runner.mjs` | The release script: bump, check, tag, push (run via release.ps1) | no |
 | `release_tools/verify-release-version.mjs` | CI guard: tag matches version.py | no |
 
 Tests live in `software/tests/` - one file per area, named
 `test_<area>.py`. Run everything with:
 `python -m unittest discover software/tests`
+
+`software/tests/test_source_install_scripts.py` protects the WinGet/Homebrew,
+`.venv`, canonical-core, non-destructive installer, and daily-start contracts.
+`software/tests/test_python_constraints.py` protects the exact scientific pins,
+platform split, shared installer/CI consumption, and honest non-lockfile scope.

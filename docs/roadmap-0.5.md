@@ -352,7 +352,7 @@ Tests: `tests/test_session_store.py` (persist/rehydrate/stale); `tests/test_reco
 
 ### Why encryption is needed at all (the question behind this topic)
 
-Not to protect the data. The WLAN is local and camera frames are discarded right after emotion analysis. The single reason is a browser rule: **camera access requires a secure context.** `web/scripts/camera-capture.js:19` aborts before touching the camera when `window.isSecureContext` is false, because `getUserMedia()` is unavailable on a plain-HTTP page served from a LAN IP. There is no flag or exception for this on iPadOS.
+Not to protect the data. The WLAN is local and camera frames are discarded right after emotion analysis. The single reason is a browser rule: **camera access requires a secure context.** The camera/emotion plugin's `ui/camera-capture.js` aborts before touching the camera when `window.isSecureContext` is false, because `getUserMedia()` is unavailable on a plain-HTTP page served from a LAN IP. There is no flag or exception for this on iPadOS.
 
 Everything else in the participant flow already works over plain HTTP (cards, answers, markers, heartbeat) — `STUDY_RUNNER_HTTPS=0` (`runtime_config.py:60`) exists for exactly that. So the certificate is a camera prerequisite, nothing more.
 

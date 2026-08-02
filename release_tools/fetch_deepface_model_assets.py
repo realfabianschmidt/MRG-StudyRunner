@@ -1,7 +1,9 @@
-"""Fetch DeepFace model assets required by offline packaged builds."""
+"""Explicitly provision the separately licensed DeepFace emotion model."""
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
 import shutil
 import sys
 import urllib.request
@@ -9,30 +11,49 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = (
-    REPO_ROOT
-    / "software"
-    / "study_runner"
-    / "integrations"
-    / "local_emotion_worker"
-    / "model_assets"
-)
 EMOTION_MODEL_NAME = "facial_expression_model_weights.h5"
 EMOTION_MODEL_URL = (
     "https://github.com/serengil/deepface_models/releases/download/v1.0/"
     "facial_expression_model_weights.h5"
 )
 MIN_BYTES = 1_000_000
+EXPECTED_SHA256 = "e8e8851d3fa05c001b1c27fd8841dfe08d7f82bb786a53ad8776725b7a1e824c"
+TERMS_URLS = (
+    "https://github.com/serengil/deepface_models",
+    "https://www.robots.ox.ac.uk/~vgg/software/vgg_face/",
+)
+
+
+def default_output() -> Path:
+    configured_data = os.environ.get("STUDY_RUNNER_DATA_DIR", "").strip()
+    storage_root = (
+        Path(configured_data).expanduser()
+        if configured_data
+        else REPO_ROOT / "software"
+    )
+    return (
+        storage_root
+        / "runtime"
+        / "camera_emotion"
+        / "worker"
+        / "deepface_home"
+        / ".deepface"
+        / "weights"
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Fetch DeepFace model assets for offline Study Runner releases."
+        description=(
+            "Provision the optional DeepFace emotion weights after reviewing "
+            "their inherited VGG-Face terms. The model is not part of a Study "
+            "Runner source release."
+        )
     )
     parser.add_argument(
         "--output",
-        default=str(DEFAULT_OUTPUT),
-        help="Output directory for vendored model assets.",
+        default=str(default_output()),
+        help="Runtime DeepFace weights directory (defaults below STUDY_RUNNER_DATA_DIR).",
     )
     parser.add_argument(
         "--source-file",
@@ -40,7 +61,25 @@ def main() -> int:
         help="Copy an already downloaded model file instead of downloading it.",
     )
     parser.add_argument("--force", action="store_true", help="Overwrite an existing valid asset.")
+    parser.add_argument(
+        "--accept-vgg-face-non-commercial-research-terms",
+        action="store_true",
+        help=(
+            "Confirm that you reviewed the upstream model terms and that this "
+            "non-commercial research use is permitted."
+        ),
+    )
     args = parser.parse_args()
+
+    if not args.accept_vgg_face_non_commercial_research_terms:
+        joined = "\n  - ".join(TERMS_URLS)
+        raise SystemExit(
+            "The model is separately licensed and is not distributed with Study Runner.\n"
+            "Review the current terms at:\n"
+            f"  - {joined}\n"
+            "If your use is permitted, rerun with "
+            "--accept-vgg-face-non-commercial-research-terms."
+        )
 
     output_dir = Path(args.output).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -61,9 +100,11 @@ def main() -> int:
 
     print(f"Downloading {EMOTION_MODEL_URL}")
     bytes_downloaded = _download(EMOTION_MODEL_URL, temporary)
-    if bytes_downloaded < MIN_BYTES:
+    if bytes_downloaded < MIN_BYTES or not _valid_asset(temporary):
         temporary.unlink(missing_ok=True)
-        raise SystemExit(f"Downloaded file is too small: {bytes_downloaded} bytes")
+        raise SystemExit(
+            f"Downloaded model failed size/SHA-256 verification: {bytes_downloaded} bytes"
+        )
     temporary.replace(destination)
     print(f"DeepFace emotion model ready: {destination} ({bytes_downloaded} bytes)")
     return 0
@@ -91,9 +132,21 @@ def _download(url: str, destination: Path) -> int:
 
 def _valid_asset(path: Path) -> bool:
     try:
-        return path.is_file() and path.stat().st_size >= MIN_BYTES
+        return (
+            path.is_file()
+            and path.stat().st_size >= MIN_BYTES
+            and _sha256(path) == EXPECTED_SHA256
+        )
     except OSError:
         return False
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 if __name__ == "__main__":

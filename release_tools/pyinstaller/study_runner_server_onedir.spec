@@ -19,7 +19,7 @@ sys.path.insert(0, str(root))
 a = Analysis(
     [str(root / "server.py")],
     pathex=[str(root)],
-    binaries=common_binaries(),
+    binaries=common_binaries(root),
     datas=common_datas(root),
     hiddenimports=common_hidden_imports(),
     hookspath=[],

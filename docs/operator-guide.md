@@ -1,106 +1,158 @@
 # Operator Guide
 
-Study Runner is a local study tool with one admin page, one participant page, and optional built-in plugins for lab integrations.
+Study Runner is a local Python server with an admin page, a participant page,
+and trusted built-in plugins for lab integrations. After the one-time source
+installation, start it with `tools/start-windows.ps1` or
+`bash tools/start-macos.sh`; no virtual-environment activation is needed.
 
 ## Main Parts
 
-The editable program lives in `software/`; Python-only release tooling lives in `release_tools/`.
-
 - `software/server.py`: starts the local server.
-- `software/study_runner/backend/`: backend app and backend services.
-- `software/study_runner/integrations/`: built-in integrations such as BrainBit, MR60, camera emotion, LSL, OSC, LabRecorder, and Notion.
-- `software/study_runner/web/`: browser pages, styles, scripts, cards, and fonts.
-- `software/study_content/settings/`: editable local settings for the active study and plugins.
+- `software/study_runner/backend/`: routes and focused backend services.
+- `software/study_runner/integrations/`: manifest-v3 plugins such as BrainBit,
+  MR60, camera/emotion, Notion, and Nextcloud.
+- `software/study_runner/recording_worker/`: detached Python recording worker.
+- `software/recording_worker/native/`: small native XDF-core source.
+- `software/study_runner/web/`: browser pages, styles, scripts, cards, and
+  locales.
+- `software/study_content/settings/`: active study, machine settings, and local
+  secrets.
 - `software/study_content/studies/`: saved study presets.
-- `software/saved_results/`: participant results and optional sensor sidecar files.
-- `release_tools/pyinstaller/`: PyInstaller build files for the packaged Python app.
-- `release_tools/`: release checks, version bumping, ZIP packaging, and update manifest tools.
-- `docs/`: explanations and project notes.
+- `software/saved_results/`: canonical participant sessions.
+- `docs/plugin-recording-architecture.md`: detailed recording/data contract.
+
+## First Install And Daily Start
+
+From a fresh GitHub checkout, use the platform installer once:
+
+```powershell
+.\tools\install-windows.ps1 -InstallSystemDependencies
+```
+
+```bash
+bash tools/install-macos.sh --install-system-dependencies
+```
+
+The Windows script uses WinGet for Python 3.12, CMake, and the Visual Studio C++
+workload. The macOS script uses Homebrew for Python 3.12/CMake and requires the
+Apple Command Line Tools (`xcode-select --install`). Both create `.venv`,
+install `software/requirements.txt`, build the small native XDF core, run CTest,
+and perform a synthetic XDF smoke test. Re-running the installer repairs or
+updates the environment without deleting study content or results.
+
+The installers resolve requirements through the checked-in CPython 3.12
+compatibility constraints under `software/constraints/`. The common set is
+used everywhere; the local-emotion set is added on Windows x64 and macOS Apple
+Silicon. They pin the release-tested direct and high-risk inference packages,
+not every transitive wheel or its hash. Clean platform release jobs remain the
+final compatibility check.
+
+Daily start:
+
+```powershell
+.\tools\start-windows.ps1
+```
+
+```bash
+bash tools/start-macos.sh
+```
+
+Windows x64 and macOS Intel/Apple Silicon are the supported recording
+platforms. If the core is absent or stale, non-recording studies still run; a
+study requiring recording is blocked with the setup hint. Advanced developers
+can invoke `python tools/setup_recording_worker.py` directly inside the active
+environment.
 
 ## How A Study Run Works
 
-1. The study lead opens `/admin`.
-2. The admin page loads the active study from `software/study_content/settings/study_config.json`.
-3. The study lead edits cards and saves.
-4. The study lead checks the dashboard, selected sensors, LSL markers and LabRecorder/XDF.
-5. A tablet opens the participant page over trusted HTTPS.
-6. The participant enters a Participant ID. A study cannot start without it.
-7. Sensor recording starts with the study start event.
-8. Stimulus cards can send active start and stop events through the plugin registry.
-9. Answers are validated by the backend.
-10. Results are saved locally in `software/saved_results/`.
+1. Start the Python server and open `/admin`.
+2. Load or edit the study.
+3. Confirm required plugin readiness. Every required recording source must be
+   connected, have its XDF segment open, and have delivered a fresh sample.
+4. Open the participant URL on the assigned tablet over trusted HTTPS.
+5. Start the run from Admin. The participant enters the pseudonymous ID.
+6. The detached worker records each plugin to its own XDF, plus the slowest-grid
+   QC backup and hidden marker/clock streams.
+7. Browser timers use real monotonic deadlines. A hidden tab does not pause a
+   stimulus.
+8. On Submit, the participant submission is committed locally. Only then does
+   the completion page appear.
+9. The Admin finalization widget shows freeze, source validation, merge, merge
+   parity, card statistics, manifest, Notion, Nextcloud, and guarded purge.
+10. A valid run ends with `COMPLETE.json`; a quality problem uses
+    `ATTENTION_REQUIRED.json`.
 
-## Dashboard Overrides
+## Plugin-Driven UI
 
-Study settings define the saved sensor defaults for BrainBit, MR60 radar and
-camera emotion. The dashboard can temporarily override those settings for the
-current server session. This is intentional for lab setup and diagnostics.
+The server discovers trusted integration folders and validates their manifests
+before import. Sensor choices, settings, readiness, status, and actions come
+from the public plugin catalog. Notion/Nextcloud may appear only in destination
+settings and finalization. XDF, markers, and clock diagnostics are
+infrastructure and have no separate user menu.
 
-Use the override warning as an operational signal: if a sensor is enabled from
-the dashboard, that effective runtime setting wins until the server is restarted
-or `Reset to study settings` is clicked. The study file is not rewritten unless
-the study is explicitly saved in the editor.
+Camera capture and emotion analysis are one `camera_emotion` plugin. Its local
+and remote workers are operating modes, not additional plugins.
 
-## Camera Emotion And The Emotion Worker
+## Camera And HTTPS
 
-Camera emotion analysis runs in a separate helper process called the
-Local Emotion Worker (it loads the DeepFace model). You normally never
-start it yourself:
+The tablet camera requires HTTPS and trust in the local Study Runner Root CA.
+Camera frames can update the admin monitor before a run; raw frames are not
+stored as session video. During a selected run, derived emotion values are sent
+through the plugin's host LSL bridge.
 
-- It starts automatically when a study with camera emotion enabled runs.
-- The dashboard "Camera emotion" card shows its state in plain language
-  (Running / Starting / Problem, with a suggested fix).
-- If the worker crashes, Study Runner restarts it automatically (up to
-  3 attempts). If it keeps failing, use the dashboard button
-  **Repair DeepFace runtime**: it re-installs the model weights from the
-  bundled copy (or downloads them) and restarts the worker. In packaged
-  builds the repair never runs pip - it only fixes the model cache.
-- The tablet camera needs HTTPS: install and fully trust the Study
-  Runner Root CA on the iPad once (the server prints where the
-  certificate file lives at startup).
+The local DeepFace worker starts and restarts behind `camera_emotion` on Windows
+x64 and macOS Apple Silicon. Current TensorFlow/tf-keras wheels do not provide a
+CPython 3.12 macOS Intel build; on Intel, configure `remote_worker`. This does
+not limit the server or XDF recording. Repair or dependency actions are exposed
+only when declared by the plugin manifest.
 
-Command line flags of the server (useful for diagnosis):
+Useful diagnostic server flags remain:
 
-- `study-runner-server --emotion-worker-self-test --json` - checks that
-  the packaged DeepFace runtime can load the model; prints a JSON
-  verdict and exits 0/1. Run this after installing on a new machine.
-- `study-runner-server --emotion-worker` - runs only the worker process
-  (this is what Study Runner launches internally).
-- `study-runner-server --apply-update` - applies a staged update
-  (used internally by the updater restart).
+- `--emotion-worker-self-test --json`
+- `--emotion-worker`
+- `--apply-update`
 
-## If Something Goes Wrong During A Study
+## If Something Goes Wrong
 
-- Answers are saved to the server after every card
-  (`saved_results/<study>/_partial/`), so a closed tab or a dead tablet
-  battery does not lose the session.
-- If the final save fails, the raw submission is preserved under
-  `saved_results/<study>/_recovery/` and the participant sees a message
-  to call you - their answers stay on the screen.
-- Each result entry contains `data_warnings` naming any sensor that had
-  a gap or dropout while a card was shown.
+- A missing required plugin blocks Start and shows concrete readiness details.
+- A sensor disconnect triggers reconnect attempts and records a visible gap;
+  it does not stop the participant timer.
+- A lost tablet or Flask process starts a 15-minute recording lease. The worker
+  continues and can be reattached after a Flask restart.
+- A worker restart creates a new XDF segment instead of modifying an existing
+  fragment.
+- If the local submission commit fails, the participant completion page is not
+  shown and the current browser/snapshot data stays available.
+- Source, merge, or statistics failure becomes `attention_required`, never
+  silent completion.
+- Notion and Nextcloud failures are independent, persistent, retryable jobs and
+  do not affect the participant screen.
 
-## Desktop Shortcut
+Open the finalization details to inspect warnings and artifacts. Retry the
+specific failed step first. If data loss is real and scientifically acceptable,
+an admin may confirm degraded completion with a written reason. This creates
+`completed_degraded` and preserves the warning in published output.
 
-The Admin hub has a `Create desktop shortcut` button.
+## Data And Purge Safety
 
-- In source mode it creates a shortcut that starts the current checkout with the
-  active Python interpreter.
-- In a packaged release it creates a shortcut to `study-runner-server(.exe)`.
-- No shortcut is created automatically on startup.
+Each repeated participant run receives a new UTC/session-ID folder. Nextcloud
+mirrors only that folder and uploads the completion marker last. Raw source XDFs
+are removed locally only after valid merge parity and SHA-256-verified remote
+copies. Without verified Nextcloud publication, raw sources remain local.
 
-## Plugin Flow
-
-```text
-software/study_runner/backend routes -> software/study_runner/integrations/registry.py -> plugin folder -> adapter or external tool
-```
-
-The registry is explicit. A plugin only becomes active when it is imported and listed in `software/study_runner/integrations/registry.py`.
+The backup XDF is deliberately reduced to the slowest declared rate and is a
+recovery/QC artifact, not a substitute for native raw streams.
 
 ## Where To Change Common Things
 
-- Change a study: use the admin page or edit `software/study_content/settings/study_config.json`.
-- Change plugin settings: use the dashboard controls or edit `software/study_content/settings/hardware_settings.json`.
-- Add a question card type: add a module in `software/study_runner/web/scripts/cards/` and register it in the card index.
-- Add a plugin: add a folder in `software/study_runner/integrations/`, export `PLUGIN` from `plugin.py`, and list it in `software/study_runner/integrations/registry.py`.
-- Build or update the packaged Python server: see `docs/release-and-update.md`.
+- Change a study in Admin or edit `study_config.json`.
+- Change plugin machine settings through the manifest-generated settings UI or
+  `hardware_settings.json`.
+- Add a card type below `web/scripts/cards/` and register the type in the card
+  index.
+- Add a plugin package with `manifest.json` and `plugin.py`; no central sensor
+  import list is needed.
+- Install or repair the complete source environment with the platform script in
+  `tools/`; build only the recording core with
+  `python tools/setup_recording_worker.py`.
+- See `docs/release-and-update.md` for source updates and release acceptance.

@@ -2,156 +2,222 @@
 
 ## Active Study
 
-The active study is stored in `software/study_content/settings/study_config.json`.
+The active study is stored in
+`software/study_content/settings/study_config.json`. Saved presets live in
+`software/study_content/studies/` as `.study-runner` files.
 
-Important fields:
+Plugin choices use the manifest-v3 schema:
 
-- `study_id`: the study label.
-- `questions`: the ordered card list shown to the participant.
-- `study_settings`: study-level options such as sensor use and Notion upload target.
-- `study_settings.sensors`: saved per-study sensor defaults for BrainBit, MR60, and camera emotion.
+```json
+{
+  "study_settings": {
+    "plugins": {
+      "brainbit": {
+        "enabled": true,
+        "required": true,
+        "settings": {}
+      }
+    }
+  }
+}
+```
 
-Saved presets are stored in `software/study_content/studies/` as `.study-runner` files.
+Selected sensors are required unless explicitly made optional. Machine-level
+settings and temporary runtime overrides do not rewrite the saved study unless
+the operator saves it deliberately. Legacy sensor/destination fields are
+normalized when a study is loaded.
 
-The Admin dashboard can apply temporary runtime overrides for sensor integrations during the
-current server session. These overrides do not rewrite the saved study unless the operator
-explicitly saves the study settings in the editor.
+## Canonical Session Data
 
-## Results
+New results use one collision-safe session folder:
 
-Results are stored in `software/saved_results/<study_id>/<participant_id>/`.
+```text
+software/saved_results/
+  <study>/participants/<participant>/sessions/
+    <YYYYMMDDTHHMMSSZ>__<session-id>/
+      submission.json
+      result.json
+      card-summary.json
+      manifest.json
+      checksums.sha256
+      finalization-state.json
+      logs/finalization.jsonl
+      raw/plugins/<plugin>/part-0001.xdf
+      raw/backup/slowest-grid_<rate>hz.xdf
+      derived/session.xdf
+      COMPLETE.json | ATTENTION_REQUIRED.json
+```
 
-The main result file contains:
+The original pseudonymous participant ID is preserved in JSON. Sanitized path
+components, UTC start, and immutable session ID prevent collisions when one
+participant repeats a study. Old flat result folders are not moved and are not
+part of the canonical completed-session browser.
 
-- `participant_id`
-- `study_id`
-- `timestamp_start`
-- `timestamp_end`
-- `answers`
-- `answer_events`
-- `card_events`
-- `answer_details`
+`submission.json` is the atomic local participant commit. `result.json` is the
+published result view. `manifest.json` and `checksums.sha256` record provenance
+and artifact integrity. `finalization-state.json` plus the JSONL log make every
+step and retry replayable after a process restart.
 
-Optional plugin sidecar files may be saved next to the main result file, for example BrainBit or MR60 samples.
+## LSL Acquisition
 
-## Biosignal raw data
+LSL is the common acquisition boundary for recorded sensor and marker streams:
 
-The canonical raw biosignal recording format is XDF, written by LabRecorder from continuous LSL
-streams during the whole survey session:
+- Network-native LAN/WLAN sources publish LSL directly.
+- BLE, serial, local hardware, browser, and adapter sources are republished by a
+  host-side LSL bridge.
+- BLE itself is not an LSL transport.
+- Browser samples require HTTPS, heartbeat, sequence number, and source time.
 
-- BrainBit EEG and derived streams
-- MR60 heart, breath, distance, phase, sequence/drop, and jitter streams
-- Study Runner LSL markers for study, question, and stimulus timing
+Each plugin manifest declares stable stream/source IDs, channel names, units,
+format, nominal rate, and clock domain. Marker and clock-diagnostic streams are
+hidden recording providers and appear exactly once in the merged session.
 
-Compact JSON sidecars are secondary exports. They keep sensor-near samples with server timestamps
-and copy `card_events` so question and stimulus intervals can be reconstructed without opening XDF.
-Question summaries use the card's `shown_at` to `answered_at` interval. Stimulus summaries use
-`active_started_at` to `active_ended_at`.
+## Native Raw XDF
 
-Clock alignment: sensor samples use the server clock, card timestamps come from the tablet. The
-study page estimates the offset between the two clocks (`/api/sync-clock`) and records server-clock
-epochs for every shown/answered moment. Per-card slicing prefers those server-clock epochs, then
-tablet timestamps shifted by the submitted `client_clock_offset_ms`, then raw tablet timestamps as
-a last resort. Each `answer_details` entry records which source was used in
-`biosignal_interval_timing_source` (`server_clock`, `client_clock_plus_offset`, or `client_clock`).
+Each active recording plugin receives its own append-never XDF segments. The
+detached Python worker owns LSL inlets and sends validated batches to the small
+native XDF core. Flask never encodes XDF bytes.
 
-Data completeness: each `answer_details` entry carries `data_warnings` - plain-language notes when
-an enabled sensor delivered nothing during a card, had a long gap (`max_gap_seconds`), or lost
-radio packets (`dropped_in_interval`). Sensor history buffers hold a full session (default 2 hours,
-override with the `STUDY_RUNNER_SENSOR_BUFFER_SECONDS` environment variable); when a card's window
-is older than the buffer, the summary sets `buffer_overflowed: true` instead of silently returning
-partial data. XDF via LabRecorder is unaffected by these buffers.
+A worker restart creates `part-0002.xdf`; it never appends to a potentially
+damaged `part-0001.xdf`. Boundaries and durable flushes limit crash loss. Source
+headers, raw timestamps, native rates, samples, and clock offsets are retained.
 
-Tablet camera emotion has a live-monitor phase and a recording phase:
+The final `derived/session.xdf` combines all source segments without resampling,
+clock synchronization, or dejittering. Validation compares metadata, sample
+counts, raw timestamps, clock offsets, and normalized data hashes against every
+source. A parity failure cannot become a normal completed session.
 
-- Before Participant ID and study start, frames can update the dashboard live monitor but are not
-  written to study results.
-- After study start, emotion samples are saved only when camera emotion is effectively enabled and
-  the active study/card context allows recording.
+## Slowest-Grid Backup
+
+At session start, the worker selects the smallest positive backup rate declared
+by the active sensor plugins. It samples its last-received cache at that shared
+deadline and writes a separate `derived_backup` XDF.
+
+Missing and stale values are not forward-filled. Value channels receive `NaN`;
+companion channels report validity, sample age, sequence, and a status of
+`missing`, `valid`, `stale`, or `degraded`. The backup is useful for recovery and
+quality control, but its reduced rate means it is not equivalent to native raw
+data.
+
+## Card Summaries
+
+`card-summary.json` is derived only from the validated merged XDF and marker
+windows. Windows are half-open: `[start, end)`. Numeric channels include:
+
+- `count`
+- `valid_count`
+- `mean`
+- `min`
+- `max`
+- sample `stddev` (`null` below two valid samples)
+- expected sample count and coverage for regular streams
+- missing/drop count and maximum gap
+- time source and plugin status
+
+Boolean values are treated as 0/1, so their mean is the true proportion.
+Categorical values contain frequencies and a mode. These values are descriptive
+card-level statistics, not a complete EEG, radar, or clinical biosignal
+analysis. The merged and source XDF files remain the scientific basis.
+
+## Camera And Emotion
+
+Camera capture and emotion analysis are one `camera_emotion` plugin. Browser
+capture and local/remote analysis workers are internal modes.
+
+- Before participant ID/study start, frames may update the live admin monitor.
+- During a study, derived emotion samples can be published through the plugin's
+  LSL bridge when selected.
+- Raw camera frames are not stored as session video by this architecture.
+
+Emotion values are research signals, not diagnostic measurements.
+
+## Timer And Clock Metadata
+
+Browser warm-up and stimulus timers use monotonic `performance.now()`
+deadlines. Visual onset records event ID, monotonic time, estimated server time,
+and deadline locally; rendering does not wait for a network response. The
+backend also knows the deadline and closes routing/markers idempotently.
+
+Hidden tabs do not pause a trial. Visibility interruption duration and late
+callback delay are stored as quality metadata. Events are buffered locally and
+retried with their original event IDs and source times.
+
+For scientific streams, original source timestamps, LSL time correction, and
+XDF clock-offset chunks remain authoritative. Browser/server clock estimates
+are event metadata and do not replace those clocks.
+
+## Finalization And Destinations
+
+The participant completion page is shown after the local submission commit,
+not after network uploads. A persistent background state machine then freezes
+recording, validates sources, merges and validates XDF, builds card summaries,
+writes provenance/checksums, and publishes destinations.
+
+Notion reads only `result.json` and `card-summary.json` and upserts by
+`session_id`. Nextcloud mirrors the canonical session path, verifies immutable
+artifacts by SHA-256, and writes the completion marker last.
+
+Raw plugin XDFs can be purged locally only when:
+
+- merge parity passed;
+- the session is fully `completed`, not degraded;
+- Nextcloud was enabled; and
+- every raw source has a verified matching remote SHA-256.
+
+Backup XDF, merged XDF, JSON, checksums, and manifests remain local. Without
+Nextcloud or during an attention/degraded completion, raw sources remain local.
+
+## Failure Meaning
+
+- A missing required plugin blocks participant release.
+- A runtime disconnect creates visible reconnect/gap/drop metadata and an admin
+  warning but does not stop the participant timer.
+- Lost tablet or Flask control starts a 15-minute worker lease. Recording
+  continues, then closes with `attention_required` if control does not return.
+- Flask restart replays journals and reattaches to the worker.
+- Worker/machine crashes preserve readable fragments and use new segments.
+- Missing/corrupt required sources, merge mismatch, or summary failure never
+  becomes silent `completed`.
+- The admin may retry or acknowledge documented loss. Acknowledgement creates
+  `completed_degraded` with a persistent quality warning.
 
 ## Sensor Source Versus Runtime
 
-The lab workspace keeps two intentionally different sensor areas:
+The lab workspace keeps reference hardware material separate from shipped app
+code:
 
-| Area | Purpose | Rule |
-| --- | --- | --- |
-| `../Sensorik/` | Hardware origin, experiments, vendor files, Arduino sketches, TouchDesigner references and notes. | Keep it as a lab reference. Do not assume every file is production-ready app code. |
-| `software/study_runner/integrations/` | Curated runtime code used by Study Runner, tests, packaging and releases. | Only this copy is loaded by the server and shipped in releases. |
+| Area | Purpose |
+| --- | --- |
+| `../Sensorik/` | Vendor files, experiments, firmware references, and lab notes. |
+| `software/study_runner/integrations/` | Trusted, tested runtime plugins discovered and shipped by Study Runner. |
 
-Current mapping:
-
-| Sensor | Origin/reference | Runtime copy |
-| --- | --- | --- |
-| MR60 radar | `../Sensorik/MR60BHA2/` | `software/study_runner/integrations/mr60_mini_radar/` |
-| BrainBit EEG | `../Sensorik/BrainBit/` | `software/study_runner/integrations/brainbit/` |
-| Tablet camera emotion | Browser camera plus server-side DeepFace dependency | `software/study_runner/integrations/tablet_camera_emotion/` and `software/study_runner/integrations/local_emotion_worker/` |
-
-Workflow for new hardware:
-
-1. Put vendor/reference files and rough experiments in `../Sensorik/`.
-2. Promote only the tested runtime subset into `software/study_runner/integrations/<sensor_key>/`.
-3. Add or update tests, operator docs and dashboard status fields.
-4. Release from the integration copy, not from the raw `Sensorik/` experiment folder.
-
-This split keeps the repo usable for non-coders while still preserving hardware
-reference material for lab work.
+Promote only tested runtime files into a plugin package. Add manifest, schema,
+synthetic fixtures, and hardware smoke tests there; do not run experimental
+reference code directly from `Sensorik/`.
 
 ## Research-Grade Boundary
 
-Study Runner is suitable as a research-grade lab tool for local studies. It is
-not a medical device, not a diagnostic system, and not validated for GCP, 21 CFR
-Part 11, HIPAA or clinical-trial source-data compliance.
+The architecture supports good scientific practice through independent raw
+streams, stable identities, explicit timing, durable provenance, reproducible
+derived data, checksums, and visible quality failures. It does not by itself
+make Study Runner a medical device or validate it for GCP, 21 CFR Part 11,
+HIPAA, clinical diagnosis, or a particular institutional protocol.
 
-Strong current points:
+Known boundaries include:
 
-- Participant ID is required before a study can start.
-- LSL/XDF is the primary raw-data path for synchronized multimodal recording.
-- Study Runner markers identify study, question and stimulus timing.
-- JSON result files and sidecars keep card intervals and compact summaries.
-- Camera frames can be monitored before the study but are only recorded after study start.
-
-Known limits:
-
-- No immutable audit trail for every operator action yet.
-- No electronic signatures or role-based approval workflow.
-- BLE, browser and camera timing should be treated as lab timing, not hardware trigger timing.
-- BrainBit, MR60 and DeepFace values are research signals, not clinical measurements.
-- LabRecorder stream visibility should still be checked manually before critical runs.
-- Clock alignment relies on the sync-clock estimate; if it fails, slicing falls back to raw tablet
-  timestamps (visible as `biosignal_interval_timing_source: "client_clock"` in the results).
-- Server timestamps use the wall clock; an NTP time jump during a session can shift intervals.
-- JSON sidecars/summaries come from in-memory buffers sized for one session (default 2 h);
-  sessions longer than the buffer window set `buffer_overflowed` for the oldest cards.
-
-## Browser Cards
-
-Question card modules live in `software/study_runner/web/scripts/cards/`. The type string in the study config must match the card registration in `software/study_runner/web/scripts/cards/index.js`.
-
-Common card types include:
-
-- `participant-id`
-- `stimulus`
-- `likert`
-- `semantic`
-- `choice`
-- `single`
-- `slider`
-- `ranking`
-- `multi-slider`
-- `text`
-- `word-cloud`
-- `mood-meter`
-- `finish`
+- BLE/browser/camera timing is not a physical hardware trigger.
+- Sensor and emotion algorithms require device-specific scientific validation.
+- A machine crash may lose samples since the most recent durable flush.
+- `completed_degraded` data must be interpreted with its quality warnings.
+- Full BIDS compliance is not claimed.
 
 ## Terms
 
-- `API`: a fixed backend route used by the browser, for example `/api/config`.
-- `Backend`: the Python server in `software/study_runner/backend/`.
-- `Frontend`: the browser files in `software/study_runner/web/`.
-- `Plugin`: a built-in integration folder under `software/study_runner/integrations/`.
-- `Adapter`: code inside a plugin that talks to an external tool or device.
-- `Registry`: `software/study_runner/integrations/registry.py`, the explicit list of active built-in plugins.
-- `LSL`: Lab Streaming Layer, used for synchronized markers and streams.
-- `OSC`: Open Sound Control, used for messages to tools such as TouchDesigner.
-- `XDF`: recording format commonly written by LabRecorder.
-- `Materiability`: the project font family stored in `software/study_runner/web/fonts/`.
+- **LSL**: Lab Streaming Layer, the common live stream and clock layer.
+- **XDF**: the canonical multi-stream recording container.
+- **Native XDF**: a plugin's source-rate, non-resampled raw recording.
+- **Derived backup**: the reduced slowest-grid recovery/QC recording.
+- **Plugin catalog**: the validated API-v3 description returned to core/UI.
+- **Recording worker**: the detached Python process that owns LSL inlets and
+  recording orchestration.
+- **XDF core**: the small C-compatible library wrapping the official XDFWriter.

@@ -1,189 +1,180 @@
 # Release And Update
 
-Study Runner is distributed as Python-only PyInstaller one-dir ZIPs. There is
-no active Tauri wrapper in the repository anymore.
+Study Runner currently ships as an auditable Python source-server release. The
+release contains the same source for Windows x64, macOS Intel, and macOS Apple
+Silicon. Each recording computer builds and verifies its small native XDF core
+locally during first install.
 
-## What Users Download
+This release path does not publish an application bundle, installer, Manager,
+PyInstaller server, or automatic updater feed. It needs no Apple signing,
+notarization, updater key, or private release secret. GitHub's built-in token is
+used only to attach validated files to the tagged GitHub Release.
 
-Recommended for non-coders:
+## Release Files
 
-- `study-runner-manager-windows-x86_64.zip`
-- `study-runner-manager-macos-x86_64.zip`
-- `study-runner-manager-macos-arm64.zip`
+The latest GitHub Release provides:
 
-The manager is the Install & Repair Wizard. It installs or repairs the latest
-stable signed Study Runner release, keeps user data in a separate folder, and
-creates a desktop launcher. This is the recommended install path for Windows
-and macOS users who should not handle Python, Pip, Git or DeepFace manually.
+- `study-runner-source.zip` for Windows;
+- `study-runner-source.tar.gz` for macOS;
+- `study-runner-source-release.json` with version, commit, platform, install,
+  recording, and proprietary-license metadata;
+- `SHA256SUMS` for manual integrity verification.
 
-Manual server ZIPs remain available:
+Both archives contain one versioned root folder. They intentionally exclude
+`.git`, `.venv`, generated native libraries, `.build`, results, runtime state,
+credentials, certificates, and private keys. The repository is proprietary and
+all rights are reserved; every archive includes `LICENSE`,
+`THIRD_PARTY_NOTICES.md`, and the required vendored license texts. Separately
+licensed DeepFace model weights and legacy assets without proven release
+provenance are excluded.
 
-- `study-runner-server-windows-x86_64.zip`
-- `study-runner-server-linux-x86_64.zip`
-- `study-runner-server-macos-x86_64.zip`
-- `study-runner-server-macos-arm64.zip`
+## First Install
 
-Users download the ZIP for their platform from:
+Using `git clone` is recommended because later updates are then simple and keep
+ignored local study data in place. The equivalent source archives are available
+from:
 
 ```text
 https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
 ```
 
-For manual server ZIPs, unpack and start:
+Windows PowerShell from a cloned or extracted checkout:
 
-- Windows: `study-runner-server.exe`
-- macOS/Linux: `study-runner-server`
-
-Packaged builds open `/admin` in the default browser automatically. Set
-`STUDY_RUNNER_NO_BROWSER=1` to suppress this.
-
-## Where User Data Lives
-
-Packaged updates must not overwrite user data. Keep writable data outside the
-install folder with `STUDY_RUNNER_DATA_DIR`.
-
-The app stores or reads:
-
-- `settings/study_config.json`
-- `settings/hardware_settings.json`
-- `settings/local_secrets.json`
-- `studies/`
-- `saved_results/`
-- `runtime/local_emotion_worker/`
-- `updates/`
-
-On first start with an external data dir, default settings and example studies
-are copied from the bundled `study_content/` folder only if the destination is
-empty.
-
-## Build Locally
-
-From the repository root:
-
-```bash
-python -m pip install -r software/requirements.txt -r release_tools/pyinstaller/requirements-build.txt
-python release_tools/build_python_onedir.py
-python release_tools/package_python_onedir.py --source software/dist/study-runner-server --output study-runner-server-local.zip
-python release_tools/build_python_onedir.py --spec release_tools/pyinstaller/study_runner_manager_onedir.spec
-python release_tools/package_python_onedir.py --source software/dist/study-runner-manager --output study-runner-manager-local.zip
+```powershell
+.\tools\install-windows.ps1 -InstallSystemDependencies
+.\tools\start-windows.ps1
 ```
 
-The executable name must remain `study-runner-server(.exe)` because the updater
-looks for that file after staging an update.
+macOS after installing the Xcode Command Line Tools and Homebrew:
 
-Do not edit generated files in `software/build/` or `software/dist/` as source
-files. They are build output.
+```bash
+bash tools/install-macos.sh --install-system-dependencies
+bash tools/start-macos.sh
+```
 
-## Release Flow
+The platform installer creates `.venv`, installs
+`software/requirements.txt`, builds the XDF core from the pinned vendored
+LabRecorder/XDFWriter sources, runs CTest, and imports a synthetic merged XDF
+with PyXDF. See `../README.md` for complete WinGet, Homebrew, and Xcode commands.
 
-The release helper is the normal path:
+## Python Dependency Constraints
+
+The source installers and GitHub workflows use the same CPython 3.12 files:
+
+- `software/constraints/py312-bootstrap.txt` for pip itself;
+- `software/constraints/py312-common.txt` for the common server, plugins, and
+  recording validators;
+- `software/constraints/py312-local-emotion.txt` for Windows x64, macOS Apple
+  Silicon, and Linux validation. macOS Intel omits this set and uses
+  `camera_emotion.remote_worker`.
+
+The common file preserves the scientific compatibility pins
+`numpy==1.26.4`, `pylsl==1.18.2`, and `pyxdf==1.16.8`. The files also pin every
+direct requirement and the high-risk local inference stack exercised by the
+release jobs.
+
+This is not a hash-locked dependency graph or offline wheelhouse. Some
+transitive packages and the PyPI artifacts that satisfy them can still change
+or disappear. Consequently, a successful install on one machine is not enough
+to publish: the tag workflow resolves from a clean source archive on every
+supported target and fails before release publication if a compatible wheel or
+combination is unavailable. A future cryptographic lock would require
+platform-specific wheel files and hashes maintained for all three targets.
+
+## Updating A Source Checkout
+
+Stop the server, then run:
+
+```powershell
+git pull --ff-only
+.\tools\install-windows.ps1
+.\tools\start-windows.ps1
+```
+
+or on macOS:
+
+```bash
+git pull --ff-only
+bash tools/install-macos.sh
+bash tools/start-macos.sh
+```
+
+The installer reuses a compatible `.venv`, refreshes dependencies, and only
+rebuilds a missing or stale native core. It never removes study content or
+results. A merge conflict or incompatible virtual environment stops with a
+clear error instead of changing or deleting user files.
+
+A downloaded source archive has no in-app self-update path. For repeated manual
+archive replacement, configure `STUDY_RUNNER_DATA_DIR` outside the extracted
+folder before collecting real data, or copy the old data directory explicitly.
+Never delete an old checkout until its `software/saved_results/` and local
+settings have been secured.
+
+## Creating A Release
+
+The Windows-friendly release helper remains the normal maintainer path:
 
 ```powershell
 .\release.ps1 patch
 ```
 
-It:
+It can also receive `minor`, `major`, or an exact version. Useful checks:
 
-1. bumps `software/study_runner/version.py`,
-2. runs local checks,
-3. commits on `main`,
-4. pushes `main`,
-5. pushes `app-vX.Y.Z`.
+```powershell
+.\release.ps1 patch -DryRun
+.\release.ps1 patch -FullChecks
+```
 
-Only the tag starts the GitHub release workflow. A normal push to `main` is not
-visible to installed apps as an update.
+The helper updates `software/study_runner/version.py`, promotes the current
+`## Unreleased` entries in `CHANGELOG.md` to a dated
+`## X.Y.Z - YYYY-MM-DD` section, creates a fresh empty Unreleased section, runs
+checks, commits the version on `main`, pushes it, and pushes `app-vX.Y.Z`. A
+normal branch push never creates a public release. Release notes are taken from
+the matching version in `CHANGELOG.md`.
 
-## GitHub Actions Output
+## Release Gates
 
-`.github/workflows/release.yml` builds server ZIPs plus manager ZIPs and publishes:
+The tag workflow does not trust a developer's local build directory. It:
 
-- signed server platform ZIPs,
-- manager ZIPs for Windows and macOS,
-- `study-runner-python-latest.json`.
+1. creates ZIP and tar.gz archives from the exact tagged Git commit;
+2. validates their paths, required files, metadata, SHA-256 sums, license, and
+   absence of generated binaries, secrets, and local data;
+3. extracts the clean archive independently on Windows x64, macOS Intel, and
+   macOS Apple Silicon;
+4. runs the real platform install script from each extracted archive;
+5. builds the native core locally and runs native writer, merge, clock-offset,
+   synthetic LSL, and PyXDF smoke tests;
+6. runs the Python, JavaScript, schema, and source-release contract regression
+   suite again on Linux from the extracted archive;
+7. publishes the source archives and metadata only after all three recording
+   platform jobs and the Linux source-regression gate succeed.
 
-The workflow runs the packaged Emotion Worker self-test before packaging the
-server ZIP. The self-test starts the built executable with
-`--emotion-worker-self-test`, seeds the vendored DeepFace model into a temporary
-data-folder cache and loads DeepFace offline. A release must fail if this check
-fails.
+Linux is a source-regression platform, not a supported recording target.
 
-The workflow no longer creates `latest.json`, Tauri installers, Rust bundles, or
-Tauri updater signatures.
+## Local Release Verification
 
-Required release secrets or variables:
-
-- `PYTHON_UPDATER_PUBLIC_KEY`
-- `PYTHON_UPDATER_SIGNING_PRIVATE_KEY`
-
-`PYTHON_UPDATER_PUBLIC_KEY` is not secret and may be stored as a GitHub
-Actions variable or secret. It is embedded into packaged builds so they can
-verify signed update manifests. `PYTHON_UPDATER_SIGNING_PRIVATE_KEY` is secret
-and must only live as a GitHub Actions secret. Never commit private signing
-keys, local certificates, `.env` files, `.pem`, `.pfx`, `.p12` or `.key` files.
-
-## Updating In The App
-
-In a packaged Python build:
-
-1. Open `/admin`.
-2. Click `Check` in the update card.
-3. Click `Download`.
-4. Confirm the download.
-5. After verification, click `Restart`.
-
-The app checks `study-runner-python-latest.json`, downloads the matching ZIP,
-verifies SHA-256 and Ed25519 signature, stages the update, then restarts into the
-staged executable.
-
-Source checkouts show update state but do not self-install. In source mode use:
+Run the application and release tests before tagging:
 
 ```bash
-git pull
-python -m pip install -r software/requirements.txt
-cd software
-python server.py
+python -m pytest software
+python -m unittest -v release_tools.tests.test_build_source_release
+node --test software/tests/js/*.test.mjs
+git diff --check
 ```
 
-or download a fresh release ZIP. If a source checkout has no updater public key,
-that is expected and not a broken installation.
+The source builder can also validate an already generated output directory:
 
-## Packaged DeepFace Repair
-
-Packaged builds bundle DeepFace, TensorFlow/tf-keras, OpenCV and the model
-asset. The dashboard action `Repair DeepFace runtime` must not run `pip install`
-inside a packaged executable. It only repairs the local model cache and restarts
-the worker. If packaged Python dependencies are missing, use the manager action
-`Repair existing installation` to reinstall the app while preserving the data
-folder.
-
-## Install & Repair Wizard
-
-The manager uses `study-runner-python-latest.json` and the embedded updater
-public key to verify the selected server ZIP before installing it. It installs
-into versioned folders such as:
-
-```text
-StudyRunner/app/versions/0.3.1/
-StudyRunner/data/
+```bash
+python release_tools/build_source_release.py --verify-output release-assets
 ```
 
-Repair reinstalls the current release and recreates the desktop launcher. It
-does not delete the data folder. The advanced development mode can clone/pull
-GitHub `main`, but it is not the lab default because it requires local Git,
-Python, and dependency installation.
+## Legacy Packaging Code
 
-## Desktop Shortcut
-
-The Admin hub can create a desktop shortcut on demand:
-
-- Windows: `Study Runner.lnk` on the Desktop.
-- macOS: `Study Runner.command` on the Desktop.
-
-In source mode the shortcut starts `software/server.py` with the current Python
-interpreter. In packaged mode it starts the packaged Python server executable.
-The app does not create shortcuts automatically.
-
-## Legacy Tauri Installs
-
-Old Tauri installations are not migrated automatically. Users should download a
-current Python-only ZIP once, unpack it, and use that build going forward.
+Some PyInstaller, Manager, signing, and packaged-updater helpers remain in
+`release_tools/` for historical reference or possible future non-recording
+experiments. They are not outputs of the active release workflow and must not be
+described as recording-ready. Reintroducing a packaged release requires a new
+explicit acceptance gate for the verified native core, all runtime libraries,
+data-directory preservation, and platform installation behavior. Apple signing
+and notarization can be addressed then; they are deliberately outside the
+current source-server release.

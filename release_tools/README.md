@@ -1,70 +1,92 @@
 # Release Tools
 
-This folder contains the Study Runner release automation for the Python-only app.
+Study Runner releases are source-server releases. They retain the normal Python
+workflow and build the small native XDF core once on the installation machine.
+The GitHub release does not contain a prebuilt core, PyInstaller application,
+signed updater manifest, Apple signature, or notarization ticket.
 
-Recommended Windows entrypoint from the repository root:
+## Create a release
+
+The recommended maintainer command from a clean, up-to-date `main` checkout on
+Windows is:
 
 ```powershell
 .\release.ps1 patch
 ```
 
-Direct Node entrypoint:
+The equivalent direct command is:
 
 ```bash
 node release_tools/release-study-runner.mjs release patch
 ```
 
-The release command bumps `software/study_runner/version.py`, runs local checks,
-commits on `main`, pushes `main`, and pushes an `app-v<version>` tag. GitHub
-Actions builds and publishes the server ZIPs and manager ZIPs after the tag is
-pushed.
+Use `minor`, `major`, or an explicit version such as `0.5.1` instead of
+`patch` when appropriate. The helper:
 
-A normal push to `main` is not an app update. The updater can only see a release
-after the `app-v<version>` tag has been pushed and the GitHub Actions release
-workflow has finished successfully.
+1. updates `software/study_runner/version.py`,
+2. moves the current `CHANGELOG.md` Unreleased content below a dated version
+   heading and creates a fresh empty Unreleased section,
+3. runs checks,
+4. commits and pushes `main`,
+5. creates and pushes the annotated `app-v<version>` tag.
 
-Use a dry run to preview the next version:
+Preview without modifying anything:
 
 ```powershell
 .\release.ps1 patch -DryRun
 ```
 
-Use full local checks when you also want a local PyInstaller one-dir build before
-the tag is pushed:
+Run the local native-core build and smoke test in addition to the normal test
+suite:
 
 ```powershell
 .\release.ps1 patch -FullChecks
 ```
 
-Manual local manager build:
+Full checks require CMake and the current-platform C++ compiler. They do not
+build a desktop bundle. Do not use `-SkipChecks` for a production release.
 
-```powershell
-python release_tools/build_python_onedir.py --spec release_tools/pyinstaller/study_runner_manager_onedir.spec
-python release_tools/package_python_onedir.py --source software/dist/study-runner-manager --output study-runner-manager-local.zip
-```
+## GitHub release gate
 
-The manager is the Install & Repair Wizard. It verifies the signed
-`study-runner-python-latest.json` manifest before installing a server ZIP.
+`.github/workflows/release.yml` is triggered only by `app-v*` tags. It creates
+the source archives from the exact tagged Git tree and verifies installation
+from those archives on:
 
-For offline/lab-ready camera emotion releases, the DeepFace emotion model asset
-is already committed under
-`software/study_runner/integrations/local_emotion_worker/model_assets/`. Fetch a
-fresh copy only when the model asset should be refreshed:
+- Windows x64,
+- macOS Intel,
+- macOS Apple Silicon.
 
-```powershell
-python release_tools/fetch_deepface_model_assets.py
-```
+Each platform runs the real first-install script, builds the local canonical XDF
+core, and runs the native writer/merge/synthetic-LSL tests. The release is
+published only after all three platforms pass. A separate Linux job extracts
+the same archive and runs the full Python, JavaScript, schema, and release-tool
+suite without attempting recording.
 
-The release build includes that `model_assets/` folder, so the dashboard repair
-action can prepare DeepFace without downloading model weights from GitHub on the
-lab computer. The GitHub release workflow also runs
-`study-runner-server --emotion-worker-self-test --json` on the packaged server
-before publishing the ZIP, so a broken DeepFace bundle fails the release.
+Published files are:
 
-Required release secrets or variables:
+- `study-runner-source.zip`,
+- `study-runner-source.tar.gz`,
+- `study-runner-source-release.json`,
+- `SHA256SUMS`.
 
-- `PYTHON_UPDATER_PUBLIC_KEY`
-- `PYTHON_UPDATER_SIGNING_PRIVATE_KEY`
+The JSON identifies the exact tag and commit, records archive sizes and hashes,
+declares the proprietary repository license, and explicitly declares that the
+native core is not bundled and that the artifacts are not compatible with the
+old packaged updater. Release notes are rendered from the matching version
+section in `CHANGELOG.md`.
 
-`PYTHON_UPDATER_PUBLIC_KEY` may be a GitHub variable. The signing private key
-must be a GitHub secret.
+The workflow needs only GitHub's standard `GITHUB_TOKEN` with release-content
+permission. `PYTHON_UPDATER_PUBLIC_KEY`, `PYTHON_UPDATER_SIGNING_PRIVATE_KEY`,
+Apple signing identities, and notarization credentials are not used.
+
+Linux remains useful for Python, JavaScript, schema, and static checks in CI,
+but Linux recording and Linux release acceptance are intentionally unsupported.
+
+## Historical packaging helpers
+
+The remaining PyInstaller, update-manifest, manager, and wheelhouse helpers are
+kept for the separate future packaged distribution track. The source release
+workflow does not call them and makes no compatibility promise for their output.
+
+Never commit private signing keys, certificates, environment files, local
+secrets, study results, or generated `.build`, `build`, and `dist` directories.
