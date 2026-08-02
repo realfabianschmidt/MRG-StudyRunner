@@ -10,11 +10,17 @@ from .services.runtime_config import (
     get_app_mode,
     get_project_base_dir,
     initialize_runtime_storage,
+    is_background_disabled,
     read_server_host,
     read_server_port,
     resolve_runtime_paths,
 )
 from .services.clock_sync_service import ClockSyncService
+from .services.finalization_runtime import configure_finalization
+from .services.recording_runtime import (
+    RecordingRuntimeService,
+    RuntimeRecordingFinalizationAdapter,
+)
 from .services.secrets_service import load_local_secrets
 from .services.sensor_coordinator_service import SensorCoordinator
 from .services.sensor_flush_service import SensorFlushService
@@ -22,6 +28,8 @@ from .services.study_client_service import reset_client_status
 from .services.session_store import SessionStore
 from .services.study_config_service import load_config
 from .services.study_run_state_service import StudyRunStateStore
+from .services.trial_event_service import TrialEventService
+from .services.trial_service import stop_trial_session
 from .services.upload_runtime import configure_upload_jobs
 
 
@@ -97,6 +105,10 @@ def create_app() -> Flask:
     app.config["CLOCK_SYNC_SERVICE"] = ClockSyncService()
     app.config["SENSOR_COORDINATOR"] = SensorCoordinator()
     app.config["SESSION_STORE"] = SessionStore(app.config["DATA_DIR"])
+    app.config["TRIAL_EVENT_SERVICE"] = TrialEventService(
+        app.config["DATA_DIR"],
+        scheduling_enabled=not is_background_disabled(),
+    )
     app.config["STUDY_RUN_STATE"] = StudyRunStateStore(app.config["DATA_DIR"])
     try:
         app.config["STUDY_RUN_STATE"].ensure_loaded(load_config(app.config["CONFIG_FILE"]).get("study_id", ""))
@@ -111,5 +123,55 @@ def create_app() -> Flask:
         initialize_plugins(_integration_context(app))
 
     configure_upload_jobs(app)
+    configured_worker = os.getenv("STUDY_RUNNER_XDF_WORKER", "").strip()
+    recording_runtime = RecordingRuntimeService(
+        app.config["DATA_DIR"],
+        app.config["BASE_DIR"],
+        configured_worker_path=Path(configured_worker) if configured_worker else None,
+    )
+    app.config["RECORDING_RUNTIME_SERVICE"] = recording_runtime
+    app.config["FINALIZATION_RECORDING_ADAPTER"] = RuntimeRecordingFinalizationAdapter(
+        recording_runtime,
+        write_end_marker=lambda context: _write_finalization_end_marker(app, context),
+        stop_producers=lambda context: _stop_finalization_producers(app, context),
+    )
+    configure_finalization(app)
     register_routes(app)
+    app.config["TRIAL_EVENT_SERVICE"].resume_pending(stop_trial_session)
     return app
+
+
+def _write_finalization_end_marker(app: Flask, context) -> dict:
+    """Write the terminal marker before producers and the worker are drained."""
+
+    event = context.submission.get("study_end_event")
+    event = event if isinstance(event, dict) else {}
+    options = {
+        "event_id": str(event.get("event_id") or f"study-end-{context.state['session_id']}"),
+        "session_id": context.state["session_id"],
+        "participant_id": context.state["participant_id"],
+        "study_id": context.state["study_id"],
+        "source_epoch_ms": event.get("source_epoch_ms"),
+        "source_monotonic_ms": event.get("source_monotonic_ms"),
+        "sequence_number": event.get("sequence_number"),
+        "marker_event": "study_end",
+        "phase": "study_end",
+    }
+    with app.app_context():
+        from .services.trial_service import send_trial_marker
+
+        return app.config["TRIAL_EVENT_SERVICE"].execute(
+            options["event_id"],
+            "study_end",
+            options,
+            lambda persisted: send_trial_marker("study_end", persisted),
+        )
+
+
+def _stop_finalization_producers(app: Flask, _context) -> dict:
+    """Stop app-owned producers while retaining XDF inlets until worker freeze."""
+
+    with app.app_context():
+        from .routes.helpers import _stop_study_sensor_runtime
+
+        return _stop_study_sensor_runtime()

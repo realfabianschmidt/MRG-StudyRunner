@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Iterable, Callable
+from typing import Any, Callable, Iterable
 
 from study_runner.integrations.plugin_api import IntegrationContext
 from study_runner.integrations.registry import (
@@ -15,36 +15,57 @@ from study_runner.integrations.registry import (
     run_runtime_action,
 )
 
+from .plugin_health_poll_service import (
+    DEFAULT_MAX_POLL_WORKERS,
+    PluginHealthPoller,
+)
+
 
 class SensorCoordinator:
-    """Central compatibility layer for plugin lifecycle and status diagnostics."""
+    """Central compatibility layer for plugin lifecycle and diagnostics.
+
+    Status reads use a manifest-paced stale-while-revalidate cache, so plugin
+    handlers never execute on the Admin HTTP request thread.
+    """
 
     def __init__(
         self,
         *,
         monotonic_clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
+        max_poll_workers: int = DEFAULT_MAX_POLL_WORKERS,
     ) -> None:
         self._monotonic_clock = monotonic_clock
         self._wall_clock = wall_clock
         self._lock = threading.Lock()
-        self._poll_state: dict[str, dict[str, Any]] = {}
         self._lifecycle_state: dict[str, dict[str, Any]] = {}
+        self._health_poller = PluginHealthPoller(
+            monotonic_clock=monotonic_clock,
+            wall_clock=wall_clock,
+            max_workers=max_poll_workers,
+        )
 
     def build_status(self, context: IntegrationContext) -> dict[str, Any]:
         integrations: dict[str, dict[str, Any]] = {}
         plugins: dict[str, dict[str, Any]] = {}
+        now_monotonic = self._monotonic_clock()
         poll_started_epoch_ms = self._epoch_ms()
 
         for plugin in iter_plugins():
             manifest = get_plugin_manifest(plugin.key)
-            status, coordinator = self._poll_plugin(plugin.key, context, manifest)
-            enriched_status = {
+            status, coordinator = self._health_poller.snapshot(
+                plugin,
+                context,
+                manifest,
+                get_plugin_status,
+                now_monotonic=now_monotonic,
+                now_epoch_ms=poll_started_epoch_ms,
+            )
+            integrations[plugin.key] = {
                 **status,
                 "manifest": manifest,
                 "coordinator": coordinator,
             }
-            integrations[plugin.key] = enriched_status
             plugins[plugin.key] = {
                 "manifest": manifest,
                 "coordinator": coordinator,
@@ -63,6 +84,15 @@ class SensorCoordinator:
             "integrations": integrations,
             "plugins": plugins,
         }
+
+    def close(self, *, wait: bool = False) -> None:
+        self._health_poller.close(wait=wait)
+
+    def __enter__(self) -> SensorCoordinator:
+        return self
+
+    def __exit__(self, _exc_type: Any, _exc: Any, _traceback: Any) -> None:
+        self.close()
 
     def start_selected(
         self,
@@ -134,36 +164,6 @@ class SensorCoordinator:
     def lifecycle_summary(self) -> dict[str, dict[str, Any]]:
         with self._lock:
             return {key: dict(value) for key, value in self._lifecycle_state.items()}
-
-    def _poll_plugin(
-        self,
-        plugin_key: str,
-        context: IntegrationContext,
-        manifest: dict[str, Any],
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        started = self._monotonic_clock()
-        status = get_plugin_status(plugin_key, context)
-        latency_ms = round(max(0.0, self._monotonic_clock() - started) * 1000, 3)
-        timeout_ms = int(manifest.get("request_timeout_ms") or 1000)
-        poll_state = {
-            "poll_interval_ms": int(manifest.get("poll_interval_ms") or 2000),
-            "request_timeout_ms": timeout_ms,
-            "last_poll_epoch_ms": self._epoch_ms(),
-            "last_poll_latency_ms": latency_ms,
-            "last_poll_timed_out": latency_ms > timeout_ms,
-            "clock_domain": manifest.get("clock_domain") or "server",
-            "backpressure": dict(manifest.get("backpressure") or {}),
-            "capabilities": list(manifest.get("capabilities") or []),
-            "stream_count": len(manifest.get("streams") or []),
-        }
-        with self._lock:
-            previous = self._poll_state.get(plugin_key, {})
-            max_latency = max(float(previous.get("max_poll_latency_ms") or 0.0), latency_ms)
-            poll_count = int(previous.get("poll_count") or 0) + 1
-            poll_state["max_poll_latency_ms"] = round(max_latency, 3)
-            poll_state["poll_count"] = poll_count
-            self._poll_state[plugin_key] = dict(poll_state)
-        return status, poll_state
 
     def _epoch_ms(self) -> int:
         return int(round(self._wall_clock() * 1000))

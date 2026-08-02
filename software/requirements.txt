@@ -1,12 +1,20 @@
+# Version ranges remain the application-level dependency declaration. Supported
+# source installs and CI resolve them through software/constraints/py312-*.txt.
 flask>=3.0
 python-osc>=1.8
-pylsl>=1.16
-pyxdf>=1.16
+pylsl==1.18.2
+pyxdf==1.16.8
 pyserial>=3.5
-numpy>=1.26,<2.0
-opencv-python-headless>=4.9
-deepface>=0.0.92
-tf-keras>=2.16
+numpy==1.26.4
+# Install exactly one OpenCV wheel: DeepFace requires opencv-python and the
+# headless distribution shares the same cv2 namespace, so mixing both is unsafe.
+opencv-python>=4.9
+# TensorFlow stopped publishing macOS Intel wheels before Python 3.12. Keep the
+# base server and canonical recording worker installable there; camera_emotion
+# uses its remote_worker mode on Intel Macs. Local DeepFace remains available
+# on Windows x64 and macOS Apple Silicon.
+deepface>=0.0.92; sys_platform != "darwin" or platform_machine != "x86_64"
+tf-keras>=2.16; sys_platform != "darwin" or platform_machine != "x86_64"
 cryptography>=42
 requests>=2.31
 notion-client>=2.2.1

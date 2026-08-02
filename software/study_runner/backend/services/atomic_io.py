@@ -31,9 +31,26 @@ def atomic_write_bytes(path: Path, payload: bytes) -> None:
             file_handle.flush()
             os.fsync(file_handle.fileno())
         os.replace(temp_path, path)
+        _fsync_parent_directory(path.parent)
     except Exception:
         try:
             temp_path.unlink()
         except OSError:
             pass
         raise
+
+
+def _fsync_parent_directory(directory: Path) -> None:
+    """Persist the directory entry after replace on platforms that support it."""
+
+    if os.name == "nt":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        directory_fd = os.open(directory, flags)
+    except OSError:
+        return
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)

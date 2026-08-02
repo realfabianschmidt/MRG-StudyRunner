@@ -95,6 +95,12 @@ def _build_marker(event: str, options: dict) -> str:
     ]
     if options.get("client_trigger_epoch_ms") is not None:
         parts.append(f"client_ms={_marker_value(options.get('client_trigger_epoch_ms'))}")
+    if options.get("event_id"):
+        parts.append(f"event_id={_marker_value(options.get('event_id'))}")
+    if options.get("stimulus_id"):
+        parts.append(f"stimulus_id={_marker_value(options.get('stimulus_id'))}")
+    if options.get("source_epoch_ms") is not None:
+        parts.append(f"source_epoch_ms={_marker_value(options.get('source_epoch_ms'))}")
     return "|".join(parts)
 
 

@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .study_plugin_config import migrate_study_plugin_config
+
 STUDY_FILE_SUFFIXES = (".study-runner", ".json")
 
 
@@ -13,12 +15,7 @@ DEFAULT_STIMULUS_CARD: dict[str, Any] = {
     "duration_ms": 30000,
     "trigger_type": "timer",
     "trigger_content": "",
-    "send_signal": True,
-    "brainbit_to_lsl": True,
-    "brainbit_to_touchdesigner": True,
-    "camera_capture_enabled": False,
-    "camera_snapshot_interval_ms": 1000,
-    "mini_radar_recording_enabled": True,
+    "plugin_actions": {},
 }
 
 
@@ -41,15 +38,7 @@ def normalize_config(config_data: dict[str, Any]) -> dict[str, Any]:
             question_data["type"] = "single"
             question_data.pop("multiple", None)
 
-        if isinstance(question_data, dict) and question_data.get("type") == "stimulus":
-            default_signal = bool(question_data.get("send_signal", True))
-            question_data.setdefault("brainbit_to_lsl", default_signal)
-            question_data.setdefault("brainbit_to_touchdesigner", default_signal)
-            question_data.setdefault("camera_capture_enabled", False)
-            question_data.setdefault("camera_snapshot_interval_ms", 1000)
-            question_data.setdefault("mini_radar_recording_enabled", default_signal)
-
-    return config_data
+    return migrate_study_plugin_config(config_data)
 
 
 def load_config(config_file: Path) -> dict[str, Any]:
@@ -63,8 +52,17 @@ def save_config(config_file: Path, config_data: dict[str, Any]) -> None:
         json.dump(config_data, file_handle, indent=2, ensure_ascii=False)
 
 
-def _normalize_study_id(study_id: str) -> str:
+def normalize_study_id(study_id: str) -> str:
+    """The study's stable key: its filename stem, and its credential key.
+
+    Public because per-study credentials are stored under the same normalized
+    id; if the two ever disagreed, renaming a study would strand its secrets.
+    """
     return "".join(c for c in study_id if c.isalnum() or c in " _-") or "unnamed"
+
+
+# Kept so existing internal callers and any out-of-tree use keep working.
+_normalize_study_id = normalize_study_id
 
 
 def _study_paths_for_id(studies_dir: Path, study_id: str) -> list[Path]:

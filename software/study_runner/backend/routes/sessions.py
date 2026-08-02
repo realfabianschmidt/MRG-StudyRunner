@@ -22,13 +22,16 @@ def admin_sessions():
 
 @bp.route("/api/admin/sessions/<study_id>/<participant_id>", methods=["GET"])
 def admin_session(study_id: str, participant_id: str):
+    if request.args.get("result_file") is not None:
+        return jsonify({"ok": False, "error": "result_file is legacy; use session_id or session_folder."}), 400
     try:
         return jsonify(
             load_session(
                 current_app.config["DATA_DIR"],
                 study_id,
                 participant_id,
-                result_file=request.args.get("result_file"),
+                session_id=request.args.get("session_id"),
+                session_folder=request.args.get("session_folder"),
             )
         )
     except ValueError as error:
@@ -39,6 +42,8 @@ def admin_session(study_id: str, participant_id: str):
 
 @bp.route("/api/admin/sessions/<study_id>/<participant_id>/signals", methods=["GET"])
 def admin_session_signals(study_id: str, participant_id: str):
+    if request.args.get("result_file") is not None:
+        return jsonify({"ok": False, "error": "result_file is legacy; use session_id or session_folder."}), 400
     sensor = str(request.args.get("sensor") or "").strip()
     if not sensor:
         return jsonify({"ok": False, "error": "sensor is required."}), 400
@@ -50,7 +55,8 @@ def admin_session_signals(study_id: str, participant_id: str):
                 study_id,
                 participant_id,
                 sensor,
-                result_file=request.args.get("result_file"),
+                session_id=request.args.get("session_id"),
+                session_folder=request.args.get("session_folder"),
                 max_points=max_points,
             )
         )

@@ -12,6 +12,7 @@
 - certificate.py certificate status and root-CA transfer between computers
 - uploads.py  background upload status/retry and opening result folders
 - recovery.py finalize/discard crash-orphaned sessions
+- finalization.py persistent post-submit state, retry, and degraded approval
 - helpers.py  shared request-context helpers
 
 ``register_routes(app)`` keeps the same entry point the app factory
@@ -21,7 +22,7 @@ from flask import Flask, jsonify
 
 from ..services.trial_service import configure_runtime
 from ..services.validation import ValidationError
-from . import admin, certificate, nextcloud, notion, pages, recovery, results, sensors, sessions, study, update, uploads
+from . import admin, certificate, finalization, nextcloud, notion, pages, plugins, recovery, results, sensors, sessions, study, update, uploads
 
 
 def register_routes(app: Flask) -> None:
@@ -45,6 +46,8 @@ def register_routes(app: Flask) -> None:
     app.register_blueprint(certificate.bp)
     app.register_blueprint(uploads.bp)
     app.register_blueprint(recovery.bp)
+    app.register_blueprint(plugins.bp)
+    app.register_blueprint(finalization.bp)
 
     @app.errorhandler(ValidationError)
     def handle_validation_error(error: ValidationError):

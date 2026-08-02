@@ -13,14 +13,13 @@ from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 
 from ..services.atomic_io import atomic_write_json
+from ..services.finalization_service import SubmissionConflictError
 from ..services.results_service import (
     build_answer_details,
-    build_biosignal_summary,
+    sanitize_canonical_submission_sensor_summaries,
     sanitize_identifier_for_filename,
-    save_results_payload,
 )
 from ..services.secrets_service import redact_hardware_config
-from ..services.sensor_flush_service import discard_session_flush_files
 from ..services.study_config_service import load_config
 from ..services.upload_jobs_service import build_job_metadata
 from ..services.validation import (
@@ -28,7 +27,7 @@ from ..services.validation import (
     validate_and_normalize_config,
     validate_and_normalize_results,
 )
-from .helpers import _complete_study_run, _integration_context, _runtime_hardware_config, _stop_study_session_tracking
+from .helpers import _complete_study_run, _runtime_hardware_config, _stop_study_session_tracking
 
 bp = Blueprint("results", __name__)
 
@@ -156,21 +155,32 @@ def save_results():
         session_id = str(result_payload.get("session_id") or "").strip()
         if session_id:
             validated_results["session_id"] = session_id
+        submission_id = str(validated_results.get("submission_id") or "").strip()
+        validated_results["submission_id"] = submission_id or f"submission-{session_id}"
         validated_results["answer_details"] = build_answer_details(
             validated_results,
             config_data,
             hardware_config,
         )
-        saved_output = save_results_payload(
-            current_app.config["DATA_DIR"],
-            config_data["study_id"],
-            validated_results,
+        validated_results = sanitize_canonical_submission_sensor_summaries(validated_results)
+        safe_hardware_config = redact_hardware_config(
             hardware_config,
-            context=_integration_context(),
+            current_app.config.get("LOCAL_SECRETS", {}),
+            str(config_data.get("study_id") or ""),
+        )
+        tracked_session = current_app.config["SESSION_STORE"].get(session_id) if session_id else None
+        finalization_job = current_app.config["FINALIZATION_SERVICE"].commit_submission(
+            validated_results,
+            config_data=config_data,
+            hardware_config=safe_hardware_config,
+            recording_expected=_recording_expected(config_data),
+            started_at_epoch=(tracked_session or {}).get("started_at_epoch"),
         )
     except ValidationError:
         _write_results_recovery_file(result_payload)
         raise
+    except SubmissionConflictError as error:
+        return jsonify({"ok": False, "error": str(error)}), 409
     except Exception as error:
         recovery_file = _write_results_recovery_file(result_payload)
         print(f"[DATA] Saving results failed: {error}")
@@ -184,33 +194,64 @@ def save_results():
             ),
             500,
         )
-    print(f"[DATA] Saved: {saved_output['json_file']}")
-    if saved_output.get("xdf_file"):
-        print(f"[DATA] XDF: {saved_output['xdf_file']}")
+    print(f"[DATA] Submission committed: {finalization_job['session_path']}")
     session_id = str(result_payload.get("session_id") or "")
-    session_completed = _stop_study_session_tracking(session_id)
-    run_state = _complete_study_run(config_data["study_id"], session_id)
+    # The durable finalization commit above is the acknowledgement boundary.
+    # Bookkeeping failures after that point must never turn a safely committed
+    # submission into an HTTP 500 (which would keep the participant trapped on
+    # the submit screen and invite needless retries).  The idempotent
+    # finalization job remains authoritative and the admin can see these
+    # warnings while the local cleanup is retried on the next request/restart.
+    post_commit_warnings: list[str] = []
+    try:
+        session_completed = _stop_study_session_tracking(session_id)
+    except Exception as error:
+        session_completed = False
+        post_commit_warnings.append(f"session_tracking: {error}")
+        print(f"[DATA] Submission committed, but session tracking cleanup failed: {error}")
+    try:
+        run_state = _complete_study_run(config_data["study_id"], session_id)
+    except Exception as error:
+        run_state = None
+        post_commit_warnings.append(f"study_run_state: {error}")
+        print(f"[DATA] Submission committed, but study-run cleanup failed: {error}")
     _discard_partial_snapshot(result_payload)
-    discard_session_flush_files(
-        current_app.config["DATA_DIR"],
-        str(config_data.get("study_id") or ""),
-        str(result_payload.get("session_id") or ""),
+    # XDF closing, validation, merge, statistics, and network destinations run
+    # from the persistent job after this durable acknowledgement.
+    return (
+        jsonify(
+            {
+                "ok": True,
+                "accepted": True,
+                "finalization_job": finalization_job,
+                "session_completed": session_completed,
+                "study_run_state": run_state,
+                "post_commit_warnings": post_commit_warnings,
+            }
+        ),
+        202,
     )
 
-    # The results are on disk at this point; network work is journaled locally
-    # and the participant receives the response without waiting for it.
-    try:
-        _enqueue_upload_jobs(
-            validated_results,
-            config_data,
-            hardware_config,
-            saved_output,
-        )
-    except Exception as error:
-        # Local results are already durable. A secondary bookkeeping failure
-        # must never turn a successful participant submit into an HTTP 500.
-        print(f"[UPLOADS] Could not prepare upload jobs after save: {error}")
-    return jsonify({"ok": True, **saved_output, "session_completed": session_completed, "study_run_state": run_state})
+
+def _recording_expected(config_data: dict) -> bool:
+    settings = config_data.get("study_settings") or {}
+    plugins = settings.get("plugins")
+    if isinstance(plugins, dict):
+        try:
+            from study_runner.integrations.registry import get_plugin_manifests
+
+            manifests = get_plugin_manifests()
+        except Exception:
+            manifests = {}
+        for plugin_key, selection in plugins.items():
+            if not isinstance(selection, dict) or not selection.get("enabled"):
+                continue
+            capabilities = (manifests.get(str(plugin_key)) or {}).get("capabilities") or {}
+            if "recording_source" in capabilities:
+                return True
+        return False
+    sensors = settings.get("sensors") or {}
+    return bool(settings.get("sensors_enabled") and isinstance(sensors, dict) and any(sensors.values()))
 
 
 def _enqueue_upload_jobs(
@@ -219,8 +260,16 @@ def _enqueue_upload_jobs(
     hardware_config: dict,
     saved_output: dict,
 ) -> tuple[list[dict], list[str]]:
+    """Compatibility publication for pre-v2 recovery artifacts.
+
+    Normal submissions publish only through the persistent finalization state
+    machine. Crash snapshots created by the old flat-result path still call
+    this helper so they can be rescued without pretending they have canonical
+    source or merged XDF artifacts. No RAM-derived biosignal summary is added.
+    """
+
     service = current_app.config["UPLOAD_JOBS_SERVICE"]
-    study_settings = config_data.get("study_settings", {})
+    study_settings = config_data.get("study_settings") or {}
     session_id = str(
         validated_results.get("session_id")
         or Path(str(saved_output.get("json_file") or "")).stem
@@ -229,30 +278,20 @@ def _enqueue_upload_jobs(
     safe_hardware_config = redact_hardware_config(
         hardware_config,
         current_app.config.get("LOCAL_SECRETS", {}),
+        str(config_data.get("study_id") or ""),
     )
-    enriched_output = dict(saved_output)
-    if study_settings.get("notion_enabled"):
-        try:
-            enriched_output["biosignal_summary"] = build_biosignal_summary(
-                hardware_config,
-                saved_output,
-                context=_integration_context(),
-            )
-        except Exception as error:
-            enriched_output["biosignal_summary"] = {}
-            print(f"[UPLOADS] Could not build optional Notion biosignal summary: {error}")
     job_payload = {
         "result_payload": validated_results,
         "hardware_config": safe_hardware_config,
-        "saved_output": enriched_output,
+        "saved_output": dict(saved_output),
         "config_data": config_data,
     }
     metadata = build_job_metadata(validated_results, saved_output)
-    destinations = []
-    if study_settings.get("notion_enabled"):
-        destinations.append(("notion", "Notion"))
-    if study_settings.get("nextcloud_enabled"):
-        destinations.append(("nextcloud", "Nextcloud"))
+    destinations = [
+        (plugin_key, label)
+        for plugin_key, label in (("notion", "Notion"), ("nextcloud", "Nextcloud"))
+        if _destination_selected(study_settings, plugin_key)
+    ]
 
     jobs: list[dict] = []
     errors: list[str] = []
@@ -270,10 +309,16 @@ def _enqueue_upload_jobs(
                 )
             )
         except Exception as error:
-            message = f"{label}: {error}"
-            errors.append(message)
-            print(f"[UPLOADS] Could not queue {message}")
+            errors.append(f"{label}: {error}")
     return jobs, errors
+
+
+def _destination_selected(settings: dict, plugin_key: str) -> bool:
+    plugins = settings.get("plugins") if isinstance(settings, dict) else None
+    selection = plugins.get(plugin_key) if isinstance(plugins, dict) else None
+    if isinstance(selection, dict) and "enabled" in selection:
+        return bool(selection.get("enabled"))
+    return bool(settings.get(f"{plugin_key}_enabled")) if isinstance(settings, dict) else False
 
 
 @bp.route("/api/results/partial", methods=["POST"])

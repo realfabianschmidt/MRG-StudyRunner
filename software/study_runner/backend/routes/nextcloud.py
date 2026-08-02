@@ -33,6 +33,7 @@ def nextcloud_test():
         else resolve_nextcloud_password(
             current_app.config.get("HARDWARE_CONFIG", {}),
             current_app.config.get("LOCAL_SECRETS", {}),
+            str(config_data.get("study_id") or ""),
         )
     )
     try:

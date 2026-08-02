@@ -3,23 +3,35 @@ BrainBit/radar/camera runtime actions, camera frames, Emotion Worker repair."""
 import json
 
 from flask import Blueprint, current_app, jsonify, request
+from werkzeug.exceptions import BadRequest, Forbidden, UnsupportedMediaType
 
 from study_runner.integrations.registry import (
     apply_enabled_runtime,
     get_plugin_status,
+    ingest_participant_payload,
     initialize_plugin,
+    run_admin_action,
+    run_participant_action,
     run_runtime_action,
 )
 from ..services.hardware_settings_service import save_hardware_config
 from ..services.secrets_service import redact_hardware_config
+from ..services.plugin_settings_service import (
+    PluginSettingsError,
+    apply_plugin_settings,
+    build_plugin_settings_schema,
+)
 from ..services.study_sensor_runtime import SESSION_OVERRIDE_KEYS, STUDY_SENSOR_KEYS
 from .helpers import (
     _apply_integration_toggle_to_active_runtime,
     _apply_session_override_runtime,
     _copy_config,
+    _hardware_disabled,
     _integration_context,
     _rebuild_active_study_runtime_config,
     _refresh_trial_runtime,
+    _request_json_object,
+    _require_secure_participant_ingest,
     _save_hardware_secret_payload,
     _sensor_runtime_state,
     _session_overrides,
@@ -30,9 +42,74 @@ from .helpers import (
 bp = Blueprint("sensors", __name__)
 
 
+def _mark_deprecated(response, successor: str):
+    """Annotate a fixed-key compatibility route without changing its payload."""
+
+    flask_response = response[0] if isinstance(response, tuple) else response
+    flask_response.headers["Deprecation"] = "true"
+    flask_response.headers["Warning"] = (
+        f'299 Study-Runner "Deprecated compatibility route; use {successor}"'
+    )
+    flask_response.headers["Link"] = f'<{successor}>; rel="successor-version"'
+    return response
+
+
 @bp.route("/api/hardware-config")
 def get_hardware_config():
     return jsonify(redact_hardware_config(current_app.config.get("HARDWARE_CONFIG", {}), current_app.config.get("LOCAL_SECRETS", {})))
+
+
+@bp.route("/api/admin/plugin-settings", methods=["GET"])
+def get_plugin_settings():
+    """Schema plus the values actually in force right now.
+
+    The effective-value rule (disk wins, manifest default only fills a missing
+    key) lives here on the backend so the UI never has to merge the two.
+    """
+    return jsonify({
+        "ok": True,
+        "plugins": build_plugin_settings_schema(current_app.config.get("HARDWARE_CONFIG", {})),
+    })
+
+
+@bp.route("/api/admin/plugin-settings/<plugin_key>", methods=["POST"])
+def update_plugin_settings(plugin_key):
+    """Write only the named settings, deep-merged into the existing config.
+
+    Deliberately not the whole-document POST /api/hardware-config: a per-panel
+    save through that route would wipe every sibling key it did not know about.
+    """
+    payload = request.get_json(silent=True) or {}
+    updates = payload.get("settings")
+    if not isinstance(updates, dict) or not updates:
+        return jsonify({"ok": False, "error": "settings must be a non-empty object."}), 400
+
+    try:
+        updated_config, restart_required = apply_plugin_settings(
+            current_app.config.get("HARDWARE_CONFIG", {}),
+            plugin_key,
+            updates,
+        )
+    except PluginSettingsError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+
+    save_hardware_config(current_app.config["HARDWARE_CONFIG_FILE"], updated_config)
+    current_app.config["HARDWARE_CONFIG"] = updated_config
+    _refresh_trial_runtime()
+
+    # initialize_plugin() from a route bypasses the startup hardware guard, so
+    # a settings save must not be able to start real devices during tests.
+    if not restart_required and not _hardware_disabled():
+        try:
+            initialize_plugin(plugin_key, _integration_context())
+        except Exception as error:
+            print(f"[SETTINGS] Could not re-initialize {plugin_key}: {error}")
+
+    return jsonify({
+        "ok": True,
+        "restart_required": restart_required,
+        "plugins": build_plugin_settings_schema(updated_config),
+    })
 
 
 @bp.route("/api/hardware-config", methods=["POST"])
@@ -130,8 +207,6 @@ def _run_integration_action_json(integration_key: str, action: str):
             result = coordinator.run_action(integration_key, action, _integration_context())
         else:
             result = run_runtime_action(integration_key, action, _integration_context())
-        if integration_key == "camera_emotion" and str(action).strip().lower() == "stop":
-            current_app.config["CAMERA_PREVIEW_ACTIVE"] = False
         result["temporary_override"] = integration_key in STUDY_SENSOR_KEYS
         result["sensor_runtime"] = _sensor_runtime_state()
         return jsonify(result)
@@ -163,80 +238,24 @@ def restart_brainbit():
 
 @bp.route("/api/admin/brainbit/select-device", methods=["POST"])
 def select_brainbit_device():
-    if current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"):
-        return jsonify(
-            {
-                "ok": True,
-                "study_controlled": True,
-                "message": "BrainBit band selection is locked while a study is running.",
-                "status": get_plugin_status("brainbit", _integration_context()),
-            }
-        )
-
-    payload = request.get_json() or {}
-    if not isinstance(payload, dict):
-        return jsonify({"ok": False, "error": "payload must be a JSON object."}), 400
-
-    serial_number = str(payload.get("serial_number") or payload.get("serial") or "").strip()
-    device_address = str(payload.get("device_address") or payload.get("address") or "").strip()
-    device_name = str(payload.get("device_name") or payload.get("name") or "").strip()
-    raw_index = payload.get("device_index", payload.get("index"))
-    device_index = None
-    if raw_index not in (None, ""):
-        try:
-            device_index = int(raw_index)
-        except (TypeError, ValueError):
-            return jsonify({"ok": False, "error": "device index must be an integer."}), 400
-
-    if not any((serial_number, device_address, device_name, device_index is not None)):
-        return jsonify({"ok": False, "error": "No BrainBit device identity was provided."}), 400
-
-    hardware_config = json.loads(json.dumps(current_app.config.get("HARDWARE_CONFIG", {})))
-    brainbit_config = hardware_config.setdefault("brainbit", {})
-    if not isinstance(brainbit_config, dict):
-        brainbit_config = {}
-        hardware_config["brainbit"] = brainbit_config
-    brainbit_config["serial_number"] = serial_number
-    brainbit_config["device_address"] = device_address
-    brainbit_config["device_name"] = device_name
-    if device_index is not None:
-        brainbit_config["device_index"] = device_index
-
-    save_hardware_config(current_app.config["HARDWARE_CONFIG_FILE"], hardware_config)
-    current_app.config["HARDWARE_CONFIG"] = hardware_config
-    _refresh_trial_runtime()
-
-    restart_result = None
     try:
-        restart_result = run_runtime_action("brainbit", "restart", _integration_context())
-    except Exception as error:
+        payload = _request_json_object()
         return jsonify(
-            {
-                "ok": True,
-                "restart_required": False,
-                "restart_error": str(error),
-                "target_device": {
-                    "serial_number": serial_number,
-                    "address": device_address,
-                    "name": device_name,
-                    "index": device_index,
-                },
-            }
+            run_admin_action(
+                "brainbit",
+                "select_device",
+                _integration_context(machine_admin=True),
+                payload,
+            )
         )
-
-    return jsonify(
-        {
-            "ok": True,
-            "restart_required": False,
-            "target_device": {
-                "serial_number": serial_number,
-                "address": device_address,
-                "name": device_name,
-                "index": device_index,
-            },
-            "restart": restart_result,
-        }
-    )
+    except UnsupportedMediaType as error:
+        return jsonify({"ok": False, "error": error.description}), 415
+    except BadRequest as error:
+        return jsonify({"ok": False, "error": error.description}), 400
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    except Exception as error:
+        return jsonify({"ok": False, "error": str(error)}), 500
 
 
 @bp.route("/api/admin/radar/start", methods=["POST"])
@@ -256,39 +275,107 @@ def restart_mini_radar():
 
 @bp.route("/api/camera/frame", methods=["POST"])
 def process_camera_frame():
-    from study_runner.integrations.tablet_camera_emotion import adapter as camera_affect_adapter
+    """Deprecated fixed-key shim for pre-v3 participant clients."""
 
-    frame_result = camera_affect_adapter.process_frame(request.get_json() or {})
-    return jsonify({"ok": bool(frame_result.get("accepted", False)), **frame_result})
+    successor = "/api/plugins/camera_emotion/participant/ingest/frame"
+    try:
+        _require_secure_participant_ingest("camera_emotion")
+        dispatched = ingest_participant_payload(
+            "camera_emotion",
+            "frame",
+            _integration_context(),
+            _request_json_object(),
+        )
+        frame_result = dispatched.get("result") or {}
+        return _mark_deprecated(
+            jsonify({"ok": bool(dispatched.get("ok", False)), **frame_result}),
+            successor,
+        )
+    except (Forbidden, UnsupportedMediaType, BadRequest) as error:
+        status = (
+            403
+            if isinstance(error, Forbidden)
+            else 415
+            if isinstance(error, UnsupportedMediaType)
+            else 400
+        )
+        return _mark_deprecated(
+            (jsonify({"ok": False, "error": error.description}), status),
+            successor,
+        )
+    except ValueError as error:
+        return _mark_deprecated(
+            (jsonify({"ok": False, "error": str(error)}), 400),
+            successor,
+        )
 
 
 @bp.route("/api/admin/camera/start", methods=["POST"])
 def start_camera_affect():
-    return _run_integration_action_json("camera_emotion", "start")
+    """Deprecated fixed-key shim for the generic runtime action route."""
+
+    return _mark_deprecated(
+        _run_integration_action_json("camera_emotion", "start"),
+        "/api/admin/integrations/camera_emotion/start",
+    )
 
 
 @bp.route("/api/admin/camera/stop", methods=["POST"])
 def stop_camera_affect():
-    return _run_integration_action_json("camera_emotion", "stop")
+    """Deprecated fixed-key shim for the generic runtime action route."""
+
+    return _mark_deprecated(
+        _run_integration_action_json("camera_emotion", "stop"),
+        "/api/admin/integrations/camera_emotion/stop",
+    )
 
 
 @bp.route("/api/admin/camera/live/status")
 def camera_live_status():
-    from study_runner.integrations.tablet_camera_emotion import adapter as camera_affect_adapter
+    """Deprecated fixed-key shim; status is now owned by the plugin."""
 
-    return jsonify(
-        {
-            "ok": True,
-            "active": bool(current_app.config.get("CAMERA_PREVIEW_ACTIVE", False)),
-            **camera_affect_adapter.get_preview_status(),
-        }
+    successor = "/api/admin/status"
+    status = get_plugin_status("camera_emotion", _integration_context())
+    preview = status.get("preview") or {}
+    return _mark_deprecated(
+        jsonify({"ok": True, "active": bool(preview.get("active", False)), **preview}),
+        successor,
     )
+
+
+@bp.route("/api/study/camera-monitor/start", methods=["POST"])
+def start_study_camera_monitor():
+    """Deprecated fixed-key shim for pre-v3 participant extensions."""
+
+    successor = "/api/plugins/camera_emotion/participant/actions/start_monitor"
+    try:
+        dispatched = run_participant_action(
+            "camera_emotion",
+            "start_monitor",
+            _integration_context(),
+            _request_json_object(),
+        )
+        return _mark_deprecated(
+            jsonify({"ok": True, "runtime": dispatched.get("result")}),
+            successor,
+        )
+    except (UnsupportedMediaType, BadRequest) as error:
+        status = 415 if isinstance(error, UnsupportedMediaType) else 400
+        return _mark_deprecated(
+            (jsonify({"ok": False, "error": error.description}), status),
+            successor,
+        )
+    except ValueError as error:
+        return _mark_deprecated(
+            (jsonify({"ok": False, "error": str(error)}), 400),
+            successor,
+        )
 
 
 @bp.route("/api/admin/emotion-worker/repair-runtime", methods=["POST"])
 def repair_emotion_worker_runtime():
     try:
-        from study_runner.integrations.local_emotion_worker import plugin as emotion_worker_plugin
+        from study_runner.integrations.camera_emotion.worker import plugin as emotion_worker_plugin
 
         result = emotion_worker_plugin.repair_runtime(_integration_context())
         return jsonify({"ok": True, **result})
@@ -299,7 +386,7 @@ def repair_emotion_worker_runtime():
 @bp.route("/api/admin/emotion-worker/install-dependencies", methods=["POST"])
 def install_emotion_worker_dependencies():
     try:
-        from study_runner.integrations.local_emotion_worker import plugin as emotion_worker_plugin
+        from study_runner.integrations.camera_emotion.worker import plugin as emotion_worker_plugin
 
         result = emotion_worker_plugin.install_dependencies(_integration_context())
         return jsonify({"ok": True, **result})

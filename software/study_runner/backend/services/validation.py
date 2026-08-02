@@ -11,9 +11,15 @@ Everything raises ValidationError with an operator-readable message.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
+from .study_plugin_config import (
+    PluginConfigError,
+    normalize_card_plugin_actions,
+    normalize_study_settings_plugins,
+)
 from .study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
 
 
@@ -137,9 +143,15 @@ def validate_and_normalize_results(
         card_events=card_events,
     )
 
+    submission_id = _normalize_text(result_payload.get("submission_id"))
+    if len(submission_id) > 200:
+        raise ValidationError("submission_id must not exceed 200 characters.")
+    study_end_event = _validate_study_end_event(result_payload.get("study_end_event"))
+
     return {
         "participant_id": participant_id,
         "study_id": study_config["study_id"],
+        "submission_id": submission_id,
         "timestamp_start": timestamp_start,
         "timestamp_end": timestamp_end,
         # Tablet-vs-server clock offset (server = client + offset), used to
@@ -156,6 +168,41 @@ def validate_and_normalize_results(
         "participant_metadata": participant_metadata,
         "answer_events": answer_events,
         "card_events": card_events,
+        "study_end_event": study_end_event,
+    }
+
+
+def _validate_study_end_event(value: Any) -> dict[str, Any]:
+    if value in (None, {}):
+        return {}
+    if not isinstance(value, dict):
+        raise ValidationError("study_end_event must be a JSON object.")
+    event_id = _normalize_text(value.get("event_id"))
+    if not event_id or len(event_id) > 200:
+        raise ValidationError("study_end_event.event_id is required and must not exceed 200 characters.")
+    sequence = value.get("sequence_number")
+    return {
+        "event_id": event_id,
+        "source_epoch_ms": _normalize_float(
+            value.get("source_epoch_ms"),
+            field_name="study_end_event.source_epoch_ms",
+            minimum=0.0,
+            maximum=100_000_000_000_000.0,
+            allow_none=True,
+        ),
+        "source_monotonic_ms": _normalize_float(
+            value.get("source_monotonic_ms"),
+            field_name="study_end_event.source_monotonic_ms",
+            minimum=0.0,
+            maximum=100_000_000_000_000.0,
+            allow_none=True,
+        ),
+        "sequence_number": _normalize_integer(
+            sequence,
+            field_name="study_end_event.sequence_number",
+            minimum=0,
+            maximum=9_007_199_254_740_991,
+        ) if sequence is not None else None,
     }
 
 
@@ -165,15 +212,14 @@ def validate_and_normalize_trial_options(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValidationError("The trial control payload must be a JSON object.")
 
+    try:
+        # Pass the complete request so one-release legacy fields can be
+        # translated once. Downstream handlers receive only plugin_actions.
+        plugin_actions = normalize_card_plugin_actions(payload)
+    except PluginConfigError as error:
+        raise ValidationError(str(error)) from error
+
     return {
-        "send_signal": _normalize_boolean(payload.get("send_signal", True)),
-        "brainbit_to_lsl": _normalize_boolean(payload.get("brainbit_to_lsl", False)),
-        "brainbit_to_touchdesigner": _normalize_boolean(
-            payload.get("brainbit_to_touchdesigner", False)
-        ),
-        "mini_radar_recording_enabled": _normalize_boolean(
-            payload.get("mini_radar_recording_enabled", False)
-        ),
         "client_trigger_ms": _normalize_float(
             payload.get("client_trigger_ms"),
             field_name="client_trigger_ms",
@@ -195,6 +241,20 @@ def validate_and_normalize_trial_options(payload: Any) -> dict[str, Any]:
             maximum=10_000_000_000_000.0,
             allow_none=True,
         ),
+        "planned_start_epoch_ms": _normalize_float(
+            payload.get("planned_start_epoch_ms"),
+            field_name="planned_start_epoch_ms",
+            minimum=0.0,
+            maximum=10_000_000_000_000.0,
+            allow_none=True,
+        ),
+        "planned_deadline_epoch_ms": _normalize_float(
+            payload.get("planned_deadline_epoch_ms"),
+            field_name="planned_deadline_epoch_ms",
+            minimum=0.0,
+            maximum=10_000_000_000_000.0,
+            allow_none=True,
+        ),
         "study_id": _normalize_text(payload.get("study_id")),
         "participant_id": _normalize_text(payload.get("participant_id")),
         "question_index": _normalize_optional_integer(
@@ -206,6 +266,11 @@ def validate_and_normalize_trial_options(payload: Any) -> dict[str, Any]:
         "question_type": _normalize_question_type(payload.get("question_type")),
         "phase": _normalize_text(payload.get("phase")),
         "marker_event": _normalize_text(payload.get("marker_event") or payload.get("event")),
+        "event_id": _normalize_text(payload.get("event_id")),
+        "stop_event_id": _normalize_text(payload.get("stop_event_id")),
+        "stimulus_id": _normalize_text(payload.get("stimulus_id")),
+        "automatic_deadline": _normalize_boolean(payload.get("automatic_deadline", False)),
+        "plugin_actions": plugin_actions,
     }
 
 
@@ -517,6 +582,59 @@ def _validate_card_events(
                     maximum=10_000_000_000_000.0,
                     allow_none=True,
                 ),
+                "planned_start_epoch_ms": _normalize_float(
+                    raw_event.get("planned_start_epoch_ms"),
+                    field_name="card_event planned_start_epoch_ms",
+                    minimum=0.0,
+                    maximum=10_000_000_000_000.0,
+                    allow_none=True,
+                ),
+                "planned_deadline_epoch_ms": _normalize_float(
+                    raw_event.get("planned_deadline_epoch_ms"),
+                    field_name="card_event planned_deadline_epoch_ms",
+                    minimum=0.0,
+                    maximum=10_000_000_000_000.0,
+                    allow_none=True,
+                ),
+                "stimulus_id": _normalize_text(raw_event.get("stimulus_id")),
+                "start_event_id": _normalize_text(raw_event.get("start_event_id")),
+                "stop_event_id": _normalize_text(raw_event.get("stop_event_id")),
+                "shown_event_id": _normalize_text(raw_event.get("shown_event_id")),
+                "answered_event_id": _normalize_text(raw_event.get("answered_event_id")),
+                "prepare_failed": _normalize_boolean(raw_event.get("prepare_failed", False)),
+                "visibility_interrupted": _normalize_boolean(
+                    raw_event.get("visibility_interrupted", False)
+                ),
+                "visibility_interruption_count": _normalize_integer(
+                    raw_event.get("visibility_interruption_count", 0),
+                    field_name="card_event visibility_interruption_count",
+                    minimum=0,
+                    maximum=10_000,
+                ),
+                "visibility_hidden_duration_ms": _normalize_float(
+                    raw_event.get("visibility_hidden_duration_ms", 0),
+                    field_name="card_event visibility_hidden_duration_ms",
+                    minimum=0.0,
+                    maximum=86_400_000.0,
+                ),
+                "warmup_callback_delay_ms": _normalize_float(
+                    raw_event.get("warmup_callback_delay_ms", 0),
+                    field_name="card_event warmup_callback_delay_ms",
+                    minimum=0.0,
+                    maximum=86_400_000.0,
+                ),
+                "onset_callback_delay_ms": _normalize_float(
+                    raw_event.get("onset_callback_delay_ms", 0),
+                    field_name="card_event onset_callback_delay_ms",
+                    minimum=0.0,
+                    maximum=86_400_000.0,
+                ),
+                "deadline_callback_delay_ms": _normalize_float(
+                    raw_event.get("deadline_callback_delay_ms", 0),
+                    field_name="card_event deadline_callback_delay_ms",
+                    minimum=0.0,
+                    maximum=86_400_000.0,
+                ),
                 "start_marker": _normalize_text(raw_event.get("start_marker")),
                 "stop_marker": _normalize_text(raw_event.get("stop_marker")),
             }
@@ -705,6 +823,10 @@ def _validate_question_by_type(question_data: Any, question_index: int) -> dict[
         )
 
     if question_type == "stimulus":
+        try:
+            plugin_actions = normalize_card_plugin_actions(question_data)
+        except PluginConfigError as error:
+            raise ValidationError(f"Question {question_index} {error}") from error
         return {
             "type": "stimulus",
             "title": _normalize_text(question_data.get("title"), default="Observe the material"),
@@ -726,31 +848,7 @@ def _validate_question_by_type(question_data: Any, question_index: int) -> dict[
                 question_index=question_index,
             ),
             "trigger_content": _normalize_text(question_data.get("trigger_content")),
-            "send_signal": _normalize_boolean(question_data.get("send_signal", True)),
-            "brainbit_to_lsl": _normalize_boolean(
-                question_data.get("brainbit_to_lsl", question_data.get("send_signal", True))
-            ),
-            "brainbit_to_touchdesigner": _normalize_boolean(
-                question_data.get(
-                    "brainbit_to_touchdesigner",
-                    question_data.get("send_signal", True),
-                )
-            ),
-            "camera_capture_enabled": _normalize_boolean(
-                question_data.get("camera_capture_enabled", False)
-            ),
-            "camera_snapshot_interval_ms": _normalize_integer(
-                question_data.get("camera_snapshot_interval_ms", 1000),
-                field_name=f"Question {question_index} camera snapshot interval",
-                minimum=1000,
-                maximum=60_000,
-            ),
-            "mini_radar_recording_enabled": _normalize_boolean(
-                question_data.get(
-                    "mini_radar_recording_enabled",
-                    question_data.get("send_signal", True),
-                )
-            ),
+            "plugin_actions": plugin_actions,
         }
 
     if question_type == "participant-id":
@@ -872,7 +970,7 @@ def _validate_question_by_type(question_data: Any, question_index: int) -> dict[
 
 def _validate_study_settings(value: Any) -> dict[str, Any]:
     if value is None:
-        value = {}
+        value = {"sensors_enabled": False}
     if not isinstance(value, dict):
         raise ValidationError("study_settings must be a JSON object.")
 
@@ -888,16 +986,15 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
                 + "."
             )
 
-    nextcloud_share_link = _normalize_text(value.get("nextcloud_share_link"))
-    if nextcloud_share_link:
-        try:
-            from .nextcloud_service import parse_share_link
+    try:
+        migrated = normalize_study_settings_plugins(value)
+    except PluginConfigError as error:
+        raise ValidationError(str(error)) from error
 
-            parse_share_link(nextcloud_share_link)
-        except ValueError as error:
-            raise ValidationError(f"study_settings.nextcloud_share_link: {error}") from error
+    raw_sensors = migrated.get("sensors")
+    plugins = _validate_plugin_study_settings(migrated["plugins"])
 
-    sensors_enabled = _normalize_boolean(value.get("sensors_enabled", True))
+    sensors_enabled = _normalize_boolean(migrated.get("sensors_enabled", True))
     return {
         "sensors_enabled": sensors_enabled,
         "sensors": normalize_study_sensors(
@@ -906,14 +1003,74 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
                 "sensors": raw_sensors,
             }
         ),
-        "progress_bar_enabled": _normalize_boolean(value.get("progress_bar_enabled", False)),
-        "notion_enabled": _normalize_boolean(value.get("notion_enabled", False)),
-        "notion_parent_page_id": _normalize_text(value.get("notion_parent_page_id")),
-        "notion_database_id": _normalize_text(value.get("notion_database_id")),
-        "notion_data_source_id": _normalize_text(value.get("notion_data_source_id")),
-        "nextcloud_enabled": _normalize_boolean(value.get("nextcloud_enabled", False)),
-        "nextcloud_share_link": nextcloud_share_link,
+        "plugins": plugins,
+        "progress_bar_enabled": _normalize_boolean(migrated.get("progress_bar_enabled", False)),
     }
+
+
+def _validate_plugin_study_settings(
+    plugins: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Validate installed plugin settings from manifest schemas, key-agnostically."""
+
+    from study_runner.integrations.registry import get_plugin_manifests
+
+    manifests = get_plugin_manifests()
+    normalized = deepcopy(plugins)
+    for plugin_key, selection in normalized.items():
+        manifest = manifests.get(plugin_key)
+        if not isinstance(manifest, dict) or not isinstance(selection, dict):
+            continue
+        settings = selection.get("settings")
+        if not isinstance(settings, dict):
+            continue
+        schema = manifest.get("study_settings_schema") or {}
+        for name, raw_value in list(settings.items()):
+            field = schema.get(name)
+            if not isinstance(field, dict):
+                # Preserve settings from a newer manifest during downgrade.
+                continue
+            field_type = str(field.get("type") or "string")
+            path = f"study_settings.plugins.{plugin_key}.settings.{name}"
+            if field_type in {"string", "url", "choice"}:
+                value = _normalize_text(raw_value)
+                if field_type == "choice" and field.get("options") and value not in field["options"]:
+                    raise ValidationError(
+                        f"{path} must be one of: {', '.join(map(str, field['options']))}."
+                    )
+                if field_type == "url" and value:
+                    _validate_manifest_url(value, str(field.get("format") or ""), path)
+                settings[name] = value
+            elif field_type == "boolean":
+                settings[name] = _normalize_boolean(raw_value)
+            elif field_type == "number":
+                try:
+                    value = float(raw_value)
+                except (TypeError, ValueError) as error:
+                    raise ValidationError(f"{path} must be a number.") from error
+                minimum, maximum = field.get("minimum"), field.get("maximum")
+                if minimum is not None and value < float(minimum):
+                    raise ValidationError(f"{path} must be at least {minimum}.")
+                if maximum is not None and value > float(maximum):
+                    raise ValidationError(f"{path} must be at most {maximum}.")
+                settings[name] = int(value) if value.is_integer() else value
+    return normalized
+
+
+def _validate_manifest_url(value: str, format_name: str, path: str) -> None:
+    if format_name == "nextcloud_public_share":
+        try:
+            from .nextcloud_service import parse_share_link
+
+            parse_share_link(value)
+        except ValueError as error:
+            raise ValidationError(f"{path}: {error}") from error
+        return
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValidationError(f"{path} must be an HTTP(S) URL.")
 
 
 def _validate_participant_fields(value: Any, question_index: int) -> dict[str, dict[str, bool]]:

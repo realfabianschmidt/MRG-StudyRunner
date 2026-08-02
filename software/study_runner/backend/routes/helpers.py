@@ -10,15 +10,17 @@ import subprocess
 import sys
 import time
 
-from flask import current_app
+from flask import current_app, request
+from werkzeug.exceptions import BadRequest, Forbidden, UnsupportedMediaType
 
 from study_runner.integrations.registry import (
     apply_enabled_runtime,
     build_context,
+    get_plugin_manifest,
     initialize_plugin,
     run_runtime_action,
 )
-from ..services.hardware_settings_service import set_integration_enabled
+from ..services.hardware_settings_service import save_hardware_config, set_integration_enabled
 from ..services.secrets_service import load_local_secrets, save_local_secrets
 from ..services.session_store import public_session
 from ..services.study_config_service import load_config
@@ -32,7 +34,9 @@ from ..services.study_sensor_runtime import (
 from ..services.trial_service import configure_runtime
 from ..services.validation import validate_and_normalize_config
 
-ACTIVE_RUNTIME_TOGGLE_KEYS = {"lsl", "labrecorder"}
+# Internal marker/clock streams are mandatory recording providers, not
+# operator-toggleable integrations.
+ACTIVE_RUNTIME_TOGGLE_KEYS: set[str] = set()
 
 
 def _hardware_disabled() -> bool:
@@ -45,6 +49,40 @@ def _hardware_disabled() -> bool:
         "yes",
         "on",
     }
+
+
+def _request_json_object() -> dict:
+    """Read an optional JSON object without treating malformed input as empty."""
+
+    body = request.get_data(cache=True)
+    if not body:
+        return {}
+    if not request.is_json:
+        raise UnsupportedMediaType("plugin action payload must use application/json")
+    payload = request.get_json(silent=False)
+    if not isinstance(payload, dict):
+        raise BadRequest("plugin action payload must be a JSON object")
+    return payload
+
+
+def _require_secure_participant_ingest(plugin_key: str) -> None:
+    """Fail closed for plugin inputs whose manifest requires browser HTTPS.
+
+    Study Runner terminates TLS directly and intentionally does not trust
+    forwarded-proto headers. Consequently ``request.is_secure`` reflects the
+    WSGI transport rather than client-controlled proxy headers. A future
+    reverse-proxy deployment must configure a trusted ``ProxyFix`` boundary
+    centrally before those headers can influence this decision.
+    """
+
+    transport = (
+        (get_plugin_manifest(plugin_key).get("capability_config") or {})
+        .get("acquisition_transport", {})
+    )
+    if transport.get("transport") == "browser_https" and not request.is_secure:
+        raise Forbidden(
+            "This participant plugin accepts browser data only over a trusted HTTPS connection."
+        )
 
 
 def _hardware_disabled_result(sensor_key: str) -> dict:
@@ -66,13 +104,37 @@ def _runtime_hardware_config() -> dict:
     return current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG") or _effective_hardware_config_for_current_study()
 
 
-def _integration_context(hardware_config: dict | None = None):
+def _integration_context(
+    hardware_config: dict | None = None,
+    *,
+    machine_admin: bool = False,
+):
+    selected_config = hardware_config
+    persist_hardware_config = None
+    runtime_locked = False
+    if machine_admin:
+        selected_config = json.loads(
+            json.dumps(current_app.config.get("HARDWARE_CONFIG", {}))
+        )
+        runtime_locked = isinstance(
+            current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"),
+            dict,
+        )
+
+        def persist_hardware_config(updated_config: dict) -> None:
+            safe_config = json.loads(json.dumps(updated_config))
+            save_hardware_config(current_app.config["HARDWARE_CONFIG_FILE"], safe_config)
+            current_app.config["HARDWARE_CONFIG"] = safe_config
+            _refresh_trial_runtime()
+
     return build_context(
         base_dir=current_app.config["BASE_DIR"],
         data_dir=current_app.config["DATA_DIR"],
-        hardware_config=hardware_config if hardware_config is not None else _runtime_hardware_config(),
+        hardware_config=selected_config if selected_config is not None else _runtime_hardware_config(),
         local_secrets=current_app.config.get("LOCAL_SECRETS", {}),
         local_secrets_file=current_app.config["LOCAL_SECRETS_FILE"],
+        runtime_locked=runtime_locked,
+        persist_hardware_config=persist_hardware_config,
     )
 
 
@@ -230,8 +292,6 @@ def _apply_session_override_runtime(integration_key: str, enabled: bool) -> dict
                     current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = active_plugins
             else:
                 result = run_runtime_action(integration_key, "stop", context)
-                if integration_key == "camera_emotion":
-                    current_app.config["CAMERA_PREVIEW_ACTIVE"] = False
                 active_plugins = [
                     key for key in list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or [])
                     if key != integration_key
@@ -410,37 +470,6 @@ def _stop_study_sensor_runtime() -> dict:
     current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = []
     _refresh_trial_runtime()
     return {"stopped_plugins": active_plugins, "runtime": results, "coordinator": coordinator_payload}
-
-
-def _start_study_camera_monitor_runtime() -> dict:
-    config_data = _current_config_data()
-    runtime_state = _sensor_runtime_state(config_data.get("study_settings", {}))
-    if not runtime_state["effective"].get("camera_emotion"):
-        return {
-            "ok": True,
-            "skipped": True,
-            "reason": "camera_emotion_not_effective",
-            "sensor_runtime": runtime_state,
-        }
-
-    active_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
-    if isinstance(active_config, dict):
-        context = _integration_context(active_config)
-        initialize_plugin("camera_emotion", context)
-        current_app.config["CAMERA_PREVIEW_ACTIVE"] = True
-        return run_runtime_action("camera_emotion", "start", context)
-
-    monitor_config = _effective_hardware_config_for_current_study(config_data.get("study_settings", {}))
-    camera_config = monitor_config.setdefault("camera_emotion", {})
-    if not isinstance(camera_config, dict):
-        camera_config = {}
-        monitor_config["camera_emotion"] = camera_config
-    camera_config["enabled"] = True
-    current_app.config["CAMERA_PREVIEW_HARDWARE_CONFIG"] = monitor_config
-    current_app.config["CAMERA_PREVIEW_ACTIVE"] = True
-    context = _integration_context(monitor_config)
-    initialize_plugin("camera_emotion", context)
-    return run_runtime_action("camera_emotion", "start", context)
 
 
 def _session_store():

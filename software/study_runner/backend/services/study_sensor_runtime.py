@@ -4,13 +4,23 @@ from copy import deepcopy
 from typing import Any
 
 
-STUDY_SENSOR_KEYS = ("brainbit", "mini_radar", "camera_emotion")
-SESSION_OVERRIDE_KEYS = (*STUDY_SENSOR_KEYS, "lsl", "labrecorder")
-DEFAULT_STUDY_SENSORS = {
-    "brainbit": True,
-    "mini_radar": True,
-    "camera_emotion": False,
-}
+def _study_sensor_contract() -> tuple[tuple[str, ...], dict[str, bool]]:
+    """Read sensor membership and defaults from plugin capabilities."""
+    from study_runner.integrations.registry import get_plugin_manifests
+
+    sensor_keys: list[str] = []
+    defaults: dict[str, bool] = {}
+    for plugin_key, manifest in get_plugin_manifests().items():
+        if "study_sensor" not in set(manifest.get("capabilities") or []):
+            continue
+        sensor_keys.append(plugin_key)
+        config = (manifest.get("capability_config") or {}).get("study_sensor") or {}
+        defaults[plugin_key] = bool(config.get("default_enabled", False))
+    return tuple(sensor_keys), defaults
+
+
+STUDY_SENSOR_KEYS, DEFAULT_STUDY_SENSORS = _study_sensor_contract()
+SESSION_OVERRIDE_KEYS = STUDY_SENSOR_KEYS
 
 
 def normalize_study_sensors(study_settings: dict[str, Any] | None) -> dict[str, bool]:
@@ -18,6 +28,17 @@ def normalize_study_sensors(study_settings: dict[str, Any] | None) -> dict[str, 
     sensors_enabled = _normalize_sensor_bool(settings.get("sensors_enabled", True))
     if not sensors_enabled:
         return {key: False for key in STUDY_SENSOR_KEYS}
+
+    raw_plugins = settings.get("plugins")
+    if isinstance(raw_plugins, dict):
+        return {
+            key: _normalize_sensor_bool(
+                (raw_plugins.get(key) or {}).get("enabled", DEFAULT_STUDY_SENSORS[key])
+            )
+            if isinstance(raw_plugins.get(key), dict)
+            else DEFAULT_STUDY_SENSORS[key]
+            for key in STUDY_SENSOR_KEYS
+        }
 
     raw_sensors = settings.get("sensors")
     if not isinstance(raw_sensors, dict):
@@ -45,14 +66,6 @@ def build_effective_hardware_config(
             effective_config[key] = section
         section["enabled"] = bool(enabled)
 
-    for key in ("lsl", "labrecorder"):
-        if key not in overrides:
-            continue
-        section = effective_config.get(key)
-        if not isinstance(section, dict):
-            section = {}
-            effective_config[key] = section
-        section["enabled"] = bool(overrides[key])
     return effective_config
 
 

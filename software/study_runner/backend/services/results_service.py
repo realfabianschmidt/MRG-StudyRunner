@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -282,7 +283,17 @@ def build_answer_details(
     result_payload: dict[str, Any],
     config_data: dict[str, Any],
     hardware_config: dict[str, Any],
+    *,
+    include_legacy_sensor_summaries: bool = False,
 ) -> list[dict[str, Any]]:
+    """Build answer/timing metadata without creating scientific sensor results.
+
+    Canonical v3 submissions keep sensor statistics out of ``submission.json``
+    and ``result.json``.  Those values are derived later, exclusively from the
+    validated merged XDF, and live in ``card-summary.json``.  The opt-in legacy
+    branch exists only for interrupted pre-v3 recovery artifacts whose RAM
+    buffers may be the sole remaining source.
+    """
     questions = config_data.get("questions", [])
     answers = result_payload.get("answers", {})
     participant_id = result_payload.get("participant_id")
@@ -372,21 +383,69 @@ def build_answer_details(
             "biosignal_interval_timing_source": timing_source,
             "interval_seconds": interval_seconds,
             "seconds_since_previous_answer": interval_seconds,
-            "biosignal_interval": _interval_summary_from_epochs(
+        }
+        if include_legacy_sensor_summaries:
+            entry["biosignal_interval"] = _interval_summary_from_epochs(
                 hardware_config,
                 start_epoch,
                 end_epoch,
-            ),
-        }
+            )
+            entry["biosignal_interval_source"] = "legacy_runtime_memory_noncanonical"
+            entry["data_warnings"] = _build_data_warnings(
+                entry["biosignal_interval"],
+                interval_seconds,
+            )
         if skipped:
             entry["skipped"] = True
         entries.append(entry)
-        entries[-1]["data_warnings"] = _build_data_warnings(
-            entries[-1]["biosignal_interval"],
-            interval_seconds,
-        )
 
     return entries
+
+
+def sanitize_canonical_submission_sensor_summaries(
+    result_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Return a canonical v3 payload with embedded sensor summaries removed.
+
+    This is intentionally a boundary sanitizer, not merely a builder option:
+    callers, tests, recovery replays, or future UI versions may supply stale
+    pre-v3 fields.  Timing metadata and raw card/marker events remain intact;
+    only competing RAM-derived summaries and their RAM-derived warnings are
+    removed.  The authoritative statistics are written separately to
+    ``card-summary.json`` after merged-XDF validation.
+    """
+
+    sanitized = deepcopy(result_payload)
+    for key in (
+        "biosignal_summary",
+        "card_summary",
+        "card_summaries",
+        "sensor_summary",
+        "sensor_statistics",
+    ):
+        sanitized.pop(key, None)
+
+    answer_details = sanitized.get("answer_details")
+    if isinstance(answer_details, list):
+        canonical_details: list[Any] = []
+        for detail in answer_details:
+            if not isinstance(detail, dict):
+                canonical_details.append(detail)
+                continue
+            canonical_detail = dict(detail)
+            for key in (
+                "biosignal_interval",
+                "biosignal_interval_source",
+                "biosignal_summary",
+                "sensor_summary",
+                "sensor_statistics",
+                "data_warnings",
+            ):
+                canonical_detail.pop(key, None)
+            canonical_details.append(canonical_detail)
+        sanitized["answer_details"] = canonical_details
+
+    return sanitized
 
 
 def _question_is_required(question: dict[str, Any]) -> bool:

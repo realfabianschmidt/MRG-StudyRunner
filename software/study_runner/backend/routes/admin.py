@@ -9,7 +9,20 @@ from ..services.admin_status_service import build_admin_status
 from ..services.runtime_config import build_runtime_info
 from ..services.shortcut_service import ShortcutError, create_desktop_shortcut
 from ..services.study_client_service import get_client_status
+from ..services.secrets_service import (
+    NEXTCLOUD_PASSWORD_ENV,
+    NOTION_API_KEY_ENV,
+    load_local_secrets,
+    save_local_secrets,
+)
 from ..services.study_config_service import delete_study, list_studies, load_config, load_study, save_config
+from ..services.study_readiness_service import check_study_readiness, describe_credentials
+from ..services.study_secrets_service import (
+    SECRET_FIELDS,
+    forget_study_secrets,
+    list_study_credential_state,
+    set_study_secret,
+)
 from ..services.study_sensor_runtime import STUDY_SENSOR_KEYS
 from ..services.validation import validate_and_normalize_config
 from .helpers import (
@@ -103,8 +116,102 @@ def admin_get_study(study_id):
 @bp.route("/api/admin/studies/<study_id>", methods=["DELETE"])
 def admin_delete_study(study_id):
     if delete_study(current_app.config["SAVED_STUDIES_DIR"], study_id):
+        # Do not leave a deleted study's credentials on disk forever.
+        _forget_study_credentials(study_id)
         return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "Not found"}), 404
+
+
+_CREDENTIAL_ENV_VARS = {"notion": NOTION_API_KEY_ENV, "nextcloud": NEXTCLOUD_PASSWORD_ENV}
+
+
+def _forget_study_credentials(study_id: str) -> None:
+    secrets = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
+    if forget_study_secrets(secrets, study_id):
+        save_local_secrets(current_app.config["LOCAL_SECRETS_FILE"], secrets)
+        current_app.config["LOCAL_SECRETS"] = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
+
+
+@bp.route("/api/admin/studies/<study_id>/credentials", methods=["GET"])
+def admin_get_study_credentials(study_id):
+    """Report whether each credential is configured and where it comes from.
+
+    Deliberately never returns a value - the operator only needs to know if a
+    key is in place and whether it is this study's own or the shared one.
+    """
+    return jsonify({
+        "ok": True,
+        "study_id": study_id,
+        "credentials": list_study_credential_state(
+            current_app.config.get("HARDWARE_CONFIG", {}),
+            current_app.config.get("LOCAL_SECRETS", {}),
+            study_id,
+            env_vars=_CREDENTIAL_ENV_VARS,
+        ),
+    })
+
+
+@bp.route("/api/admin/studies/<study_id>/credentials", methods=["POST"])
+def admin_set_study_credentials(study_id):
+    """Store or clear this study's own credentials.
+
+    A targeted write, following the brainbit device-selection precedent: only
+    the fields named in the body are touched, never the whole secrets file.
+    """
+    payload = request.get_json(silent=True) or {}
+    secrets = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
+    changed = []
+
+    for kind in SECRET_FIELDS:
+        clear_requested = payload.get(f"clear_{kind}") is True
+        raw_value = payload.get(kind)
+        if not clear_requested and raw_value is None:
+            continue
+        value = "" if clear_requested else str(raw_value or "")
+        try:
+            set_study_secret(secrets, study_id, kind, value)
+        except ValueError as error:
+            return jsonify({"ok": False, "error": str(error)}), 400
+        changed.append(kind)
+
+    if not changed:
+        return jsonify({"ok": False, "error": "No credential was provided."}), 400
+
+    save_local_secrets(current_app.config["LOCAL_SECRETS_FILE"], secrets)
+    current_app.config["LOCAL_SECRETS"] = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
+    # A changed Notion key must not keep serving the cached client.
+    initialize_plugin("notion", _integration_context())
+
+    return jsonify({
+        "ok": True,
+        "changed": changed,
+        "credentials": list_study_credential_state(
+            current_app.config.get("HARDWARE_CONFIG", {}),
+            current_app.config.get("LOCAL_SECRETS", {}),
+            study_id,
+            env_vars=_CREDENTIAL_ENV_VARS,
+        ),
+    })
+
+
+@bp.route("/api/admin/study-readiness", methods=["GET"])
+def admin_study_readiness():
+    """What would stop the loaded study from delivering a complete result."""
+    config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
+    hardware_config = current_app.config.get("HARDWARE_CONFIG", {})
+    local_secrets = current_app.config.get("LOCAL_SECRETS", {})
+    recording_runtime = current_app.config.get("RECORDING_RUNTIME_SERVICE")
+    recording_preflight = (
+        recording_runtime.preflight(config_data, hardware_config) if recording_runtime else None
+    )
+    report = check_study_readiness(
+        config_data,
+        hardware_config,
+        local_secrets,
+        recording_preflight=recording_preflight,
+    )
+    report["credentials"] = describe_credentials(config_data, hardware_config, local_secrets)
+    return jsonify({"ok": True, **report})
 
 
 @bp.route("/api/admin/status")
@@ -123,6 +230,20 @@ def admin_status():
     payload["study_clients"] = get_client_status(
         active_study_id=str(run_state.get("study_id") or ""),
         assigned_client_id=str(run_state.get("active_client_id") or ""),
+    )
+    recording_runtime = current_app.config.get("RECORDING_RUNTIME_SERVICE")
+    payload["recording_infrastructure"] = (
+        recording_runtime.availability()
+        if recording_runtime is not None
+        else {
+            "available": False,
+            "canonical_xdf": False,
+            "supports_merge": False,
+            "reason": "Recording runtime is not configured.",
+        }
+    )
+    payload["recording_worker"] = (
+        recording_runtime.current_status() if recording_runtime is not None else None
     )
     return jsonify(payload)
 
@@ -168,6 +289,28 @@ def admin_start_study_run():
         config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
     except Exception as error:
         return jsonify({"ok": False, "error": str(error)}), 400
+    hardware_config = current_app.config.get("HARDWARE_CONFIG", {})
+    local_secrets = current_app.config.get("LOCAL_SECRETS", {})
+    recording_runtime = current_app.config.get("RECORDING_RUNTIME_SERVICE")
+    readiness = check_study_readiness(
+        config_data,
+        hardware_config,
+        local_secrets,
+        recording_preflight=(
+            recording_runtime.preflight(config_data, hardware_config) if recording_runtime else None
+        ),
+    )
+    if readiness.get("start_blocked"):
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "Required plugins or recording infrastructure are not ready.",
+                    "readiness": readiness,
+                }
+            ),
+            409,
+        )
     client_status = get_client_status(active_study_id=str(config_data["study_id"]))
     tablet_gate = client_status.get("single_tablet", {})
     if not tablet_gate.get("can_start"):
@@ -207,8 +350,6 @@ def reset_session_overrides():
                 run_runtime_action(sensor_key, "start", context)
             else:
                 run_runtime_action(sensor_key, "stop", context)
-                if sensor_key == "camera_emotion":
-                    current_app.config["CAMERA_PREVIEW_ACTIVE"] = False
         except Exception:
             pass
     return jsonify({"ok": True, "sensor_runtime": _sensor_runtime_state()})

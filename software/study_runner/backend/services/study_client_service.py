@@ -1,3 +1,5 @@
+import math
+import re
 import time
 import uuid
 from threading import Lock
@@ -7,6 +9,10 @@ from typing import Any
 STALE_AFTER_SECONDS = 5.0
 HIDE_AFTER_SECONDS = 15.0
 DROP_AFTER_SECONDS = 60.0
+MAX_PLUGIN_STATUSES = 64
+MAX_STATUS_FIELDS = 64
+MAX_STATUS_STRING_LENGTH = 1000
+_PLUGIN_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 _clients: dict[str, dict[str, Any]] = {}
 _lock = Lock()
@@ -26,10 +32,7 @@ def register_heartbeat(payload: dict[str, Any], remote_addr: str | None, user_ag
         "current_index": payload.get("current_index"),
         "current_type": payload.get("current_type"),
         "is_stimulus_active": bool(payload.get("is_stimulus_active", False)),
-        "camera_permission": payload.get("camera_permission", "unknown"),
-        "camera_monitor_requested": bool(payload.get("camera_monitor_requested", False)),
-        "camera_monitor_active": bool(payload.get("camera_monitor_active", False)),
-        "camera_last_error": str(payload.get("camera_last_error") or "").strip(),
+        "plugin_status": _normalize_plugin_status(payload.get("plugin_status")),
         "study_started": bool(payload.get("study_started", False)),
         "study_run_status": str(payload.get("study_run_status") or "").strip(),
         "waiting_for_admin_start": bool(payload.get("waiting_for_admin_start", False)),
@@ -79,10 +82,7 @@ def _public_client_state(client: dict[str, Any], now: float) -> dict[str, Any]:
         "current_index": client.get("current_index"),
         "current_type": client.get("current_type"),
         "is_stimulus_active": client.get("is_stimulus_active", False),
-        "camera_permission": client.get("camera_permission", "unknown"),
-        "camera_monitor_requested": client.get("camera_monitor_requested", False),
-        "camera_monitor_active": client.get("camera_monitor_active", False),
-        "camera_last_error": client.get("camera_last_error", ""),
+        "plugin_status": _normalize_plugin_status(client.get("plugin_status")),
         "study_started": client.get("study_started", False),
         "study_run_status": client.get("study_run_status", ""),
         "waiting_for_admin_start": client.get("waiting_for_admin_start", False),
@@ -107,6 +107,30 @@ def reset_client_status() -> None:
     """
     with _lock:
         _clients.clear()
+
+
+def _normalize_plugin_status(value: Any) -> dict[str, dict[str, Any]]:
+    """Bound the untrusted tablet status payload while keeping it plugin-generic."""
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for raw_key, raw_status in list(value.items())[:MAX_PLUGIN_STATUSES]:
+        plugin_key = str(raw_key or "").strip()
+        if not _PLUGIN_KEY_PATTERN.fullmatch(plugin_key) or not isinstance(raw_status, dict):
+            continue
+        status: dict[str, Any] = {}
+        for raw_field, raw_field_value in list(raw_status.items())[:MAX_STATUS_FIELDS]:
+            field = str(raw_field or "").strip()[:64]
+            if not field:
+                continue
+            if isinstance(raw_field_value, float) and not math.isfinite(raw_field_value):
+                continue
+            if raw_field_value is None or isinstance(raw_field_value, (bool, int, float)):
+                status[field] = raw_field_value
+            elif isinstance(raw_field_value, str):
+                status[field] = raw_field_value[:MAX_STATUS_STRING_LENGTH]
+        normalized[plugin_key] = status
+    return normalized
 
 
 def _drop_old_clients(now: float) -> None:

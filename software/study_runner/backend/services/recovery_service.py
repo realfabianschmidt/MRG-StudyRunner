@@ -80,11 +80,7 @@ def list_recovery_candidates(
     if not data_dir.is_dir():
         return []
 
-    already_saved = {
-        (session["study_id"], session["session_id"])
-        for session in list_sessions(data_dir)
-        if session.get("session_id")
-    }
+    already_saved = _saved_session_identities(data_dir)
     still_resumable = active_session_ids or set()
     stuck_active = set()
     if active_session_states is not None:
@@ -104,6 +100,41 @@ def list_recovery_candidates(
 
     candidates.sort(key=lambda item: str(item.get("last_activity") or ""), reverse=True)
     return candidates
+
+
+def _saved_session_identities(data_dir: Path) -> set[tuple[str, str]]:
+    """Return deduplication identities without re-exposing legacy results.
+
+    The Admin session browser intentionally indexes only canonical v3 session
+    trees. Recovery has a narrower responsibility: it must not offer an old
+    partial snapshot when a result was already written by the legacy flat
+    saver. We therefore inspect those files only for their study/session IDs;
+    they never enter the public session index or browser payload.
+    """
+
+    identities = {
+        (str(session["study_id"]), str(session["session_id"]))
+        for session in list_sessions(data_dir)
+        if session.get("study_id") and session.get("session_id")
+    }
+    for study_dir in data_dir.iterdir():
+        if not study_dir.is_dir() or study_dir.name.startswith("_"):
+            continue
+        for participant_dir in study_dir.iterdir():
+            if (
+                not participant_dir.is_dir()
+                or participant_dir.name.startswith("_")
+                or participant_dir.name == "participants"
+            ):
+                continue
+            for result_path in participant_dir.glob("*.json"):
+                payload = _read_json_object(result_path)
+                if not payload or not isinstance(payload.get("answers"), dict):
+                    continue
+                session_id = str(payload.get("session_id") or "").strip()
+                if session_id:
+                    identities.add((str(payload.get("study_id") or study_dir.name), session_id))
+    return identities
 
 
 def recovery_session_sets(
@@ -179,7 +210,18 @@ def finalize_recovery_candidate(
         answer_events=result_payload.get("answer_events") if isinstance(result_payload.get("answer_events"), list) else [],
         card_events=result_payload.get("card_events") if isinstance(result_payload.get("card_events"), list) else [],
     )
-    result_payload["answer_details"] = build_answer_details(result_payload, config_data, hardware_config)
+    result_payload["answer_details"] = build_answer_details(
+        result_payload,
+        config_data,
+        hardware_config,
+        include_legacy_sensor_summaries=True,
+    )
+    result_payload["sensor_summary_provenance"] = {
+        "classification": "legacy_recovery_noncanonical",
+        "source": "runtime_memory",
+        "canonical": False,
+        "canonical_artifact": "card-summary.json",
+    }
 
     saved_output = save_results_payload(data_dir, study_id, result_payload, hardware_config, context=context)
     _apply_flushed_sidecars(data_dir, study_id, session_id, result_payload, saved_output)

@@ -68,8 +68,10 @@ class UploadJobService:
 
     def register_executor(self, kind: str, executor: Executor) -> None:
         normalized = str(kind or "").strip()
-        if not normalized:
-            raise ValueError("Upload executor kind is required.")
+        if not normalized or not SAFE_JOB_ID.fullmatch(normalized):
+            raise ValueError("Upload executor kind must be a safe non-empty key.")
+        if not callable(executor):
+            raise ValueError("Upload executor must be callable.")
         self._executors[normalized] = executor
 
     def enqueue(
@@ -86,7 +88,7 @@ class UploadJobService:
         created_epoch: float | None = None,
     ) -> dict[str, Any]:
         normalized_kind = str(kind or "").strip()
-        if normalized_kind not in {"notion", "nextcloud"}:
+        if not normalized_kind or not SAFE_JOB_ID.fullmatch(normalized_kind):
             raise UploadJobError(f"Unsupported upload kind: {normalized_kind or '(empty)'}")
         normalized_job_id = str(job_id or uuid.uuid4()).strip()
         if not SAFE_JOB_ID.fullmatch(normalized_job_id):
