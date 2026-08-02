@@ -1,0 +1,13 @@
+{
+  "schema": "study-runner/xdf-core-upstream-lock/v1",
+  "repository": "https://github.com/labstreaminglayer/App-LabRecorder.git",
+  "tag": "v1.17.1",
+  "commit": "8419550553e4336dd46378a9a871b3065a70b895",
+  "hash_normalization": "utf8-lines-to-crlf",
+  "files": {
+    "vendor/App-LabRecorder/LICENSE": "ba6a7531ca31869c4f4909448552323f12c3c74d1ed38aff68313b9536d591dc",
+    "vendor/App-LabRecorder/xdfwriter/conversions.h": "33a5de1a2851aa0adc1d7f7e1b3b8b6b2448f73d46102f2c5951e691d2b66e13",
+    "vendor/App-LabRecorder/xdfwriter/xdfwriter.cpp": "82a11d1290ff441c641fd550c3937a45e84ee81557c9ff00c6ecbb30ef3c3979",
+    "vendor/App-LabRecorder/xdfwriter/xdfwriter.h": "81852d7dc1cc5d40c9ef31d1d5af93310877f17db6c5289d060db8eb9001d646"
+  }
+}
