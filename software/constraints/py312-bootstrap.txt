@@ -1,0 +1,3 @@
+# Bootstrap tool used by the supported Python 3.12 source installers and CI.
+# This is a compatibility constraint, not a hash-locked wheel manifest.
+pip==25.3

@@ -1,0 +1,21 @@
+# Study Runner compatibility constraints for CPython 3.12 on every supported
+# source-server platform. Requirements describe what the application needs;
+# this file freezes the versions exercised by release CI.
+#
+# This is intentionally not a complete or hash-locked transitive dependency
+# graph. PyPI wheel availability and indirect dependencies are still verified
+# by the clean platform jobs in .github/workflows/release.yml.
+Flask==3.0.0
+python-osc==1.9.3
+pylsl==1.18.2
+pyxdf==1.16.8
+pyserial==3.5
+numpy==1.26.4
+opencv-python==4.11.0.86
+cryptography==47.0.0
+requests==2.32.5
+notion-client==3.0.0
+pyneurosdk2==1.0.15
+pyem-st-artifacts==1.0.8
+bleak==3.0.2
+pytest==8.4.2
