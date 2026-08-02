@@ -41,6 +41,9 @@ EXPECTED_ROUTES = {
     ("POST", "/api/admin/emotion-worker/repair-runtime"),
     ("POST", "/api/admin/integrations/<integration_key>/<action>"),
     ("POST", "/api/admin/integrations/<integration_key>/enabled"),
+    ("GET", "/api/admin/plugin-settings"),
+    ("POST", "/api/admin/plugin-settings/<plugin_key>"),
+    ("POST", "/api/admin/plugins/<plugin_key>/actions/<action_key>"),
     ("POST", "/api/admin/radar/restart"),
     ("POST", "/api/admin/radar/start"),
     ("POST", "/api/admin/radar/stop"),
@@ -53,6 +56,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/admin/sessions/<study_id>/<participant_id>"),
     ("GET", "/api/admin/sessions/<study_id>/<participant_id>/signals"),
     ("GET", "/api/admin/status"),
+    ("GET", "/api/admin/study-readiness"),
     ("GET", "/api/admin/study-run"),
     ("POST", "/api/admin/study-run/load"),
     ("POST", "/api/admin/study-run/start"),
@@ -60,6 +64,8 @@ EXPECTED_ROUTES = {
     ("GET", "/api/admin/studies"),
     ("DELETE", "/api/admin/studies/<study_id>"),
     ("GET", "/api/admin/studies/<study_id>"),
+    ("GET", "/api/admin/studies/<study_id>/credentials"),
+    ("POST", "/api/admin/studies/<study_id>/credentials"),
     ("POST", "/api/admin/studies/active"),
     ("POST", "/api/admin/system/create-shortcut"),
     ("POST", "/api/admin/update/check"),
@@ -77,6 +83,15 @@ EXPECTED_ROUTES = {
     ("GET", "/api/notion/status"),
     ("POST", "/api/notion/test"),
     ("POST", "/api/nextcloud/test"),
+    ("GET", "/api/finalization/status"),
+    ("GET", "/api/finalization/<job_id>"),
+    ("POST", "/api/finalization/<job_id>/retry"),
+    ("POST", "/api/finalization/<job_id>/confirm-degraded"),
+    ("POST", "/api/finalization/<job_id>/open-folder"),
+    ("GET", "/api/plugins/catalog"),
+    ("GET", "/api/plugins/<plugin_key>/assets/<path:asset_path>"),
+    ("POST", "/api/plugins/<plugin_key>/participant/actions/<action_key>"),
+    ("POST", "/api/plugins/<plugin_key>/participant/ingest/<ingest_key>"),
     ("POST", "/api/results"),
     ("POST", "/api/results/partial"),
     ("GET", "/api/runtime-info"),
@@ -90,6 +105,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/study/session/start"),
     ("POST", "/api/study/session/stop"),
     ("POST", "/api/sync-clock"),
+    ("POST", "/api/trial/prepare"),
     ("GET", "/audit"),
     ("GET", "/static/<path:filename>"),
 }
@@ -126,9 +142,9 @@ class RouteInventoryTests(unittest.TestCase):
             client = app.test_client()
 
             for path in ("/", "/admin", "/audit"):
-                response = client.get(path)
-                self.assertEqual(response.status_code, 200, path)
-                self.assertIn(b"<", response.data)
+                with client.get(path) as response:
+                    self.assertEqual(response.status_code, 200, path)
+                    self.assertIn(b"<", response.data)
 
             config = client.get("/api/config")
             self.assertEqual(config.status_code, 200)

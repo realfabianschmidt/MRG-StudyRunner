@@ -367,6 +367,13 @@ class ValidationTests(unittest.TestCase):
                 "marker_event": "stimulus_active_start",
                 "clock_offset_ms": 250.5,
                 "client_trigger_epoch_ms": 1760000000123.4,
+                "planned_start_epoch_ms": 1760000000200.0,
+                "planned_deadline_epoch_ms": 1760000030200.0,
+                "event_id": "start-1",
+                "stop_event_id": "stop-1",
+                "stimulus_id": "stimulus-1",
+                "brainbit_to_touchdesigner": False,
+                "camera_snapshot_interval_ms": 1500,
             }
         )
 
@@ -375,6 +382,16 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(options["question_type"], "stimulus")
         self.assertEqual(options["marker_event"], "stimulus_active_start")
         self.assertEqual(options["clock_offset_ms"], 250.5)
+        self.assertEqual(options["event_id"], "start-1")
+        self.assertEqual(options["stop_event_id"], "stop-1")
+        self.assertEqual(options["stimulus_id"], "stimulus-1")
+        self.assertFalse(options["plugin_actions"]["brainbit"]["to_touchdesigner"])
+        self.assertEqual(
+            options["plugin_actions"]["camera_emotion"]["snapshot_interval_ms"],
+            1500,
+        )
+        self.assertNotIn("brainbit_to_touchdesigner", options)
+        self.assertNotIn("camera_snapshot_interval_ms", options)
 
     def test_trial_options_reject_performance_epoch_bridge_as_clock_offset(self) -> None:
         with self.assertRaises(ValidationError):
@@ -447,11 +464,15 @@ class ValidationTests(unittest.TestCase):
             }
         )
 
-        self.assertTrue(config["study_settings"]["nextcloud_enabled"])
+        self.assertTrue(
+            config["study_settings"]["plugins"]["nextcloud"]["enabled"]
+        )
         self.assertEqual(
-            config["study_settings"]["nextcloud_share_link"],
+            config["study_settings"]["plugins"]["nextcloud"]["settings"]["share_link"],
             "https://cloud.example/s/shareToken",
         )
+        self.assertNotIn("nextcloud_enabled", config["study_settings"])
+        self.assertNotIn("nextcloud_share_link", config["study_settings"])
 
         with self.assertRaises(ValidationError):
             validate_and_normalize_config(

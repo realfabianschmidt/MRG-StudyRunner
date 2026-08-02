@@ -18,18 +18,42 @@ from study_runner.backend.services.nextcloud_service import (
 
 
 class FakeResponse:
-    def __init__(self, status_code: int) -> None:
+    def __init__(self, status_code: int, *, headers=None, content: bytes = b"") -> None:
         self.status_code = status_code
+        self.headers = dict(headers or {})
+        self.content = content
+
+    def iter_content(self, chunk_size=1024):
+        del chunk_size
+        yield self.content
 
 
 class FakeSession:
-    def __init__(self, statuses: list[int]) -> None:
+    def __init__(self, statuses: list[int], *, echo_hash: bool = True) -> None:
         self.statuses = list(statuses)
         self.calls: list[dict] = []
+        self.echo_hash = echo_hash
+        self.remote_content: dict[str, bytes] = {}
 
     def request(self, method, url, **kwargs):
         self.calls.append({"method": method, "url": url, **kwargs})
-        return FakeResponse(self.statuses.pop(0))
+        if method == "GET" and url not in self.remote_content:
+            return FakeResponse(404)
+        if method == "DELETE" and url not in self.remote_content:
+            return FakeResponse(404)
+        status = self.statuses.pop(0)
+        if method == "PUT":
+            data = kwargs.get("data")
+            content = data.read() if hasattr(data, "read") else bytes(data or b"")
+            self.remote_content[url] = content
+            headers = {"X-Hash": kwargs.get("headers", {}).get("X-Hash", "")} if self.echo_hash else {}
+            return FakeResponse(status, headers=headers)
+        if method == "GET":
+            return FakeResponse(status, content=self.remote_content.get(url, b""))
+        if method == "DELETE":
+            self.remote_content.pop(url, None)
+            return FakeResponse(status)
+        return FakeResponse(status)
 
 
 class NextcloudServiceTests(unittest.TestCase):
@@ -106,10 +130,79 @@ class NextcloudServiceTests(unittest.TestCase):
         self.assertEqual([item["name"] for item in result["uploaded"]], ["result.json", "signals.xdf"])
         self.assertEqual(
             [call["method"] for call in session.calls],
-            ["PROPFIND", "MKCOL", "MKCOL", "PUT", "PUT"],
+            ["PROPFIND", "MKCOL", "MKCOL", "GET", "PUT", "GET", "PUT"],
         )
         self.assertIn("/Study%20A", session.calls[1]["url"])
         self.assertIn("/P%2001", session.calls[2]["url"])
+        put_calls = [call for call in session.calls if call["method"] == "PUT"]
+        self.assertTrue(all(call["headers"]["X-Hash"].startswith("sha256:") for call in put_calls))
+
+    def test_get_hash_fallback_verifies_remote_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            folder = Path(temp_dir)
+            (folder / "result.json").write_bytes(b"result")
+            session = FakeSession([207, 201, 405, 201, 200], echo_hash=False)
+            client = NextcloudPublicShareClient(
+                "https://cloud.example/s/token",
+                session=session,
+            )
+
+            result = client.upload_session_folder(
+                folder,
+                study_id="study",
+                participant_id="p01",
+            )
+
+        self.assertEqual([call["method"] for call in session.calls][-2:], ["PUT", "GET"])
+        self.assertEqual(result["remote_sha256"]["result.json"], result["uploaded"][0]["sha256"])
+
+    def test_canonical_session_tree_is_recursive_and_completion_marker_is_last(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            folder = Path(temp_dir)
+            (folder / "raw/plugins/sensor").mkdir(parents=True)
+            (folder / "raw/plugins/sensor/part-0001.xdf").write_bytes(b"xdf")
+            (folder / "result.json").write_bytes(b"{}")
+            (folder / "COMPLETE.json").write_bytes(b"{}")
+            # endpoint + five canonical collections + raw/plugins/sensor + 3 PUTs
+            session = FakeSession([207, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201])
+            client = NextcloudPublicShareClient("https://cloud.example/s/token", session=session)
+
+            result = client.upload_session_folder(
+                folder,
+                study_id="Study",
+                participant_id="P01",
+                session_relative_path="Study/participants/P01/sessions/20260731T120000Z__s1",
+            )
+
+        put_urls = [call["url"] for call in session.calls if call["method"] == "PUT"]
+        self.assertTrue(put_urls[-1].endswith("/COMPLETE.json"))
+        self.assertEqual(
+            next(call for call in session.calls if call["method"] == "DELETE")["url"].split("/")[-1],
+            "ATTENTION_REQUIRED.json",
+        )
+        self.assertIn("raw/plugins/sensor/part-0001.xdf", result["remote_sha256"])
+        self.assertEqual(result["remote_path"], "Study/participants/P01/sessions/20260731T120000Z__s1")
+
+    def test_existing_immutable_artifact_with_different_hash_is_never_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            folder = Path(temp_dir)
+            (folder / "result.json").write_bytes(b"new-result")
+            session = FakeSession([207, 201, 405, 200])
+            remote_url = (
+                "https://cloud.example/public.php/dav/files/token/"
+                "study/p01/result.json"
+            )
+            session.remote_content[remote_url] = b"different-existing-result"
+            client = NextcloudPublicShareClient("https://cloud.example/s/token", session=session)
+
+            with self.assertRaisesRegex(Exception, "different content"):
+                client.upload_session_folder(
+                    folder,
+                    study_id="study",
+                    participant_id="p01",
+                )
+
+        self.assertFalse(any(call["method"] == "PUT" for call in session.calls))
 
     def test_authentication_failure_is_plain_and_does_not_echo_secret(self) -> None:
         session = FakeSession([401])

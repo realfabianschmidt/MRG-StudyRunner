@@ -18,6 +18,7 @@ from study_runner.backend import create_app
 from study_runner.backend.services.folder_open_service import (
     FolderOpenError,
     resolve_results_folder,
+    resolve_session_folder,
 )
 from study_runner.backend.services.upload_jobs_service import (
     MAX_RETRY_AGE_SECONDS,
@@ -56,6 +57,28 @@ class UploadJobServiceTests(unittest.TestCase):
             [retry_delay_seconds(attempt) for attempt in range(1, 7)],
             [30, 120, 600, 1800, 3600, 3600],
         )
+
+    def test_registered_fixture_destination_needs_no_service_key_change(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            received = []
+            service = UploadJobService(Path(temp_dir))
+            service.register_executor(
+                "fixture_export",
+                lambda payload: received.append(payload) or {"ok": True},
+            )
+            arguments = {
+                **job_arguments(),
+                "kind": "fixture_export",
+                "label": "Fixture export",
+            }
+            service.enqueue(**arguments)
+
+            self.assertEqual(service.process_due_jobs_once(), 1)
+            self.assertEqual(len(received), 1)
+            self.assertEqual(
+                service.status()["sessions"][0]["jobs"][0]["status"],
+                "done",
+            )
 
     def test_failed_attempt_replays_and_succeeds_when_due(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -181,6 +204,18 @@ class FolderOpenServiceTests(unittest.TestCase):
             self.assertEqual(resolve_results_folder(root, "study", "p01"), expected.resolve())
             with self.assertRaises(FolderOpenError):
                 resolve_results_folder(root, "../study", "p01")
+
+    def test_session_folder_resolution_requires_exact_canonical_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            relative = Path("study") / "participants" / "p01" / "sessions" / "20260731T100000Z__session-1"
+            expected = root / relative
+            expected.mkdir(parents=True)
+
+            self.assertEqual(resolve_session_folder(root, relative.as_posix()), expected.resolve())
+            for unsafe in ("../study", "study/participants/p01", "study/participants/p01/sessions/../../escape"):
+                with self.subTest(path=unsafe), self.assertRaises(FolderOpenError):
+                    resolve_session_folder(root, unsafe)
 
 
 class UploadRoutesTests(unittest.TestCase):

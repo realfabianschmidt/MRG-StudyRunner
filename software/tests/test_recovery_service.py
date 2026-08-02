@@ -242,6 +242,21 @@ class RecoveryServiceTests(unittest.TestCase):
         saved = json.loads(json_file.read_text(encoding="utf-8"))
         self.assertTrue(saved["recovered"])
         self.assertEqual(saved["answers"], {"q1": "great"})
+        self.assertEqual(
+            saved["sensor_summary_provenance"],
+            {
+                "classification": "legacy_recovery_noncanonical",
+                "source": "runtime_memory",
+                "canonical": False,
+                "canonical_artifact": "card-summary.json",
+            },
+        )
+        self.assertTrue(
+            all(
+                detail.get("biosignal_interval_source") == "legacy_runtime_memory_noncanonical"
+                for detail in saved["answer_details"]
+            )
+        )
         # participant-id (index 0) + the one likert question (index 1); finish is never an entry.
         self.assertEqual(len(saved["answer_details"]), 2)
 

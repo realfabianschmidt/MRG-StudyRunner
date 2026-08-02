@@ -46,6 +46,12 @@ def _load_sensor_study(client) -> None:
             "study_settings": {
                 "sensors_enabled": True,
                 "sensors": {"brainbit": True, "mini_radar": False, "camera_emotion": False},
+                # This test exercises sensor-runtime recovery, not the native
+                # XDF release gate. Optional keeps that independent contract
+                # runnable without a packaged worker binary.
+                "plugins": {
+                    "brainbit": {"enabled": True, "required": False, "settings": {}},
+                },
             },
             "questions": [
                 {"type": "participant-id"},

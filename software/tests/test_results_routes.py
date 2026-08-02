@@ -39,21 +39,17 @@ class ResultsRoutesTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=False):
             return create_app()
 
-    def _results_patches(self, save_results_payload):
+    def _results_patches(self):
         return (
             patch("study_runner.backend.routes.results.load_config", return_value={}),
             patch("study_runner.backend.routes.results.validate_and_normalize_config", return_value=dict(CONFIG_DATA)),
             patch("study_runner.backend.routes.results.validate_and_normalize_results", return_value=dict(VALIDATED_RESULTS)),
             patch("study_runner.backend.routes.results.build_answer_details", return_value=[]),
-            patch("study_runner.backend.routes.results.save_results_payload", save_results_payload),
         )
 
     def test_save_failure_returns_500_and_preserves_raw_payload(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             app = self._make_app(data_dir)
-
-            def broken_save(*args, **kwargs):
-                raise OSError("disk full")
 
             submission = {
                 "session_id": "sess-1",
@@ -61,8 +57,11 @@ class ResultsRoutesTests(unittest.TestCase):
                 "participant_id": "p01",
                 "answers": {"q0": 3},
             }
-            patches = self._results_patches(broken_save)
-            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            patches = self._results_patches()
+            with (
+                patches[0], patches[1], patches[2], patches[3],
+                patch.object(app.config["FINALIZATION_SERVICE"], "commit_submission", side_effect=OSError("disk full")),
+            ):
                 response = app.test_client().post("/api/results", json=submission)
 
             payload = response.get_json()
@@ -94,15 +93,12 @@ class ResultsRoutesTests(unittest.TestCase):
             self.assertEqual(len(candidates), 1, f"expected one snapshot, found: {candidates}")
             snapshot_path = candidates[0]
 
-            def working_save(*args, **kwargs):
-                return {"json_file": "teststudy/p01/p01.json", "xdf_file": None}
-
             submission = {**partial, "timestamp_start": "2026-07-10T10:00:00Z", "timestamp_end": "2026-07-10T10:05:00Z"}
-            patches = self._results_patches(working_save)
-            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            patches = self._results_patches()
+            with patches[0], patches[1], patches[2], patches[3]:
                 response = client.post("/api/results", json=submission)
 
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 202)
             self.assertTrue(response.get_json()["ok"])
             self.assertFalse(snapshot_path.exists(), "partial snapshot should be removed after final save")
 
@@ -124,9 +120,6 @@ class ResultsRoutesTests(unittest.TestCase):
             self.assertEqual(start.status_code, 200)
             session_id = start.get_json()["session"]["session_id"]
 
-            def working_save(*args, **kwargs):
-                return {"json_file": "teststudy/p01/p01.json", "xdf_file": None}
-
             submission = {
                 "session_id": session_id,
                 "study_id": "teststudy",
@@ -134,19 +127,53 @@ class ResultsRoutesTests(unittest.TestCase):
                 "timestamp_start": "2026-07-10T10:00:00Z",
                 "timestamp_end": "2026-07-10T10:05:00Z",
             }
-            patches = self._results_patches(working_save)
-            with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            patches = self._results_patches()
+            with patches[0], patches[1], patches[2], patches[3]:
                 response = client.post("/api/results", json=submission)
 
             payload = response.get_json()
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 202)
             self.assertTrue(payload["ok"])
             self.assertTrue(payload["session_completed"])
             self.assertEqual(payload["study_run_state"]["status"], "completed")
             self.assertEqual(app.config["SESSION_STORE"].get(session_id)["status"], "completed")
             self.assertIsNone(app.config["SESSION_STORE"].find_active("teststudy", "p01", "tablet-1"))
 
-    def test_successful_save_only_journals_uploads_and_returns_without_network_calls(self) -> None:
+    def test_post_commit_bookkeeping_failure_does_not_revoke_accepted_submission(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            app = self._make_app(data_dir)
+            patches = self._results_patches()
+            with (
+                patches[0],
+                patches[1],
+                patches[2],
+                patches[3],
+                patch(
+                    "study_runner.backend.routes.results._stop_study_session_tracking",
+                    side_effect=OSError("session journal busy"),
+                ),
+                patch(
+                    "study_runner.backend.routes.results._complete_study_run",
+                    side_effect=OSError("run journal busy"),
+                ),
+            ):
+                response = app.test_client().post(
+                    "/api/results",
+                    json={
+                        "session_id": "sess-post-commit",
+                        "study_id": "teststudy",
+                        "participant_id": "p01",
+                    },
+                )
+
+            payload = response.get_json()
+            self.assertEqual(response.status_code, 202)
+            self.assertTrue(payload["accepted"])
+            self.assertFalse(payload["session_completed"])
+            self.assertIsNone(payload["study_run_state"])
+            self.assertEqual(len(payload["post_commit_warnings"]), 2)
+
+    def test_successful_save_only_commits_finalization_and_returns_without_network_calls(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             app = self._make_app(data_dir)
             app.config["HARDWARE_CONFIG"] = {
@@ -166,13 +193,6 @@ class ResultsRoutesTests(unittest.TestCase):
                 },
             }
 
-            def working_save(*args, **kwargs):
-                return {
-                    "participant_dir": "saved_results/teststudy/p01",
-                    "json_file": "saved_results/teststudy/p01/p01.json",
-                    "xdf_file": None,
-                }
-
             submission = {
                 "session_id": "sess-upload",
                 "study_id": "teststudy",
@@ -186,8 +206,6 @@ class ResultsRoutesTests(unittest.TestCase):
                     return_value={**VALIDATED_RESULTS, "session_id": "sess-upload"},
                 ),
                 patch("study_runner.backend.routes.results.build_answer_details", return_value=[]),
-                patch("study_runner.backend.routes.results.build_biosignal_summary", return_value={"brainbit": {}}),
-                patch("study_runner.backend.routes.results.save_results_payload", working_save),
                 patch(
                     "study_runner.integrations.notion_upload.adapter.upload_study_result",
                     side_effect=AssertionError("Notion network call ran inside /api/results"),
@@ -200,45 +218,104 @@ class ResultsRoutesTests(unittest.TestCase):
                 response = app.test_client().post("/api/results", json=submission)
 
             payload = response.get_json()
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 202)
             self.assertTrue(payload["ok"])
-            self.assertNotIn("upload_jobs", payload)
-            self.assertNotIn("upload_job_errors", payload)
+            self.assertTrue(payload["accepted"])
+            self.assertEqual(payload["finalization_job"]["status"], "queued")
             notion_upload.assert_not_called()
             nextcloud_upload.assert_not_called()
-            self.assertEqual(app.config["UPLOAD_JOBS_SERVICE"].counts()["queued"], 2)
+            self.assertEqual(app.config["UPLOAD_JOBS_SERVICE"].counts()["queued"], 0)
 
             stored_payloads = " ".join(
                 path.read_text(encoding="utf-8")
-                for path in (Path(data_dir) / "saved_results" / "upload_jobs").glob("*.json")
+                for path in (Path(data_dir) / "saved_results").rglob("*.json")
             )
             self.assertNotIn("legacy-secret", stored_payloads)
             self.assertNotIn("local-secret", stored_payloads)
             self.assertNotIn("share-secret", stored_payloads)
 
-    def test_post_save_scheduling_failure_does_not_change_success_response(self) -> None:
+    def test_canonical_submit_strips_ram_sensor_summaries_before_durable_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            app = self._make_app(data_dir)
+            captured: dict = {}
+
+            def commit_submission(payload, **_kwargs):
+                captured.update(payload)
+                return {
+                    "job_id": "job-canonical",
+                    "session_id": "sess-canonical",
+                    "session_path": "teststudy/participants/p01/sessions/canonical",
+                    "status": "queued",
+                }
+
+            validated = {
+                **VALIDATED_RESULTS,
+                "biosignal_summary": {"brainbit": {"mean": 999}},
+                "card_summary": {"cards": [{"mean": 999}]},
+            }
+            with (
+                patch("study_runner.backend.routes.results.load_config", return_value={}),
+                patch(
+                    "study_runner.backend.routes.results.validate_and_normalize_config",
+                    return_value=dict(CONFIG_DATA),
+                ),
+                patch(
+                    "study_runner.backend.routes.results.validate_and_normalize_results",
+                    return_value=validated,
+                ),
+                patch(
+                    "study_runner.backend.routes.results.build_answer_details",
+                    return_value=[
+                        {
+                            "question_index": 0,
+                            "biosignal_interval": {"brainbit": {"avg_attention": 999}},
+                            "data_warnings": ["RAM-derived warning"],
+                        }
+                    ],
+                ),
+                patch.object(
+                    app.config["FINALIZATION_SERVICE"],
+                    "commit_submission",
+                    side_effect=commit_submission,
+                ),
+            ):
+                response = app.test_client().post(
+                    "/api/results",
+                    json={
+                        "session_id": "sess-canonical",
+                        "study_id": "teststudy",
+                        "participant_id": "p01",
+                    },
+                )
+
+            self.assertEqual(response.status_code, 202)
+            self.assertNotIn("biosignal_summary", captured)
+            self.assertNotIn("card_summary", captured)
+            self.assertNotIn("biosignal_interval", captured["answer_details"][0])
+            self.assertNotIn("data_warnings", captured["answer_details"][0])
+
+    def test_legacy_post_save_scheduling_is_not_called(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             app = self._make_app(data_dir)
 
-            def working_save(*args, **kwargs):
-                return {"json_file": "teststudy/p01/p01.json", "xdf_file": None}
-
-            patches = self._results_patches(working_save)
+            patches = self._results_patches()
             with (
                 patches[0],
                 patches[1],
                 patches[2],
                 patches[3],
-                patches[4],
                 patch(
                     "study_runner.backend.routes.results._enqueue_upload_jobs",
                     side_effect=OSError("journal disk full"),
                 ),
             ):
-                response = app.test_client().post("/api/results", json={"study_id": "teststudy"})
+                response = app.test_client().post(
+                    "/api/results",
+                    json={"study_id": "teststudy", "participant_id": "p01", "session_id": "sess-no-legacy-upload"},
+                )
 
             payload = response.get_json()
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.status_code, 202)
             self.assertTrue(payload["ok"])
             self.assertNotIn("upload_jobs", payload)
             self.assertNotIn("upload_job_errors", payload)

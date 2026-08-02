@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
+
+from flask import Flask
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -120,13 +124,83 @@ class NotionParticipantMetadataTests(unittest.TestCase):
                         },
                     },
                 }
-            ]
+            ],
+            include_legacy_sensor_summaries=True,
         )
 
         self.assertIn("Stimulus", lines[0])
         self.assertIn("stimulus_active", lines[0])
+        self.assertIn("Legacy-RAM-Snapshot (nicht kanonisch)", lines[0])
         self.assertIn("gamma=5.00", lines[0])
         self.assertIn("dist=150.00", lines[0])
+
+    def test_auto_created_target_persists_only_canonical_plugin_settings(self) -> None:
+        app = Flask(__name__)
+        app.config["CONFIG_FILE"] = Path("active.study-runner")
+        app.config["SAVED_STUDIES_DIR"] = Path("studies")
+        projected = {
+            "study_id": "Notion Metadata",
+            "study_settings": {
+                "notion_enabled": True,
+                "notion_parent_page_id": "parent-1",
+                "notion_database_id": "created-db",
+                "notion_data_source_id": "created-source",
+                "plugins": {
+                    "notion": {
+                        "enabled": True,
+                        "required": False,
+                        "settings": {"parent_page_id": "parent-1"},
+                    }
+                },
+            },
+        }
+        with (
+            app.app_context(),
+            patch(
+                "study_runner.backend.services.study_config_service.save_config"
+            ) as save_config,
+            patch(
+                "study_runner.backend.services.study_config_service.save_study"
+            ) as save_study,
+        ):
+            adapter._persist_study_database_id(projected)
+
+        persisted = save_config.call_args.args[1]
+        settings = persisted["study_settings"]
+        self.assertNotIn("notion_enabled", settings)
+        self.assertNotIn("notion_parent_page_id", settings)
+        self.assertNotIn("notion_database_id", settings)
+        self.assertNotIn("notion_data_source_id", settings)
+        self.assertEqual(
+            settings["plugins"]["notion"]["settings"],
+            {
+                "parent_page_id": "parent-1",
+                "database_id": "created-db",
+                "data_source_id": "created-source",
+            },
+        )
+        self.assertEqual(save_study.call_args.args[1], persisted)
+
+    def test_canonical_answer_format_ignores_embedded_ram_biomarkers(self) -> None:
+        lines = adapter._format_answer_details(
+            [
+                {
+                    "question_number": 1,
+                    "question_type": "likert",
+                    "question_prompt": "How calm?",
+                    "answer": 4,
+                    "interval_seconds": 7.0,
+                    "biosignal_interval": {
+                        "brainbit": {"available": True, "avg_attention": 12345.0}
+                    },
+                }
+            ]
+        )
+
+        self.assertIn("Antwort: 4", lines[0])
+        self.assertNotIn("12345", lines[0])
+        self.assertNotIn("Biomarker", lines[0])
+        self.assertNotIn("Legacy-RAM", lines[0])
 
     def test_answer_detail_format_renders_skipped_answers_as_dash(self) -> None:
         lines = adapter._format_answer_details(
@@ -140,10 +214,176 @@ class NotionParticipantMetadataTests(unittest.TestCase):
                     "biosignal_interval_kind": "question_visible",
                     "interval_seconds": 3.0,
                 }
-            ]
+            ],
         )
 
         self.assertIn("Antwort: \u2014", lines[0])
+
+    def test_card_summary_renders_unknown_plugins_without_core_changes(self) -> None:
+        lines = adapter._format_card_summary(
+            {
+                "cards": [
+                    {
+                        "question_index": 3,
+                        "streams": {
+                            "future.metrics": {
+                                "plugin_key": "future_sensor",
+                                "count": 10,
+                                "valid_count": 9,
+                                "coverage": 0.9,
+                                "missing_count": 1,
+                                "drop_count": 2,
+                                "max_gap_seconds": 0.3,
+                                "channels": {
+                                    "temperature": {
+                                        "kind": "numeric",
+                                        "mean": 21.5,
+                                        "min": 20.0,
+                                        "max": 23.0,
+                                        "stddev": 1.0,
+                                    }
+                                },
+                            }
+                        },
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(len(lines), 1)
+        self.assertIn("future_sensor/future.metrics/temperature", lines[0])
+        self.assertIn("mean=21.50", lines[0])
+        self.assertIn("drops=2", lines[0])
+
+    def test_canonical_biosignal_format_uses_only_card_summary(self) -> None:
+        lines = adapter._format_biosignals(
+            {"brainbit": {"enabled": True}},
+            {
+                "card_summary": {
+                    "schema": "study-runner/card-summary/v1",
+                    "cards": [
+                        {
+                            "question_index": 0,
+                            "streams": {
+                                "brainbit.metrics": {
+                                    "plugin_key": "brainbit",
+                                    "count": 2,
+                                    "valid_count": 2,
+                                    "coverage": 1.0,
+                                    "missing_count": 0,
+                                    "drop_count": 0,
+                                    "max_gap_seconds": 0.1,
+                                    "channels": {
+                                        "attention": {
+                                            "kind": "numeric",
+                                            "mean": 0.25,
+                                            "min": 0.2,
+                                            "max": 0.3,
+                                            "stddev": 0.07,
+                                        }
+                                    },
+                                }
+                            },
+                        }
+                    ],
+                },
+                "biosignal_summary": {"brainbit": {"active": True, "mean": 98765}},
+            },
+            canonical_output=True,
+        )
+
+        self.assertEqual(len(lines), 1)
+        self.assertIn("mean=0.25", lines[0])
+        self.assertNotIn("98765", lines[0])
+
+    def test_canonical_notion_payload_requires_valid_card_summary(self) -> None:
+        result = adapter.upload_study_result(
+            result_payload={
+                "session_id": "session-1",
+                "server_finalization": {"card_summary_file": "card-summary.json"},
+            },
+            hardware_config={},
+            saved_output={"card_summary_file": "sessions/session-1/card-summary.json"},
+            config_data={"study_settings": {"notion_enabled": True}},
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("requires finalized card-summary.json", result["error"])
+
+    def test_canonical_notion_session_block_never_renders_embedded_ram_summary(self) -> None:
+        class Children:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def append(self, **kwargs):
+                self.calls.append(kwargs)
+                return {"results": [{"id": "toggle-1"}]}
+
+        class Client:
+            def __init__(self) -> None:
+                self.blocks = type("Blocks", (), {"children": Children()})()
+
+        client = Client()
+        adapter._append_session_block(
+            client,
+            "participant-page",
+            1,
+            {
+                "study_id": "Study",
+                "session_id": "session-1",
+                "timestamp_start": "2026-01-01T10:00:00Z",
+                "timestamp_end": "2026-01-01T10:01:00Z",
+                "server_finalization": {"card_summary_file": "card-summary.json"},
+                "answer_details": [
+                    {
+                        "question_number": 1,
+                        "question_type": "likert",
+                        "answer": 4,
+                        "biosignal_interval": {
+                            "brainbit": {"available": True, "avg_attention": 12345.0}
+                        },
+                    }
+                ],
+            },
+            {"brainbit": {"enabled": True}},
+            {
+                "card_summary_file": "sessions/session-1/card-summary.json",
+                "card_summary": {
+                    "schema": "study-runner/card-summary/v1",
+                    "cards": [
+                        {
+                            "question_index": 0,
+                            "streams": {
+                                "brainbit.metrics": {
+                                    "plugin_key": "brainbit",
+                                    "count": 1,
+                                    "valid_count": 1,
+                                    "coverage": 1.0,
+                                    "missing_count": 0,
+                                    "drop_count": 0,
+                                    "max_gap_seconds": 0.0,
+                                    "channels": {
+                                        "attention": {
+                                            "kind": "numeric",
+                                            "mean": 0.25,
+                                            "min": 0.25,
+                                            "max": 0.25,
+                                            "stddev": None,
+                                        }
+                                    },
+                                }
+                            },
+                        }
+                    ],
+                },
+                "biosignal_summary": {"brainbit": {"active": True, "mean": 98765}},
+            },
+        )
+
+        rendered = json.dumps(client.blocks.children.calls, ensure_ascii=False)
+        self.assertIn("mean=0.25", rendered)
+        self.assertNotIn("12345", rendered)
+        self.assertNotIn("98765", rendered)
 
 
 if __name__ == "__main__":

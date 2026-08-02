@@ -287,7 +287,7 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertFalse(payload["enabled"])
         self.assertFalse(payload["session_overrides"]["brainbit"])
 
-    def test_active_study_lsl_toggle_updates_active_runtime(self) -> None:
+    def test_internal_lsl_recording_provider_cannot_be_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
                 "STUDY_RUNNER_DATA_DIR": data_dir,
@@ -306,11 +306,10 @@ class RuntimeRoutesTests(unittest.TestCase):
             active_config = app.config["ACTIVE_STUDY_HARDWARE_CONFIG"]
 
         payload = response.get_json()
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(payload["ok"])
-        self.assertTrue(payload["active_runtime_updated"])
-        self.assertTrue(payload["temporary_override"])
-        self.assertFalse(active_config["lsl"]["enabled"])
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(payload["ok"])
+        self.assertIn("cannot be toggled directly", payload["error"])
+        self.assertTrue(active_config["lsl"]["enabled"])
 
     def test_study_runtime_reports_session_override_effective_sensor(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
@@ -348,6 +347,14 @@ class RuntimeRoutesTests(unittest.TestCase):
                     "study_id": "study-a",
                     "clock_offset_ms": 12.5,
                     "clock_sync_rtt_ms": 24,
+                    "plugin_status": {
+                        "fixture_sensor": {
+                            "state": "warning",
+                            "last_error": "sample gap",
+                            "active": False,
+                            "nested_untrusted": {"ignored": True},
+                        }
+                    },
                 },
             )
             status = client.get("/api/admin/status")
@@ -357,8 +364,17 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertEqual(status.status_code, 200)
         self.assertIn("sensor_coordinator", payload)
         self.assertIn("sample_metadata_model", payload["sensor_coordinator"])
+        self.assertIn("recording_infrastructure", payload)
+        self.assertIn("canonical_xdf", payload["recording_infrastructure"])
+        self.assertIn("supports_merge", payload["recording_infrastructure"])
         self.assertEqual(payload["integrations"]["camera_emotion"]["manifest"]["poll_interval_ms"], 1000)
         self.assertEqual(payload["clock_sync"]["sources"]["tablet-1"]["median_offset_ms"], 12.5)
+        client_status = payload["study_clients"]["clients"][0]["plugin_status"]["fixture_sensor"]
+        self.assertEqual(client_status["state"], "warning")
+        self.assertEqual(client_status["last_error"], "sample gap")
+        self.assertFalse(client_status["active"])
+        self.assertNotIn("nested_untrusted", client_status)
+        self.assertNotIn("camera_permission", payload["study_clients"]["clients"][0])
 
     def test_emotion_worker_repair_runtime_route_reports_package_and_model_state(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
@@ -401,6 +417,8 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertEqual(live_status.status_code, 200)
         self.assertTrue(payload["ok"])
         self.assertIn("available", payload)
+        self.assertEqual(live_status.headers["Deprecation"], "true")
+        self.assertIn("successor-version", live_status.headers["Link"])
         self.assertEqual(preview_page.status_code, 404)
 
     def test_create_shortcut_route_returns_service_result(self) -> None:

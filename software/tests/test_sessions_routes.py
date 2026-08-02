@@ -14,10 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend import create_app
-from study_runner.backend.services.sessions_index_service import (
-    list_sessions,
-    min_max_envelope,
-)
+from study_runner.backend.services.sessions_index_service import list_sessions, min_max_envelope
 from study_runner.backend.services import sessions_index_service
 
 
@@ -26,11 +23,23 @@ class SessionsRouteTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.storage_root = Path(self.temp_dir.name)
         self.data_dir = self.storage_root / "saved_results"
-        participant_dir = self.data_dir / "study-a" / "p01"
-        participant_dir.mkdir(parents=True)
 
+        # This is deliberately a valid legacy result. It must remain on disk,
+        # but the v3 browser must never index or open it.
+        legacy_dir = self.data_dir / "study-a" / "p01"
+        legacy_dir.mkdir(parents=True)
         self._write_json(
-            participant_dir / "p01.json",
+            legacy_dir / "p01.json",
+            {
+                "study_id": "study-a",
+                "participant_id": "p01",
+                "session_id": "legacy-session",
+                "answers": {"q1": "legacy"},
+            },
+        )
+
+        self.session_one = self._canonical_session(
+            "20260101T100000Z__session-1",
             {
                 "study_id": "study-a",
                 "participant_id": "p01",
@@ -41,24 +50,8 @@ class SessionsRouteTests(unittest.TestCase):
                 "answer_details": [{"question_index": 1}],
             },
         )
-        self._write_json(
-            participant_dir / "p01_mr60_signals.json",
-            {
-                "sensor": "mr60",
-                "study_id": "study-a",
-                "participant_id": "p01",
-                "timestamp_start": "2026-01-01T10:00:00Z",
-                "timestamp_end": "2026-01-01T10:10:00Z",
-                "sample_count": 3,
-                "samples": [
-                    {"server_received_epoch": 1.0, "heartRate": 70},
-                    {"server_received_epoch": 2.0, "heartRate": 90},
-                    {"server_received_epoch": 3.0, "heartRate": 60},
-                ],
-            },
-        )
-        self._write_json(
-            participant_dir / "p01_2.json",
+        self.session_two = self._canonical_session(
+            "20260102T100000Z__session-2",
             {
                 "study_id": "study-a",
                 "participant_id": "p01",
@@ -70,23 +63,7 @@ class SessionsRouteTests(unittest.TestCase):
                 "recovered": True,
             },
         )
-        self._write_json(
-            participant_dir / "p01_camera_emotion_signals_2.json",
-            {
-                "sensor": "camera_emotion",
-                "study_id": "study-a",
-                "participant_id": "p01",
-                "timestamp_start": "2026-01-02T10:00:00Z",
-                "timestamp_end": "2026-01-02T10:20:00Z",
-                "sample_count": 1,
-                "samples": [
-                    {
-                        "_epoch": 4.0,
-                        "analysis": {"scores": {"happy": 0.8, "sad": 0.2}},
-                    }
-                ],
-            },
-        )
+
         with patch.dict(
             os.environ,
             {
@@ -102,87 +79,143 @@ class SessionsRouteTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_list_returns_each_result_file_as_a_distinct_session(self) -> None:
+    def _canonical_session(self, folder: str, result: dict) -> Path:
+        root = self.data_dir / "study-a" / "participants" / "p01" / "sessions" / folder
+        (root / "derived").mkdir(parents=True)
+        self._write_json(root / "result.json", result)
+        self._write_json(
+            root / "session-identity.json",
+            {
+                "study_id": result["study_id"],
+                "participant_id": result["participant_id"],
+                "session_id": result["session_id"],
+            },
+        )
+        self._write_json(root / "COMPLETE.json", {"status": "completed", "published_at": result["timestamp_end"]})
+        self._write_json(
+            root / "manifest.json",
+            {
+                "quality_status": "valid",
+                "artifacts": [
+                    {"path": "result.json", "role": "result"},
+                    {"path": "derived/session.xdf", "role": "merged_xdf"},
+                ],
+            },
+        )
+        (root / "derived" / "session.xdf").write_bytes(b"fixture-xdf")
+        return root
+
+    @staticmethod
+    def _fixture_streams(session_root: Path) -> list[dict]:
+        if session_root.name.endswith("session-1"):
+            return [
+                {
+                    "stream_key": "mr60.vitals",
+                    "name": "MR60 Vitals",
+                    "plugin_key": "mr60",
+                    "nominal_rate_hz": 1.0,
+                    "timestamps": [1.0, 2.0, 3.0],
+                    "samples": [{"heartRate": 70}, {"heartRate": 90}, {"heartRate": 60}],
+                }
+            ]
+        return [
+            {
+                "stream_key": "camera.emotion",
+                "name": "Camera Emotion",
+                "plugin_key": "camera_emotion",
+                "nominal_rate_hz": 1.0,
+                "timestamps": [4.0],
+                "samples": [{"happy": 0.8, "sad": 0.2}],
+            }
+        ]
+
+    def test_list_only_returns_canonical_marked_sessions(self) -> None:
         response = self.client.get("/api/admin/sessions")
 
         self.assertEqual(response.status_code, 200)
         sessions = response.get_json()
-        self.assertEqual([item["result_file"] for item in sessions], ["p01_2.json", "p01.json"])
-        self.assertEqual(sessions[0]["session_id"], "session-2")
+        self.assertEqual([item["session_id"] for item in sessions], ["session-2", "session-1"])
+        self.assertEqual(sessions[0]["session_folder"], self.session_two.name)
         self.assertEqual(sessions[0]["answers_count"], 2)
         self.assertTrue(sessions[0]["recovered"])
-        self.assertEqual(
-            {item["name"] for item in sessions[0]["files"]},
-            {"p01_2.json", "p01_camera_emotion_signals_2.json"},
-        )
+        self.assertNotIn("legacy-session", {item["session_id"] for item in sessions})
+        self.assertTrue((self.data_dir / "study-a" / "p01" / "p01.json").is_file())
+        self.assertTrue(all("/participants/" in f"/{item['session_path']}/" for item in sessions))
 
-    def test_detail_uses_explicit_result_file_and_returns_sidecar_metadata(self) -> None:
-        response = self.client.get(
-            "/api/admin/sessions/study-a/p01",
-            query_string={"result_file": "p01.json"},
-        )
+    def test_detail_uses_session_folder_and_returns_xdf_stream_metadata(self) -> None:
+        with patch.object(sessions_index_service, "_read_merged_streams", side_effect=self._fixture_streams):
+            response = self.client.get(
+                "/api/admin/sessions/study-a/p01",
+                query_string={"session_folder": self.session_one.name},
+            )
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertEqual(payload["result"]["answers"]["q1"], "first")
-        self.assertEqual(payload["sidecars"][0]["sensor"], "mr60")
-        self.assertEqual(payload["sidecars"][0]["sample_count"], 3)
-        self.assertNotIn("samples", payload["sidecars"][0])
+        self.assertEqual(payload["streams"][0]["stream_key"], "mr60.vitals")
+        self.assertEqual(payload["streams"][0]["sample_count"], 3)
+        self.assertNotIn("samples", payload["streams"][0])
+        self.assertIn("derived/session.xdf", {item["name"] for item in payload["files"]})
 
-    def test_signal_route_selects_session_and_bounds_payload(self) -> None:
-        response = self.client.get(
-            "/api/admin/sessions/study-a/p01/signals",
-            query_string={
-                "result_file": "p01.json",
-                "sensor": "mr60",
-                "max_points": 2,
-            },
-        )
+    def test_signal_route_selects_canonical_session_and_bounds_payload(self) -> None:
+        with patch.object(sessions_index_service, "_read_merged_streams", side_effect=self._fixture_streams):
+            response = self.client.get(
+                "/api/admin/sessions/study-a/p01/signals",
+                query_string={
+                    "session_folder": self.session_one.name,
+                    "sensor": "mr60.vitals",
+                    "max_points": 2,
+                },
+            )
 
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
+        self.assertEqual(payload["session_folder"], self.session_one.name)
         self.assertEqual(payload["sample_count"], 3)
         self.assertEqual(payload["mode"], "min_max_envelope")
         self.assertEqual(len(payload["points"]), 2)
-        self.assertLessEqual(
-            min(point["min"]["heartRate"] for point in payload["points"]),
-            60,
-        )
-        self.assertGreaterEqual(
-            max(point["max"]["heartRate"] for point in payload["points"]),
-            90,
-        )
+        self.assertLessEqual(min(point["min"]["heartRate"] for point in payload["points"]), 60)
+        self.assertGreaterEqual(max(point["max"]["heartRate"] for point in payload["points"]), 90)
 
     def test_invalid_selectors_and_missing_sensor_are_rejected(self) -> None:
-        invalid_file = self.client.get(
+        invalid_folder = self.client.get(
             "/api/admin/sessions/study-a/p01",
-            query_string={"result_file": "../p01.json"},
+            query_string={"session_folder": "../session-1"},
         )
         missing_sensor = self.client.get(
             "/api/admin/sessions/study-a/p01/signals",
-            query_string={"result_file": "p01.json"},
+            query_string={"session_folder": self.session_one.name},
         )
         invalid_limit = self.client.get(
             "/api/admin/sessions/study-a/p01/signals",
-            query_string={
-                "result_file": "p01.json",
-                "sensor": "mr60",
-                "max_points": "unbounded",
-            },
+            query_string={"session_folder": self.session_one.name, "sensor": "mr60.vitals", "max_points": "unbounded"},
+        )
+        legacy_selector = self.client.get(
+            "/api/admin/sessions/study-a/p01",
+            query_string={"result_file": "p01.json"},
         )
 
-        self.assertEqual(invalid_file.status_code, 400)
+        self.assertEqual(invalid_folder.status_code, 400)
         self.assertEqual(missing_sensor.status_code, 400)
         self.assertEqual(invalid_limit.status_code, 400)
+        self.assertEqual(legacy_selector.status_code, 400)
 
-    def test_index_cache_reuses_json_scan_until_a_file_changes(self) -> None:
+    def test_flat_legacy_session_cannot_be_selected_through_detail_or_signals(self) -> None:
+        detail = self.client.get(
+            "/api/admin/sessions/study-a/p01",
+            query_string={"session_id": "legacy-session"},
+        )
+        signals = self.client.get(
+            "/api/admin/sessions/study-a/p01/signals",
+            query_string={"session_id": "legacy-session", "sensor": "mr60"},
+        )
+        self.assertEqual(detail.status_code, 404)
+        self.assertEqual(signals.status_code, 404)
+
+    def test_index_cache_reuses_scan_until_a_canonical_file_changes(self) -> None:
         sessions_index_service._INDEX_CACHE.clear()
         original_reader = sessions_index_service._read_json_object
-        with patch.object(
-            sessions_index_service,
-            "_read_json_object",
-            wraps=original_reader,
-        ) as reader:
+        with patch.object(sessions_index_service, "_read_json_object", wraps=original_reader) as reader:
             first = list_sessions(self.data_dir)
             reads_after_first_scan = reader.call_count
             second = list_sessions(self.data_dir)
@@ -191,7 +224,7 @@ class SessionsRouteTests(unittest.TestCase):
             self.assertGreater(reads_after_first_scan, 0)
             self.assertEqual(reader.call_count, reads_after_first_scan)
 
-            result_file = self.data_dir / "study-a" / "p01" / "p01_2.json"
+            result_file = self.session_two / "result.json"
             payload = json.loads(result_file.read_text(encoding="utf-8"))
             payload["answers"]["q3"] = "changed"
             self._write_json(result_file, payload)
@@ -209,10 +242,7 @@ class MinMaxEnvelopeTests(unittest.TestCase):
     def test_short_and_empty_inputs_stay_raw(self) -> None:
         self.assertEqual(min_max_envelope([], 20), {"mode": "raw", "points": []})
         samples = [{"server_received_epoch": 1.0, "heartRate": 72}]
-        self.assertEqual(
-            min_max_envelope(samples, 20),
-            {"mode": "raw", "points": samples},
-        )
+        self.assertEqual(min_max_envelope(samples, 20), {"mode": "raw", "points": samples})
 
     def test_nested_channel_extremes_are_preserved(self) -> None:
         samples = [
@@ -230,6 +260,12 @@ class MinMaxEnvelopeTests(unittest.TestCase):
         self.assertEqual(result["points"][0]["max"]["payload.alpha"], 0.9)
         self.assertAlmostEqual(result["points"][0]["min"]["payload.attention"], 0.1)
         self.assertAlmostEqual(result["points"][0]["max"]["payload.attention"], 0.9)
+
+    def test_non_finite_xdf_values_are_json_safe(self) -> None:
+        self.assertEqual(
+            sessions_index_service._json_safe({"value": float("nan"), "nested": [float("inf"), 1.0]}),
+            {"value": None, "nested": [None, 1.0]},
+        )
 
 
 if __name__ == "__main__":

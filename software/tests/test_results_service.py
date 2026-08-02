@@ -43,7 +43,12 @@ class ResultsServicePathTests(unittest.TestCase):
 
         results_service._interval_summary_from_epochs = fake_summary
         try:
-            details = results_service.build_answer_details(result_payload, study_config, {})
+            details = results_service.build_answer_details(
+                result_payload,
+                study_config,
+                {},
+                include_legacy_sensor_summaries=True,
+            )
         finally:
             results_service._interval_summary_from_epochs = original
         return details, calls
@@ -166,6 +171,71 @@ class ResultsServicePathTests(unittest.TestCase):
 
         self.assertEqual(details[0]["biosignal_interval_timing_source"], "server_clock")
         self.assertEqual(calls, [(shown_epoch, answered_epoch)])
+
+    def test_canonical_answer_details_do_not_read_or_embed_ram_sensor_statistics(self) -> None:
+        result_payload = {
+            "participant_id": "p01",
+            "timestamp_start": "2026-01-01T10:00:00Z",
+            "timestamp_end": "2026-01-01T10:01:00Z",
+            "answers": {"q0": 4},
+            "card_events": [
+                {
+                    "question_index": 0,
+                    "shown_at": "2026-01-01T10:00:10Z",
+                    "answered_at": "2026-01-01T10:00:20Z",
+                }
+            ],
+        }
+
+        original = results_service._interval_summary_from_epochs
+        results_service._interval_summary_from_epochs = lambda *_args, **_kwargs: self.fail(
+            "canonical answer details must not read runtime sensor buffers"
+        )
+        try:
+            details = results_service.build_answer_details(
+                result_payload,
+                {"questions": [{"type": "likert", "prompt": "How calm?"}]},
+                {"brainbit": {"enabled": True}},
+            )
+        finally:
+            results_service._interval_summary_from_epochs = original
+
+        self.assertEqual(len(details), 1)
+        self.assertNotIn("biosignal_interval", details[0])
+        self.assertNotIn("data_warnings", details[0])
+        self.assertEqual(details[0]["biosignal_interval_kind"], "question_visible")
+
+    def test_canonical_submission_sanitizer_removes_competing_sensor_summaries(self) -> None:
+        original = {
+            "study_id": "Study",
+            "answers": {"q0": {"biosignal_interval": "participant answer remains intact"}},
+            "biosignal_summary": {"brainbit": {"mean": 999}},
+            "card_summary": {"cards": [{"mean": 999}]},
+            "sensor_statistics": {"mean": 999},
+            "answer_details": [
+                {
+                    "question_index": 0,
+                    "biosignal_interval_start": "2026-01-01T10:00:10Z",
+                    "biosignal_interval": {"brainbit": {"avg_attention": 999}},
+                    "biosignal_interval_source": "legacy_runtime_memory_noncanonical",
+                    "data_warnings": ["RAM-derived warning"],
+                }
+            ],
+        }
+
+        sanitized = results_service.sanitize_canonical_submission_sensor_summaries(original)
+
+        self.assertNotIn("biosignal_summary", sanitized)
+        self.assertNotIn("card_summary", sanitized)
+        self.assertNotIn("sensor_statistics", sanitized)
+        self.assertNotIn("biosignal_interval", sanitized["answer_details"][0])
+        self.assertNotIn("data_warnings", sanitized["answer_details"][0])
+        self.assertIn("biosignal_interval_start", sanitized["answer_details"][0])
+        self.assertEqual(
+            sanitized["answers"]["q0"]["biosignal_interval"],
+            "participant answer remains intact",
+        )
+        self.assertIn("biosignal_interval", original["answer_details"][0], "input must not be mutated")
 
     def test_answer_details_include_skipped_optional_questions(self) -> None:
         details, calls = self._capture_answer_details(

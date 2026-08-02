@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 import tempfile
-import urllib.error
 import unittest
 from unittest.mock import patch
 
@@ -47,9 +46,14 @@ class CameraEmotionWorkerTests(unittest.TestCase):
             "running": False,
             "last_message": "Model asset repair has not been run.",
         }
+        worker_plugin._install_job = {
+            "running": False,
+            "last_message": "Dependency repair has not been run.",
+        }
         worker_plugin._close_log_handle()
         camera_adapter._config = {}
         camera_adapter._history.clear()
+        camera_adapter._sequence_state.clear()
         camera_adapter._preview_state = {
             "available": False,
             "last_message": "No tablet camera live frame received yet.",
@@ -97,6 +101,32 @@ class CameraEmotionWorkerTests(unittest.TestCase):
         self.assertTrue(preview_status["available"])
         self.assertEqual(preview_status["latest"]["analysis"]["emotion"], "happy")
         self.assertEqual(preview_status["latest"]["frame"]["width"], 320)
+
+    def test_sequence_gaps_are_visible_and_replays_are_rejected(self) -> None:
+        camera_adapter.initialize(enabled=True, worker_mode="placeholder")
+        common = {
+            "image": "data:image/jpeg;base64,AAAA",
+            "source_instance_id": "capture-a",
+            "source_epoch_ms": 1000.0,
+        }
+
+        first = camera_adapter.process_frame({**common, "sequence_number": 0})
+        gap = camera_adapter.process_frame({**common, "sequence_number": 2})
+        duplicate = camera_adapter.process_frame({**common, "sequence_number": 2})
+        out_of_order = camera_adapter.process_frame({**common, "sequence_number": 1})
+
+        self.assertTrue(first["accepted"])
+        self.assertEqual(first["sequence_diagnostics"]["sequence_status"], "first")
+        self.assertTrue(gap["accepted"])
+        self.assertEqual(gap["sequence_diagnostics"]["gap_count"], 1)
+        self.assertEqual(gap["drop_count"], 1)
+        self.assertFalse(duplicate["accepted"])
+        self.assertEqual(duplicate["reason"], "duplicate_sequence")
+        self.assertFalse(out_of_order["accepted"])
+        self.assertEqual(out_of_order["reason"], "out_of_order_sequence")
+        status = camera_adapter.get_status()
+        self.assertEqual(status["status"], "degraded")
+        self.assertIn("rejected", status["last_message"].lower())
 
     def test_recorded_emotion_samples_are_exported_through_sidecar_plugin(self) -> None:
         camera_adapter._history.extend(
@@ -238,7 +268,12 @@ class CameraEmotionWorkerTests(unittest.TestCase):
                 "model_assets_dir": str(bundled_dir),
             }
 
-            result = worker_plugin._run_model_asset_install()
+            with patch.object(
+                worker_plugin,
+                "_asset_is_valid",
+                side_effect=lambda path: Path(path) == bundled_asset,
+            ):
+                result = worker_plugin._run_model_asset_install()
 
             self.assertTrue(result)
             self.assertTrue((cache_dir / worker_plugin.DEEPFACE_EMOTION_MODEL["name"]).exists())
@@ -265,11 +300,41 @@ class CameraEmotionWorkerTests(unittest.TestCase):
 
             self.assertEqual(
                 Path(worker_plugin._config["model_cache_dir"]),
-                data_root / "runtime" / "local_emotion_worker" / "deepface_home" / ".deepface" / "weights",
+                data_root / "runtime" / "camera_emotion" / "worker" / "deepface_home" / ".deepface" / "weights",
             )
             self.assertEqual(
                 Path(worker_plugin._config["raw_log_path"]).parent,
-                data_root / "runtime" / "local_emotion_worker" / "logs",
+                data_root / "runtime" / "camera_emotion" / "worker" / "logs",
+            )
+
+    def test_existing_legacy_worker_cache_is_reused_for_one_release(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_root = Path(temp_dir)
+            legacy = data_root / "runtime" / "local_emotion_worker"
+            (legacy / "logs").mkdir(parents=True)
+            (legacy / "deepface_home").mkdir()
+            context = IntegrationContext(
+                base_dir=PROJECT_ROOT,
+                data_dir=data_root / "saved_results",
+                hardware_config={
+                    "camera_emotion": {
+                        "enabled": True,
+                        "worker_mode": "local_worker",
+                    }
+                },
+                local_secrets={},
+                local_secrets_file=data_root / "settings" / "local_secrets.json",
+            )
+
+            worker_plugin._configure(context)
+
+            self.assertEqual(
+                Path(worker_plugin._config["model_cache_dir"]),
+                legacy / "deepface_home" / ".deepface" / "weights",
+            )
+            self.assertEqual(
+                Path(worker_plugin._config["raw_log_path"]).parent,
+                legacy / "logs",
             )
 
     def test_packaged_dependency_repair_skips_pip(self) -> None:
@@ -282,6 +347,36 @@ class CameraEmotionWorkerTests(unittest.TestCase):
         state = worker_plugin._dependency_install_status()
         self.assertEqual(state["status"], "skipped")
         self.assertIn("Install & Repair Wizard", state["last_message"])
+
+    def test_macos_intel_local_worker_fails_closed_with_remote_action(self) -> None:
+        context = _context(
+            {
+                "camera_emotion": {
+                    "enabled": True,
+                    "worker_mode": "local_worker",
+                    "emotion_worker_url": "http://127.0.0.1:3001",
+                    "emotion_worker": {"auto_start": True},
+                }
+            }
+        )
+
+        with (
+            patch.object(worker_plugin.sys, "platform", "darwin"),
+            patch.object(worker_plugin.platform, "machine", return_value="x86_64"),
+            patch.object(worker_plugin.subprocess, "Popen") as popen,
+            patch.object(worker_plugin.subprocess, "run") as run,
+        ):
+            status = worker_plugin.ensure_started(context)
+            dependency_ok = worker_plugin._run_dependency_install(context)
+
+        self.assertEqual(status["status"], "unsupported")
+        self.assertFalse(status["runtime_enabled"])
+        self.assertEqual(status["supported_modes"], ["remote_worker"])
+        self.assertIn("remote_worker", status["last_message"])
+        self.assertFalse(dependency_ok)
+        self.assertEqual(worker_plugin._dependency_install_status()["status"], "unsupported")
+        popen.assert_not_called()
+        run.assert_not_called()
 
     def test_worker_self_test_returns_success_when_warmup_is_ready(self) -> None:
         original_state = dict(worker_server.MODEL_STATE)
@@ -298,27 +393,35 @@ class CameraEmotionWorkerTests(unittest.TestCase):
             worker_server.MODEL_STATE.clear()
             worker_server.MODEL_STATE.update(original_state)
 
-    def test_model_asset_download_failure_is_reported(self) -> None:
+    def test_missing_model_requires_explicit_operator_provisioning(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             worker_plugin._config = {
                 "model_cache_dir": str(root / "cache"),
                 "model_assets_dir": str(root / "missing-bundled"),
             }
-            original_urlopen = worker_plugin.urllib.request.urlopen
-            try:
-                worker_plugin.urllib.request.urlopen = lambda *args, **kwargs: (_ for _ in ()).throw(
-                    urllib.error.URLError("blocked")
-                )
 
-                result = worker_plugin._run_model_asset_install()
+            result = worker_plugin._run_model_asset_install()
 
-                self.assertFalse(result)
-                state = worker_plugin._model_asset_install_status()
-                self.assertEqual(state["status"], "failed")
-                self.assertIn("blocked", state["last_message"])
-            finally:
-                worker_plugin.urllib.request.urlopen = original_urlopen
+            self.assertFalse(result)
+            state = worker_plugin._model_asset_install_status()
+            self.assertEqual(state["status"], "attention_required")
+            self.assertIn("THIRD_PARTY_NOTICES.md", state["last_message"])
+            self.assertFalse(hasattr(worker_plugin, "_download_model_asset"))
+
+    def test_worker_warmup_never_silently_downloads_a_missing_model(self) -> None:
+        original_state = dict(worker_server.MODEL_STATE)
+        try:
+            with patch.object(worker_server, "_asset_is_valid", return_value=False):
+                worker_server._warmup_deepface()
+
+            self.assertTrue(worker_server.MODEL_STATE["model_checked"])
+            self.assertFalse(worker_server.MODEL_STATE["model_ready"])
+            self.assertEqual(worker_server.MODEL_STATE["model_error_class"], "model_file_missing")
+            self.assertIn("Automatic model downloads are disabled", worker_server.MODEL_STATE["model_error"])
+        finally:
+            worker_server.MODEL_STATE.clear()
+            worker_server.MODEL_STATE.update(original_state)
 
 
 def _context(hardware_config: dict) -> IntegrationContext:
