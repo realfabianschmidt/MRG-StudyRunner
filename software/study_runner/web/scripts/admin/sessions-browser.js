@@ -64,11 +64,11 @@ function renderHubList(listEl, sessions) {
 
   const shown = sessions.slice(0, MAX_HUB_ITEMS);
   listEl.innerHTML = shown.map((session) => `
-    <div class="hub-recent-item" data-study-id="${escapeHtml(session.study_id)}" data-participant-id="${escapeHtml(session.participant_id)}" data-result-file="${escapeHtml(session.result_file)}" style="justify-content: flex-start; padding: 12px 16px; cursor: pointer;">
+    <div class="hub-recent-item" data-study-id="${escapeHtml(session.study_id)}" data-participant-id="${escapeHtml(session.participant_id)}" data-session-id="${escapeHtml(session.session_id)}" data-session-folder="${escapeHtml(session.session_folder)}" style="justify-content: flex-start; padding: 12px 16px; cursor: pointer;">
       <i class="iconoir-graph-up" style="font-size: 20px; color: var(--accent);"></i>
       <div style="text-align: left; flex: 1;">
         <div style="font-weight: 600; color: var(--ink);">${escapeHtml(session.study_id)} <span style="font-weight: 400; color: var(--ink-40);">/ ${escapeHtml(session.participant_id)}</span></div>
-        <div style="font-size: 0.75rem; color: var(--ink-40);">${escapeHtml(formatDateTime(session.saved_at))} &middot; ${escapeHtml(String(session.answers_count))} ${escapeHtml(t('sessions.answersLabel', 'Answers'))}${session.recovered ? ` &middot; ${escapeHtml(t('sessions.recoveredTag', 'recovered'))}` : ''}</div>
+        <div style="font-size: 0.75rem; color: var(--ink-40);">${escapeHtml(formatDateTime(session.saved_at))} &middot; ${escapeHtml(String(session.answers_count))} ${escapeHtml(t('sessions.answersLabel', 'Answers'))}${sessionTags(session).map((tag) => ` &middot; ${escapeHtml(tag)}`).join('')}</div>
       </div>
     </div>
   `).join('') + (sessions.length > MAX_HUB_ITEMS
@@ -79,19 +79,23 @@ function renderHubList(listEl, sessions) {
     item.addEventListener('click', () => void openSessionDetail(
       item.dataset.studyId,
       item.dataset.participantId,
-      item.dataset.resultFile,
+      item.dataset.sessionId,
+      item.dataset.sessionFolder,
     ));
   });
 }
 
-async function openSessionDetail(studyId, participantId, resultFile) {
+async function openSessionDetail(studyId, participantId, sessionId, sessionFolder) {
   callbacks.switchView?.('view-session-detail');
   setText('session-detail-title', t('sessions.detailLoading', 'Loading ...'));
   setText('session-detail-subtitle', '');
   hidePopover();
 
   try {
-    const query = resultFile ? `?result_file=${encodeURIComponent(resultFile)}` : '';
+    const params = new URLSearchParams();
+    if (sessionId) params.set('session_id', sessionId);
+    if (sessionFolder) params.set('session_folder', sessionFolder);
+    const query = params.size ? `?${params.toString()}` : '';
     const session = await getJson(`/api/admin/sessions/${encodeURIComponent(studyId)}/${encodeURIComponent(participantId)}${query}`);
     renderSessionSummary(session);
     renderAnswerList(session);
@@ -109,19 +113,19 @@ function renderSessionSummary(session) {
   setText('session-detail-subtitle', formatDateTime(session.saved_at));
 
   setText('session-answers-value', String(session.answers_count ?? 0));
-  setText('session-answers-hint', session.recovered ? t('sessions.recoveredTag', 'recovered') : '');
+  setText('session-answers-hint', sessionTags(session).join(' · '));
 
   const result = session.result || {};
   const durationSeconds = _durationSeconds(result.timestamp_start, result.timestamp_end);
   setText('session-duration-value', durationSeconds != null ? formatDuration(durationSeconds) : '-');
   setText('session-duration-hint', '');
 
-  const sidecars = Array.isArray(session.sidecars) ? session.sidecars : [];
-  setText('session-signals-value', sidecars.length ? String(sidecars.length) : '-');
+  const streams = Array.isArray(session.streams) ? session.streams : (Array.isArray(session.sidecars) ? session.sidecars : []);
+  setText('session-signals-value', streams.length ? String(streams.length) : '-');
   setText(
     'session-signals-hint',
-    sidecars.length
-      ? sidecars.map((sidecar) => sidecar.sensor).join(', ')
+    streams.length
+      ? streams.map((stream) => stream.stream_name || stream.sensor).join(', ')
       : t('sessions.noSignals', 'No sensor recordings for this session.'),
   );
 
@@ -175,18 +179,18 @@ async function renderTimeline(session) {
   if (!container) return;
   hidePopover();
 
-  const sidecars = (Array.isArray(session.sidecars) ? session.sidecars : [])
-    .filter((sidecar) => sidecar.sensor && sidecar.sample_count > 0);
+  const streams = (Array.isArray(session.streams) ? session.streams : (Array.isArray(session.sidecars) ? session.sidecars : []))
+    .filter((stream) => stream.sensor && stream.sample_count > 0);
 
-  const lanes = (await Promise.all(sidecars.map(async (sidecar) => {
+  const lanes = (await Promise.all(streams.map(async (stream) => {
     try {
       const signals = await getJson(
         `/api/admin/sessions/${encodeURIComponent(session.study_id)}/${encodeURIComponent(session.participant_id)}/signals`
-        + `?sensor=${encodeURIComponent(sidecar.sensor)}&result_file=${encodeURIComponent(session.result_file)}`,
+        + `?sensor=${encodeURIComponent(stream.sensor)}&session_folder=${encodeURIComponent(session.session_folder)}`,
       );
-      return { sensor: sidecar.sensor, points: signals.points, mode: signals.mode };
+      return { sensor: stream.sensor, points: signals.points, mode: signals.mode };
     } catch (error) {
-      console.error(`[sessions] Could not load ${sidecar.sensor} signals:`, error);
+      console.error(`[sessions] Could not load ${stream.sensor} signals:`, error);
       return null;
     }
   }))).filter(Boolean);
@@ -269,6 +273,17 @@ function formatAnswerValue(value) {
   if (Array.isArray(value)) return value.join(', ');
   if (typeof value === 'object') return Object.entries(value).map(([key, entryValue]) => `${key}: ${entryValue}`).join(', ');
   return String(value);
+}
+
+function sessionTags(session) {
+  const tags = [];
+  if (session.status === 'attention_required') {
+    tags.push(t('sessions.attentionTag', 'attention required'));
+  } else if (session.status === 'completed_degraded' || session.quality_status === 'degraded') {
+    tags.push(t('sessions.degradedTag', 'quality warning'));
+  }
+  if (session.recovered) tags.push(t('sessions.recoveredTag', 'recovered'));
+  return tags;
 }
 
 function formatDuration(totalSeconds) {

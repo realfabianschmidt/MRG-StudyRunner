@@ -11,6 +11,7 @@
  * of pretending a smooth line was measured.
  */
 import { escapeHtml } from '../lib/dom-utils.js';
+import { getPluginCatalog } from '../lib/plugin-catalog.js';
 
 const LANE_HEIGHT = 54;
 const LANE_GAP = 10;
@@ -19,20 +20,6 @@ const AXIS_HEIGHT = 24;
 const LABEL_WIDTH = 132;
 const RIGHT_PADDING = 16;
 const VIEW_WIDTH = 1000;
-
-/**
- * Channels worth showing per sensor, in order. If none of them is present the
- * renderer falls back to whatever numeric channels the data actually has, so an
- * unknown sensor still produces a usable lane instead of an empty box.
- */
-const PREFERRED_CHANNELS = {
-  mr60: ['heartRate', 'breathRate'],
-  brainbit: ['payload.alpha', 'payload.beta', 'payload.theta', 'payload.delta', 'payload.gamma'],
-  camera_emotion: [
-    'analysis.emotion_confidence',
-    'analysis.face_confidence',
-  ],
-};
 
 const HIDDEN_CHANNEL_PATTERNS = [
   /epoch/i, /sequence/i, /timestamp/i, /_ms$/i, /interval/i, /dropped/i,
@@ -158,13 +145,24 @@ function selectChannels(sensor, points) {
     Object.keys(point.min || {}).forEach((key) => available.add(key));
   });
 
-  const preferred = (PREFERRED_CHANNELS[sensor] || []).filter((key) => available.has(key));
+  const preferred = preferredChannels(sensor).filter((key) => available.has(key));
   if (preferred.length) return preferred;
 
   return [...available]
     .filter((key) => !HIDDEN_CHANNEL_PATTERNS.some((pattern) => pattern.test(key)))
     .sort()
     .slice(0, MAX_FALLBACK_CHANNELS);
+}
+
+function preferredChannels(sensor) {
+  const normalizedSensor = String(sensor || '');
+  const plugin = getPluginCatalog().plugins.find((candidate) => {
+    if (candidate.plugin_key === normalizedSensor) return true;
+    const aliases = candidate.ui?.timeline?.lane_aliases;
+    return Array.isArray(aliases) && aliases.includes(normalizedSensor);
+  });
+  const declared = plugin?.ui?.timeline?.preferred_channels;
+  return Array.isArray(declared) ? declared : [];
 }
 
 function channelLabel(sensor, channel, labels) {

@@ -2,34 +2,13 @@
 
 import { t } from './i18n.js';
 import { escapeHtml } from './lib/dom-utils.js';
+import { normalizeStudySettings } from './lib/study-settings.js';
 
 let callbacks = {};
 let clearKeyRequested = false;
 let initialized = false;
 
 const $ = (id) => document.getElementById(id);
-
-function defaultStudySettings() {
-  return {
-    sensors_enabled: true,
-    notion_enabled: false,
-    notion_parent_page_id: '',
-    notion_database_id: '',
-    notion_data_source_id: '',
-  };
-}
-
-function normalizeStudySettings(settings) {
-  return {
-    ...defaultStudySettings(),
-    ...(settings && typeof settings === 'object' ? settings : {}),
-    sensors_enabled: settings?.sensors_enabled !== false,
-    notion_enabled: Boolean(settings?.notion_enabled),
-    notion_parent_page_id: String(settings?.notion_parent_page_id || '').trim(),
-    notion_database_id: String(settings?.notion_database_id || '').trim(),
-    notion_data_source_id: String(settings?.notion_data_source_id || '').trim(),
-  };
-}
 
 export function initializeNotionSettings(options = {}) {
   callbacks = options;
@@ -45,7 +24,6 @@ export function initializeNotionSettings(options = {}) {
   $('btn-notion-flush')?.addEventListener('click', () => void flushNotionQueue());
   $('btn-notion-test')?.addEventListener('click', () => void testNotionConnection());
   $('btn-notion-clear-key')?.addEventListener('click', () => setClearKeyRequested(!clearKeyRequested));
-  $('notion-study-enabled')?.addEventListener('change', toggleStudyFields);
 
   setClearKeyRequested(false);
 }
@@ -95,11 +73,20 @@ async function saveGlobalNotionSettings() {
 async function saveStudyNotionSettings() {
   const currentConfig = callbacks.getStudyConfig?.() || {};
   const currentSettings = normalizeStudySettings(currentConfig.study_settings);
+  const plugins = { ...currentSettings.plugins };
+  const previous = plugins.notion || {};
+  plugins.notion = {
+    enabled: $('notion-study-enabled').checked,
+    required: false,
+    settings: {
+      ...(previous.settings || {}),
+      parent_page_id: $('notion-study-parent-id').value.trim(),
+      database_id: $('notion-study-database-id').value.trim(),
+    },
+  };
   callbacks.setStudySettings?.({
     ...currentSettings,
-    notion_enabled: $('notion-study-enabled').checked,
-    notion_parent_page_id: $('notion-study-parent-id').value.trim(),
-    notion_database_id: $('notion-study-database-id').value.trim(),
+    plugins,
   });
 
   const saved = await callbacks.saveStudyConfig?.({
@@ -282,21 +269,24 @@ function setStepState(id, state, label) {
   target.dataset.state = state;
 }
 
+/**
+ * Fill the per-study Notion fields from the loaded study.
+ * The study target now lives in the study-settings shell, so that shell
+ * calls this when its Notion panel is shown.
+ */
+export function refreshNotionStudyFields() {
+  populateStudyForm();
+}
+
 function populateStudyForm() {
   const config = callbacks.getStudyConfig?.() || {};
   const settings = normalizeStudySettings(config.study_settings);
+  const notion = settings.plugins?.notion || {};
+  const notionSettings = notion.settings || {};
   setText('notion-active-study-name', getCurrentStudyName());
-  $('notion-study-enabled').checked = Boolean(settings.notion_enabled);
-  $('notion-study-parent-id').value = settings.notion_parent_page_id || '';
-  $('notion-study-database-id').value = settings.notion_database_id || '';
-  toggleStudyFields();
-}
-
-function toggleStudyFields() {
-  const fields = $('notion-study-fields');
-  if (fields) {
-    fields.hidden = !$('notion-study-enabled').checked;
-  }
+  $('notion-study-enabled').checked = Boolean(notion.enabled);
+  $('notion-study-parent-id').value = notionSettings.parent_page_id || '';
+  $('notion-study-database-id').value = notionSettings.database_id || '';
 }
 
 function setClearKeyRequested(value) {

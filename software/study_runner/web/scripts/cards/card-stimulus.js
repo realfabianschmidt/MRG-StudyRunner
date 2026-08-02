@@ -1,9 +1,9 @@
 import { t } from '../i18n.js';
 import { escapeHtml } from '../lib/dom-utils.js';
-
-const CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS = 1000;
-const CAMERA_SNAPSHOT_MIN_INTERVAL_MS = 1000;
-const CAMERA_SNAPSHOT_MAX_INTERVAL_MS = 60000;
+import {
+  PLUGIN_UI_SURFACES,
+  visiblePluginsWithCapability,
+} from '../lib/plugin-catalog.js';
 
 export const meta = {
   type: 'stimulus',
@@ -20,12 +20,7 @@ export const defaultQuestion = {
   duration_ms: 30000,
   trigger_type: 'timer',
   trigger_content: '',
-  send_signal: true,
-  brainbit_to_lsl: true,
-  brainbit_to_touchdesigner: true,
-  camera_capture_enabled: false,
-  camera_snapshot_interval_ms: CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS,
-  mini_radar_recording_enabled: true,
+  plugin_actions: {},
 };
 
 export function renderStudy(q, i) {
@@ -88,10 +83,6 @@ export function renderEditor(q) {
   const triggerTypes = ['timer', 'image', 'video', 'audio', 'html', 'js'];
   const isContentHidden = triggerType === 'timer';
   const isCode = triggerType === 'html' || triggerType === 'js';
-  const cameraInterval = Math.max(
-    CAMERA_SNAPSHOT_MIN_INTERVAL_MS,
-    Number(q.camera_snapshot_interval_ms || CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS),
-  );
 
   return `
     <div class="field">
@@ -128,55 +119,69 @@ export function renderEditor(q) {
     <div class="field">
       <label>${escapeHtml(t('stimulus.signalSettingsLabel', 'Signals and recordings'))}</label>
       <div class="stimulus-toggle-list">
-        ${renderToggleRow({
-          inputClass: 'se-send-signal',
-          checked: q.send_signal !== false,
-          label: t('stimulus.sendSignalLabel', 'Send Study Runner start/stop signals when the active phase begins and ends'),
-        })}
-        ${renderToggleRow({
-          inputClass: 'se-brainbit-touchdesigner',
-          checked: q.brainbit_to_touchdesigner !== false,
-          label: t('stimulus.touchdesignerLabel', 'Forward BrainBit data to TouchDesigner during this active phase'),
-        })}
-        ${renderToggleRow({
-          inputClass: 'se-mini-radar-recording',
-          checked: q.mini_radar_recording_enabled !== false,
-          label: t('stimulus.radarRecordingLabel', 'Record Mini-radar pulse and breathing during this active phase'),
-        })}
-        ${renderToggleRow({
-          inputClass: 'se-camera-capture',
-          checked: q.camera_capture_enabled === true,
-          label: t('stimulus.cameraCaptureLabel', 'Capture tablet selfie-camera snapshots for camera emotion analysis during this active phase'),
-          settings: 'camera',
-        })}
+        ${renderPluginActions(q)}
       </div>
-      <input type="hidden" class="se-camera-interval" value="${cameraInterval}">
     </div>
     <p class="stimulus-editor-note">
-      ${escapeHtml(t('stimulus.editorNote', 'Warm-up only shows the instruction view. Study signals, BrainBit routing, Mini-radar recording, camera snapshots, media triggers, and custom JS start when the active timer begins. HTML and JS trigger types stay blocked unless the server explicitly enables STUDY_RUNNER_ALLOW_UNSAFE_STIMULUS_CODE=1.'))}
+      ${escapeHtml(t('stimulus.editorNote', 'Warm-up only shows the instruction view. Enabled plugin actions, media triggers, and custom JavaScript start with the active timer. HTML and JavaScript stay blocked unless the server explicitly enables unsafe study content.'))}
     </p>`;
 }
 
-function renderToggleRow({ inputClass, checked, label, settings = '' }) {
-  const settingsLabel = escapeHtml(t('stimulus.settingsLabel', 'Settings'));
+function renderToggleRow({ checked, label, pluginKey, actionKey }) {
   const rowOffClass = checked ? '' : ' stimulus-toggle-row--off';
-  const settingsButton = settings
-    ? `<button type="button" class="stimulus-toggle-settings" data-stimulus-settings="${escapeHtml(settings)}" title="${settingsLabel}" aria-label="${settingsLabel}" ${checked ? '' : 'disabled'}>
-        <i class="iconoir-settings"></i>
-      </button>`
-    : '';
 
   return `
     <div class="stimulus-toggle-row${rowOffClass}">
       <span class="stimulus-toggle-text">${escapeHtml(label)}</span>
       <div class="stimulus-toggle-controls">
         <label class="switch" aria-label="${escapeHtml(label)}">
-          <input type="checkbox" class="stimulus-toggle-input ${escapeHtml(inputClass)}" ${checked ? 'checked' : ''}>
+          <input type="checkbox" class="stimulus-toggle-input" data-plugin-action data-plugin-key="${escapeHtml(pluginKey)}" data-action-key="${escapeHtml(actionKey)}" data-action-type="boolean" ${checked ? 'checked' : ''}>
           <span class="switch-slider"></span>
         </label>
-        ${settingsButton}
       </div>
     </div>`;
+}
+
+function renderPluginActions(question) {
+  const plugins = visiblePluginsWithCapability('card_actions', PLUGIN_UI_SURFACES.STUDY_SETTINGS);
+  const markup = [];
+  plugins.forEach((plugin) => {
+    const pluginKey = plugin.plugin_key;
+    const schema = plugin.card_actions_schema || plugin.settings?.card_actions || {};
+    Object.entries(schema).forEach(([actionKey, field]) => {
+      const value = question.plugin_actions?.[pluginKey]?.[actionKey] ?? field.default ?? null;
+      const fallbackLabel = field.label || `${plugin.ui?.label || pluginKey}: ${humanize(actionKey)}`;
+      const label = field.label_key ? t(field.label_key, fallbackLabel) : fallbackLabel;
+      if (field.type === 'boolean') {
+        markup.push(renderToggleRow({
+          checked: Boolean(value),
+          label,
+          pluginKey,
+          actionKey,
+        }));
+        return;
+      }
+      if (field.type === 'choice') {
+        markup.push(`
+          <label class="field stimulus-plugin-action-field">
+            <span>${escapeHtml(label)}</span>
+            <select class="fi-input" data-plugin-action data-plugin-key="${escapeHtml(pluginKey)}" data-action-key="${escapeHtml(actionKey)}" data-action-type="choice">
+              ${(field.options || []).map((option) => `<option value="${escapeHtml(option)}" ${String(option) === String(value) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}
+            </select>
+          </label>`);
+        return;
+      }
+      const inputType = field.type === 'number' ? 'number' : 'text';
+      markup.push(`
+        <label class="field stimulus-plugin-action-field">
+          <span>${escapeHtml(label)}</span>
+          <input class="fi-input" type="${inputType}" data-plugin-action data-plugin-key="${escapeHtml(pluginKey)}" data-action-key="${escapeHtml(actionKey)}" data-action-type="${escapeHtml(field.type || 'string')}" value="${escapeHtml(value)}"${field.minimum !== undefined ? ` min="${escapeHtml(field.minimum)}"` : ''}${field.maximum !== undefined ? ` max="${escapeHtml(field.maximum)}"` : ''}>
+        </label>`);
+    });
+  });
+  return markup.length
+    ? markup.join('')
+    : `<p class="settings-hint">${escapeHtml(t('stimulus.noPluginActions', 'No plugin actions are available.'))}</p>`;
 }
 
 export function bindEditorEvents(editorEl) {
@@ -188,89 +193,27 @@ export function bindEditorEvents(editorEl) {
     if (toggle) syncStimulusToggleRow(toggle.closest('.stimulus-toggle-row'));
   });
 
-  editorEl.addEventListener('click', (event) => {
-    const settingsButton = event.target.closest?.('.stimulus-toggle-settings[data-stimulus-settings="camera"]');
-    if (!settingsButton || settingsButton.disabled) return;
-    event.preventDefault();
-    openCameraSettingsModal(editorEl);
-  });
 }
 
 function syncStimulusToggleRow(row) {
   if (!row) return;
   const checked = Boolean(row.querySelector('.stimulus-toggle-input')?.checked);
   row.classList.toggle('stimulus-toggle-row--off', !checked);
-  const settingsButton = row.querySelector('.stimulus-toggle-settings');
-  if (settingsButton) settingsButton.disabled = !checked;
-}
-
-let _activeStimulusModal = null;
-
-function closeStimulusModal() {
-  if (!_activeStimulusModal) return;
-  if (_activeStimulusModal._escHandler) document.removeEventListener('keydown', _activeStimulusModal._escHandler);
-  _activeStimulusModal.remove();
-  _activeStimulusModal = null;
-}
-
-function openCameraSettingsModal(editorEl) {
-  closeStimulusModal();
-  const intervalInput = editorEl.querySelector('.se-camera-interval');
-  const currentInterval = Math.max(
-    CAMERA_SNAPSHOT_MIN_INTERVAL_MS,
-    Number.parseInt(intervalInput?.value || String(CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS), 10)
-      || CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS,
-  );
-
-  const backdrop = document.createElement('div');
-  backdrop.className = 'modal-backdrop';
-  backdrop.innerHTML = `
-    <div class="settings-modal" role="dialog" aria-modal="true" style="max-width: 420px;">
-      <div class="settings-modal-header">
-        <h2>${escapeHtml(t('stimulus.cameraSettingsTitle', 'Camera snapshot settings'))}</h2>
-        <button class="overlay-close stimulus-modal-close" type="button" aria-label="${escapeHtml(t('settings.close', 'Close'))}">
-          <i class="iconoir-xmark"></i>
-        </button>
-      </div>
-      <div class="settings-modal-body">
-        <div class="field">
-          <label>${escapeHtml(t('stimulus.cameraIntervalLabel', 'Camera snapshot interval (ms)'))}</label>
-          <input type="number" class="fi-input stimulus-modal-camera-interval" min="${CAMERA_SNAPSHOT_MIN_INTERVAL_MS}" max="${CAMERA_SNAPSHOT_MAX_INTERVAL_MS}" step="100" value="${currentInterval}">
-        </div>
-        <button class="btn-primary stimulus-modal-apply" type="button" style="width:100%; justify-content:center; margin-top:16px;">
-          ${escapeHtml(t('settings.apply', 'Apply'))}
-        </button>
-      </div>
-    </div>`;
-
-  document.body.appendChild(backdrop);
-  _activeStimulusModal = backdrop;
-
-  backdrop.addEventListener('click', (event) => {
-    if (event.target === backdrop) closeStimulusModal();
-  });
-  backdrop.querySelector('.stimulus-modal-close')?.addEventListener('click', closeStimulusModal);
-  backdrop.querySelector('.stimulus-modal-apply')?.addEventListener('click', () => {
-    const nextValue = Number.parseInt(
-      backdrop.querySelector('.stimulus-modal-camera-interval')?.value || String(CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS),
-      10,
-    ) || CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS;
-    if (intervalInput) {
-      intervalInput.value = String(Math.max(
-        CAMERA_SNAPSHOT_MIN_INTERVAL_MS,
-        Math.min(CAMERA_SNAPSHOT_MAX_INTERVAL_MS, nextValue),
-      ));
-      intervalInput.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    closeStimulusModal();
-  });
-
-  backdrop._escHandler = (event) => { if (event.key === 'Escape') closeStimulusModal(); };
-  document.addEventListener('keydown', backdrop._escHandler);
-  backdrop.querySelector('.stimulus-modal-camera-interval')?.focus();
 }
 
 export function collectConfig(el) {
+  const pluginActions = {};
+  el.querySelectorAll('[data-plugin-action]').forEach((input) => {
+    const pluginKey = input.dataset.pluginKey;
+    const actionKey = input.dataset.actionKey;
+    if (!pluginKey || !actionKey) return;
+    pluginActions[pluginKey] ||= {};
+    pluginActions[pluginKey][actionKey] = input.dataset.actionType === 'boolean'
+      ? Boolean(input.checked)
+      : input.dataset.actionType === 'number'
+        ? Number(input.value)
+        : input.value;
+  });
   return {
     type: 'stimulus',
     title: el.querySelector('.se-title')?.value.trim() || '',
@@ -278,17 +221,12 @@ export function collectConfig(el) {
     duration_ms: Number.parseInt(el.querySelector('.se-duration')?.value || '30', 10) * 1000,
     trigger_type: el.querySelector('.se-trigger-type')?.value || 'timer',
     trigger_content: el.querySelector('.se-trigger-content')?.value.trim() || '',
-    send_signal: el.querySelector('.se-send-signal')?.checked ?? true,
-    brainbit_to_lsl: true,
-    brainbit_to_touchdesigner: el.querySelector('.se-brainbit-touchdesigner')?.checked ?? true,
-    mini_radar_recording_enabled: el.querySelector('.se-mini-radar-recording')?.checked ?? true,
-    camera_capture_enabled: el.querySelector('.se-camera-capture')?.checked ?? false,
-    camera_snapshot_interval_ms: Math.max(
-      CAMERA_SNAPSHOT_MIN_INTERVAL_MS,
-      Number.parseInt(el.querySelector('.se-camera-interval')?.value || String(CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS), 10)
-        || CAMERA_SNAPSHOT_DEFAULT_INTERVAL_MS,
-    ),
+    plugin_actions: pluginActions,
   };
+}
+
+function humanize(value) {
+  return String(value || '').replace(/[._-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export function collectAnswer() {

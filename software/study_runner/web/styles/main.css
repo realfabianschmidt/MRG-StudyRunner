@@ -1,27 +1,6 @@
 ﻿/* ============================================================
    FONTS
    ============================================================ */
-@font-face {
-  font-family: 'Materiability';
-  src: url('../fonts/Materiability-Regular.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Materiability';
-  src: url('../fonts/Materiability-SemiBold.ttf') format('truetype');
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Materiability';
-  src: url('../fonts/Materiability-Bold.ttf') format('truetype');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
 
 /* ============================================================
    DESIGN TOKENS
@@ -63,7 +42,7 @@
   --t-med:  .4s;
 
   /* Typography */
-  --font-body: 'Materiability', -apple-system, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
 
@@ -486,6 +465,62 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
 @keyframes cardReveal { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
 @keyframes enterRight { from { opacity:0; transform:translateX(36px); } to { opacity:1; transform:translateX(0); } }
 @keyframes enterLeft  { from { opacity:0; transform:translateX(-36px); } to { opacity:1; transform:translateX(0); } }
+
+/* ============================================================
+   VIEW SWEEP - the cover between admin views
+   Layers slide in from the left until the screen is opaque; the
+   view is swapped underneath, then they fade out and the target
+   view's own fadeIn takes over. Driven by lib/view-transition.js.
+   ============================================================ */
+.view-sweep {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  pointer-events: none;
+}
+.view-sweep[hidden] {
+  display: none;
+}
+.view-sweep-layer {
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  transition: transform var(--t-med) var(--fluid);
+  will-change: transform;
+}
+/* Three passes, each a little later, ending on an opaque surface. */
+.view-sweep-layer:nth-child(1) { background: var(--accent-06); transition-delay: 0ms; }
+.view-sweep-layer:nth-child(2) { background: var(--bg-sunken);  transition-delay: 60ms; }
+.view-sweep-layer:nth-child(3) { background: var(--bg-elevated); transition-delay: 120ms; }
+
+.view-sweep.is-covering .view-sweep-layer {
+  transform: translateX(0);
+}
+/* Reveal fades the cover away instead of sliding it out, so the target
+   view's fadeIn is what the operator actually reads as "the page arrives". */
+.view-sweep.is-revealing .view-sweep-layer {
+  transform: translateX(0);
+  opacity: 0;
+  transition: opacity var(--t-med) var(--fluid);
+  transition-delay: 0ms;
+}
+
+/* ============================================================
+   REDUCED MOTION
+   Respect the OS setting: no sweep, no view fade, no sidebar slide.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .view-sweep {
+    display: none !important;
+  }
+  .admin-view {
+    animation: none;
+  }
+  .sidebar-main,
+  .sidebar-overlay {
+    transition: none;
+  }
+}
 
 /* Questions screen: transparent shell, the cards float inside */
 #screen-questions {
@@ -1624,6 +1659,15 @@ body.admin::before { display: none; }
   font-size: .813rem;
 }
 
+.plugin-admin-action--danger {
+  border-color: rgba(211, 47, 47, .4);
+  color: #D32F2F;
+}
+
+.plugin-admin-action--danger:hover {
+  background: rgba(211, 47, 47, .07);
+}
+
 .btn-xs { padding: 4px 8px !important; font-size: .75rem !important; }
 
 .integration-controls {
@@ -1905,7 +1949,10 @@ body.admin::before { display: none; }
   padding-right: 12px;
   border-right: 1px solid var(--ink-06);
 }
-.settings-hub-tab {
+/* The full-screen shell's nav entries share this language on purpose -
+   one active/hover treatment, one place to change it. */
+.settings-hub-tab,
+.settings-nav-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1922,22 +1969,43 @@ body.admin::before { display: none; }
   cursor: pointer;
   transition: background var(--t-fast) var(--fluid), border-color var(--t-fast) var(--fluid), color var(--t-fast) var(--fluid);
 }
-.settings-hub-tab i {
+.settings-hub-tab i,
+.settings-nav-item i {
   font-size: 16px;
   color: var(--ink-25);
 }
 .settings-hub-tab.active,
-.settings-hub-tab:hover {
+.settings-hub-tab:hover,
+.settings-nav-item.active,
+.settings-nav-item:hover {
   background: var(--accent-06);
   border-color: var(--accent-25);
   color: var(--accent);
 }
 .settings-hub-tab.active i,
-.settings-hub-tab:hover i {
+.settings-hub-tab:hover i,
+.settings-nav-item.active i,
+.settings-nav-item:hover i {
   color: var(--accent);
 }
 .settings-hub-panels {
   min-width: 0;
+}
+
+/* Full-screen settings shell: the sidebar is a nav, not an editor. */
+.admin-sidebar.settings-nav .sidebar-section {
+  gap: 4px;
+}
+.admin-sidebar.settings-nav .sidebar-section-title {
+  margin-bottom: 6px;
+}
+.settings-shell-panel[hidden] {
+  display: none;
+}
+.settings-shell-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .settings-hub-panel {
   display: flex;
@@ -2000,6 +2068,23 @@ body.admin::before { display: none; }
   border-radius: var(--r-surface);
   background: var(--bg-sunken);
   overflow: hidden;
+}
+.plugin-problem-list {
+  display: grid;
+  gap: 10px;
+}
+.plugin-problem-item {
+  padding: 11px 13px;
+  border: 1px solid rgba(211, 47, 47, .24);
+  border-radius: var(--r-surface);
+  background: rgba(211, 47, 47, .05);
+  overflow-wrap: anywhere;
+}
+.plugin-problem-item ul {
+  margin: 6px 0 0 18px;
+  padding: 0;
+  color: var(--ink-60);
+  font-size: .8rem;
 }
 .settings-hub-detail-row {
   display: grid;
@@ -2120,6 +2205,51 @@ body.admin::before { display: none; }
 }
 .stimulus-toggle-row--off {
   background: var(--bg-sunken);
+}
+
+.study-plugin-row {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.study-plugin-main,
+.study-plugin-required {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.study-plugin-main .stimulus-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.study-plugin-main small {
+  color: var(--ink-40);
+  line-height: 1.4;
+}
+
+.study-plugin-required {
+  border-top: 1px solid var(--ink-06);
+  color: var(--ink-60);
+  font-size: 0.9rem;
+  padding-top: 10px;
+}
+
+.study-plugin-fields {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  width: 100%;
+}
+
+.stimulus-plugin-action-field {
+  margin: 0;
+  padding: 10px 12px;
 }
 .stimulus-toggle-row--off .stimulus-toggle-text {
   color: var(--ink-40);
@@ -3853,6 +3983,173 @@ body.admin::before { display: none; }
 
 .upload-widget--failed .upload-progress-fill {
   background: #D32F2F;
+}
+
+.finalization-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--ink-12);
+  border-radius: 8px;
+  background: var(--ink-03);
+}
+
+.finalization-summary--attention {
+  border-color: rgba(211, 47, 47, .28);
+  background: rgba(211, 47, 47, .06);
+}
+
+.finalization-status-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+  font-size: .9rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.finalization-quality {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--ink-06);
+  color: var(--ink-60);
+  font-family: var(--font-mono);
+  font-size: .66rem;
+}
+
+.finalization-progress-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 5px;
+  color: var(--ink-40);
+  font-size: .75rem;
+}
+
+.finalization-progress {
+  margin-bottom: 12px;
+}
+
+.finalization-warnings,
+.finalization-degraded {
+  padding: 12px 14px;
+  margin: 12px 0;
+  border: 1px solid rgba(211, 47, 47, .24);
+  border-radius: 8px;
+  background: rgba(211, 47, 47, .05);
+}
+
+.finalization-warnings ul {
+  margin: 7px 0 0 18px;
+  padding: 0;
+  color: var(--ink-60);
+  font-size: .8rem;
+}
+
+.finalization-section-title {
+  color: var(--ink);
+  font-size: .8rem;
+  font-weight: 650;
+}
+
+.finalization-step-list {
+  max-height: min(42vh, 390px);
+  overflow-y: auto;
+  padding-right: 3px;
+}
+
+.finalization-step-details {
+  margin-top: 5px;
+  color: var(--ink-40);
+  font-size: .72rem;
+}
+
+.finalization-step-details summary {
+  cursor: pointer;
+}
+
+.finalization-step-details pre {
+  max-height: 160px;
+  margin: 6px 0 0;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--ink-03);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: .68rem/1.45 var(--font-mono);
+}
+
+.finalization-artifacts {
+  margin-top: 14px;
+}
+
+.finalization-artifacts .upload-file-list {
+  margin-top: 8px;
+}
+
+.finalization-artifacts .upload-file-chip {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.finalization-degraded .field {
+  margin-top: 10px;
+}
+
+.finalization-actions {
+  margin-top: 14px;
+}
+
+/* Dashboard cards that only mean something during a run. The sensors stay
+   fully usable so the dashboard is worth opening before pressing Play. */
+.dashboard-card.is-idle {
+  opacity: .55;
+}
+.dashboard-card.is-idle .dashboard-card-body {
+  filter: grayscale(1);
+}
+.dashboard-idle-note {
+  display: none;
+  margin-top: 10px;
+  font-size: .8125rem;
+  color: var(--ink-40);
+}
+.dashboard-card.is-idle .dashboard-idle-note {
+  display: block;
+}
+
+/* Pre-run readiness: one marker, one call-to-action treatment reused at
+   every step of the chain (hub -> editor -> the panel that owns the fix). */
+.readiness-marker[hidden] {
+  display: none;
+}
+.readiness-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  color: #a16107;
+  font-size: 1rem;
+  vertical-align: middle;
+  cursor: help;
+}
+
+.is-cta {
+  border-color: rgba(161, 97, 7, .45) !important;
+  background: rgba(161, 97, 7, .08) !important;
+  color: #a16107 !important;
+}
+.is-cta i {
+  color: #a16107 !important;
+}
+.settings-nav-item.is-cta {
+  border-color: rgba(161, 97, 7, .45) !important;
 }
 
 /* Hub banner for crash-orphaned sessions (T7 recovery). */

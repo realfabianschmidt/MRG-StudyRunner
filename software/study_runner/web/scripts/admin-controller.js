@@ -6,24 +6,24 @@ import { initializeCertificateSettings } from './admin/certificate-settings-cont
 import { initializeSessionsBrowser, loadCompletedSessions } from './admin/sessions-browser.js';
 import { initializeUploadMonitor } from './admin/upload-monitor.js';
 import { initializeRecoveryPanel, loadRecoveryCandidates } from './admin/recovery-panel.js';
+import { defaultStudySettings, normalizeStudySettings } from './lib/study-settings.js';
+import { transitionToView } from './lib/view-transition.js';
+import { activateShellPanel, bindShellNav, renderShellNav, renderShellPanel } from './lib/settings-shell.js';
+import { initializeStudySettingsPanel, openStudySettingsPanel } from './admin/study-settings-panel.js';
 import { CARDS, CARD_TYPES, defaultFor } from './cards/index.js';
 import { renderInfoBottom, renderInfoEditor, collectInfo } from './cards/card-info.js';
 import { initI18n, setLanguage, getLanguage, t } from './i18n.js';
-import { createModal } from './lib/modal.js';
 import { createQrSvg } from './qr-code.js';
 import { escapeHtml } from './lib/dom-utils.js';
+import {
+  getPluginCatalog,
+  isPluginVisible,
+  loadPluginCatalog,
+  PLUGIN_UI_SURFACES,
+  pluginUiIcon,
+} from './lib/plugin-catalog.js';
 
 const STUDY_RUN_POLL_INTERVAL_MS = 1500;
-const PLUGIN_ICONS = {
-  brainbit: 'iconoir-brain',
-  mini_radar: 'iconoir-activity',
-  camera_emotion: 'iconoir-camera',
-  emotion_worker: 'iconoir-cpu',
-  lsl: 'iconoir-pulse',
-  osc: 'iconoir-network',
-  labrecorder: 'iconoir-save-action-floppy',
-  notion: 'iconoir-database',
-};
 
 // Load the saved or default UI language and wire the EN/DE switcher.
 // A locale failure must never break the admin page, so failures are swallowed.
@@ -66,63 +66,13 @@ const state = {
   studyRunState: null,
   tabletGate: null,
   studyRunPollTimer: null,
-  settingsHubModal: null,
   settingsHubStatus: null,
-  settingsHubActiveTab: 'study',
+  settingsHubActiveTab: 'tablet',
+  pluginSettings: {},
 };
 
 
 const $ = (id) => document.getElementById(id);
-
-function defaultStudySettings() {
-  return {
-    sensors_enabled: true,
-    sensors: defaultStudySensors(true),
-    progress_bar_enabled: false,
-    notion_enabled: false,
-    notion_parent_page_id: '',
-    notion_database_id: '',
-    notion_data_source_id: '',
-  };
-}
-
-function defaultStudySensors(sensorsEnabled = true) {
-  return {
-    brainbit: Boolean(sensorsEnabled),
-    mini_radar: Boolean(sensorsEnabled),
-    camera_emotion: false,
-  };
-}
-
-function normalizeStudySensors(settings, sensorsEnabled) {
-  if (!sensorsEnabled) {
-    return defaultStudySensors(false);
-  }
-  const rawSensors = settings?.sensors;
-  if (!rawSensors || typeof rawSensors !== 'object') {
-    return defaultStudySensors(true);
-  }
-  return {
-    brainbit: rawSensors.brainbit !== false,
-    mini_radar: rawSensors.mini_radar !== false,
-    camera_emotion: rawSensors.camera_emotion === true,
-  };
-}
-
-function normalizeStudySettings(settings) {
-  const sensorsEnabled = settings?.sensors_enabled !== false;
-  return {
-    ...defaultStudySettings(),
-    ...(settings && typeof settings === 'object' ? settings : {}),
-    sensors_enabled: sensorsEnabled,
-    sensors: normalizeStudySensors(settings, sensorsEnabled),
-    progress_bar_enabled: Boolean(settings?.progress_bar_enabled),
-    notion_enabled: Boolean(settings?.notion_enabled),
-    notion_parent_page_id: String(settings?.notion_parent_page_id || '').trim(),
-    notion_database_id: String(settings?.notion_database_id || '').trim(),
-    notion_data_source_id: String(settings?.notion_data_source_id || '').trim(),
-  };
-}
 
 async function init() {
   await setupLanguage();
@@ -142,6 +92,7 @@ async function init() {
   initializeNextcloudSettings({
     showToast,
     switchView,
+    openStudySettingsPanel,
     getStudyConfig: () => state.config,
     setStudySettings: (settings) => {
       state.config.study_settings = normalizeStudySettings(settings);
@@ -151,17 +102,33 @@ async function init() {
     saveStudyConfig: saveConfig,
   });
   initializeCertificateSettings({ showToast, switchView });
+  initializeStudySettingsPanel({
+    showToast,
+    switchView,
+    getStudyConfig: () => state.config,
+    setStudySettings: (settings) => {
+      state.config.study_settings = normalizeStudySettings(settings);
+      markUnsaved();
+    },
+    getCurrentStudyName,
+    saveStudyConfig: saveConfig,
+    downloadCurrentStudy: () => void downloadStudy(getCurrentStudyName()),
+  });
   initializeSessionsBrowser({ showToast, switchView });
   initializeUploadMonitor({ showToast, onLocalCompletion: () => void loadCompletedSessions() });
   initializeRecoveryPanel({ showToast, onFinalized: loadCompletedSessions });
 
   try {
     await loadRuntimeInfo();
-    const config = await getJson('/api/config');
+    const [config] = await Promise.all([
+      getJson('/api/config'),
+      loadPluginCatalog(),
+    ]);
     state.studyRunState = config._runtime?.study_run_state || null;
     applyLoadedConfig(config);
     await loadRecentStudies();
     await loadStudyRunState();
+    await loadStudyReadiness();
     startStudyRunPolling();
     await loadCompletedSessions();
     await loadRecoveryCandidates();
@@ -221,6 +188,68 @@ function startStudyRunPolling() {
   }, STUDY_RUN_POLL_INTERVAL_MS);
 }
 
+/**
+ * Load the pre-run check for the loaded study.
+ *
+ * Without it a study imported from another computer runs happily and only
+ * fails to upload afterwards, into the retry queue, long after the participant
+ * has left. Cheap and purely config-based, so it can run after every save.
+ */
+async function loadStudyReadiness() {
+  try {
+    state.readiness = await getJson('/api/admin/study-readiness', { timeoutMs: 2000 });
+  } catch (error) {
+    // Never let a failed check block the operator; just show no warning.
+    console.debug('[admin] Could not load study readiness:', error);
+    state.readiness = null;
+  }
+  renderStudyRunState();
+}
+
+/**
+ * The CTA chain: a marker next to the study name, and the route to the fix
+ * highlighted at every step (hub -> editor -> the panel that owns the problem).
+ */
+function renderReadinessCta() {
+  const blockers = state.readiness?.ready === false ? (state.readiness.blockers || []) : [];
+  const marker = $('hub-readiness-marker');
+  if (marker) {
+    marker.hidden = blockers.length === 0;
+    marker.title = blockers.length ? readinessSummary(blockers) : '';
+  }
+  // Edit is the way to every fix, so it carries the call to action on the hub.
+  $('btn-hub-editor')?.classList.toggle('is-cta', blockers.length > 0);
+  // Inside the editor, the study settings button is the next step.
+  $('btn-study-settings')?.classList.toggle('is-cta', blockers.length > 0);
+}
+
+function readinessSummary(blockers) {
+  return blockers.map((blocker) => readinessMessage(blocker)).join('\n');
+}
+
+function readinessMessage(blocker) {
+  const sensorLabel = blocker.sensor ? t(`dashboard.${blocker.sensor}`, blocker.sensor) : '';
+  const supportedModes = Array.isArray(blocker.supported_modes) ? blocker.supported_modes.join(', ') : '';
+  const messages = {
+    notion_api_key_missing: t('readiness.notionKeyMissing', 'Notion upload is on, but no API key is available for this study.'),
+    notion_target_missing: t('readiness.notionTargetMissing', 'Notion upload is on, but no parent page or database is set.'),
+    notion_machine_disabled: t('readiness.notionMachineDisabled', 'Notion upload is on for this study, but switched off on this computer.'),
+    nextcloud_link_missing: t('readiness.nextcloudLinkMissing', 'Nextcloud upload is on, but no share link is set.'),
+    sensor_machine_disabled: t('readiness.sensorMachineDisabled', '{sensor} is used by this study but switched off on this computer.').replace('{sensor}', sensorLabel),
+    camera_requires_https: t('readiness.cameraRequiresHttps', 'The tablet camera needs a secure connection, which is currently off.'),
+    browser_source_requires_https: t('readiness.browserSourceRequiresHttps', 'A selected browser sensor needs a secure HTTPS connection, which is currently off.'),
+    plugin_mode_unsupported: t(
+      'readiness.pluginModeUnsupported',
+      '{sensor} mode {mode} is unavailable on {platform}. Supported: {supported}.',
+    )
+      .replace('{sensor}', sensorLabel || blocker.plugin || '')
+      .replace('{mode}', blocker.mode || '')
+      .replace('{platform}', blocker.platform || '')
+      .replace('{supported}', supportedModes),
+  };
+  return messages[blocker.code] || blocker.code;
+}
+
 function renderStudyRunState() {
   const runState = state.studyRunState || {};
   const tabletGate = state.tabletGate || {};
@@ -242,16 +271,23 @@ function renderStudyRunState() {
   if (startButton) {
     const running = status === 'running';
     const gateBlocksStart = status !== 'running' && tabletGate.can_start !== true;
+    // Keep Play visible so a click can explain the blocker. The backend is the
+    // authoritative gate for required plugins and recording infrastructure.
+    const notReady = status !== 'running' && state.readiness?.ready === false;
     startButton.disabled = running || !getCurrentStudyName() || gateBlocksStart;
     startButton.classList.toggle('is-running', running);
-    startButton.classList.toggle('is-blocked', gateBlocksStart);
+    startButton.classList.toggle('is-blocked', gateBlocksStart || notReady);
   }
+  renderReadinessCta();
   if (startLabel) {
     startLabel.textContent = status === 'running'
       ? t('hub.runRunning', 'Running')
       : t('hub.startStudy', 'Start study');
   }
-  if (dashboardButton && status === 'running') {
+  // The dashboard is reachable at any time on purpose: sensors can be started
+  // and tested from it before pressing Play, which is where setup problems are
+  // actually fixed. Only the run-specific readouts idle until a study runs.
+  if (dashboardButton) {
     dashboardButton.hidden = false;
   }
 }
@@ -298,6 +334,25 @@ function tabletGateHint(tabletGate) {
 }
 
 async function startLoadedStudyRun() {
+  if (state.readiness?.start_blocked === true) {
+    const blockers = state.readiness.blockers || [];
+    const message = `${t('readiness.confirmTitle', 'This study is not fully set up:')} `
+      + `${readinessSummary(blockers)} `
+      + t('readiness.blockedBody', 'Start is blocked until every required plugin and the recording infrastructure are ready.');
+    showToast(message, 'error');
+    return;
+  }
+
+  // Destination warnings are overridable because the local scientific commit
+  // remains possible and publishing can be retried after the session.
+  if (state.readiness?.ready === false) {
+    const blockers = state.readiness.blockers || [];
+    const message = `${t('readiness.confirmTitle', 'This study is not fully set up:')}\n\n`
+      + `${readinessSummary(blockers)}\n\n`
+      + t('readiness.confirmBody', 'Measurements are saved locally either way, but the uploads listed above will fail. Start anyway?');
+    if (!confirm(message)) return;
+  }
+
   const button = $('btn-hub-start-study');
   const previousHtml = button?.innerHTML || '';
   if (button) {
@@ -326,85 +381,115 @@ async function startLoadedStudyRun() {
   }
 }
 
+/**
+ * Open the machine-level settings shell.
+ *
+ * Content is unchanged from the modal this replaces - only the shell around it
+ * is new. The status load runs while the sweep still covers the screen, so the
+ * panels are already filled when the shell appears.
+ */
 function openSettingsHub() {
-  if (!state.settingsHubModal) {
-    state.settingsHubModal = createModal({
-      kicker: t('settingsHub.kicker', 'Operator settings'),
-      title: t('settingsHub.title', 'Settings'),
-      closeLabel: t('settings.close', 'Close'),
+  return switchView('view-machine-settings', {
+    onCovered: async () => {
+      renderSettingsHubShell();
+      await loadSettingsHubStatus();
+    },
+  });
+}
+
+function isSettingsHubOpen() {
+  return Boolean($('view-machine-settings')?.classList.contains('active'));
+}
+
+function renderSettingsHubShell() {
+  const nav = $('machine-settings-nav');
+  const panels = $('machine-settings-panels');
+  if (!nav || !panels) return;
+
+  const entries = settingsHubEntries();
+  if (!entries.some((entry) => entry.key === state.settingsHubActiveTab)) {
+    state.settingsHubActiveTab = entries[0]?.key || 'tablet';
+  }
+
+  nav.innerHTML = renderShellNav(entries, state.settingsHubActiveTab);
+  panels.innerHTML = settingsHubPanels();
+
+  const root = $('view-machine-settings');
+  state.settingsHubActiveTab = activateShellPanel(root, state.settingsHubActiveTab);
+  bindShellNav(root, (key) => { state.settingsHubActiveTab = key; });
+  root?.querySelectorAll('[data-settings-action]').forEach((button) => {
+    button.addEventListener('click', () => handleSettingsHubAction(button.dataset.settingsAction || ''));
+  });
+  root?.querySelectorAll('[data-save-plugin-settings]').forEach((button) => {
+    button.addEventListener('click', () => void savePluginSettings(button.dataset.savePluginSettings));
+  });
+}
+
+function settingsHubEntries() {
+  const groupThisComputer = t('settingsHub.groupComputer', 'This computer');
+  const groupSensors = t('settingsHub.groupSensors', 'Sensors');
+  const groupSystem = t('settingsHub.groupSystem', 'System');
+  const entries = [
+    { key: 'tablet', icon: 'iconoir-tablet', label: t('settingsHub.tabTablet', 'Tablet'), group: groupThisComputer },
+    ...settingsHubPlugins().map((plugin) => ({
+      key: `plugin:${plugin.key}`,
+      icon: pluginIcon(plugin),
+      label: plugin.label || plugin.key,
+      group: groupSensors,
+    })),
+    { key: 'system', icon: 'iconoir-settings', label: t('settingsHub.tabSystem', 'System'), group: groupSystem },
+    { key: 'audit', icon: 'iconoir-book', label: t('hub.auditSensorSetup', 'Audit & Sensor Setup'), group: groupSystem },
+  ];
+  if (getPluginCatalog().invalid_plugins.length) {
+    entries.push({
+      key: 'plugin-problems',
+      icon: 'iconoir-warning-triangle',
+      label: t('settingsHub.pluginProblems', 'Plugin problems'),
+      group: groupSystem,
     });
   }
-  renderSettingsHubIntoModal();
-  if (!state.settingsHubModal.isOpen()) {
-    state.settingsHubModal.open();
-  }
-  void loadSettingsHubStatus();
+  return entries;
 }
 
-function renderSettingsHubIntoModal() {
-  if (!state.settingsHubModal) return;
-  state.settingsHubModal.setKicker?.(t('settingsHub.kicker', 'Operator settings'));
-  state.settingsHubModal.setTitle?.(t('settingsHub.title', 'Settings'));
-  state.settingsHubModal.body.innerHTML = renderSettingsHub();
-  bindSettingsHub();
+function settingsHubPanels() {
+  const active = state.settingsHubActiveTab;
+  return [
+    renderShellPanel('audit', [
+      settingsHubAction('audit', 'iconoir-book', t('hub.auditSensorSetup', 'Audit & Sensor Setup'), t('settingsHub.auditHint', 'Check local sensor readiness and setup state.')),
+    ], active !== 'audit'),
+    renderShellPanel('tablet', [
+      settingsHubAction('certificate', 'iconoir-shield-check', t('hub.certificateSettings', 'Certificate'), t('settingsHub.certificateHint', 'Tablet trust setup for HTTPS camera access.')),
+    ], active !== 'tablet'),
+    renderShellPanel('system', [
+      settingsHubAction('update', 'iconoir-download-circled-outline', t('update.title', 'Python app update'), t('settingsHub.updateHint', 'Check, download, and install Study Runner updates.')),
+      settingsHubAction('shortcut', 'iconoir-desktop', t('hub.createShortcut', 'Create desktop shortcut'), t('settingsHub.shortcutHint', 'Create a local launcher for this computer.')),
+    ], active !== 'system'),
+    ...(getPluginCatalog().invalid_plugins.length ? [renderShellPanel(
+      'plugin-problems',
+      renderInvalidPlugins(),
+      active !== 'plugin-problems',
+    )] : []),
+    ...settingsHubPlugins().map((plugin) => renderShellPanel(
+      `plugin:${plugin.key}`,
+      renderPluginSettingsPanel(plugin),
+      active !== `plugin:${plugin.key}`,
+    )),
+  ].join('');
 }
 
-function renderSettingsHub() {
-  const pluginTabs = settingsHubPlugins().map((plugin) => [
-    `plugin:${plugin.key}`,
-    pluginIcon(plugin),
-    plugin.label || plugin.key,
-  ]);
-  const tabs = [
-    ['study', 'iconoir-journal-page', t('settingsHub.tabStudy', 'Study')],
-    ['uploads', 'iconoir-cloud-upload', t('settingsHub.tabUploads', 'Uploads')],
-    ['tablet', 'iconoir-tablet', t('settingsHub.tabTablet', 'Tablet')],
-    ['system', 'iconoir-settings', t('settingsHub.tabSystem', 'System')],
-    ...pluginTabs,
-  ];
-  if (!tabs.some(([key]) => key === state.settingsHubActiveTab)) {
-    state.settingsHubActiveTab = 'study';
-  }
+function renderInvalidPlugins() {
+  const invalidPlugins = getPluginCatalog().invalid_plugins;
   return `
-    <div class="settings-hub">
-      <div class="settings-hub-tabs" role="tablist">
-        ${tabs.map(([key, icon, label], index) => `
-          <button class="settings-hub-tab${key === state.settingsHubActiveTab ? ' active' : ''}" type="button" data-settings-tab="${escapeHtml(key)}" role="tab" aria-selected="${key === state.settingsHubActiveTab ? 'true' : 'false'}">
-            <i class="${escapeHtml(icon)}"></i><span>${escapeHtml(label)}</span>
-          </button>
-        `).join('')}
+    <div class="settings-hub-plugin">
+      <div class="dashboard-card-title"><i class="iconoir-warning-triangle"></i> <span>${escapeHtml(t('settingsHub.pluginProblems', 'Plugin problems'))}</span></div>
+      <p class="settings-hint">${escapeHtml(t('settingsHub.pluginProblemsHint', 'Invalid built-in plugins stay isolated and are not loaded. Fix their manifest or entry point, then restart Study Runner.'))}</p>
+      <div class="plugin-problem-list">
+        ${invalidPlugins.map((plugin) => `
+          <div class="plugin-problem-item">
+            <strong>${escapeHtml(plugin.plugin_key || plugin.directory || t('settingsHub.unknownPlugin', 'Unknown plugin'))}</strong>
+            <ul>${(plugin.errors || []).map((error) => `<li>${escapeHtml(error)}</li>`).join('')}</ul>
+          </div>`).join('')}
       </div>
-      <div class="settings-hub-panels">
-        ${settingsHubPanel('study', state.settingsHubActiveTab !== 'study', [
-          settingsHubAction('study-settings', 'iconoir-settings-cloud', t('sidebar.studySettings', 'Study settings'), t('settingsHub.studyHint', 'Sensors and progress bar for the loaded study.')),
-          settingsHubAction('audit', 'iconoir-book', t('hub.auditSensorSetup', 'Audit & Sensor Setup'), t('settingsHub.auditHint', 'Check local sensor readiness and setup state.')),
-        ])}
-        ${settingsHubPanel('uploads', state.settingsHubActiveTab !== 'uploads', [
-          settingsHubAction('notion', 'iconoir-database', t('hub.notionSettings', 'Notion settings'), t('settingsHub.notionHint', 'Backend token, study target, and upload queue.')),
-          settingsHubAction('nextcloud', 'iconoir-cloud-upload', t('hub.nextcloudSettings', 'Nextcloud settings'), t('settingsHub.nextcloudHint', 'Public share link and optional share password.')),
-        ])}
-        ${settingsHubPanel('tablet', state.settingsHubActiveTab !== 'tablet', [
-          settingsHubAction('certificate', 'iconoir-shield-check', t('hub.certificateSettings', 'Certificate'), t('settingsHub.certificateHint', 'Tablet trust setup for HTTPS camera access.')),
-        ])}
-        ${settingsHubPanel('system', state.settingsHubActiveTab !== 'system', [
-          settingsHubAction('update', 'iconoir-download-circled-outline', t('update.title', 'Python app update'), t('settingsHub.updateHint', 'Check, download, and install Study Runner updates.')),
-          settingsHubAction('shortcut', 'iconoir-desktop', t('hub.createShortcut', 'Create desktop shortcut'), t('settingsHub.shortcutHint', 'Create a local launcher for this computer.')),
-        ])}
-        ${settingsHubPlugins().map((plugin) => settingsHubPanel(
-          `plugin:${plugin.key}`,
-          state.settingsHubActiveTab !== `plugin:${plugin.key}`,
-          renderPluginSettingsPanel(plugin),
-        )).join('')}
-      </div>
-    </div>
-  `;
-}
-
-function settingsHubPanel(key, hidden, content) {
-  const body = Array.isArray(content) ? content.join('') : String(content || '');
-  return `
-    <div class="settings-hub-panel" data-settings-panel="${escapeHtml(key)}"${hidden ? ' hidden' : ''}>
-      ${body}
     </div>`;
 }
 
@@ -419,63 +504,38 @@ function settingsHubAction(action, icon, title, hint) {
     </button>`;
 }
 
-function bindSettingsHub() {
-  const body = state.settingsHubModal?.body;
-  if (!body) return;
-  body.querySelectorAll('[data-settings-tab]').forEach((tab) => {
-    tab.addEventListener('click', () => activateSettingsHubTab(tab.dataset.settingsTab || 'study'));
-  });
-  body.querySelectorAll('[data-settings-action]').forEach((button) => {
-    button.addEventListener('click', () => handleSettingsHubAction(button.dataset.settingsAction || ''));
-  });
-}
-
-function activateSettingsHubTab(tabKey) {
-  const body = state.settingsHubModal?.body;
-  if (!body) return;
-  state.settingsHubActiveTab = tabKey;
-  body.querySelectorAll('[data-settings-tab]').forEach((tab) => {
-    const active = tab.dataset.settingsTab === tabKey;
-    tab.classList.toggle('active', active);
-    tab.setAttribute('aria-selected', active ? 'true' : 'false');
-  });
-  body.querySelectorAll('[data-settings-panel]').forEach((panel) => {
-    panel.hidden = panel.dataset.settingsPanel !== tabKey;
-  });
-}
-
 function handleSettingsHubAction(action) {
-  if (action !== 'shortcut') {
-    state.settingsHubModal?.close();
-  }
-  if (action === 'study-settings') {
-    openStudySettings();
-  } else if (action === 'notion') {
-    $('btn-notion-settings')?.click();
-  } else if (action === 'nextcloud') {
-    $('btn-nextcloud-settings')?.click();
-  } else if (action === 'certificate') {
+  if (action === 'certificate') {
     $('btn-certificate-settings')?.click();
   } else if (action === 'audit') {
     window.open('/audit', '_blank', 'noreferrer');
   } else if (action === 'update') {
-    switchView('view-hub');
-    $('admin-update-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Scroll while the sweep still covers the screen, so the update card is
+    // already in place when the hub is revealed instead of sliding into view.
+    void switchView('view-hub', {
+      onCovered: () => $('admin-update-card')?.scrollIntoView({ block: 'center' }),
+    });
   } else if (action === 'shortcut') {
+    // An action, not a navigation - stay in the shell and report there.
     void createDesktopShortcut();
   } else if (action === 'dashboard') {
-    switchView('view-dashboard');
+    void switchView('view-dashboard');
   }
 }
 
 async function loadSettingsHubStatus() {
   try {
     state.settingsHubStatus = await getJson('/api/admin/status', { timeoutMs: 1500 });
+    try {
+      state.pluginSettings = (await getJson('/api/admin/plugin-settings', { timeoutMs: 1500 })).plugins || {};
+    } catch (settingsError) {
+      console.debug('[admin] Could not load plugin settings schema:', settingsError);
+    }
     state.tabletGate = state.settingsHubStatus?.study_clients?.single_tablet || state.tabletGate;
     state.studyRunState = state.settingsHubStatus?.study_run_state || state.studyRunState;
     renderStudyRunState();
-    if (state.settingsHubModal?.isOpen()) {
-      renderSettingsHubIntoModal();
+    if (isSettingsHubOpen()) {
+      renderSettingsHubShell();
     }
   } catch (error) {
     console.debug('[admin] Could not load settings hub plugin status:', error);
@@ -484,9 +544,18 @@ async function loadSettingsHubStatus() {
 
 function settingsHubPlugins() {
   const integrations = state.settingsHubStatus?.integrations || {};
-  return Object.values(integrations)
-    .filter((plugin) => plugin && plugin.key)
-    .sort((left, right) => String(left.label || left.key).localeCompare(String(right.label || right.key)));
+  return getPluginCatalog().plugins
+    .filter((manifest) => isPluginVisible(manifest, PLUGIN_UI_SURFACES.SETTINGS_HUB))
+    .map((manifest) => {
+      const status = integrations[manifest.plugin_key] || {};
+      return {
+        ...status,
+        key: manifest.plugin_key,
+        label: status.label || manifest.ui?.label || manifest.plugin_key,
+        category: status.category || manifest.category,
+        manifest: status.manifest || manifest,
+      };
+    });
 }
 
 function renderPluginSettingsPanel(plugin) {
@@ -513,11 +582,92 @@ function renderPluginSettingsPanel(plugin) {
         ${settingsHubDetailLine(t('settingsHub.pluginBackpressure', 'Backpressure'), formatBackpressure(manifest.backpressure || coordinator.backpressure))}
         ${settingsHubDetailLine(t('settingsHub.pluginPollLatency', 'Status latency'), formatMs(coordinator.last_poll_latency_ms))}
       </div>
+      ${renderPluginSettingsForm(plugin.key)}
       <div class="dashboard-actions">
         ${settingsHubAction('dashboard', pluginIcon(plugin), t('settingsHub.openLiveControls', 'Open live controls'), t('settingsHub.openLiveControlsHint', 'Live start, stop, recovery, and monitoring stay on the dashboard.'))}
       </div>
     </div>
   `;
+}
+
+/**
+ * Editable machine settings, generated from the plugin manifest.
+ *
+ * The backend hands over schema *and* current value together, so the effective
+ * value rule (disk wins, manifest default only fills a missing key) lives in
+ * one tested place rather than being re-derived here.
+ */
+function renderPluginSettingsForm(pluginKey) {
+  const entry = state.pluginSettings?.[pluginKey];
+  if (!entry?.fields?.length) return '';
+
+  const fields = entry.fields.map((field) => {
+    const inputId = `plugin-setting-${pluginKey}-${field.name}`.replace(/[^A-Za-z0-9_-]/g, '-');
+    const label = escapeHtml(field.label_key ? t(field.label_key, field.path) : field.path);
+    const unit = field.unit ? ` <span class="settings-unit">${escapeHtml(field.unit)}</span>` : '';
+    return `<div class="field" data-setting-field="${escapeHtml(field.name)}">${
+      field.type === 'boolean'
+        ? `<label class="switch-row" for="${inputId}"><span>${label}</span>
+             <span class="switch"><input type="checkbox" id="${inputId}" data-setting-name="${escapeHtml(field.name)}"${field.value ? ' checked' : ''}><span class="switch-slider"></span></span>
+           </label>`
+        : `<label for="${inputId}">${label}${unit}</label>${renderSettingInput(inputId, field)}`
+    }</div>`;
+  }).join('');
+
+  return `
+    <div class="plugin-settings-form" data-plugin-settings="${escapeHtml(pluginKey)}">
+      <div class="dashboard-card-title"><i class="iconoir-settings"></i> <span>${escapeHtml(t('pluginSettings.title', 'Machine settings'))}</span></div>
+      <p class="settings-hint">${escapeHtml(t('pluginSettings.hint', 'These belong to this computer. Which sensors a study uses is set in the study editor.'))}</p>
+      ${fields}
+      <div class="dashboard-actions">
+        <button class="btn-primary" type="button" data-save-plugin-settings="${escapeHtml(pluginKey)}">
+          <i class="iconoir-floppy-disk"></i> <span>${escapeHtml(t('pluginSettings.save', 'Save settings'))}</span>
+        </button>
+      </div>
+      <div class="settings-hint" data-settings-feedback="${escapeHtml(pluginKey)}"></div>
+    </div>`;
+}
+
+function renderSettingInput(inputId, field) {
+  const name = escapeHtml(field.name);
+  if (field.type === 'choice') {
+    const options = (field.options || []).map((option) =>
+      `<option value="${escapeHtml(option)}"${option === field.value ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('');
+    return `<select class="fi-input" id="${inputId}" data-setting-name="${name}">${options}</select>`;
+  }
+  if (field.type === 'number') {
+    const min = field.minimum !== null && field.minimum !== undefined ? ` min="${escapeHtml(String(field.minimum))}"` : '';
+    const max = field.maximum !== null && field.maximum !== undefined ? ` max="${escapeHtml(String(field.maximum))}"` : '';
+    return `<input class="fi-input" type="number" step="any" id="${inputId}" data-setting-name="${name}" value="${escapeHtml(String(field.value ?? ''))}"${min}${max}>`;
+  }
+  return `<input class="fi-input" type="text" id="${inputId}" data-setting-name="${name}" value="${escapeHtml(String(field.value ?? ''))}">`;
+}
+
+/** Send only the fields the operator actually changed. */
+async function savePluginSettings(pluginKey) {
+  const form = document.querySelector(`[data-plugin-settings="${pluginKey}"]`);
+  const feedback = document.querySelector(`[data-settings-feedback="${pluginKey}"]`);
+  if (!form) return;
+
+  const settings = {};
+  form.querySelectorAll('[data-setting-name]').forEach((input) => {
+    settings[input.dataset.settingName] = input.type === 'checkbox' ? input.checked : input.value;
+  });
+
+  try {
+    const response = await postJson(`/api/admin/plugin-settings/${encodeURIComponent(pluginKey)}`, { settings });
+    state.pluginSettings = response.plugins || state.pluginSettings;
+    if (feedback) {
+      feedback.textContent = response.restart_required
+        ? t('pluginSettings.savedRestart', 'Saved. Restart Study Runner for this to take effect.')
+        : t('pluginSettings.saved', 'Saved.');
+    }
+    showToast(t('pluginSettings.saved', 'Saved.'), 'success');
+  } catch (error) {
+    console.error('[settings] Could not save plugin settings:', error);
+    if (feedback) feedback.textContent = error.message || t('pluginSettings.saveFailed', 'Could not save.');
+    showToast(t('pluginSettings.saveFailed', 'Could not save.'), 'error');
+  }
 }
 
 function settingsHubStatusCard(label, value, hint = '') {
@@ -541,7 +691,7 @@ function settingsHubDetailLine(label, value) {
 }
 
 function pluginIcon(plugin) {
-  return PLUGIN_ICONS[plugin.key] || 'iconoir-settings-profiles';
+  return pluginUiIcon(plugin.manifest || plugin);
 }
 
 function settingsStatusLabel(status) {
@@ -576,11 +726,27 @@ function formatBackpressure(backpressure) {
   return Number.isFinite(maxInFlight) ? String(maxInFlight) : policy;
 }
 
-function switchView(viewId) {
-  document.querySelectorAll('.admin-view').forEach(el => {
-    el.hidden = el.id !== viewId;
-    el.classList.toggle('active', el.id === viewId);
-  });
+/**
+ * The single funnel for every admin view change.
+ *
+ * Everything that opens a view goes through here - hub buttons, the settings
+ * controllers, the session browser - so wrapping it in the sweep is what gives
+ * every one of them the same transition. `onCovered` runs while the screen is
+ * opaque, which is where a view's first data load belongs.
+ *
+ * `animate: false` is for programmatic switches that are not a user navigation
+ * (a poll-driven correction, for example) - sweeping those would flash the
+ * screen white for no reason.
+ */
+function switchView(viewId, { animate = true, onCovered } = {}) {
+  const apply = async () => {
+    document.querySelectorAll('.admin-view').forEach(el => {
+      el.hidden = el.id !== viewId;
+      el.classList.toggle('active', el.id === viewId);
+    });
+    await onCovered?.();
+  };
+  return animate ? transitionToView(apply) : apply();
 }
 
 function startNewStudy() {
@@ -629,7 +795,8 @@ function bindEvents() {
   $('btn-hub-editor').addEventListener('click', () => switchView('view-workspace'));
   $('btn-admin-dashboard').addEventListener('click', () => switchView('view-dashboard'));
   $('btn-hub-start-study')?.addEventListener('click', () => void startLoadedStudyRun());
-  $('btn-hub-settings')?.addEventListener('click', openSettingsHub);
+  $('btn-hub-settings')?.addEventListener('click', () => void openSettingsHub());
+  $('btn-machine-settings-back')?.addEventListener('click', () => void switchView('view-hub'));
   $('btn-workspace-home').addEventListener('click', () => switchView('view-hub'));
   $('btn-admin-edit-view').addEventListener('click', () => switchView('view-hub'));
   $('btn-create-shortcut')?.addEventListener('click', () => createDesktopShortcut());
@@ -669,13 +836,7 @@ function bindEvents() {
     markUnsaved();
   });
 
-  $('btn-study-settings').addEventListener('click', openStudySettings);
-  $('btn-close-study-settings').addEventListener('click', closeStudySettings);
-  $('btn-save-study-settings').addEventListener('click', saveStudySettings);
-  $('study-sensors-enabled').addEventListener('change', syncStudySensorControls);
-  $('study-settings-modal').addEventListener('click', (event) => {
-    if (event.target === $('study-settings-modal')) closeStudySettings();
-  });
+  $('btn-study-settings').addEventListener('click', () => void openStudySettingsPanel());
 
   $('btn-admin-qr-url')?.addEventListener('click', () => openAccessQrModal('admin'));
   $('btn-participant-qr-url')?.addEventListener('click', () => openAccessQrModal('participant'));
@@ -698,8 +859,8 @@ function bindEvents() {
       updateAccessQrModalText(state.accessQrKind, getAccessUrl(state.accessQrKind));
     }
     renderStudyRunState();
-    if (state.settingsHubModal?.isOpen()) {
-      renderSettingsHubIntoModal();
+    if (isSettingsHubOpen()) {
+      renderSettingsHubShell();
     }
   });
 }
@@ -1497,11 +1658,13 @@ async function saveConfig(options = {}) {
   };
 
   try {
-    await postJson('/api/config', fullConfig);
-    state.config = fullConfig;
+    const response = await postJson('/api/config', fullConfig);
+    state.config = response?.config || fullConfig;
 
     $('btn-save-config').classList.remove('btn-primary--dirty');
     await loadRecentStudies();
+    // Settings just changed - re-check what would block a run.
+    void loadStudyReadiness();
     await loadStudyRunState();
     rebuildAll();
     if (!skipToast) {
@@ -1544,7 +1707,6 @@ function loadFromFile() {
       applyLoadedConfig(config);
       markUnsaved();
       showToast(t('toast.loadedFile', 'Loaded: {name}').replace('{name}', file.name), 'info');
-      checkIntegrationReadinessForStudy();
     } catch {
       showToast(t('toast.invalidJson'), 'error');
     }
@@ -1560,7 +1722,6 @@ async function _activateStudyFromHub(id, options = {}) {
     state.tabletGate = response.tablet_gate || null;
     renderStudyRunState();
     showToast(t('toast.studyLoadedWaiting', 'Study loaded - tablet is waiting'), 'success');
-    checkIntegrationReadinessForStudy();
     if (options.openEditor) {
       switchView('view-workspace');
     }
@@ -1663,19 +1824,6 @@ function getMeta(type) {
     : { icon: 'question-mark', label: type };
 }
 
-// Study Settings
-
-function openStudySettings() {
-  const s = normalizeStudySettings(state.config.study_settings);
-  $('study-sensors-enabled').checked = s.sensors_enabled !== false;
-  $('study-sensor-brainbit').checked = Boolean(s.sensors.brainbit);
-  $('study-sensor-mini-radar').checked = Boolean(s.sensors.mini_radar);
-  $('study-sensor-camera-emotion').checked = Boolean(s.sensors.camera_emotion);
-  $('study-progress-bar-enabled').checked = Boolean(s.progress_bar_enabled);
-  syncStudySensorControls();
-  $('study-settings-modal').hidden = false;
-}
-
 async function createDesktopShortcut() {
   const button = $('btn-create-shortcut');
   const previous = button?.innerHTML || '';
@@ -1694,53 +1842,6 @@ async function createDesktopShortcut() {
       button.disabled = false;
       button.innerHTML = previous;
     }
-  }
-}
-
-function closeStudySettings() {
-  $('study-settings-modal').hidden = true;
-}
-
-function saveStudySettings() {
-  const currentSettings = normalizeStudySettings(state.config.study_settings);
-  const sensorsEnabled = $('study-sensors-enabled').checked;
-  state.config.study_settings = {
-    sensors_enabled: sensorsEnabled,
-    sensors: {
-      brainbit: sensorsEnabled && $('study-sensor-brainbit').checked,
-      mini_radar: sensorsEnabled && $('study-sensor-mini-radar').checked,
-      camera_emotion: sensorsEnabled && $('study-sensor-camera-emotion').checked,
-    },
-    progress_bar_enabled: $('study-progress-bar-enabled').checked,
-    notion_enabled: currentSettings.notion_enabled,
-    notion_parent_page_id: currentSettings.notion_parent_page_id,
-    notion_database_id: currentSettings.notion_database_id,
-    notion_data_source_id: currentSettings.notion_data_source_id,
-  };
-  $('study-settings-modal').hidden = true;
-  markUnsaved();
-  showToast(t('toast.studySettingsApplied'), 'info');
-}
-
-function syncStudySensorControls() {
-  const enabled = $('study-sensors-enabled').checked;
-  ['study-sensor-brainbit', 'study-sensor-mini-radar', 'study-sensor-camera-emotion'].forEach((id) => {
-    const input = $(id);
-    if (input) input.disabled = !enabled;
-  });
-  const options = $('study-sensor-options');
-  if (options) options.classList.toggle('is-disabled', !enabled);
-}
-
-async function checkIntegrationReadinessForStudy() {
-  const s = state.config.study_settings || {};
-  if (s.notion_enabled) {
-    try {
-      const status = await getJson('/api/notion/status');
-      if (!status.connected) {
-        alert(t('notion.missingKeyAlert', 'This study uses Notion upload, but this host has no Notion API key configured. Add an API key in Notion Settings before running uploads.'));
-      }
-    } catch(e) {}
   }
 }
 

@@ -86,6 +86,7 @@
             <div>
               <div class="hub-active-label" id="hub-active-label" data-i18n="hub.loaded">LOADED</div>
               <div class="hub-active-title" id="hub-active-title" data-i18n="hub.loading">Loading...</div>
+              <span class="readiness-marker" id="hub-readiness-marker" hidden><i class="iconoir-warning-triangle"></i></span>
               <div class="hub-access-hint" id="hub-active-run-hint"></div>
             </div>
           </div>
@@ -95,7 +96,7 @@
             </button>
             <div class="hub-active-icon-row">
               <button class="btn-icon-only" id="btn-hub-editor" type="button" data-i18n-title="hub.openEditor" data-i18n-aria-label="hub.openEditor" title="Open editor" aria-label="Open editor"><i class="iconoir-edit-pencil"></i></button>
-              <button class="btn-icon-only" id="btn-admin-dashboard" type="button" data-i18n-title="hub.liveDashboard" data-i18n-aria-label="hub.liveDashboard" title="Live dashboard" aria-label="Live dashboard" hidden><i class="iconoir-pulse"></i></button>
+              <button class="btn-icon-only" id="btn-admin-dashboard" type="button" data-i18n-title="hub.sensorCheck" data-i18n-aria-label="hub.sensorCheck" title="Sensors &amp; live status" aria-label="Sensors &amp; live status"><i class="iconoir-pulse"></i></button>
             </div>
             <button class="btn-secondary" id="btn-notion-settings" type="button" hidden><i class="iconoir-database"></i> <span data-i18n="hub.notionSettings">Notion settings</span></button>
             <button class="btn-secondary" id="btn-nextcloud-settings" type="button" hidden><i class="iconoir-cloud-upload"></i> <span data-i18n="hub.nextcloudSettings">Nextcloud settings</span></button>
@@ -163,6 +164,272 @@
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- MACHINE SETTINGS SHELL (gear, top right of the hub).
+     Left nav + right panel, both filled by admin-controller.js. Settings that
+     belong to a study live in the study editor, never here. -->
+<div id="view-machine-settings" class="admin-view" hidden>
+  <div class="admin-layout">
+    <aside class="admin-sidebar settings-nav">
+      <div class="sidebar-content">
+        <div class="sidebar-main">
+          <div class="sidebar-header">
+            <button class="btn-icon-only" id="btn-machine-settings-back" type="button" data-i18n-title="settingsHub.backToHub" data-i18n-aria-label="settingsHub.backToHub" title="Back to hub" aria-label="Back to hub"><i class="iconoir-home"></i></button>
+            <span class="sidebar-logo"><i class="iconoir-settings"></i> <span data-i18n="settingsHub.title">Settings</span></span>
+          </div>
+          <div class="sidebar-section sidebar-section--grow" id="machine-settings-nav"></div>
+        </div>
+      </div>
+    </aside>
+    <main class="admin-main">
+      <section class="admin-dashboard settings-page">
+        <div class="dashboard-hero">
+          <div>
+            <span class="dashboard-kicker" data-i18n="settingsHub.kicker">Operator settings</span>
+            <h1 id="machine-settings-title" data-i18n="settingsHub.title">Settings</h1>
+            <p id="machine-settings-subtitle" data-i18n="settingsHub.subtitle">Settings for this computer. Everything that belongs to a single study lives in the study editor.</p>
+          </div>
+        </div>
+        <div id="machine-settings-panels"></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- STUDY SETTINGS SHELL (only reachable from the study editor).
+     Everything here is saved with the study and travels in the exported
+     .study-runner file. Machine-level settings live in the gear hub instead. -->
+<div id="view-study-settings" class="admin-view" hidden>
+  <div class="admin-layout">
+    <aside class="admin-sidebar settings-nav">
+      <div class="sidebar-content">
+        <div class="sidebar-main">
+          <div class="sidebar-header">
+            <button class="btn-icon-only" id="btn-study-settings-back" type="button" data-i18n-title="studySettings.backToEditor" data-i18n-aria-label="studySettings.backToEditor" title="Back to editor" aria-label="Back to editor"><i class="iconoir-nav-arrow-left"></i></button>
+            <span class="sidebar-logo"><i class="iconoir-settings-cloud"></i> <span data-i18n="studySettings.title">Study settings</span></span>
+          </div>
+          <div class="sidebar-section sidebar-section--grow" id="study-settings-nav"></div>
+        </div>
+      </div>
+    </aside>
+    <main class="admin-main">
+      <section class="admin-dashboard settings-page">
+        <div class="dashboard-hero">
+          <div>
+            <span class="dashboard-kicker" data-i18n="studySettings.kicker">This study</span>
+            <h1 id="study-settings-heading" data-i18n="studySettings.title">Study settings</h1>
+            <p data-i18n="studySettings.subtitle">These settings belong to the loaded study and are saved with it.</p>
+          </div>
+        </div>
+
+        <div id="study-settings-panels">
+
+          <div class="settings-shell-panel" data-shell-panel="sensors">
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-activity"></i> <span data-i18n="studySettings.sensorsTitle">Sensors for this study</span></div>
+              <div class="field">
+                <label class="switch-row" for="study-sensors-enabled" style="margin-bottom: 0;">
+                  <span style="display:flex; flex-direction:column; gap:4px;">
+                    <strong style="color:var(--ink);" data-i18n="settings.recordBiosignals">Record biosignals</strong>
+                    <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.recordBiosignalsHint">When disabled, this study sends no triggers to external sensors, even if cards request it.</small>
+                  </span>
+                  <span class="switch"><input type="checkbox" id="study-sensors-enabled"><span class="switch-slider"></span></span>
+                </label>
+              </div>
+              <div class="field" id="study-sensor-options">
+                <label style="margin-bottom: 10px;" data-i18n="settings.sensorSelection">Sensor selection</label>
+                <div class="stimulus-toggle-list" id="study-plugin-sensor-options"></div>
+              </div>
+              <div class="dashboard-actions">
+                <button class="btn-primary" id="btn-save-study-settings" type="button"><i class="iconoir-floppy-disk"></i> <span data-i18n="studySettings.saveButton">Save study settings</span></button>
+              </div>
+            </article>
+          </div>
+
+          <div class="settings-shell-panel" data-shell-panel="participant" hidden>
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-tablet"></i> <span data-i18n="studySettings.participantTitle">Participant experience</span></div>
+              <div class="field">
+                <label class="switch-row" for="study-progress-bar-enabled" style="margin-bottom: 0;">
+                  <span style="display:flex; flex-direction:column; gap:4px;">
+                    <strong style="color:var(--ink);" data-i18n="settings.showProgressBar">Show progress bar</strong>
+                    <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.showProgressBarHint">Shows a slim progress bar at the bottom of the participant page.</small>
+                  </span>
+                  <span class="switch"><input type="checkbox" id="study-progress-bar-enabled"><span class="switch-slider"></span></span>
+                </label>
+              </div>
+              <div class="dashboard-actions">
+                <button class="btn-primary" id="btn-save-participant-settings" type="button"><i class="iconoir-floppy-disk"></i> <span data-i18n="studySettings.saveButton">Save study settings</span></button>
+              </div>
+            </article>
+          </div>
+
+          <div class="settings-shell-panel" data-shell-panel="destinations" hidden>
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-cloud-upload"></i> <span data-i18n="studySettings.destinationsTitle">Data destinations</span></div>
+              <p class="settings-hint" data-i18n="studySettings.destinationsHint">Installed destination plugins appear here automatically. Network uploads run independently after local finalization.</p>
+              <div class="stimulus-toggle-list" id="study-plugin-destination-options"></div>
+              <div class="dashboard-actions">
+                <button class="btn-primary" id="btn-save-plugin-destinations" type="button"><i class="iconoir-floppy-disk"></i> <span data-i18n="studySettings.saveButton">Save study settings</span></button>
+              </div>
+            </article>
+          </div>
+
+          <div class="settings-shell-panel" data-shell-panel="notion" hidden>
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-journal-page"></i> <span data-i18n="notion.activeStudyTarget">Active study target</span></div>
+              <p class="settings-hint" data-i18n="notion.studyValuesHint">These values are stored with the study, so a different study can use a different Notion page.</p>
+              <div class="field">
+                <label class="switch-row" for="notion-study-enabled">
+                  <span data-i18n="notion.uploadThisStudy">Upload results of this study to Notion</span>
+                  <span class="switch"><input type="checkbox" id="notion-study-enabled"><span class="switch-slider"></span></span>
+                </label>
+              </div>
+              <div class="field">
+                <label for="notion-study-parent-id" data-i18n="notion.parentPageId">Parent page ID</label>
+                <input class="fi-input" type="text" id="notion-study-parent-id" autocomplete="off" data-i18n-placeholder="notion.parentPageIdPlaceholder" placeholder="32 characters from the Notion page URL">
+                <div class="settings-hint" data-i18n="notion.parentPageHint">Study Runner creates the results database under this page.</div>
+              </div>
+              <div class="field">
+                <label for="notion-study-database-id" data-i18n="notion.databaseId">Database ID</label>
+                <input class="fi-input" type="text" id="notion-study-database-id" autocomplete="off" data-i18n-placeholder="notion.databaseIdPlaceholder" placeholder="Optional, leave empty for auto-create">
+                <div class="settings-hint" data-i18n="notion.databaseConfiguredHint">Leave empty to let Study Runner create and remember a database.</div>
+              </div>
+              <div class="field">
+                <label for="notion-study-api-key" data-i18n="studySettings.notionKeyField">API key for this study (optional)</label>
+                <input class="fi-input" type="password" id="notion-study-api-key" autocomplete="new-password">
+                <div class="settings-hint" id="notion-study-key-state"></div>
+              </div>
+              <div class="dashboard-actions">
+                <button class="btn-secondary" id="btn-notion-study-save-key" type="button">
+                  <i class="iconoir-key-alt"></i> <span data-i18n="studySettings.saveKey">Save key</span>
+                </button>
+                <button class="btn-secondary" id="btn-notion-study-clear-key" type="button">
+                  <i class="iconoir-trash"></i> <span data-i18n="studySettings.clearKey">Delete this study's key</span>
+                </button>
+                <button class="btn-primary" id="btn-notion-study-save" type="button"><i class="iconoir-floppy-disk"></i> <span data-i18n="notion.saveStudySettings">Save study settings</span></button>
+              </div>
+              <div class="settings-hint" data-i18n="studySettings.credentialHint">Credentials are stored on this computer only and never travel in the exported study file. Leave empty to use the shared key from the settings hub.</div>
+            </article>
+          </div>
+
+          <div class="settings-shell-panel" data-shell-panel="nextcloud" hidden>
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-help-circle"></i> <span data-i18n="nextcloud.setupTitle">Setup Guide</span></div>
+              <div class="setup-steps">
+                <div class="setup-step">
+                  <div class="setup-step-num">1</div>
+                  <div>
+                    <strong data-i18n="nextcloud.step1.title">Share a folder in Nextcloud</strong>
+                    <p data-i18n="nextcloud.step1.body">Create a folder for study data, share it as a link, and allow uploading (permission "Allow upload and editing").</p>
+                  </div>
+                  <span class="setup-step-state" id="nextcloud-step-1-state">-</span>
+                </div>
+                <div class="setup-step">
+                  <div class="setup-step-num">2</div>
+                  <div>
+                    <strong data-i18n="nextcloud.step2.title">Paste the share link</strong>
+                    <p data-i18n="nextcloud.step2.body">Copy the link from Nextcloud into the field below. It looks like https://cloud.example.com/s/AbCdEf123.</p>
+                  </div>
+                  <span class="setup-step-state" id="nextcloud-step-2-state">-</span>
+                </div>
+                <div class="setup-step">
+                  <div class="setup-step-num">3</div>
+                  <div>
+                    <strong data-i18n="nextcloud.step3.title">Add the password if the link has one</strong>
+                    <p data-i18n="nextcloud.step3.body">Only needed if you protected the share with a password. It stays on this computer and is never sent back to the browser.</p>
+                  </div>
+                  <span class="setup-step-state" id="nextcloud-step-3-state">-</span>
+                </div>
+                <div class="setup-step">
+                  <div class="setup-step-num">4</div>
+                  <div>
+                    <strong data-i18n="nextcloud.step4.title">Test and switch on</strong>
+                    <p data-i18n="nextcloud.step4.body">Press "Test connection", then switch on the upload for this study and save.</p>
+                  </div>
+                  <span class="setup-step-state" id="nextcloud-step-4-state">-</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-cloud-upload"></i> <span data-i18n="nextcloud.status">Status</span></div>
+              <div class="status-grid status-grid--row">
+                <div class="status-card">
+                  <div class="status-card-label" data-i18n="nextcloud.uploadLabel">Upload for this study</div>
+                  <div class="status-card-value" id="nextcloud-study-status" data-i18n="nextcloud.loading">Loading ...</div>
+                  <div class="settings-hint" id="nextcloud-study-hint"></div>
+                </div>
+                <div class="status-card">
+                  <div class="status-card-label" data-i18n="nextcloud.linkLabel">Share link</div>
+                  <div class="status-card-value" id="nextcloud-link-status" data-i18n="nextcloud.loading">Loading ...</div>
+                  <div class="settings-hint" id="nextcloud-link-hint"></div>
+                </div>
+                <div class="status-card">
+                  <div class="status-card-label" data-i18n="nextcloud.passwordLabel">Password</div>
+                  <div class="status-card-value" id="nextcloud-password-status" data-i18n="nextcloud.loading">Loading ...</div>
+                  <div class="settings-hint" id="nextcloud-password-hint"></div>
+                </div>
+                <div class="status-card">
+                  <div class="status-card-label" data-i18n="nextcloud.activeStudy">Active study</div>
+                  <div class="status-card-value" id="nextcloud-active-study-name" data-i18n="nextcloud.loading">Loading ...</div>
+                  <div class="settings-hint" data-i18n="nextcloud.activeStudyHint">The share link is saved with the study.</div>
+                </div>
+              </div>
+            </article>
+
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-link"></i> <span data-i18n="nextcloud.connection">Connection</span></div>
+              <div class="field">
+                <label class="switch-row" for="nextcloud-study-enabled">
+                  <span data-i18n="nextcloud.enableStudy">Upload this study to Nextcloud</span>
+                  <span class="switch"><input type="checkbox" id="nextcloud-study-enabled"><span class="switch-slider"></span></span>
+                </label>
+              </div>
+              <div class="field">
+                <label for="nextcloud-share-link" data-i18n="nextcloud.shareLinkField">Share link</label>
+                <input type="url" id="nextcloud-share-link" placeholder="https://cloud.example.com/s/AbCdEf123" autocomplete="off">
+                <div class="settings-hint" data-i18n="nextcloud.shareLinkHint">Paste the link exactly as Nextcloud shows it.</div>
+              </div>
+              <div class="field">
+                <label for="nextcloud-password" data-i18n="nextcloud.passwordField">Share password (optional)</label>
+                <input type="password" id="nextcloud-password" autocomplete="new-password">
+                <div class="settings-hint" id="nextcloud-password-state"></div>
+                <div class="settings-hint" id="nextcloud-study-key-state"></div>
+              </div>
+              <div class="dashboard-actions">
+                <button class="btn-secondary" id="btn-nextcloud-test" type="button">
+                  <i id="nextcloud-test-icon" class="iconoir-plug"></i> <span data-i18n="nextcloud.testButton">Test connection</span>
+                </button>
+                <button class="btn-secondary" id="btn-nextcloud-clear-password" type="button">
+                  <i class="iconoir-trash"></i> <span data-i18n="nextcloud.clearPassword">Delete stored password</span>
+                </button>
+                <button class="btn-primary" id="btn-nextcloud-save" type="button">
+                  <i class="iconoir-floppy-disk"></i> <span data-i18n="nextcloud.saveButton">Save</span>
+                </button>
+              </div>
+              <div id="nextcloud-test-result" hidden></div>
+            </article>
+          </div>
+
+          <div class="settings-shell-panel" data-shell-panel="export" hidden>
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-download"></i> <span data-i18n="studySettings.exportTitle">The exported study file</span></div>
+              <p class="settings-hint" data-i18n="studySettings.exportBody">The file contains the questions, the sensor selection, and the upload targets (Nextcloud share link, Notion page and database) so the study runs on another computer. It contains no passwords and no API keys.</p>
+              <div class="certificate-warning" data-i18n="studySettings.exportWarning">The Nextcloud share link is itself an access key: whoever has the file can upload into that folder. Only share it with people who should have that access.</div>
+              <div class="dashboard-actions">
+                <button class="btn-secondary" id="btn-study-settings-download" type="button">
+                  <i class="iconoir-download"></i> <span data-i18n="studySettings.exportButton">Download study file</span>
+                </button>
+              </div>
+            </article>
+          </div>
+
+        </div>
+      </section>
+    </main>
   </div>
 </div>
 
@@ -256,30 +523,22 @@
         <div>
           <span class="dashboard-kicker" data-i18n="dashboard.liveControl">Live Control</span>
           <h1 data-i18n="dashboard.title">Biosignal Dashboard</h1>
-          <p data-i18n="dashboard.subtitle">Monitor connected study clients, BrainBit, MR60 BLE, tablet camera emotion, local processing, and XDF readiness.</p>
+          <p data-i18n="dashboard.subtitle">Monitor connected study clients and installed plugins from their declared status and controls.</p>
         </div>
         <button class="btn-secondary" id="btn-admin-edit-view" type="button">
           <i class="iconoir-home"></i> <span data-i18n="dashboard.backToHub">Back to hub</span>
         </button>
       </div>
 
+      <div class="dashboard-grid" id="dashboard-sensor-tiles"></div>
+
       <div class="dashboard-grid">
-        <article class="dashboard-card">
+        <article class="dashboard-card" data-run-scoped>
           <div class="dashboard-card-title"><i class="iconoir-tablet"></i> <span data-i18n="dashboard.studyClient">Study client</span></div>
           <div id="dashboard-clients" class="dashboard-card-body" data-i18n="dashboard.waitingHeartbeat">Waiting for study page heartbeat.</div>
+          <div class="dashboard-idle-note" data-i18n="dashboard.idleNote">Live values appear once a study is running.</div>
         </article>
-        <article class="dashboard-card">
-          <div class="dashboard-card-title"><i class="iconoir-brain"></i> <span data-i18n="dashboard.brainbit">BrainBit</span></div>
-          <div id="dashboard-brainbit" class="dashboard-card-body" data-i18n="dashboard.waitingStatus">Waiting for status.</div>
-        </article>
-        <article class="dashboard-card">
-          <div class="dashboard-card-title"><i class="iconoir-activity"></i> <span data-i18n="dashboard.miniRadar">Mini-radar</span></div>
-          <div id="dashboard-radar" class="dashboard-card-body" data-i18n="dashboard.waitingStatus">Waiting for status.</div>
-        </article>
-        <article class="dashboard-card">
-          <div class="dashboard-card-title"><i class="iconoir-camera"></i> <span data-i18n="dashboard.cameraEmotion">Camera emotion</span></div>
-          <div id="dashboard-camera" class="dashboard-card-body" data-i18n="dashboard.waitingStatus">Waiting for status.</div>
-        </article>
+
         <article class="dashboard-card dashboard-card--wide">
           <div class="dashboard-card-title"><i class="iconoir-settings-profiles"></i> <span data-i18n="dashboard.integrationControls">Integration controls</span></div>
           <div id="dashboard-integration-controls" class="dashboard-card-body" data-i18n="dashboard.waitingIntegration">Waiting for integration status.</div>
@@ -377,34 +636,6 @@
           <div id="notion-test-result" hidden></div>
         </article>
 
-        <article class="dashboard-card">
-          <div class="dashboard-card-title"><i class="iconoir-journal-page"></i> <span data-i18n="notion.activeStudyTarget">Active study target</span></div>
-          <div class="notion-study-header">
-            <div class="notion-study-label" data-i18n="notion.activeStudy">Active study</div>
-            <div class="notion-study-name" id="notion-active-study-name">-</div>
-            <div class="settings-hint" data-i18n="notion.studyValuesHint">These values are saved with the currently loaded study.</div>
-          </div>
-          <div class="field">
-            <label class="switch-row" for="notion-study-enabled">
-              <span data-i18n="notion.uploadThisStudy">Upload results of this study to Notion</span>
-              <span class="switch"><input type="checkbox" id="notion-study-enabled"><span class="switch-slider"></span></span>
-            </label>
-          </div>
-          <div id="notion-study-fields">
-            <div class="field">
-              <label data-i18n="notion.parentPageId">Notion Parent Page ID</label>
-              <input class="fi-input" type="text" id="notion-study-parent-id" autocomplete="off" data-i18n-placeholder="notion.parentPageIdPlaceholder" placeholder="32 characters from the Notion page URL">
-              <div class="settings-hint" data-i18n="notion.parentPageHint">Study Runner creates the participant database under this page when needed.</div>
-            </div>
-            <div class="field">
-              <label data-i18n="notion.databaseId">Notion Database ID</label>
-              <input class="fi-input" type="text" id="notion-study-database-id" autocomplete="off" data-i18n-placeholder="notion.databaseIdPlaceholder" placeholder="Optional, leave empty for auto-create">
-            </div>
-          </div>
-          <div class="dashboard-actions">
-            <button class="btn-primary" id="btn-notion-study-save" type="button" data-i18n="notion.saveStudySettings">Save study settings</button>
-          </div>
-        </article>
 
         <article class="dashboard-card">
           <div class="dashboard-card-title"><i class="iconoir-upload-data-window"></i> <span data-i18n="notion.queueActions">Test & queue</span></div>
@@ -483,121 +714,6 @@
   </div>
 </div>
 
-<div id="view-nextcloud-settings" class="admin-view" hidden>
-  <div style="padding: 60px 40px;">
-    <section class="admin-dashboard settings-page" id="nextcloud-settings-page">
-      <div class="dashboard-hero">
-        <div>
-          <span class="dashboard-kicker" data-i18n="nextcloud.kicker">Upload Integration</span>
-          <h1 data-i18n="nextcloud.title">Nextcloud Settings</h1>
-          <p data-i18n="nextcloud.subtitle">After a study, the result folder is copied to a shared Nextcloud folder. You only need a share link that allows uploading.</p>
-        </div>
-        <button class="btn-secondary" id="btn-nextcloud-back" type="button">
-          <i class="iconoir-home"></i> <span data-i18n="nextcloud.backToHub">Back to hub</span>
-        </button>
-      </div>
-
-      <div class="dashboard-grid settings-grid">
-        <article class="dashboard-card dashboard-card--wide">
-          <div class="dashboard-card-title"><i class="iconoir-help-circle"></i> <span data-i18n="nextcloud.setupTitle">Setup Guide</span></div>
-          <div class="setup-steps">
-            <div class="setup-step">
-              <div class="setup-step-num">1</div>
-              <div>
-                <strong data-i18n="nextcloud.step1.title">Share a folder in Nextcloud</strong>
-                <p data-i18n="nextcloud.step1.body">Create a folder for study data, share it as a link, and allow uploading (permission "Allow upload and editing").</p>
-              </div>
-              <span class="setup-step-state" id="nextcloud-step-1-state">-</span>
-            </div>
-            <div class="setup-step">
-              <div class="setup-step-num">2</div>
-              <div>
-                <strong data-i18n="nextcloud.step2.title">Paste the share link</strong>
-                <p data-i18n="nextcloud.step2.body">Copy the link from Nextcloud into the field below. It looks like https://cloud.example.com/s/AbCdEf123.</p>
-              </div>
-              <span class="setup-step-state" id="nextcloud-step-2-state">-</span>
-            </div>
-            <div class="setup-step">
-              <div class="setup-step-num">3</div>
-              <div>
-                <strong data-i18n="nextcloud.step3.title">Add the password if the link has one</strong>
-                <p data-i18n="nextcloud.step3.body">Only needed if you protected the share with a password. It stays on this computer and is never sent back to the browser.</p>
-              </div>
-              <span class="setup-step-state" id="nextcloud-step-3-state">-</span>
-            </div>
-            <div class="setup-step">
-              <div class="setup-step-num">4</div>
-              <div>
-                <strong data-i18n="nextcloud.step4.title">Test and switch on</strong>
-                <p data-i18n="nextcloud.step4.body">Press "Test connection", then switch on the upload for this study and save.</p>
-              </div>
-              <span class="setup-step-state" id="nextcloud-step-4-state">-</span>
-            </div>
-          </div>
-        </article>
-
-        <article class="dashboard-card dashboard-card--wide">
-          <div class="dashboard-card-title"><i class="iconoir-cloud-upload"></i> <span data-i18n="nextcloud.status">Status</span></div>
-          <div class="status-grid status-grid--row">
-            <div class="status-card">
-              <div class="status-card-label" data-i18n="nextcloud.uploadLabel">Upload for this study</div>
-              <div class="status-card-value" id="nextcloud-study-status" data-i18n="nextcloud.loading">Loading ...</div>
-              <div class="settings-hint" id="nextcloud-study-hint"></div>
-            </div>
-            <div class="status-card">
-              <div class="status-card-label" data-i18n="nextcloud.linkLabel">Share link</div>
-              <div class="status-card-value" id="nextcloud-link-status" data-i18n="nextcloud.loading">Loading ...</div>
-              <div class="settings-hint" id="nextcloud-link-hint"></div>
-            </div>
-            <div class="status-card">
-              <div class="status-card-label" data-i18n="nextcloud.passwordLabel">Password</div>
-              <div class="status-card-value" id="nextcloud-password-status" data-i18n="nextcloud.loading">Loading ...</div>
-              <div class="settings-hint" id="nextcloud-password-hint"></div>
-            </div>
-            <div class="status-card">
-              <div class="status-card-label" data-i18n="nextcloud.activeStudy">Active study</div>
-              <div class="status-card-value" id="nextcloud-active-study-name" data-i18n="nextcloud.loading">Loading ...</div>
-              <div class="settings-hint" data-i18n="nextcloud.activeStudyHint">The share link is saved with the study.</div>
-            </div>
-          </div>
-        </article>
-
-        <article class="dashboard-card dashboard-card--wide">
-          <div class="dashboard-card-title"><i class="iconoir-link"></i> <span data-i18n="nextcloud.connection">Connection</span></div>
-          <div class="field">
-            <label class="switch-row" for="nextcloud-study-enabled">
-              <span data-i18n="nextcloud.enableStudy">Upload this study to Nextcloud</span>
-              <span class="switch"><input type="checkbox" id="nextcloud-study-enabled"><span class="switch-slider"></span></span>
-            </label>
-          </div>
-          <div class="field">
-            <label for="nextcloud-share-link" data-i18n="nextcloud.shareLinkField">Share link</label>
-            <input type="url" id="nextcloud-share-link" placeholder="https://cloud.example.com/s/AbCdEf123" autocomplete="off">
-            <div class="settings-hint" data-i18n="nextcloud.shareLinkHint">Paste the link exactly as Nextcloud shows it.</div>
-          </div>
-          <div class="field">
-            <label for="nextcloud-password" data-i18n="nextcloud.passwordField">Share password (optional)</label>
-            <input type="password" id="nextcloud-password" autocomplete="new-password">
-            <div class="settings-hint" id="nextcloud-password-state"></div>
-          </div>
-          <div class="dashboard-actions">
-            <button class="btn-secondary" id="btn-nextcloud-test" type="button">
-              <i id="nextcloud-test-icon" class="iconoir-plug"></i> <span data-i18n="nextcloud.testButton">Test connection</span>
-            </button>
-            <button class="btn-secondary" id="btn-nextcloud-clear-password" type="button">
-              <i class="iconoir-trash"></i> <span data-i18n="nextcloud.clearPassword">Delete stored password</span>
-            </button>
-            <button class="btn-primary" id="btn-nextcloud-save" type="button">
-              <i class="iconoir-floppy-disk"></i> <span data-i18n="nextcloud.saveButton">Save</span>
-            </button>
-          </div>
-          <div id="nextcloud-test-result" hidden></div>
-        </article>
-
-      </div>
-    </section>
-  </div>
-</div>
 
 <div id="view-certificate-settings" class="admin-view" hidden>
   <div style="padding: 60px 40px;">
@@ -731,69 +847,6 @@
 </div>
 
 <!-- Study Settings Modal -->
-<div class="modal-backdrop" id="study-settings-modal" hidden>
-  <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="study-settings-title" style="max-width: 500px;">
-    <div class="settings-modal-header">
-      <div>
-        <span class="dashboard-kicker" data-i18n="settings.localSettings">Local settings</span>
-        <h2 id="study-settings-title" data-i18n="settings.studySettings">Study settings</h2>
-      </div>
-      <button class="overlay-close" id="btn-close-study-settings" type="button" data-i18n-aria-label="settings.close" aria-label="Close">
-        <i class="iconoir-xmark"></i>
-      </button>
-    </div>
-    <div class="settings-modal-body">
-      <p class="settings-hint" style="margin-bottom: 16px;" data-i18n="settings.notionMovedHint">Notion-specific study values are collected on the full Notion settings page.</p>
-      <div class="field" style="margin-bottom: 20px;">
-        <label class="switch-row" for="study-sensors-enabled" style="margin-bottom: 0;">
-          <span style="display:flex; flex-direction:column; gap:4px;">
-            <strong style="color:var(--ink);" data-i18n="settings.recordBiosignals">Record biosignals</strong>
-            <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.recordBiosignalsHint">When disabled, this study sends no triggers to external sensors, even if cards request it.</small>
-          </span>
-          <span class="switch"><input type="checkbox" id="study-sensors-enabled"><span class="switch-slider"></span></span>
-        </label>
-      </div>
-      <div class="field" id="study-sensor-options" style="margin-bottom: 20px;">
-        <label style="margin-bottom: 10px;" data-i18n="settings.sensorSelection">Sensor selection</label>
-        <div class="stimulus-toggle-list">
-          <label class="switch-row" for="study-sensor-brainbit" style="margin-bottom: 0;">
-            <span style="display:flex; flex-direction:column; gap:4px;">
-              <strong style="color:var(--ink);" data-i18n="settings.sensorBrainBit">BrainBit EEG</strong>
-              <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.sensorBrainBitHint">Starts BrainBit and records EEG-derived values for this study.</small>
-            </span>
-            <span class="switch"><input type="checkbox" id="study-sensor-brainbit"><span class="switch-slider"></span></span>
-          </label>
-          <label class="switch-row" for="study-sensor-mini-radar" style="margin-bottom: 0;">
-            <span style="display:flex; flex-direction:column; gap:4px;">
-              <strong style="color:var(--ink);" data-i18n="settings.sensorRadar">MR60 radar</strong>
-              <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.sensorRadarHint">Starts MR60 BLE and records heart, breathing and presence values.</small>
-            </span>
-            <span class="switch"><input type="checkbox" id="study-sensor-mini-radar"><span class="switch-slider"></span></span>
-          </label>
-          <label class="switch-row" for="study-sensor-camera-emotion" style="margin-bottom: 0;">
-            <span style="display:flex; flex-direction:column; gap:4px;">
-              <strong style="color:var(--ink);" data-i18n="settings.sensorCameraEmotion">Camera emotion</strong>
-              <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.sensorCameraEmotionHint">Opt-in: starts tablet camera emotion analysis only for studies that need it.</small>
-            </span>
-            <span class="switch"><input type="checkbox" id="study-sensor-camera-emotion"><span class="switch-slider"></span></span>
-          </label>
-        </div>
-      </div>
-      <div class="field" style="margin-bottom: 20px;">
-        <label class="switch-row" for="study-progress-bar-enabled" style="margin-bottom: 0;">
-          <span style="display:flex; flex-direction:column; gap:4px;">
-            <strong style="color:var(--ink);" data-i18n="settings.showProgressBar">Show progress bar</strong>
-            <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.showProgressBarHint">Shows a slim progress bar at the bottom of the participant page.</small>
-          </span>
-          <span class="switch"><input type="checkbox" id="study-progress-bar-enabled"><span class="switch-slider"></span></span>
-        </label>
-      </div>
-      <div class="settings-toolbar" style="margin-top: 24px;">
-        <button class="btn-primary" id="btn-save-study-settings" type="button" style="width: 100%; justify-content: center;" data-i18n="settings.apply">Apply</button>
-      </div>
-    </div>
-  </div>
-</div>
 
 <div class="toast" id="toast"><i id="toast-icon"></i><span id="toast-msg"></span></div>
 

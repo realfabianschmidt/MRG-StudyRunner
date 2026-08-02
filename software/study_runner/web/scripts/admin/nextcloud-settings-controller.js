@@ -8,7 +8,8 @@
 import { getJson, postJson } from '../api-client.js';
 import { t } from '../i18n.js';
 import { byId, setText } from '../lib/dom-utils.js';
-import { renderTestResult, setStepState, wireSettingsPage, withBusyButton } from '../lib/settings-page.js';
+import { normalizeStudySettings } from '../lib/study-settings.js';
+import { renderTestResult, setStepState, withBusyButton } from '../lib/settings-page.js';
 
 let callbacks = {};
 let initialized = false;
@@ -20,14 +21,12 @@ export function initializeNextcloudSettings(options = {}) {
   if (initialized) return;
   initialized = true;
 
-  wireSettingsPage({
-    viewId: 'view-nextcloud-settings',
-    openButtonId: 'btn-nextcloud-settings',
-    backButtonId: 'btn-nextcloud-back',
-    switchView: callbacks.switchView,
-    onOpen: openPage,
+  // Optional rich destination UIs are discovered by the generic study panel
+  // through the btn-<plugin-key>-settings convention.  The plugin controller
+  // owns what opening that trigger means.
+  byId('btn-nextcloud-settings')?.addEventListener('click', () => {
+    void callbacks.openStudySettingsPanel?.('nextcloud');
   });
-
   byId('btn-nextcloud-test')?.addEventListener('click', () => void testConnection());
   byId('btn-nextcloud-save')?.addEventListener('click', () => void save());
   byId('btn-nextcloud-clear-password')?.addEventListener('click', () => setClearPasswordRequested(!clearPasswordRequested));
@@ -37,14 +36,21 @@ export function initializeNextcloudSettings(options = {}) {
 
 function studySettings() {
   const config = callbacks.getStudyConfig?.() || {};
-  const settings = config.study_settings || {};
+  const settings = normalizeStudySettings(config.study_settings);
+  const nextcloud = settings.plugins?.nextcloud || {};
+  const destinationSettings = nextcloud.settings || {};
   return {
-    nextcloud_enabled: Boolean(settings.nextcloud_enabled),
-    nextcloud_share_link: String(settings.nextcloud_share_link || '').trim(),
+    nextcloud_enabled: Boolean(nextcloud.enabled),
+    nextcloud_share_link: String(destinationSettings.share_link || '').trim(),
   };
 }
 
-async function openPage() {
+/**
+ * Fill the Nextcloud fields from the loaded study.
+ * Called by the study-settings shell when its Nextcloud panel is shown -
+ * this page has no view of its own any more.
+ */
+export async function refreshNextcloudStudyFields() {
   const settings = studySettings();
   const enabledInput = byId('nextcloud-study-enabled');
   const linkInput = byId('nextcloud-share-link');
@@ -171,11 +177,15 @@ async function save() {
         passwordConfigured = clearPasswordRequested ? false : true;
       }
 
-      callbacks.setStudySettings?.({
-        ...(callbacks.getStudyConfig?.().study_settings || {}),
-        nextcloud_enabled: enabled,
-        nextcloud_share_link: shareLink,
-      });
+      const current = normalizeStudySettings(callbacks.getStudyConfig?.().study_settings);
+      const plugins = { ...current.plugins };
+      const previous = plugins.nextcloud || {};
+      plugins.nextcloud = {
+        enabled,
+        required: false,
+        settings: { ...(previous.settings || {}), share_link: shareLink },
+      };
+      callbacks.setStudySettings?.({ ...current, plugins });
       const saved = await callbacks.saveStudyConfig?.({
         successMessage: t('nextcloud.savedFull', 'Study including Nextcloud settings saved.'),
       });

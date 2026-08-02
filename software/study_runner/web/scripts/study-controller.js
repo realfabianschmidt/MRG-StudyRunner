@@ -1,5 +1,4 @@
 import { getJson, postJson } from './api-client.js';
-import { startCameraCaptureSession } from './camera-capture.js';
 import { CARDS } from './cards/index.js';
 import { renderInfoBottom, renderOptionalTag } from './cards/card-info.js';
 import { escapeHtml } from './lib/dom-utils.js';
@@ -9,6 +8,20 @@ import { onClick as moodMeterClick } from './cards/card-mood-meter.js';
 import { bindCardEvents as bindWordCloudEvents } from './cards/card-word-cloud.js';
 import { getStudyClientId, startStudyClientHeartbeat } from './study-client-heartbeat.js';
 import { initI18n, t } from './i18n.js';
+import { startDeadlineTimer, remainingWholeSeconds } from './lib/deadline-timer.js';
+import {
+  createEventId,
+  flushReliableStudyEvents,
+  sendReliableStudyEvent,
+} from './lib/reliable-event-queue.js';
+import {
+  getPluginCatalog,
+  getPluginUiExtension,
+  loadPluginCatalog,
+  loadPluginUiExtensions,
+  pluginsWithCapability,
+} from './lib/plugin-catalog.js';
+import { createParticipantPluginExtensionManager } from './lib/participant-plugin-extensions.js';
 
 const state = {
   config: {},
@@ -19,16 +32,11 @@ const state = {
   participantMetadataOverride: {},
   currentIndex: 0,
   activeStimulus: null,
-  cameraPermission: 'not_requested',
-  cameraLastError: '',
-  cameraMonitorActive: false,
   clockOffsetMs: null,  // estimated server epoch ms minus tablet performance.now()
   clockRttMs: null,
   touchedFields: {},
   questionMetrics: {},
   sensorSessionStarted: false,
-  cameraMonitorCleanup: null,
-  cameraMonitorStarting: false,
   runtimePollTimer: null,
   navigationBusy: false,
   submitInFlight: false,
@@ -38,19 +46,31 @@ const state = {
   activationInProgress: false,
   completedLocally: false,
   completedRunId: '',
+  pendingSubmission: null,
 };
 
 const STUDY_SESSION_STATE_KEY = 'study-runner-active-session';
+const PENDING_SUBMISSION_STATE_KEY = 'study-runner-pending-submission';
 const RUNTIME_POLL_INTERVAL_MS = 1500;
 const CLOCK_SYNC_TIMEOUT_MS = 1000;
 const RUNTIME_POLL_TIMEOUT_MS = 1000;
 const MARKER_TIMEOUT_MS = 1200;
 const TRIAL_START_TIMEOUT_MS = 3000;
+const TRIAL_PREPARE_TIMEOUT_MS = 3000;
 const TRIAL_STOP_TIMEOUT_MS = 1500;
 const STUDY_SESSION_STOP_TIMEOUT_MS = 1500;
-const CAMERA_MONITOR_START_TIMEOUT_MS = 3000;
-const CAMERA_CAPTURE_DEFAULT_INTERVAL_MS = 1000;
-const CAMERA_CAPTURE_MIN_INTERVAL_MS = 1000;
+
+let participantExtensionSync = Promise.resolve();
+const participantExtensions = createParticipantPluginExtensionManager({
+  getPlugins: () => getPluginCatalog().plugins,
+  isEnabled: (plugin) => isParticipantPluginEnabled(plugin),
+  loadExtensions: () => loadPluginUiExtensions('participant'),
+  getExtensionModule: (plugin) => getPluginUiExtension(plugin, 'participant'),
+  createContext: (plugin) => createParticipantExtensionContext(plugin),
+  onWarning: ({ pluginKey, hook, message }) => {
+    console.warn(`[study:${pluginKey}] Optional participant extension hook ${hook} failed:`, message);
+  },
+});
 
 function getElement(id) {
   return document.getElementById(id);
@@ -86,9 +106,16 @@ async function init() {
 }
 
 async function loadStudyConfig() {
-  state.config = await getJson(`/api/config?client_id=${encodeURIComponent(getStudyClientId())}`);
+  const [config] = await Promise.all([
+    getJson(`/api/config?client_id=${encodeURIComponent(getStudyClientId())}`),
+    loadPluginCatalog(),
+  ]);
+  state.config = config;
   state.studyRunState = state.config._runtime?.study_run_state || null;
-  updateSensorRuntime(state.config._runtime?.sensor_runtime || {});
+  state.sensorRuntime = state.config._runtime?.sensor_runtime || {};
+  // Participant extensions are optional. Their asset loading/initialization may
+  // never delay the generic participant UI or its monotonic timers.
+  void queueParticipantExtensionSync('config_loaded');
 }
 
 function isStudyRunRunning(runState = state.studyRunState) {
@@ -99,6 +126,7 @@ function showWaitingForAdminStart(options = {}) {
   state.completedLocally = false;
   state.waitingForAdminStart = true;
   state.questionsBuilt = false;
+  participantExtensions.stopPrestudyMonitors({ reason: 'waiting_for_admin_start' });
   const title = getElement('study-waiting-title');
   const body = getElement('study-waiting-body');
   if (title) {
@@ -135,7 +163,7 @@ async function activateStudyUiAfterAdminStart() {
     showScreen('questions');
     const recoveryVisible = renderRecoveryBlockIfNeeded();
     if (!recoveryVisible) {
-      void startCameraMonitorIfNeeded();
+      startParticipantExtensionMonitors('prestudy_ready');
     }
     if (shouldStartStudyImmediately()) {
       void startTrial({ rebuild: false });
@@ -283,16 +311,8 @@ function handleHeartbeatResponse(response) {
 }
 
 function updateSensorRuntime(sensorRuntime) {
-  const previousCameraEnabled = isStudySensorEnabled('camera_emotion');
   state.sensorRuntime = sensorRuntime && typeof sensorRuntime === 'object' ? sensorRuntime : {};
-  const nextCameraEnabled = isStudySensorEnabled('camera_emotion');
-  const cameraMayRun = Boolean(state.startTime) || (isStudyRunRunning() && state.questionsBuilt);
-  if (nextCameraEnabled && cameraMayRun && !state.cameraMonitorCleanup && !state.cameraMonitorStarting) {
-    void startCameraMonitorIfNeeded();
-  }
-  if (!nextCameraEnabled && previousCameraEnabled && state.cameraMonitorCleanup) {
-    stopCameraMonitor();
-  }
+  void queueParticipantExtensionSync('runtime_change');
 }
 
 function startRuntimePolling() {
@@ -336,6 +356,47 @@ function bindPageLifecycleEvents() {
   };
   window.addEventListener('pagehide', sendLeaveEvent);
   window.addEventListener('beforeunload', sendLeaveEvent);
+  window.addEventListener('online', () => void flushReliableStudyEvents());
+  document.addEventListener('visibilitychange', handleStudyVisibilityChange);
+  void flushReliableStudyEvents();
+}
+
+function handleStudyVisibilityChange() {
+  const stimulusRun = state.activeStimulus;
+  if (!stimulusRun) return;
+  const observedAtMs = performance.now();
+  const metrics = state.questionMetrics[stimulusRun.index] || {};
+
+  if (document.hidden) {
+    if (!stimulusRun.hiddenStartedAtMs) {
+      stimulusRun.hiddenStartedAtMs = observedAtMs;
+      state.questionMetrics[stimulusRun.index] = {
+        ...metrics,
+        visibility_interrupted: true,
+        visibility_interruption_count: Number(metrics.visibility_interruption_count || 0) + 1,
+      };
+    }
+    return;
+  }
+
+  closeVisibilityInterruption(stimulusRun, observedAtMs);
+  // A throttled timeout may not have run yet. Force one monotonic observation so
+  // an overdue phase completes as soon as the page becomes visible again.
+  stimulusRun.timer?.tick?.();
+}
+
+function closeVisibilityInterruption(stimulusRun, observedAtMs = performance.now()) {
+  if (!stimulusRun?.hiddenStartedAtMs) return;
+  const metrics = state.questionMetrics[stimulusRun.index] || {};
+  const hiddenDuration = Math.max(0, observedAtMs - stimulusRun.hiddenStartedAtMs);
+  state.questionMetrics[stimulusRun.index] = {
+    ...metrics,
+    visibility_interrupted: true,
+    visibility_hidden_duration_ms: Math.round(
+      Number(metrics.visibility_hidden_duration_ms || 0) + hiddenDuration,
+    ),
+  };
+  stimulusRun.hiddenStartedAtMs = null;
 }
 
 function getSessionPayload() {
@@ -476,7 +537,7 @@ async function resumeAfterReload(snapshot) {
       showRecoveredCard(safeIndex);
     }
     saveSessionSnapshot();
-    void startCameraMonitorIfNeeded();
+    startParticipantExtensionMonitors('session_recovered');
   } catch (error) {
     console.error('[study] Could not resume study session:', error);
     showStudyNotice(t('study.recoveryFailed', 'Could not resume the study session.'));
@@ -676,23 +737,58 @@ function buildEventPayload(questionIndex, question, phase, clientTriggerMs = per
     client_trigger_ms: clientTriggerMs,
     client_trigger_epoch_ms: estimateServerEpochMs(clientTriggerMs),
     clock_offset_ms: getClientClockOffsetMs(),
+    plugin_actions: getActivePluginActions(question),
   };
 }
 
-async function sendMarker(markerEvent, questionIndex, question, phase = markerEvent) {
+function loadPendingSubmission(sessionId) {
+  if (state.pendingSubmission?.session_id === sessionId) {
+    return state.pendingSubmission;
+  }
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_SUBMISSION_STATE_KEY);
+    const payload = raw ? JSON.parse(raw) : null;
+    if (payload?.session_id === sessionId) {
+      state.pendingSubmission = payload;
+      return payload;
+    }
+  } catch {
+    // A fresh immutable payload will be prepared below.
+  }
+  return null;
+}
+
+function persistPendingSubmission(payload) {
+  state.pendingSubmission = payload;
+  try {
+    window.sessionStorage.setItem(PENDING_SUBMISSION_STATE_KEY, JSON.stringify(payload));
+  } catch {
+    // The in-memory copy still makes retries in this page idempotent.
+  }
+}
+
+function clearPendingSubmission() {
+  state.pendingSubmission = null;
+  try {
+    window.sessionStorage.removeItem(PENDING_SUBMISSION_STATE_KEY);
+  } catch {
+    // Ignore storage failures after the server has acknowledged the commit.
+  }
+}
+
+async function sendMarker(markerEvent, questionIndex, question, phase = markerEvent, options = {}) {
+  const eventId = options.eventId || createEventId(`marker-${markerEvent}`);
   try {
     const payload = buildEventPayload(questionIndex, question, phase);
-    await postJson('/api/marker', {
+    await sendReliableStudyEvent('/api/marker', {
       ...payload,
+      event_id: eventId,
       marker_event: markerEvent,
-      send_signal: true,
-      brainbit_to_lsl: false,
-      brainbit_to_touchdesigner: false,
-      mini_radar_recording_enabled: false,
     }, { timeoutMs: MARKER_TIMEOUT_MS });
   } catch (error) {
     console.error('[study] Could not send /api/marker:', error);
   }
+  return eventId;
 }
 
 function showScreen(screenName) {
@@ -921,13 +1017,46 @@ async function startStimulusCard(questionIndex, question) {
   const stimulusRun = {
     index: questionIndex,
     question,
-    timerId: null,
+    timer: null,
     signalStarted: false,
+    activeStarted: false,
     cleanup: null,
+    extensionCleanup: null,
+    hiddenStartedAtMs: null,
+    stimulusId: createEventId(`stimulus-${questionIndex}`),
+    startEventId: createEventId(`stimulus-${questionIndex}-start`),
+    stopEventId: createEventId(`stimulus-${questionIndex}-stop`),
+    plannedStartPerfMs: null,
+    plannedDeadlinePerfMs: null,
   };
 
   state.activeStimulus = stimulusRun;
   prepareStimulusCard(questionIndex, question);
+
+  // Fix the monotonic schedule before any network I/O. A slow prepare request
+  // may consume warm-up time, but it can never move the scientific deadline.
+  const scheduleStartMs = performance.now();
+  stimulusRun.plannedStartPerfMs = scheduleStartMs + getWarmupSeconds(question) * 1000;
+  stimulusRun.plannedDeadlinePerfMs = stimulusRun.plannedStartPerfMs + getActiveSeconds(question) * 1000;
+  const plannedStartEpochMs = estimateServerEpochMs(stimulusRun.plannedStartPerfMs);
+  const plannedDeadlineEpochMs = estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs);
+
+  try {
+    await postJson('/api/trial/prepare', {
+      ...buildEventPayload(questionIndex, question, 'stimulus_prepare', scheduleStartMs),
+      event_id: stimulusRun.startEventId,
+      stop_event_id: stimulusRun.stopEventId,
+      stimulus_id: stimulusRun.stimulusId,
+      planned_start_epoch_ms: plannedStartEpochMs,
+      planned_deadline_epoch_ms: plannedDeadlineEpochMs,
+    }, { timeoutMs: TRIAL_PREPARE_TIMEOUT_MS });
+  } catch (error) {
+    console.error('[study] Could not prepare stimulus routing:', error);
+    const metrics = state.questionMetrics[questionIndex] || {};
+    state.questionMetrics[questionIndex] = { ...metrics, prepare_failed: true };
+  }
+
+  if (state.activeStimulus !== stimulusRun) return;
 
   if (getWarmupSeconds(question) > 0) {
     startWarmupPhase(stimulusRun);
@@ -939,116 +1068,132 @@ async function startStimulusCard(questionIndex, question) {
 
 function startWarmupPhase(stimulusRun) {
   const { index, question } = stimulusRun;
-  const totalSeconds = getWarmupSeconds(question);
   const numberLabel = getElement(`warmup-num-${index}`);
-  let elapsedSeconds = 0;
 
   setStimulusPhase(index, 'warmup');
   updateNavigation();
 
   if (numberLabel) {
-    numberLabel.textContent = String(totalSeconds);
+    numberLabel.textContent = String(getWarmupSeconds(question));
   }
 
-  stimulusRun.timerId = window.setInterval(() => {
-    if (state.activeStimulus !== stimulusRun) {
-      return;
-    }
-
-    elapsedSeconds += 1;
-    if (numberLabel) {
-      numberLabel.textContent = String(Math.max(0, totalSeconds - elapsedSeconds));
-    }
-
-    if (elapsedSeconds >= totalSeconds) {
-      clearInterval(stimulusRun.timerId);
-      stimulusRun.timerId = null;
+  stimulusRun.timer = startDeadlineTimer({
+    startedAtMs: performance.now(),
+    deadlineMs: stimulusRun.plannedStartPerfMs,
+    onTick: ({ remainingMs }) => {
+      if (state.activeStimulus === stimulusRun && numberLabel) {
+        numberLabel.textContent = String(remainingWholeSeconds(remainingMs));
+      }
+    },
+    onDeadline: ({ callbackDelayMs }) => {
+      if (state.activeStimulus !== stimulusRun) return;
+      stimulusRun.timer = null;
+      const metrics = state.questionMetrics[index] || {};
+      state.questionMetrics[index] = {
+        ...metrics,
+        warmup_callback_delay_ms: Math.round(callbackDelayMs),
+      };
       void startActiveStimulusPhase(stimulusRun);
-    }
-  }, 1000);
+    },
+  });
 }
 
 async function startActiveStimulusPhase(stimulusRun) {
-  if (state.activeStimulus !== stimulusRun) {
+  if (state.activeStimulus !== stimulusRun || stimulusRun.activeStarted) {
     return;
   }
+  stimulusRun.activeStarted = true;
 
   const { index, question } = stimulusRun;
-  const totalSeconds = getActiveSeconds(question);
   const ring = getElement(`ring-prog-${index}`);
   const numberLabel = getElement(`cd-num-${index}`);
-  let elapsedSeconds = 0;
+  const clientTriggerMs = performance.now();
+  const plannedStartPerfMs = Number.isFinite(stimulusRun.plannedStartPerfMs)
+    ? stimulusRun.plannedStartPerfMs
+    : clientTriggerMs;
+  const plannedDeadlinePerfMs = Number.isFinite(stimulusRun.plannedDeadlinePerfMs)
+    ? stimulusRun.plannedDeadlinePerfMs
+    : clientTriggerMs + getActiveSeconds(question) * 1000;
+  const plannedStartEpochMs = estimateServerEpochMs(plannedStartPerfMs);
+  const plannedDeadlineEpochMs = estimateServerEpochMs(plannedDeadlinePerfMs);
 
   setStimulusPhase(index, 'active');
 
+  const currentMetrics = state.questionMetrics[index] || {};
+  state.questionMetrics[index] = {
+    ...currentMetrics,
+    active_started_at: new Date().toISOString(),
+    client_start_trigger_epoch_ms: estimateServerEpochMs(clientTriggerMs),
+    planned_start_epoch_ms: plannedStartEpochMs,
+    planned_deadline_epoch_ms: plannedDeadlineEpochMs,
+    stimulus_id: stimulusRun.stimulusId,
+    start_event_id: stimulusRun.startEventId,
+    stop_event_id: stimulusRun.stopEventId,
+    onset_callback_delay_ms: Math.round(Math.max(0, clientTriggerMs - plannedStartPerfMs)),
+  };
+
+  // The visual onset is tied to the monotonic timestamp above. It does not wait
+  // for a network round-trip; the command was durably prepared beforehand and is
+  // queued with its original source time if the network is temporarily down.
+  const contentCleanup = applyStimulusContent(index, question);
+  stimulusRun.extensionCleanup = participantExtensions.startStimulus({
+    stimulus: stimulusRun,
+    session: getParticipantSessionContext(),
+  });
+  stimulusRun.cleanup = () => {
+    stimulusRun.extensionCleanup?.();
+    if (typeof contentCleanup === 'function') contentCleanup();
+  };
+  updateNavigation();
+
   if (shouldActivateHardware(question)) {
-    try {
-      const clientTriggerMs = performance.now();
-      const currentMetrics = state.questionMetrics[index] || {};
-      state.questionMetrics[index] = {
-        ...currentMetrics,
-        active_started_at: new Date().toISOString(),
-        client_start_trigger_epoch_ms: estimateServerEpochMs(clientTriggerMs),
-      };
-      const response = await postJson('/api/start', {
+    stimulusRun.signalStarted = true;
+    void sendReliableStudyEvent('/api/start', {
         ...buildEventPayload(index, question, 'stimulus_active_start', clientTriggerMs),
+        event_id: stimulusRun.startEventId,
+        stop_event_id: stimulusRun.stopEventId,
+        stimulus_id: stimulusRun.stimulusId,
+        planned_start_epoch_ms: plannedStartEpochMs,
+        planned_deadline_epoch_ms: plannedDeadlineEpochMs,
         marker_event: 'stimulus_active_start',
-        send_signal: question.send_signal !== false,
-        brainbit_to_lsl: isStudySensorEnabled('brainbit') && question.brainbit_to_lsl !== false,
-        brainbit_to_touchdesigner: isStudySensorEnabled('brainbit') && question.brainbit_to_touchdesigner !== false,
-        mini_radar_recording_enabled: isStudySensorEnabled('mini_radar') && question.mini_radar_recording_enabled !== false,
-      }, { timeoutMs: TRIAL_START_TIMEOUT_MS });
+      }, { timeoutMs: TRIAL_START_TIMEOUT_MS })
+      .then((response) => {
       state.questionMetrics[index] = {
         ...state.questionMetrics[index],
         server_start_received_at: response.server_received_at || null,
         server_start_received_epoch_ms: response.server_received_epoch_ms || null,
         start_marker: response.marker_value || null,
       };
-      stimulusRun.signalStarted = true;
-    } catch (error) {
-      console.error('[study] Could not send /api/start:', error);
-    }
+      })
+      .catch((error) => console.error('[study] Could not send /api/start; event remains queued:', error));
   }
 
-  const contentCleanup = applyStimulusContent(index, question);
-  const cameraCleanup = await maybeStartCameraCapture(stimulusRun);
-  stimulusRun.cleanup = () => {
-    if (typeof cameraCleanup === 'function') {
-      cameraCleanup();
-    }
-    if (typeof contentCleanup === 'function') {
-      contentCleanup();
-    }
-  };
-  updateNavigation();
-
   if (numberLabel) {
-    numberLabel.textContent = String(totalSeconds);
+    numberLabel.textContent = String(remainingWholeSeconds(plannedDeadlinePerfMs - performance.now()));
   }
   if (ring) {
     ring.style.strokeDashoffset = '0';
   }
 
-  stimulusRun.timerId = window.setInterval(() => {
-    if (state.activeStimulus !== stimulusRun) {
-      return;
-    }
-
-    elapsedSeconds += 1;
-
-    if (numberLabel) {
-      numberLabel.textContent = String(Math.max(0, totalSeconds - elapsedSeconds));
-    }
-    if (ring) {
-      ring.style.strokeDashoffset = String(314 * (elapsedSeconds / totalSeconds));
-    }
-
-    if (elapsedSeconds >= totalSeconds) {
-      clearInterval(stimulusRun.timerId);
-      stimulusRun.timerId = null;
+  stimulusRun.timer = startDeadlineTimer({
+    startedAtMs: plannedStartPerfMs,
+    deadlineMs: plannedDeadlinePerfMs,
+    onTick: ({ remainingMs, progress }) => {
+      if (state.activeStimulus !== stimulusRun) return;
+      if (numberLabel) numberLabel.textContent = String(remainingWholeSeconds(remainingMs));
+      if (ring) ring.style.strokeDashoffset = String(314 * progress);
+    },
+    onDeadline: ({ callbackDelayMs }) => {
+      if (state.activeStimulus !== stimulusRun) return;
+      stimulusRun.timer = null;
+      const metrics = state.questionMetrics[index] || {};
+      state.questionMetrics[index] = {
+        ...metrics,
+        deadline_callback_delay_ms: Math.round(callbackDelayMs),
+      };
       void finishStimulusCard(stimulusRun);
-    }
-  }, 1000);
+    },
+  });
 }
 
 async function finishStimulusCard(stimulusRun) {
@@ -1060,135 +1205,15 @@ async function finishStimulusCard(stimulusRun) {
   await handleNext();
 }
 
-async function maybeStartCameraCapture(stimulusRun) {
-  const { index, question } = stimulusRun;
-  if (question.camera_capture_enabled !== true || !isStudySensorEnabled('camera_emotion')) {
-    return null;
-  }
-  if (typeof state.cameraMonitorCleanup === 'function') {
-    return null;
-  }
-
-  return startCameraCaptureSession({
-    intervalMs: Math.max(CAMERA_CAPTURE_MIN_INTERVAL_MS, Number(question.camera_snapshot_interval_ms || CAMERA_CAPTURE_DEFAULT_INTERVAL_MS)),
-    getPayload: () => ({
-      participant_id: resolveParticipantId(),
-      study_id: state.config.study_id || '',
-      question_index: index,
-      question_type: question.type,
-    }),
-    onState: (cameraState) => {
-      state.cameraPermission = cameraState.permission || state.cameraPermission;
-      if (cameraState.permission !== 'granted' && cameraState.permission !== 'stopped') {
-        console.warn('[camera]', cameraState.message || cameraState.permission);
-      }
-    },
-  });
-}
-
-async function startCameraMonitorIfNeeded() {
-  if (!Array.isArray(state.config.questions) || !isStudySensorEnabled('camera_emotion') || state.cameraMonitorStarting || typeof state.cameraMonitorCleanup === 'function') {
-    return;
-  }
-
-  state.cameraMonitorStarting = true;
-  try {
-    await postJson('/api/study/camera-monitor/start', {
-      study_id: state.config.study_id || '',
-    }, { timeoutMs: CAMERA_MONITOR_START_TIMEOUT_MS });
-    const cleanup = await startCameraCaptureSession({
-      intervalMs: getCameraMonitorIntervalMs(),
-      preview: true,
-      activePhase: false,
-      getFrameState: getCameraFrameState,
-      getPayload: getCameraMonitorPayload,
-      onState: (cameraState) => {
-        state.cameraPermission = cameraState.permission || state.cameraPermission;
-        state.cameraMonitorActive = ['granted', 'uploading'].includes(cameraState.permission);
-        state.cameraLastError = state.cameraMonitorActive || cameraState.permission === 'stopped'
-          ? ''
-          : (cameraState.message || state.cameraLastError || '');
-        if (!['granted', 'uploading', 'stopped'].includes(cameraState.permission)) {
-          console.warn('[camera]', cameraState.message || cameraState.permission);
-        }
-      },
-    });
-    if (typeof cleanup === 'function') {
-      state.cameraMonitorCleanup = cleanup;
-    }
-  } catch (error) {
-    console.warn('[camera] Could not start camera monitor:', error);
-  } finally {
-    state.cameraMonitorStarting = false;
-  }
-}
-
-function stopCameraMonitor() {
-  if (typeof state.cameraMonitorCleanup !== 'function') {
-    return;
-  }
-  try {
-    state.cameraMonitorCleanup();
-  } catch (error) {
-    console.warn('[camera] Could not stop camera monitor:', error);
-  } finally {
-    state.cameraMonitorCleanup = null;
-    state.cameraMonitorActive = false;
-  }
-}
-
-function getCameraFrameState() {
-  const activeQuestion = state.activeStimulus?.question || null;
-  const activeCameraSample = Boolean(
-    state.startTime
-    && state.activeStimulus
-    && activeQuestion?.camera_capture_enabled === true
-    && isStudySensorEnabled('camera_emotion')
-  );
-  return {
-    preview: !activeCameraSample,
-    activePhase: activeCameraSample,
-  };
-}
-
-function getCameraMonitorPayload() {
-  const questions = state.config.questions || [];
-  const activeQuestion = state.activeStimulus?.question || null;
-  const activeCameraSample = !getCameraFrameState().preview;
-  const questionIndex = activeCameraSample ? state.activeStimulus.index : null;
-  const question = activeCameraSample ? activeQuestion : questions[state.currentIndex] || null;
-  return {
-    participant_id: resolveParticipantId(),
-    study_id: state.config.study_id || '',
-    question_index: questionIndex,
-    question_type: activeCameraSample ? question?.type || '' : 'prestudy_monitor',
-    phase: activeCameraSample ? 'stimulus_active' : 'prestudy_monitor',
-  };
-}
-
-function getCameraMonitorIntervalMs() {
-  const questions = state.config.questions || [];
-  const cameraStimulus = questions.find((question) => (
-    question?.type === 'stimulus'
-    && question.camera_capture_enabled === true
-    && Number.isFinite(Number(question.camera_snapshot_interval_ms))
-  ));
-  return Math.max(
-    CAMERA_CAPTURE_MIN_INTERVAL_MS,
-    cameraStimulus ? Number(cameraStimulus.camera_snapshot_interval_ms) : CAMERA_CAPTURE_DEFAULT_INTERVAL_MS,
-  );
-}
-
 async function stopActiveStimulus({ shouldSendStop }) {
   const stimulusRun = state.activeStimulus;
   if (!stimulusRun) {
     return;
   }
 
-  if (stimulusRun.timerId) {
-    clearInterval(stimulusRun.timerId);
-    stimulusRun.timerId = null;
-  }
+  stimulusRun.timer?.cancel?.();
+  stimulusRun.timer = null;
+  closeVisibilityInterruption(stimulusRun);
 
   if (typeof stimulusRun.cleanup === 'function') {
     try {
@@ -1201,32 +1226,32 @@ async function stopActiveStimulus({ shouldSendStop }) {
   clearStimulusContent(stimulusRun.index);
 
   if (shouldSendStop && stimulusRun.signalStarted && shouldActivateHardware(stimulusRun.question)) {
-    try {
-      const clientTriggerMs = performance.now();
-      const currentMetrics = state.questionMetrics[stimulusRun.index] || {};
-      state.questionMetrics[stimulusRun.index] = {
-        ...currentMetrics,
-        active_ended_at: new Date().toISOString(),
-        completed_at: new Date().toISOString(),
-        client_stop_trigger_epoch_ms: estimateServerEpochMs(clientTriggerMs),
-      };
-      const response = await postJson('/api/stop', {
-        ...buildEventPayload(stimulusRun.index, stimulusRun.question, 'stimulus_active_stop', clientTriggerMs),
-        marker_event: 'stimulus_active_stop',
-        send_signal: stimulusRun.question.send_signal !== false,
-        brainbit_to_lsl: isStudySensorEnabled('brainbit') && stimulusRun.question.brainbit_to_lsl !== false,
-        brainbit_to_touchdesigner: isStudySensorEnabled('brainbit') && stimulusRun.question.brainbit_to_touchdesigner !== false,
-        mini_radar_recording_enabled: false,
-      }, { timeoutMs: TRIAL_STOP_TIMEOUT_MS });
+    const clientTriggerMs = performance.now();
+    const currentMetrics = state.questionMetrics[stimulusRun.index] || {};
+    state.questionMetrics[stimulusRun.index] = {
+      ...currentMetrics,
+      active_ended_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+      client_stop_trigger_epoch_ms: estimateServerEpochMs(clientTriggerMs),
+    };
+    // Queueing is synchronous and durable. Navigation does not wait for the
+    // network; the serialized event queue preserves start-before-stop order.
+    void sendReliableStudyEvent('/api/stop', {
+      ...buildEventPayload(stimulusRun.index, stimulusRun.question, 'stimulus_active_stop', clientTriggerMs),
+      event_id: stimulusRun.stopEventId,
+      stimulus_id: stimulusRun.stimulusId,
+      planned_deadline_epoch_ms: state.questionMetrics[stimulusRun.index]?.planned_deadline_epoch_ms,
+      marker_event: 'stimulus_active_stop',
+    }, { timeoutMs: TRIAL_STOP_TIMEOUT_MS })
+      .then((response) => {
       state.questionMetrics[stimulusRun.index] = {
         ...state.questionMetrics[stimulusRun.index],
         server_stop_received_at: response.server_received_at || null,
         server_stop_received_epoch_ms: response.server_received_epoch_ms || null,
         stop_marker: response.marker_value || null,
       };
-    } catch (error) {
-      console.error('[study] Could not send /api/stop:', error);
-    }
+      })
+      .catch((error) => console.error('[study] Could not send /api/stop; event remains queued:', error));
   } else if (stimulusRun.question?.type === 'stimulus') {
     const currentMetrics = state.questionMetrics[stimulusRun.index] || {};
     state.questionMetrics[stimulusRun.index] = {
@@ -1423,10 +1448,7 @@ function getStudyClientHeartbeatPayload() {
     current_type: currentQuestion?.type || null,
     is_stimulus_active: Boolean(state.activeStimulus),
     signal_started: Boolean(state.activeStimulus?.signalStarted),
-    camera_permission: state.cameraPermission,
-    camera_monitor_requested: isStudySensorEnabled('camera_emotion'),
-    camera_monitor_active: state.cameraMonitorActive,
-    camera_last_error: state.cameraLastError,
+    plugin_status: participantExtensions.heartbeatStatus(),
     study_started: Boolean(state.startTime),
     study_run_status: state.studyRunState?.status || 'loaded',
     waiting_for_admin_start: Boolean(state.waitingForAdminStart),
@@ -1468,12 +1490,15 @@ function markQuestionShown(questionIndex) {
     return;
   }
   if (question?.type !== 'finish' && !current.shown_marker_sent) {
+    const shownEventId = createEventId('marker-question-shown');
     state.questionMetrics[questionIndex].shown_marker_sent = true;
+    state.questionMetrics[questionIndex].shown_event_id = shownEventId;
     void sendMarker(
       question?.type === 'stimulus' ? 'stimulus_shown' : 'question_shown',
       questionIndex,
       question,
       'shown',
+      { eventId: shownEventId },
     );
   }
 }
@@ -1493,11 +1518,18 @@ function recordQuestionCompletion(questionIndex) {
     ...current,
     answered_at: new Date().toISOString(),
     answered_at_server_epoch_ms: estimateServerEpochMs(),
+    answered_event_id: createEventId('marker-question-answered'),
   };
   if (!state.startTime || question.type === 'participant-id') {
     return Promise.resolve();
   }
-  return sendMarker('question_answered', questionIndex, question, 'answered');
+  return sendMarker(
+    'question_answered',
+    questionIndex,
+    question,
+    'answered',
+    { eventId: state.questionMetrics[questionIndex].answered_event_id },
+  );
 }
 
 function getTouchedFieldCount(questionIndex) {
@@ -1508,43 +1540,26 @@ function shouldActivateHardware(question) {
   if (state.config.study_settings && state.config.study_settings.sensors_enabled === false) {
     return false;
   }
-  const brainbitRequested = isStudySensorEnabled('brainbit') && (
-    question.brainbit_to_lsl !== false
-    || question.brainbit_to_touchdesigner !== false
-  );
-  const radarRequested = isStudySensorEnabled('mini_radar') && question.mini_radar_recording_enabled !== false;
-  const cameraRequested = isStudySensorEnabled('camera_emotion') && question.camera_capture_enabled === true;
-  const anySensorEnabled = hasAnyStudySensorEnabled();
-  return (
-    anySensorEnabled
-    && (
-      question.send_signal !== false
-      || brainbitRequested
-      || radarRequested
-      || cameraRequested
-    )
-  );
+  return hasAnyStudySensorEnabled();
 }
 
 function getStudySensorSettings() {
   const effective = state.sensorRuntime?.effective;
   if (effective && typeof effective === 'object') {
-    return {
-      brainbit: effective.brainbit === true,
-      mini_radar: effective.mini_radar === true,
-      camera_emotion: effective.camera_emotion === true,
-    };
+    return Object.fromEntries(Object.entries(effective).map(([key, enabled]) => [key, enabled === true]));
   }
   const settings = state.config.study_settings || {};
   if (settings.sensors_enabled === false) {
-    return { brainbit: false, mini_radar: false, camera_emotion: false };
+    return Object.fromEntries(pluginsWithCapability('study_sensor').map((plugin) => [plugin.plugin_key, false]));
+  }
+  if (settings.plugins && typeof settings.plugins === 'object') {
+    return Object.fromEntries(pluginsWithCapability('study_sensor').map((plugin) => [
+      plugin.plugin_key,
+      settings.plugins[plugin.plugin_key]?.enabled === true,
+    ]));
   }
   const sensors = settings.sensors && typeof settings.sensors === 'object' ? settings.sensors : {};
-  return {
-    brainbit: sensors.brainbit !== false,
-    mini_radar: sensors.mini_radar !== false,
-    camera_emotion: sensors.camera_emotion === true,
-  };
+  return Object.fromEntries(Object.entries(sensors).map(([key, enabled]) => [key, enabled === true]));
 }
 
 function isStudySensorEnabled(sensorKey) {
@@ -1553,6 +1568,97 @@ function isStudySensorEnabled(sensorKey) {
 
 function hasAnyStudySensorEnabled() {
   return Object.values(getStudySensorSettings()).some(Boolean);
+}
+
+function getActivePluginActions(question) {
+  const configured = question?.plugin_actions && typeof question.plugin_actions === 'object'
+    ? question.plugin_actions
+    : {};
+  return Object.fromEntries(
+    Object.entries(configured)
+      .filter(([, actions]) => actions && typeof actions === 'object' && !Array.isArray(actions))
+      .map(([pluginKey, actions]) => [pluginKey, { ...actions }]),
+  );
+}
+
+function isParticipantPluginEnabled(plugin) {
+  const pluginKey = String(plugin?.plugin_key || '').trim();
+  if (!pluginKey) return false;
+  if ((plugin.capabilities || []).includes('study_sensor')) {
+    return isStudySensorEnabled(pluginKey);
+  }
+  const configured = state.config.study_settings?.plugins?.[pluginKey];
+  return configured?.enabled === true;
+}
+
+function getParticipantSessionContext() {
+  return {
+    participantId: resolveParticipantId(),
+    studyId: state.config.study_id || '',
+    sessionId: state.sessionId,
+    currentIndex: state.currentIndex,
+    studyStarted: Boolean(state.startTime),
+    questionsBuilt: Boolean(state.questionsBuilt),
+  };
+}
+
+function createParticipantExtensionContext(plugin) {
+  const pluginKey = String(plugin?.plugin_key || '');
+  const encodedPluginKey = encodeURIComponent(pluginKey);
+  return {
+    isEnabled: () => isParticipantPluginEnabled(plugin),
+    getConfig: () => state.config,
+    getActiveStimulus: () => state.activeStimulus,
+    getSession: getParticipantSessionContext,
+    getPluginActions: (question) => getActivePluginActions(question)[pluginKey] || {},
+    postJson,
+    runParticipantAction: (actionKey, payload = {}, options = {}) => postJson(
+      `/api/plugins/${encodedPluginKey}/participant/actions/${encodeURIComponent(String(actionKey || ''))}`,
+      payload,
+      options,
+    ),
+    ingestParticipant: (ingestKey, payload, options = {}) => postJson(
+      `/api/plugins/${encodedPluginKey}/participant/ingest/${encodeURIComponent(String(ingestKey || ''))}`,
+      payload,
+      options,
+    ),
+    estimateServerEpochMs,
+    getClientClockOffsetMs,
+  };
+}
+
+function participantExtensionsMayMonitor() {
+  return Boolean(state.startTime) || (isStudyRunRunning() && state.questionsBuilt);
+}
+
+function startParticipantExtensionMonitors(reason) {
+  if (!participantExtensionsMayMonitor()) return;
+  participantExtensions.startPrestudyMonitors({
+    reason,
+    session: getParticipantSessionContext(),
+  });
+}
+
+function queueParticipantExtensionSync(reason) {
+  participantExtensionSync = participantExtensionSync
+    .catch(() => {})
+    .then(async () => {
+      await participantExtensions.sync({
+        reason,
+        sensorRuntime: state.sensorRuntime,
+        session: getParticipantSessionContext(),
+      });
+      startParticipantExtensionMonitors(reason);
+    })
+    .catch((error) => {
+      participantExtensions.reportStatus('participant_extensions', {
+        state: 'warning',
+        last_error: error?.message || String(error),
+        failed_hook: 'sync',
+      });
+      console.warn('[study] Optional participant extensions could not be synchronized:', error);
+    });
+  return participantExtensionSync;
 }
 
 async function startStudySensorSession() {
@@ -1852,12 +1958,26 @@ function collectCardEvents() {
       event.server_stop_received_epoch_ms = metrics.server_stop_received_epoch_ms || null;
       event.client_start_trigger_epoch_ms = metrics.client_start_trigger_epoch_ms || null;
       event.client_stop_trigger_epoch_ms = metrics.client_stop_trigger_epoch_ms || null;
+      event.planned_start_epoch_ms = metrics.planned_start_epoch_ms || null;
+      event.planned_deadline_epoch_ms = metrics.planned_deadline_epoch_ms || null;
+      event.stimulus_id = metrics.stimulus_id || '';
+      event.start_event_id = metrics.start_event_id || '';
+      event.stop_event_id = metrics.stop_event_id || '';
+      event.prepare_failed = metrics.prepare_failed === true;
+      event.visibility_interrupted = metrics.visibility_interrupted === true;
+      event.visibility_interruption_count = Number(metrics.visibility_interruption_count || 0);
+      event.visibility_hidden_duration_ms = Number(metrics.visibility_hidden_duration_ms || 0);
+      event.warmup_callback_delay_ms = Number(metrics.warmup_callback_delay_ms || 0);
+      event.onset_callback_delay_ms = Number(metrics.onset_callback_delay_ms || 0);
+      event.deadline_callback_delay_ms = Number(metrics.deadline_callback_delay_ms || 0);
       event.start_marker = metrics.start_marker || '';
       event.stop_marker = metrics.stop_marker || '';
     } else {
       event.answered_at = metrics.answered_at || null;
       event.answered_at_server_epoch_ms = metrics.answered_at_server_epoch_ms || null;
       event.completed_at = metrics.answered_at || null;
+      event.shown_event_id = metrics.shown_event_id || '';
+      event.answered_event_id = metrics.answered_event_id || '';
     }
 
     events.push(event);
@@ -1880,39 +2000,50 @@ async function submitResults() {
   updateNavigation();
 
   try {
-    void recordQuestionCompletion(state.currentIndex);
-    const timestampEnd = new Date().toISOString();
-    const currentQuestion = (state.config.questions || [])[state.currentIndex] || null;
+    await recordQuestionCompletion(state.currentIndex);
     const sessionId = state.sessionId;
     const participantId = resolveParticipantId();
     const studyId = state.config.study_id;
-    void sendMarker('study_end', state.currentIndex, currentQuestion, 'study_end');
-    stopCameraMonitor();
-    const response = await postJson('/api/results', {
-      session_id: sessionId,
-      participant_id: participantId,
-      study_id: studyId,
-      client_clock_offset_ms: getClientClockOffsetMs(),
-      timestamp_start: new Date(state.startTime).toISOString(),
-      timestamp_end: timestampEnd,
-      answers: collectAnswers(),
-      participant_metadata: collectParticipantMetadata(),
-      answer_events: collectAnswerEvents(),
-      card_events: collectCardEvents(),
+    let submission = loadPendingSubmission(sessionId);
+    if (!submission) {
+      const endMonotonicMs = performance.now();
+      submission = {
+        submission_id: `submission-${sessionId}`,
+        session_id: sessionId,
+        participant_id: participantId,
+        study_id: studyId,
+        client_clock_offset_ms: getClientClockOffsetMs(),
+        timestamp_start: new Date(state.startTime).toISOString(),
+        timestamp_end: new Date().toISOString(),
+        study_end_event: {
+          event_id: createEventId('study-end'),
+          source_monotonic_ms: endMonotonicMs,
+          source_epoch_ms: estimateServerEpochMs(endMonotonicMs),
+          sequence_number: null,
+        },
+        answers: collectAnswers(),
+        participant_metadata: collectParticipantMetadata(),
+        answer_events: collectAnswerEvents(),
+        card_events: collectCardEvents(),
+      };
+      persistPendingSubmission(submission);
+    }
+    participantExtensions.beforeSubmit({
+      submission,
+      session: getParticipantSessionContext(),
     });
+    const response = await postJson('/api/results', submission);
     state.studyRunState = response?.study_run_state || state.studyRunState;
     state.completedLocally = true;
     state.completedRunId = state.studyRunState?.run_id || '';
+    clearPendingSubmission();
     clearSessionSnapshot();
     state.startTime = null;
     state.sessionId = '';
+    // Finalization now owns end-marker, producer stop, worker drain, and XDF
+    // footer ordering. Calling /session/stop here would recreate the old race.
     state.sensorSessionStarted = false;
-    void stopStudySensorSession({
-      sessionId,
-      participantId,
-      studyId,
-      clearSnapshot: false,
-    });
+    void participantExtensions.dispose('submission_committed');
 
     const finishIndex = (state.config.questions || []).findIndex(q => q.type === 'finish');
     if (finishIndex !== -1) {
@@ -1927,6 +2058,11 @@ async function submitResults() {
     showStudyNotice(t('study.saveFailedBody', 'Your answers could not be saved. Please tell the study supervisor - your answers are still on this screen.'), 'error', 10000);
     state.submitInFlight = false;
     state.navigationBusy = false;
+    participantExtensions.onSubmitFailed({
+      error,
+      submission: state.pendingSubmission,
+      session: getParticipantSessionContext(),
+    });
     if (btn) {
       btn.disabled = false;
       getElement('btn-next-label').textContent = t('study.submit', 'Submit');
