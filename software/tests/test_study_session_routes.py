@@ -63,11 +63,36 @@ def _load_sensor_study(client) -> None:
     assert response.status_code == 200, response.get_json()
 
 
+def _load_plain_study(client, study_id: str = "study-a") -> None:
+    """Load a study with no sensors, so the test exercises the session lifecycle only.
+
+    The shipped default study marks its sensor plugins required, so
+    /api/study/session/start fail-closes on any machine without a built native
+    XDF core - including CI, which runs pytest without building one. Without
+    this the tests below assert 200 and get 409 for a reason that has nothing
+    to do with what they claim to prove.
+    """
+    response = client.post(
+        "/api/config",
+        json={
+            "study_id": study_id,
+            "study_settings": {"sensors_enabled": False, "sensors": {}, "plugins": {}},
+            "questions": [
+                {"type": "participant-id"},
+                {"type": "likert", "prompt": "How do you feel?"},
+                {"type": "finish"},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.get_json()
+
+
 class StudySessionRouteTests(unittest.TestCase):
     def test_session_survives_a_simulated_server_restart(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             first_app = _app(temp_dir)
             first_client = first_app.test_client()
+            _load_plain_study(first_client)
             start = first_client.post(
                 "/api/study/session/start",
                 json={"participant_id": "hash1234", "current_index": 0, "current_type": "participant-id"},
@@ -134,7 +159,9 @@ class StudySessionRouteTests(unittest.TestCase):
                 patch("study_runner.backend.routes.helpers.initialize_plugin") as initialize_plugin,
                 patch("study_runner.backend.routes.helpers.run_runtime_action", return_value={"ok": True}) as run_action,
             ):
-                response = app.test_client().post(
+                client = app.test_client()
+                _load_plain_study(client)
+                response = client.post(
                     "/api/study/session/start",
                     json={"participant_id": "hash1234", "current_index": 0, "current_type": "participant-id"},
                 )
@@ -152,6 +179,7 @@ class StudySessionRouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             app = _app(temp_dir)
             client = app.test_client()
+            _load_plain_study(client)
             start = client.post(
                 "/api/study/session/start",
                 json={"participant_id": "hash1234", "current_index": 0, "current_type": "participant-id"},
@@ -179,6 +207,7 @@ class StudySessionRouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             app = _app(temp_dir)
             client = app.test_client()
+            _load_plain_study(client)
             start = client.post(
                 "/api/study/session/start",
                 json={"participant_id": "hash1234", "current_index": 0, "current_type": "participant-id"},

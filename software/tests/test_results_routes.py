@@ -30,6 +30,25 @@ VALIDATED_RESULTS = {
 CONFIG_DATA = {"study_id": "teststudy", "questions": [], "study_settings": {}}
 
 
+def _load_plain_study(client, study_id: str) -> None:
+    """Load a sensorless study so the session start is not blocked by readiness.
+
+    The shipped default study marks its sensor plugins required, so
+    /api/study/session/start fail-closes without a built native XDF core -
+    including on CI. This test is about the results save marking the session
+    completed, not about the recording core.
+    """
+    response = client.post(
+        "/api/config",
+        json={
+            "study_id": study_id,
+            "study_settings": {"sensors_enabled": False, "sensors": {}, "plugins": {}},
+            "questions": [{"type": "participant-id"}, {"type": "finish"}],
+        },
+    )
+    assert response.status_code == 200, response.get_json()
+
+
 class ResultsRoutesTests(unittest.TestCase):
     def _make_app(self, data_dir: str):
         env = {
@@ -106,6 +125,7 @@ class ResultsRoutesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as data_dir:
             app = self._make_app(data_dir)
             client = app.test_client()
+            _load_plain_study(client, "teststudy")
 
             start = client.post(
                 "/api/study/session/start",
