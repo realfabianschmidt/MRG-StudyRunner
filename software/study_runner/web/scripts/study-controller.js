@@ -1,4 +1,4 @@
-import { getJson, postJson } from './api-client.js';
+import { getJson, postJson as postJsonToServer } from './api-client.js';
 import { CARDS } from './cards/index.js';
 import { renderInfoBottom, renderOptionalTag } from './cards/card-info.js';
 import { escapeHtml } from './lib/dom-utils.js';
@@ -12,7 +12,7 @@ import { startDeadlineTimer, remainingWholeSeconds } from './lib/deadline-timer.
 import {
   createEventId,
   flushReliableStudyEvents,
-  sendReliableStudyEvent,
+  sendReliableStudyEvent as sendReliableStudyEventToServer,
 } from './lib/reliable-event-queue.js';
 import {
   getPluginCatalog,
@@ -22,6 +22,41 @@ import {
   pluginsWithCapability,
 } from './lib/plugin-catalog.js';
 import { createParticipantPluginExtensionManager } from './lib/participant-plugin-extensions.js';
+
+/**
+ * Preview mode: look at the study without being a participant.
+ *
+ * Opened from the editor as `/?preview=1`. It renders the real cards from the
+ * real config, and that is all it does - no heartbeat, so it never occupies
+ * the single-tablet slot and can never block the admin's Play button, and
+ * every write to the server is dropped here rather than at fifteen call sites.
+ * A preview that quietly recorded a session, or that made the operator's own
+ * tablet look "taken", would be worse than no preview at all.
+ */
+const IS_PREVIEW = new URLSearchParams(window.location.search).get('preview') === '1';
+
+const PREVIEW_ALLOWED_POSTS = new Set(['/api/sync-clock']);
+
+function postJson(url, body, options) {
+  if (IS_PREVIEW && !PREVIEW_ALLOWED_POSTS.has(url)) {
+    console.debug('[preview] suppressed POST', url);
+    return Promise.resolve({});
+  }
+  return postJsonToServer(url, body, options);
+}
+
+function sendReliableStudyEvent(endpoint, payload, options) {
+  if (IS_PREVIEW) {
+    console.debug('[preview] suppressed event', endpoint);
+    return Promise.resolve({});
+  }
+  return sendReliableStudyEventToServer(endpoint, payload, options);
+}
+
+function sendStudyBeacon(url, blob) {
+  if (IS_PREVIEW) return false;
+  return navigator.sendBeacon(url, blob);
+}
 
 const state = {
   config: {},
@@ -85,18 +120,26 @@ async function init() {
   }
   bindEvents();
   initFullscreenUi();
-  startStudyClientHeartbeat(getStudyClientHeartbeatPayload, { onHeartbeat: handleHeartbeatResponse });
+  // The heartbeat is what claims the single tablet slot, so a preview must not
+  // send one - otherwise looking at your own study blocks starting it.
+  if (!IS_PREVIEW) {
+    startStudyClientHeartbeat(getStudyClientHeartbeatPayload, { onHeartbeat: handleHeartbeatResponse });
+  }
   bindPageLifecycleEvents();
   // Estimate clock offset in the background; the waiting room must not skip it.
   void syncClock();
 
   try {
-    startRuntimePolling();
+    if (!IS_PREVIEW) startRuntimePolling();
     await loadStudyConfig();
-    if (!isStudyRunRunning()) {
+    // A preview shows the study straight away. Parking it in the waiting room
+    // would mean the operator has to start a run to see what they just wrote,
+    // which is the opposite of what the button is for.
+    if (isWaitingForAdminStart()) {
       showWaitingForAdminStart();
       return;
     }
+    if (IS_PREVIEW) showPreviewBanner();
     await activateStudyUiAfterAdminStart();
   } catch (error) {
     console.error('[study] Could not load configuration:', error);
@@ -118,8 +161,23 @@ async function loadStudyConfig() {
   void queueParticipantExtensionSync('config_loaded');
 }
 
+/** In preview there is no run to wait for, so the gate is simply open. */
+function isWaitingForAdminStart() {
+  return !IS_PREVIEW && !isStudyRunRunning();
+}
+
 function isStudyRunRunning(runState = state.studyRunState) {
   return runState?.status === 'running';
+}
+
+/** A permanent marker that nothing here is being recorded. */
+function showPreviewBanner() {
+  if (document.getElementById('study-preview-banner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'study-preview-banner';
+  banner.className = 'study-preview-banner';
+  banner.textContent = t('study.previewBanner', 'Preview - nothing is recorded and no session is started.');
+  document.body.appendChild(banner);
 }
 
 function showWaitingForAdminStart(options = {}) {
@@ -146,7 +204,7 @@ async function activateStudyUiAfterAdminStart() {
   state.activationInProgress = true;
   try {
     await loadStudyConfig();
-    if (!isStudyRunRunning()) {
+    if (isWaitingForAdminStart()) {
       showWaitingForAdminStart();
       return;
     }
@@ -346,7 +404,7 @@ function bindPageLifecycleEvents() {
     try {
       const body = JSON.stringify(payload);
       if (navigator.sendBeacon) {
-        navigator.sendBeacon('/api/study/session/client-event', new Blob([body], { type: 'application/json' }));
+        sendStudyBeacon('/api/study/session/client-event', new Blob([body], { type: 'application/json' }));
         return;
       }
     } catch {
@@ -452,7 +510,7 @@ function sendPartialResults({ useBeacon = false } = {}) {
   try {
     const payload = buildPartialResultsPayload();
     if (useBeacon && navigator.sendBeacon) {
-      navigator.sendBeacon('/api/results/partial', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+      sendStudyBeacon('/api/results/partial', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
       return;
     }
     void postJson('/api/results/partial', payload, { timeoutMs: 1500 }).catch(() => {});

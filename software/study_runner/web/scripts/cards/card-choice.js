@@ -37,10 +37,6 @@ export function renderEditor(q) {
   return `
     <input type="hidden" class="qe-choice-type" value="${choiceType}">
     <div class="field">
-      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.enterQuestion', 'Enter question...'))}">
-    </div>
-    <div class="field">
       <label>${escapeHtml(t('editor.optionsOneLine', 'Options (one per line)'))}</label>
       <textarea class="qe-options">${escapeHtml(options)}</textarea>
     </div>`;

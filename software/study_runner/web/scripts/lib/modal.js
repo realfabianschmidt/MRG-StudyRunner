@@ -78,3 +78,51 @@ export function createModal({ kicker = '', title = '', variant = '', closeLabel 
 
   return { element: backdrop, body, open, close, isOpen, setTitle, setKicker, destroy };
 }
+
+/**
+ * A yes/no dialog on the shared modal, replacing window.confirm().
+ *
+ * confirm() freezes the whole page, cannot be translated, and looks nothing
+ * like the rest of the app - which matters most exactly where it was still
+ * used: the moment before a study run starts.
+ *
+ * Resolves true when confirmed, false on cancel, Escape, or backdrop click.
+ */
+export function confirmWithModal({
+  kicker = '',
+  title = '',
+  message = '',
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  variant = '',
+} = {}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      modal.destroy();
+      resolve(value);
+    };
+
+    const modal = createModal({
+      kicker,
+      title,
+      variant,
+      closeLabel: cancelLabel,
+      onClose: () => finish(false),
+    });
+
+    modal.body.innerHTML = `
+      <p class="settings-hint confirm-modal-message">${escapeHtml(message)}</p>
+      <div class="dashboard-actions confirm-modal-actions">
+        <button type="button" class="btn-secondary" data-confirm-cancel>${escapeHtml(cancelLabel)}</button>
+        <button type="button" class="btn-primary" data-confirm-ok>${escapeHtml(confirmLabel)}</button>
+      </div>`;
+
+    modal.body.querySelector('[data-confirm-cancel]')?.addEventListener('click', () => finish(false));
+    modal.body.querySelector('[data-confirm-ok]')?.addEventListener('click', () => finish(true));
+    modal.open();
+    modal.body.querySelector('[data-confirm-ok]')?.focus();
+  });
+}

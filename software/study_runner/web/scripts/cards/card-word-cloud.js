@@ -1,4 +1,5 @@
 import { t } from '../i18n.js';
+import { renderEditorToggle } from './card-info.js';
 import { escapeHtml } from '../lib/dom-utils.js';
 import { renderCardInstruction } from './card-info.js';
 
@@ -52,23 +53,27 @@ export function renderStudy(q, i) {
     </div>`;
 }
 
+// The generic prompt field asks a generic question; this card suggests its own.
+export const promptPlaceholder = { key: 'editor.wordCloudPlaceholder', fallback: 'Which words describe how you feel?' };
+
 export function renderEditor(q) {
   const words = (q.words ?? DEFAULT_WORDS).join('\n');
   return `
     <div class="field">
-      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.wordCloudPlaceholder', 'Which words describe how you feel?'))}">
-    </div>
-    <div class="field">
       <label>${escapeHtml(t('editor.wordsOneLine', 'Words (one per line)'))}</label>
       <textarea class="qe-words fi-textarea" style="min-height:100px;">${escapeHtml(words)}</textarea>
-    </div>
-    <div class="field">
-      <label class="switch-row" style="margin-bottom:0;">
-        <span>${escapeHtml(t('editor.allowMultipleWords', 'Allow selecting multiple words'))}</span>
-        <span class="switch"><input type="checkbox" class="qe-allow-multiple" ${q.allow_multiple !== false ? 'checked' : ''}><span class="switch-slider"></span></span>
-      </label>
     </div>`;
+}
+
+// Contributed to the shared toggle group at the bottom, so this card does not
+// leave a lone switch sitting between its word lists.
+export function renderEditorToggles(q) {
+  return renderEditorToggle({
+    className: 'qe-allow-multiple',
+    checked: q?.allow_multiple !== false,
+    label: t('editor.allowMultipleWords', 'Allow selecting multiple words'),
+    title: t('editor.allowMultipleWordsHint', 'Off means the participant picks exactly one word.'),
+  });
 }
 
 export function collectConfig(el) {

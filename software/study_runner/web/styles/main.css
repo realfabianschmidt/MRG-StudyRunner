@@ -245,6 +245,34 @@ body::before {
 .switch-row:hover { background: var(--accent-06); }
 .switch-row > span:first-child { font-size: .875rem; color: var(--ink-60); line-height: 1.5; }
 
+/* Editor switches: a plain row, no panel, no explanatory paragraph.
+   .switch-row keeps its filled look for the participant page; this is the
+   editor-only variant that reuses the same .switch control. */
+.editor-toggles {
+  display: flex; flex-direction: column; gap: 2px;
+  margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--ink-06);
+}
+.editor-toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 0; cursor: pointer;
+}
+.editor-toggle > span:first-child { font-size: .875rem; color: var(--ink-60); line-height: 1.5; }
+.editor-toggle:hover > span:first-child { color: var(--ink); }
+.editor-toggle--locked { cursor: not-allowed; }
+.editor-toggle--locked > span:first-child { color: var(--ink-40); }
+
+/* Preview marker on the participant page - deliberately unmissable. */
+.study-preview-banner {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+  z-index: 900; max-width: min(92vw, 640px);
+  padding: 8px 16px; border-radius: var(--r-pill);
+  background: var(--ink); color: var(--bg);
+  font-family: var(--font-mono); font-size: .688rem;
+  letter-spacing: .07em; text-transform: uppercase; text-align: center;
+}
+.btn-icon-only--go { color: var(--accent); }
+.btn-icon-only--go:hover { background: var(--accent-06); }
+
 /* ============================================================
    SHARED - buttons
    ============================================================ */
@@ -649,6 +677,7 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
   font-size: .688rem; letter-spacing: .07em; text-transform: uppercase;
   color: var(--ink-25); margin-bottom: 5px;
 }
+.field label .settings-unit { color: var(--ink-12); letter-spacing: .05em; }
 .field label.checkbox-row {
   display: flex;
   font-family: var(--font-body);

@@ -15,11 +15,7 @@ export function renderStudy(q, i) {
 }
 
 export function renderEditor(q) {
-  return `
-    <div class="field">
-      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.enterQuestion', 'Enter question...'))}">
-    </div>`;
+  return ``;
 }
 
 export function collectConfig(el) {

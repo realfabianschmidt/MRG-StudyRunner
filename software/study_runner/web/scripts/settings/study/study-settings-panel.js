@@ -11,14 +11,14 @@
  * and Nextcloud controllers keep binding to the same element ids; this module
  * only owns the nav and the sensor/participant fields.
  */
-import { t } from '../i18n.js';
-import { byId, escapeHtml, setText } from '../lib/dom-utils.js';
-import { activateShellPanel, bindShellNav, renderShellNav } from '../lib/settings-shell.js';
-import { normalizeStudySettings } from '../lib/study-settings.js';
+import { t } from '../../i18n.js';
+import { byId, escapeHtml, setText } from '../../lib/dom-utils.js';
+import { activateShellPanel, bindShellNav, renderShellNav } from '../../lib/settings-shell.js';
+import { normalizeStudySettings } from '../../lib/study-settings.js';
 import {
   PLUGIN_UI_SURFACES,
   visiblePluginsWithCapability,
-} from '../lib/plugin-catalog.js';
+} from '../../lib/plugin-catalog.js';
 
 let callbacks = {};
 let initialized = false;

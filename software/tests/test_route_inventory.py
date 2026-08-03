@@ -106,7 +106,6 @@ EXPECTED_ROUTES = {
     ("POST", "/api/study/session/stop"),
     ("POST", "/api/sync-clock"),
     ("POST", "/api/trial/prepare"),
-    ("GET", "/audit"),
     ("GET", "/static/<path:filename>"),
 }
 
@@ -141,10 +140,14 @@ class RouteInventoryTests(unittest.TestCase):
             app = _make_app(data_dir)
             client = app.test_client()
 
-            for path in ("/", "/admin", "/audit"):
+            for path in ("/", "/admin"):
                 with client.get(path) as response:
                     self.assertEqual(response.status_code, 200, path)
                     self.assertIn(b"<", response.data)
+
+            # The audit text lives in the settings shell now; the page is gone.
+            with client.get("/audit") as response:
+                self.assertEqual(response.status_code, 404)
 
             config = client.get("/api/config")
             self.assertEqual(config.status_code, 200)

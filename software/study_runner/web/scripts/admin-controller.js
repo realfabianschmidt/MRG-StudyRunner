@@ -1,27 +1,34 @@
 ﻿import { getJson, postJson } from './api-client.js';
 import { initializeAdminDashboard } from './admin-dashboard-controller.js';
-import { initializeNotionSettings } from './notion-settings-controller.js';
-import { initializeNextcloudSettings } from './admin/nextcloud-settings-controller.js';
-import { initializeCertificateSettings } from './admin/certificate-settings-controller.js';
+import { initializeNotionSettings } from './settings/study/notion-settings-controller.js';
+import { initializeNextcloudSettings } from './settings/study/nextcloud-settings-controller.js';
+import { initializeCertificateSettings } from './settings/machine/certificate-settings-controller.js';
 import { initializeSessionsBrowser, loadCompletedSessions } from './admin/sessions-browser.js';
 import { initializeUploadMonitor } from './admin/upload-monitor.js';
 import { initializeRecoveryPanel, loadRecoveryCandidates } from './admin/recovery-panel.js';
 import { defaultStudySettings, normalizeStudySettings } from './lib/study-settings.js';
 import { transitionToView } from './lib/view-transition.js';
-import { activateShellPanel, bindShellNav, renderShellNav, renderShellPanel } from './lib/settings-shell.js';
-import { initializeStudySettingsPanel, openStudySettingsPanel } from './admin/study-settings-panel.js';
+import { confirmWithModal } from './lib/modal.js';
+import {
+  initializeMachineSettingsPanel,
+  isSettingsHubOpen,
+  openSettingsHub,
+  renderSettingsHubShell,
+} from './settings/machine/machine-settings-panel.js';
+import { initializeStudySettingsPanel, openStudySettingsPanel } from './settings/study/study-settings-panel.js';
 import { CARDS, CARD_TYPES, defaultFor } from './cards/index.js';
-import { renderInfoBottom, renderInfoEditor, collectInfo } from './cards/card-info.js';
+import {
+  collectInfo,
+  renderEditorToggles,
+  renderInfoBottom,
+  renderInstructionField,
+  renderNoteField,
+  renderPromptField,
+} from './cards/card-info.js';
 import { initI18n, setLanguage, getLanguage, t } from './i18n.js';
 import { createQrSvg } from './qr-code.js';
-import { escapeHtml } from './lib/dom-utils.js';
-import {
-  getPluginCatalog,
-  isPluginVisible,
-  loadPluginCatalog,
-  PLUGIN_UI_SURFACES,
-  pluginUiIcon,
-} from './lib/plugin-catalog.js';
+import { escapeHtml, setText } from './lib/dom-utils.js';
+import { loadPluginCatalog } from './lib/plugin-catalog.js';
 
 const STUDY_RUN_POLL_INTERVAL_MS = 1500;
 
@@ -78,6 +85,18 @@ async function init() {
   await setupLanguage();
   bindEvents();
   initializeAdminDashboard({ showToast, openSettingsHub });
+  // `state` goes over by reference: the settings hub's status fetch is the same
+  // one the dashboard reads, and copying it would give the two views separate
+  // - and quickly diverging - pictures of the machine.
+  initializeMachineSettingsPanel({
+    state,
+    switchView,
+    showToast,
+    renderStudyRunState,
+    getAccessUrl,
+    loadUpdateStatus,
+    createDesktopShortcut,
+  });
   initializeNotionSettings({
     showToast,
     switchView,
@@ -333,7 +352,34 @@ function tabletGateHint(tabletGate) {
   return '';
 }
 
-async function startLoadedStudyRun() {
+/**
+ * Play, from the editor.
+ *
+ * Starting a run from the editor is a different act than starting it from the
+ * hub: the operator is mid-edit and the tablet is about to be handed over, so
+ * it asks first, saves whatever is unsaved, and then leaves the editor for the
+ * dashboard - which is where a running study is actually watched.
+ */
+async function confirmAndStartFromEditor() {
+  const proceed = await confirmWithModal({
+    kicker: t('workspace.startKicker', 'Start study'),
+    title: getCurrentStudyName(),
+    message: t('workspace.startConfirm', 'The tablet can join as soon as the study is running. Unsaved changes are saved first.'),
+    confirmLabel: t('workspace.startConfirmAction', 'Start study'),
+    cancelLabel: t('common.cancel', 'Cancel'),
+  });
+  if (!proceed) return;
+  await startLoadedStudyRun({ buttonId: 'btn-workspace-start', goToDashboard: true });
+}
+
+/**
+ * Start the loaded study.
+ *
+ * `buttonId` because two controls do this now - the hub's start button and the
+ * editor's play button - and the spinner belongs on whichever one was pressed.
+ * `then` decides where the operator lands afterwards.
+ */
+async function startLoadedStudyRun({ buttonId = 'btn-hub-start-study', goToDashboard = false } = {}) {
   if (state.readiness?.start_blocked === true) {
     const blockers = state.readiness.blockers || [];
     const message = `${t('readiness.confirmTitle', 'This study is not fully set up:')} `
@@ -350,10 +396,17 @@ async function startLoadedStudyRun() {
     const message = `${t('readiness.confirmTitle', 'This study is not fully set up:')}\n\n`
       + `${readinessSummary(blockers)}\n\n`
       + t('readiness.confirmBody', 'Measurements are saved locally either way, but the uploads listed above will fail. Start anyway?');
-    if (!confirm(message)) return;
+    const proceed = await confirmWithModal({
+      kicker: t('readiness.confirmKicker', 'Pre-run check'),
+      title: t('readiness.confirmTitle', 'This study is not fully set up:'),
+      message,
+      confirmLabel: t('readiness.confirmStart', 'Start anyway'),
+      cancelLabel: t('common.cancel', 'Cancel'),
+    });
+    if (!proceed) return;
   }
 
-  const button = $('btn-hub-start-study');
+  const button = $(buttonId);
   const previousHtml = button?.innerHTML || '';
   if (button) {
     button.disabled = true;
@@ -370,6 +423,7 @@ async function startLoadedStudyRun() {
     state.tabletGate = response?.tablet_gate || state.tabletGate;
     renderStudyRunState();
     showToast(t('toast.studyStarted', 'Study started'), 'success');
+    if (goToDashboard) await switchView('view-dashboard');
   } catch (error) {
     console.error('[admin] Could not start study run:', error);
     showToast(error.message || t('toast.studyStartFailed', 'Could not start the study'), 'error');
@@ -379,351 +433,6 @@ async function startLoadedStudyRun() {
       renderStudyRunState();
     }
   }
-}
-
-/**
- * Open the machine-level settings shell.
- *
- * Content is unchanged from the modal this replaces - only the shell around it
- * is new. The status load runs while the sweep still covers the screen, so the
- * panels are already filled when the shell appears.
- */
-function openSettingsHub() {
-  return switchView('view-machine-settings', {
-    onCovered: async () => {
-      renderSettingsHubShell();
-      await loadSettingsHubStatus();
-    },
-  });
-}
-
-function isSettingsHubOpen() {
-  return Boolean($('view-machine-settings')?.classList.contains('active'));
-}
-
-function renderSettingsHubShell() {
-  const nav = $('machine-settings-nav');
-  const panels = $('machine-settings-panels');
-  if (!nav || !panels) return;
-
-  const entries = settingsHubEntries();
-  if (!entries.some((entry) => entry.key === state.settingsHubActiveTab)) {
-    state.settingsHubActiveTab = entries[0]?.key || 'tablet';
-  }
-
-  nav.innerHTML = renderShellNav(entries, state.settingsHubActiveTab);
-  panels.innerHTML = settingsHubPanels();
-
-  const root = $('view-machine-settings');
-  state.settingsHubActiveTab = activateShellPanel(root, state.settingsHubActiveTab);
-  bindShellNav(root, (key) => { state.settingsHubActiveTab = key; });
-  root?.querySelectorAll('[data-settings-action]').forEach((button) => {
-    button.addEventListener('click', () => handleSettingsHubAction(button.dataset.settingsAction || ''));
-  });
-  root?.querySelectorAll('[data-save-plugin-settings]').forEach((button) => {
-    button.addEventListener('click', () => void savePluginSettings(button.dataset.savePluginSettings));
-  });
-}
-
-function settingsHubEntries() {
-  const groupThisComputer = t('settingsHub.groupComputer', 'This computer');
-  const groupSensors = t('settingsHub.groupSensors', 'Sensors');
-  const groupSystem = t('settingsHub.groupSystem', 'System');
-  const entries = [
-    { key: 'tablet', icon: 'iconoir-tablet', label: t('settingsHub.tabTablet', 'Tablet'), group: groupThisComputer },
-    ...settingsHubPlugins().map((plugin) => ({
-      key: `plugin:${plugin.key}`,
-      icon: pluginIcon(plugin),
-      label: plugin.label || plugin.key,
-      group: groupSensors,
-    })),
-    { key: 'system', icon: 'iconoir-settings', label: t('settingsHub.tabSystem', 'System'), group: groupSystem },
-    { key: 'audit', icon: 'iconoir-book', label: t('hub.auditSensorSetup', 'Audit & Sensor Setup'), group: groupSystem },
-  ];
-  if (getPluginCatalog().invalid_plugins.length) {
-    entries.push({
-      key: 'plugin-problems',
-      icon: 'iconoir-warning-triangle',
-      label: t('settingsHub.pluginProblems', 'Plugin problems'),
-      group: groupSystem,
-    });
-  }
-  return entries;
-}
-
-function settingsHubPanels() {
-  const active = state.settingsHubActiveTab;
-  return [
-    renderShellPanel('audit', [
-      settingsHubAction('audit', 'iconoir-book', t('hub.auditSensorSetup', 'Audit & Sensor Setup'), t('settingsHub.auditHint', 'Check local sensor readiness and setup state.')),
-    ], active !== 'audit'),
-    renderShellPanel('tablet', [
-      settingsHubAction('certificate', 'iconoir-shield-check', t('hub.certificateSettings', 'Certificate'), t('settingsHub.certificateHint', 'Tablet trust setup for HTTPS camera access.')),
-    ], active !== 'tablet'),
-    renderShellPanel('system', [
-      settingsHubAction('update', 'iconoir-download-circled-outline', t('update.title', 'Python app update'), t('settingsHub.updateHint', 'Check, download, and install Study Runner updates.')),
-      settingsHubAction('shortcut', 'iconoir-desktop', t('hub.createShortcut', 'Create desktop shortcut'), t('settingsHub.shortcutHint', 'Create a local launcher for this computer.')),
-    ], active !== 'system'),
-    ...(getPluginCatalog().invalid_plugins.length ? [renderShellPanel(
-      'plugin-problems',
-      renderInvalidPlugins(),
-      active !== 'plugin-problems',
-    )] : []),
-    ...settingsHubPlugins().map((plugin) => renderShellPanel(
-      `plugin:${plugin.key}`,
-      renderPluginSettingsPanel(plugin),
-      active !== `plugin:${plugin.key}`,
-    )),
-  ].join('');
-}
-
-function renderInvalidPlugins() {
-  const invalidPlugins = getPluginCatalog().invalid_plugins;
-  return `
-    <div class="settings-hub-plugin">
-      <div class="dashboard-card-title"><i class="iconoir-warning-triangle"></i> <span>${escapeHtml(t('settingsHub.pluginProblems', 'Plugin problems'))}</span></div>
-      <p class="settings-hint">${escapeHtml(t('settingsHub.pluginProblemsHint', 'Invalid built-in plugins stay isolated and are not loaded. Fix their manifest or entry point, then restart Study Runner.'))}</p>
-      <div class="plugin-problem-list">
-        ${invalidPlugins.map((plugin) => `
-          <div class="plugin-problem-item">
-            <strong>${escapeHtml(plugin.plugin_key || plugin.directory || t('settingsHub.unknownPlugin', 'Unknown plugin'))}</strong>
-            <ul>${(plugin.errors || []).map((error) => `<li>${escapeHtml(error)}</li>`).join('')}</ul>
-          </div>`).join('')}
-      </div>
-    </div>`;
-}
-
-function settingsHubAction(action, icon, title, hint) {
-  return `
-    <button class="settings-hub-action" type="button" data-settings-action="${escapeHtml(action)}">
-      <i class="${escapeHtml(icon)}"></i>
-      <span>
-        <strong>${escapeHtml(title)}</strong>
-        <small>${escapeHtml(hint)}</small>
-      </span>
-    </button>`;
-}
-
-function handleSettingsHubAction(action) {
-  if (action === 'certificate') {
-    $('btn-certificate-settings')?.click();
-  } else if (action === 'audit') {
-    window.open('/audit', '_blank', 'noreferrer');
-  } else if (action === 'update') {
-    // Scroll while the sweep still covers the screen, so the update card is
-    // already in place when the hub is revealed instead of sliding into view.
-    void switchView('view-hub', {
-      onCovered: () => $('admin-update-card')?.scrollIntoView({ block: 'center' }),
-    });
-  } else if (action === 'shortcut') {
-    // An action, not a navigation - stay in the shell and report there.
-    void createDesktopShortcut();
-  } else if (action === 'dashboard') {
-    void switchView('view-dashboard');
-  }
-}
-
-async function loadSettingsHubStatus() {
-  try {
-    state.settingsHubStatus = await getJson('/api/admin/status', { timeoutMs: 1500 });
-    try {
-      state.pluginSettings = (await getJson('/api/admin/plugin-settings', { timeoutMs: 1500 })).plugins || {};
-    } catch (settingsError) {
-      console.debug('[admin] Could not load plugin settings schema:', settingsError);
-    }
-    state.tabletGate = state.settingsHubStatus?.study_clients?.single_tablet || state.tabletGate;
-    state.studyRunState = state.settingsHubStatus?.study_run_state || state.studyRunState;
-    renderStudyRunState();
-    if (isSettingsHubOpen()) {
-      renderSettingsHubShell();
-    }
-  } catch (error) {
-    console.debug('[admin] Could not load settings hub plugin status:', error);
-  }
-}
-
-function settingsHubPlugins() {
-  const integrations = state.settingsHubStatus?.integrations || {};
-  return getPluginCatalog().plugins
-    .filter((manifest) => isPluginVisible(manifest, PLUGIN_UI_SURFACES.SETTINGS_HUB))
-    .map((manifest) => {
-      const status = integrations[manifest.plugin_key] || {};
-      return {
-        ...status,
-        key: manifest.plugin_key,
-        label: status.label || manifest.ui?.label || manifest.plugin_key,
-        category: status.category || manifest.category,
-        manifest: status.manifest || manifest,
-      };
-    });
-}
-
-function renderPluginSettingsPanel(plugin) {
-  const status = plugin.status || 'unknown';
-  const manifest = plugin.manifest || {};
-  const coordinator = plugin.coordinator || {};
-  return `
-    <div class="settings-hub-plugin">
-      <div class="status-grid status-grid--row">
-        ${settingsHubStatusCard(t('settingsHub.pluginStatus', 'Status'), settingsStatusLabel(status), plugin.last_message || '')}
-        ${settingsHubStatusCard(t('settingsHub.pluginCategory', 'Category'), plugin.category || '-')}
-        ${settingsHubStatusCard(t('settingsHub.pluginDevice', 'Device'), plugin.device_label || plugin.label || plugin.key)}
-        ${settingsHubStatusCard(t('settingsHub.pluginRecording', 'Recording'), yesNo(plugin.has_recording))}
-      </div>
-      <div class="settings-hub-plugin-details">
-        ${settingsHubDetailLine(t('settingsHub.pluginConfigKey', 'Config key'), plugin.config_key || '-')}
-        ${settingsHubDetailLine(t('settingsHub.pluginRuntime', 'Runtime'), plugin.runtime_enabled ?? plugin.enabled)}
-        ${settingsHubDetailLine(t('settingsHub.pluginLsl', 'LSL'), plugin.lsl_enabled ?? plugin.has_lsl)}
-        ${settingsHubDetailLine(t('settingsHub.pluginScan', 'Scan'), plugin.scan_timeout_seconds !== undefined ? `${plugin.scan_timeout_seconds}s` : '')}
-        ${settingsHubDetailLine(t('settingsHub.pluginEndpoint', 'Endpoint'), plugin.url || (plugin.host ? `${plugin.host}:${plugin.port || ''}` : ''))}
-        ${settingsHubDetailLine(t('settingsHub.pluginPoll', 'Poll'), formatMs(manifest.poll_interval_ms || coordinator.poll_interval_ms))}
-        ${settingsHubDetailLine(t('settingsHub.pluginTimeout', 'Timeout'), formatMs(manifest.request_timeout_ms || coordinator.request_timeout_ms))}
-        ${settingsHubDetailLine(t('settingsHub.pluginClockDomain', 'Clock'), manifest.clock_domain || coordinator.clock_domain || '')}
-        ${settingsHubDetailLine(t('settingsHub.pluginBackpressure', 'Backpressure'), formatBackpressure(manifest.backpressure || coordinator.backpressure))}
-        ${settingsHubDetailLine(t('settingsHub.pluginPollLatency', 'Status latency'), formatMs(coordinator.last_poll_latency_ms))}
-      </div>
-      ${renderPluginSettingsForm(plugin.key)}
-      <div class="dashboard-actions">
-        ${settingsHubAction('dashboard', pluginIcon(plugin), t('settingsHub.openLiveControls', 'Open live controls'), t('settingsHub.openLiveControlsHint', 'Live start, stop, recovery, and monitoring stay on the dashboard.'))}
-      </div>
-    </div>
-  `;
-}
-
-/**
- * Editable machine settings, generated from the plugin manifest.
- *
- * The backend hands over schema *and* current value together, so the effective
- * value rule (disk wins, manifest default only fills a missing key) lives in
- * one tested place rather than being re-derived here.
- */
-function renderPluginSettingsForm(pluginKey) {
-  const entry = state.pluginSettings?.[pluginKey];
-  if (!entry?.fields?.length) return '';
-
-  const fields = entry.fields.map((field) => {
-    const inputId = `plugin-setting-${pluginKey}-${field.name}`.replace(/[^A-Za-z0-9_-]/g, '-');
-    const label = escapeHtml(field.label_key ? t(field.label_key, field.path) : field.path);
-    const unit = field.unit ? ` <span class="settings-unit">${escapeHtml(field.unit)}</span>` : '';
-    return `<div class="field" data-setting-field="${escapeHtml(field.name)}">${
-      field.type === 'boolean'
-        ? `<label class="switch-row" for="${inputId}"><span>${label}</span>
-             <span class="switch"><input type="checkbox" id="${inputId}" data-setting-name="${escapeHtml(field.name)}"${field.value ? ' checked' : ''}><span class="switch-slider"></span></span>
-           </label>`
-        : `<label for="${inputId}">${label}${unit}</label>${renderSettingInput(inputId, field)}`
-    }</div>`;
-  }).join('');
-
-  return `
-    <div class="plugin-settings-form" data-plugin-settings="${escapeHtml(pluginKey)}">
-      <div class="dashboard-card-title"><i class="iconoir-settings"></i> <span>${escapeHtml(t('pluginSettings.title', 'Machine settings'))}</span></div>
-      <p class="settings-hint">${escapeHtml(t('pluginSettings.hint', 'These belong to this computer. Which sensors a study uses is set in the study editor.'))}</p>
-      ${fields}
-      <div class="dashboard-actions">
-        <button class="btn-primary" type="button" data-save-plugin-settings="${escapeHtml(pluginKey)}">
-          <i class="iconoir-floppy-disk"></i> <span>${escapeHtml(t('pluginSettings.save', 'Save settings'))}</span>
-        </button>
-      </div>
-      <div class="settings-hint" data-settings-feedback="${escapeHtml(pluginKey)}"></div>
-    </div>`;
-}
-
-function renderSettingInput(inputId, field) {
-  const name = escapeHtml(field.name);
-  if (field.type === 'choice') {
-    const options = (field.options || []).map((option) =>
-      `<option value="${escapeHtml(option)}"${option === field.value ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('');
-    return `<select class="fi-input" id="${inputId}" data-setting-name="${name}">${options}</select>`;
-  }
-  if (field.type === 'number') {
-    const min = field.minimum !== null && field.minimum !== undefined ? ` min="${escapeHtml(String(field.minimum))}"` : '';
-    const max = field.maximum !== null && field.maximum !== undefined ? ` max="${escapeHtml(String(field.maximum))}"` : '';
-    return `<input class="fi-input" type="number" step="any" id="${inputId}" data-setting-name="${name}" value="${escapeHtml(String(field.value ?? ''))}"${min}${max}>`;
-  }
-  return `<input class="fi-input" type="text" id="${inputId}" data-setting-name="${name}" value="${escapeHtml(String(field.value ?? ''))}">`;
-}
-
-/** Send only the fields the operator actually changed. */
-async function savePluginSettings(pluginKey) {
-  const form = document.querySelector(`[data-plugin-settings="${pluginKey}"]`);
-  const feedback = document.querySelector(`[data-settings-feedback="${pluginKey}"]`);
-  if (!form) return;
-
-  const settings = {};
-  form.querySelectorAll('[data-setting-name]').forEach((input) => {
-    settings[input.dataset.settingName] = input.type === 'checkbox' ? input.checked : input.value;
-  });
-
-  try {
-    const response = await postJson(`/api/admin/plugin-settings/${encodeURIComponent(pluginKey)}`, { settings });
-    state.pluginSettings = response.plugins || state.pluginSettings;
-    if (feedback) {
-      feedback.textContent = response.restart_required
-        ? t('pluginSettings.savedRestart', 'Saved. Restart Study Runner for this to take effect.')
-        : t('pluginSettings.saved', 'Saved.');
-    }
-    showToast(t('pluginSettings.saved', 'Saved.'), 'success');
-  } catch (error) {
-    console.error('[settings] Could not save plugin settings:', error);
-    if (feedback) feedback.textContent = error.message || t('pluginSettings.saveFailed', 'Could not save.');
-    showToast(t('pluginSettings.saveFailed', 'Could not save.'), 'error');
-  }
-}
-
-function settingsHubStatusCard(label, value, hint = '') {
-  return `
-    <div class="status-card">
-      <div class="status-card-label">${escapeHtml(label)}</div>
-      <div class="status-card-value">${escapeHtml(value)}</div>
-      ${hint ? `<div class="status-card-hint">${escapeHtml(hint)}</div>` : ''}
-    </div>`;
-}
-
-function settingsHubDetailLine(label, value) {
-  if (value === '' || value === null || value === undefined) {
-    return '';
-  }
-  return `
-    <div class="settings-hub-detail-row">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(typeof value === 'boolean' ? yesNo(value) : value)}</strong>
-    </div>`;
-}
-
-function pluginIcon(plugin) {
-  return pluginUiIcon(plugin.manifest || plugin);
-}
-
-function settingsStatusLabel(status) {
-  const raw = String(status || 'unknown');
-  return t(`dashboard.status.${raw}`, raw.replace(/_/g, ' '));
-}
-
-function yesNo(value) {
-  return value ? t('dashboard.yes', 'yes') : t('dashboard.no', 'no');
-}
-
-function formatMs(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) {
-    return '';
-  }
-  return `${Math.round(numeric)}ms`;
-}
-
-function formatBackpressure(backpressure) {
-  if (!backpressure || typeof backpressure !== 'object') {
-    return '';
-  }
-  const maxInFlight = Number(backpressure.max_in_flight);
-  const policy = String(backpressure.drop_policy || '').replace(/_/g, ' ');
-  if (!Number.isFinite(maxInFlight) && !policy) {
-    return '';
-  }
-  if (Number.isFinite(maxInFlight) && policy) {
-    return `${maxInFlight} / ${policy}`;
-  }
-  return Number.isFinite(maxInFlight) ? String(maxInFlight) : policy;
 }
 
 /**
@@ -795,7 +504,9 @@ function bindEvents() {
   $('btn-hub-editor').addEventListener('click', () => switchView('view-workspace'));
   $('btn-admin-dashboard').addEventListener('click', () => switchView('view-dashboard'));
   $('btn-hub-start-study')?.addEventListener('click', () => void startLoadedStudyRun());
+  $('btn-workspace-start')?.addEventListener('click', () => void confirmAndStartFromEditor());
   $('btn-hub-settings')?.addEventListener('click', () => void openSettingsHub());
+  $('btn-create-shortcut')?.addEventListener('click', () => void createDesktopShortcut('btn-create-shortcut', 'shortcut-result'));
   $('btn-machine-settings-back')?.addEventListener('click', () => void switchView('view-hub'));
   $('btn-workspace-home').addEventListener('click', () => switchView('view-hub'));
   $('btn-admin-edit-view').addEventListener('click', () => switchView('view-hub'));
@@ -1039,7 +750,14 @@ async function checkForPythonUpdate() {
 async function downloadPythonUpdate() {
   const version = state.updateStatus?.update?.version || '';
   const message = t('update.downloadConfirm', 'Download and verify update {version}?').replace('{version}', version);
-  if (!confirm(message)) {
+  const proceed = await confirmWithModal({
+    kicker: t('update.title', 'Python app update'),
+    title: t('update.downloadTitle', 'Download update'),
+    message,
+    confirmLabel: t('update.download', 'Download'),
+    cancelLabel: t('common.cancel', 'Cancel'),
+  });
+  if (!proceed) {
     return;
   }
 
@@ -1062,7 +780,14 @@ async function downloadPythonUpdate() {
 
 async function installPythonUpdate() {
   const message = t('update.restartConfirm', 'Restart Study Runner into the staged update now?');
-  if (!confirm(message)) {
+  const proceed = await confirmWithModal({
+    kicker: t('update.title', 'Python app update'),
+    title: t('update.installTitle', 'Restart and install'),
+    message,
+    confirmLabel: t('update.install', 'Restart now'),
+    cancelLabel: t('common.cancel', 'Cancel'),
+  });
+  if (!proceed) {
     return;
   }
 
@@ -1268,7 +993,7 @@ function handleListClick(event) {
       showToast(t('toast.bookendsLocked'), 'error');
       return;
     }
-    removeQuestion(index);
+    void removeQuestion(index);
     return;
   }
   if (item && !event.target.closest('.admin-q-actions')) {
@@ -1514,7 +1239,17 @@ function openOverlay(index) {
     `<i class="iconoir-${meta.icon}"></i> ${meta.label} <span class="editor-index">#${index + 1}</span>`;
 
   const editorEl = $('editor-fields');
-  editorEl.innerHTML = cardModule.renderEditor(question, index) + renderInfoEditor(question);
+  // The order an author actually writes a question in: what is being asked,
+  // how to answer it, the card's own settings, an optional note, then the
+  // switches. Cards used to supply their own prompt field and the shared
+  // block was appended after, which put "Required" above the question text.
+  editorEl.innerHTML = [
+    renderPromptField(question, cardModule.promptPlaceholder),
+    renderInstructionField(question),
+    cardModule.renderEditor(question, index),
+    renderNoteField(question),
+    renderEditorToggles(question, cardModule.renderEditorToggles?.(question) || ''),
+  ].join('');
   if (typeof cardModule.bindEditorEvents === 'function') {
     cardModule.bindEditorEvents(editorEl);
   }
@@ -1565,9 +1300,16 @@ function addQuestion(type) {
   markUnsaved();
 }
 
-function removeQuestion(index) {
+async function removeQuestion(index) {
   const message = t('question.removeConfirm', 'Remove question {number}?').replace('{number}', String(index + 1));
-  if (!confirm(message)) {
+  const proceed = await confirmWithModal({
+    kicker: t('question.removeKicker', 'Remove question'),
+    title: getCardLabel(state.config.questions[index]) || String(index + 1),
+    message,
+    confirmLabel: t('question.remove', 'Remove'),
+    cancelLabel: t('common.cancel', 'Cancel'),
+  });
+  if (!proceed) {
     return;
   }
 
@@ -1747,7 +1489,14 @@ async function downloadStudy(id) {
 
 async function deleteStudy(id) {
   const message = t('hub.recent.deleteConfirm', 'Delete study "{id}" permanently?').replace('{id}', id);
-  if (!confirm(message)) return;
+  const proceed = await confirmWithModal({
+    kicker: t('hub.recent.deleteKicker', 'Delete study'),
+    title: id,
+    message,
+    confirmLabel: t('hub.recent.delete', 'Delete'),
+    cancelLabel: t('common.cancel', 'Cancel'),
+  });
+  if (!proceed) return;
   try {
     const response = await fetch(`/api/admin/studies/${encodeURIComponent(id)}`, { method: 'DELETE' });
     const payload = await response.json().catch(() => ({}));
@@ -1824,8 +1573,8 @@ function getMeta(type) {
     : { icon: 'question-mark', label: type };
 }
 
-async function createDesktopShortcut() {
-  const button = $('btn-create-shortcut');
+async function createDesktopShortcut(buttonId = 'btn-create-shortcut', resultId = '') {
+  const button = $(buttonId);
   const previous = button?.innerHTML || '';
   if (button) {
     button.disabled = true;
@@ -1833,10 +1582,14 @@ async function createDesktopShortcut() {
   }
   try {
     const result = await postJson('/api/admin/system/create-shortcut', {});
-    showToast(t('hub.shortcutCreated', 'Desktop shortcut created: {path}').replace('{path}', result.path || ''), 'success');
+    const message = t('hub.shortcutCreated', 'Desktop shortcut created: {path}').replace('{path}', result.path || '');
+    if (resultId) setText(resultId, message);
+    showToast(message, 'success');
   } catch (error) {
     console.error('[admin] Could not create desktop shortcut:', error);
-    showToast(error.message || t('hub.shortcutFailed', 'Could not create desktop shortcut'), 'error');
+    const message = error.message || t('hub.shortcutFailed', 'Could not create desktop shortcut');
+    if (resultId) setText(resultId, message);
+    showToast(message, 'error');
   } finally {
     if (button) {
       button.disabled = false;

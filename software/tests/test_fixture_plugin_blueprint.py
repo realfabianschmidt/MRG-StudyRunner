@@ -311,7 +311,7 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
         for relative_path in (
             "study_runner/backend/services/recording_runtime.py",
             "study_runner/web/scripts/lib/plugin-catalog.js",
-            "study_runner/web/scripts/admin/study-settings-panel.js",
+            "study_runner/web/scripts/settings/study/study-settings-panel.js",
             "study_runner/web/scripts/cards/card-stimulus.js",
         ):
             self.assertNotIn(

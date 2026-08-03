@@ -5,11 +5,11 @@
  * status tiles, one connection card. The share link belongs to the study, the
  * optional share password stays backend-local like the Notion API key.
  */
-import { getJson, postJson } from '../api-client.js';
-import { t } from '../i18n.js';
-import { byId, setText } from '../lib/dom-utils.js';
-import { normalizeStudySettings } from '../lib/study-settings.js';
-import { renderTestResult, setStepState, withBusyButton } from '../lib/settings-page.js';
+import { getJson, postJson } from '../../api-client.js';
+import { t } from '../../i18n.js';
+import { byId, setText } from '../../lib/dom-utils.js';
+import { normalizeStudySettings } from '../../lib/study-settings.js';
+import { renderTestResult, setStepState, withBusyButton } from '../../lib/settings-page.js';
 
 let callbacks = {};
 let initialized = false;

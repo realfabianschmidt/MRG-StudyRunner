@@ -37,6 +37,85 @@ class LocaleTests(unittest.TestCase):
         )
 
 
+    def test_every_t_call_resolves_in_both_locales(self) -> None:
+        """A missing key renders the English fallback, silently, in both languages.
+
+        That is how "Machine settings" survived on the German settings page:
+        t() succeeded, it just returned the second argument.
+        """
+        en = json.loads(_read(WEB / "locales" / "en.json"))
+        de = json.loads(_read(WEB / "locales" / "de.json"))
+
+        pattern = re.compile(r"""t\(\s*['"]([A-Za-z0-9_.]+)['"]""")
+        sources = list((WEB / "scripts").rglob("*.js"))
+        sources += list((PROJECT_ROOT / "study_runner" / "integrations").rglob("ui/*.js"))
+
+        used: set[str] = set()
+        for path in sources:
+            if path.name == "i18n.js":
+                continue  # its docstring example is not a real key
+            used.update(pattern.findall(_read(path)))
+
+        self.assertEqual(sorted(used - set(en)), [], "t() keys missing from en.json")
+        self.assertEqual(sorted(used - set(de)), [], "t() keys missing from de.json")
+
+    def test_german_locale_spells_umlauts(self) -> None:
+        """The German UI writes oeffnen/fuer/Zurueck nowhere - it has umlauts."""
+        de = json.loads(_read(WEB / "locales" / "de.json"))
+
+        banned = (
+            "fuer", "oeffn", "schliessen", "Zurueck", "zurueck", "pruef", "Pruef",
+            "koennen", "waehrend", "verfuegbar", "Geraet", "Qualitaet", "naechst",
+            "Naechst", "loesch", "Loesch", "laeuft", "Laeuft", "laedt", "Laedt",
+        )
+        offenders = [
+            f"{key}: {value}"
+            for key, value in de.items()
+            if isinstance(value, str) and any(word in value for word in banned)
+        ]
+        self.assertEqual(offenders[:5], [], "write proper umlauts in de.json")
+
+
+class ModuleSyntaxTests(unittest.TestCase):
+    """The web scripts are ES modules and must be syntax-checked as such.
+
+    `node --check foo.js` parses the file as CommonJS, where a top-level
+    `export` is simply not looked at - it accepted `async export function`
+    without complaint and the page only broke in the browser. Copying to .mjs
+    is what makes node use the module grammar.
+    """
+
+    def test_every_script_parses_as_an_es_module(self) -> None:
+        import shutil
+        import subprocess
+        import tempfile
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+
+        offenders = []
+        scripts = sorted((WEB / "scripts").rglob("*.js"))
+        scripts += sorted((PROJECT_ROOT / "study_runner" / "integrations").rglob("ui/*.js"))
+        self.assertGreater(len(scripts), 20, "script discovery is broken")
+
+        with tempfile.TemporaryDirectory() as work_dir:
+            for path in scripts:
+                copy = Path(work_dir) / f"{path.stem}.mjs"
+                copy.write_text(_read(path), encoding="utf-8")
+                result = subprocess.run(
+                    [node, "--check", str(copy)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    first = (result.stderr or "").strip().splitlines()
+                    offenders.append(f"{path.name}: {first[2] if len(first) > 2 else result.stderr[:80]}")
+
+        self.assertEqual(offenders, [])
+
+
 class ToggleTests(unittest.TestCase):
     def test_no_legacy_checkbox_row_classes_remain(self) -> None:
         offenders = []
@@ -134,6 +213,108 @@ class ParticipantLanguageTests(unittest.TestCase):
         self.assertIn('headers["Deprecation"] = "true"', compatibility_routes)
 
 
+class EditorFieldOrderTests(unittest.TestCase):
+    """The card editor reads in the order an author writes a question."""
+
+    ORDER = ("renderPromptField", "renderInstructionField", "renderEditor", "renderNoteField", "renderEditorToggles")
+
+    def test_open_overlay_composes_the_agreed_order(self) -> None:
+        admin = _read(WEB / "scripts" / "admin-controller.js")
+        start = admin.index("editorEl.innerHTML = [")
+        block = admin[start : admin.index("].join('');", start)]
+
+        positions = [block.index(name) for name in self.ORDER]
+        self.assertEqual(positions, sorted(positions), f"editor field order changed: {block}")
+
+    def test_no_card_module_renders_its_own_prompt_field(self) -> None:
+        """The prompt lives in card-info.js only.
+
+        Nine card modules used to carry a byte-identical copy, which is how the
+        shared block ended up appended *after* each card's own fields.
+        """
+        offenders = [
+            path.name
+            for path in sorted((WEB / "scripts" / "cards").glob("card-*.js"))
+            if path.name != "card-info.js" and 'class="qe-prompt"' in _read(path)
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_editor_toggles_carry_no_inline_explanation(self) -> None:
+        """No explanatory paragraph and no filled row - the title does that job."""
+        info = _read(WEB / "scripts" / "cards" / "card-info.js")
+
+        self.assertIn("editor-toggle", info)
+        self.assertNotIn("switch-row", info)
+        self.assertNotIn("<small", info)
+
+        for path in sorted((WEB / "scripts" / "cards").glob("card-*.js")):
+            with self.subTest(card=path.name):
+                self.assertNotIn('class="switch-row"', _read(path))
+
+    def test_editor_toggle_row_does_not_restyle_the_participant_switch(self) -> None:
+        css = _read(WEB / "styles" / "main.css")
+
+        self.assertIn(".editor-toggle {", css)
+        # .switch-row still carries its filled background for the participant page.
+        block = css[css.index(".switch-row {") : css.index("}", css.index(".switch-row {"))]
+        self.assertIn("var(--ink-06)", block)
+
+
+class PreviewModeTests(unittest.TestCase):
+    """Preview looks at a study. It must never act as one."""
+
+    def test_preview_never_sends_a_heartbeat(self) -> None:
+        """The heartbeat is what claims the single tablet slot.
+
+        If a preview sent one, opening your own study to look at it would
+        block the Play button that starts it.
+        """
+        controller = _read(WEB / "scripts" / "study-controller.js")
+        start = controller.index("startStudyClientHeartbeat(getStudyClientHeartbeatPayload")
+        guard = controller[max(0, start - 400) : start]
+
+        self.assertIn("IS_PREVIEW", guard, "the heartbeat call must sit behind the preview guard")
+
+    def test_preview_suppresses_every_write_in_one_place(self) -> None:
+        """One barrier, not a flag checked at fifteen call sites."""
+        controller = _read(WEB / "scripts" / "study-controller.js")
+
+        # The real senders are imported under different names and wrapped.
+        self.assertIn("postJson as postJsonToServer", controller)
+        self.assertIn("sendReliableStudyEvent as sendReliableStudyEventToServer", controller)
+        self.assertIn("function sendStudyBeacon(", controller)
+
+        # Nothing may reach the network around the barrier.
+        for raw in ("postJsonToServer(", "sendReliableStudyEventToServer("):
+            self.assertEqual(controller.count(raw), 1, f"{raw} must only be called by its wrapper")
+        self.assertNotIn("navigator.sendBeacon('/api/", controller)
+
+    def test_preview_link_and_play_button_exist(self) -> None:
+        admin = _read(WEB / "pages" / "admin.html")
+
+        self.assertIn('href="/?preview=1"', admin)
+        self.assertIn('id="btn-workspace-start"', admin)
+        self.assertNotIn('data-i18n-title="workspace.openStudy"', admin)
+
+    def test_the_admin_page_has_no_browser_confirm_left(self) -> None:
+        """confirm() cannot be translated, is unstyled, and freezes the page."""
+        admin = _read(WEB / "scripts" / "admin-controller.js")
+        stripped = admin.replace("confirmWithModal(", "").replace("confirmAndStartFromEditor(", "")
+
+        self.assertNotIn("confirm(", stripped)
+        self.assertNotIn("alert(", stripped)
+        self.assertIn("confirmWithModal", admin)
+
+    def test_both_start_buttons_drive_the_same_flow(self) -> None:
+        """One start path, two entry points - the spinner follows the button."""
+        admin = _read(WEB / "scripts" / "admin-controller.js")
+
+        self.assertIn("buttonId = 'btn-hub-start-study'", admin)
+        self.assertIn("buttonId: 'btn-workspace-start'", admin)
+        self.assertIn("goToDashboard", admin)
+        self.assertNotIn("const button = $('btn-hub-start-study')", admin)
+
+
 class OfflineTests(unittest.TestCase):
     def test_pages_do_not_load_from_cdns(self) -> None:
         offenders = []
@@ -220,6 +401,31 @@ class SettingsShellTests(unittest.TestCase):
 
         self.assertEqual(problems, [])
 
+    def test_every_manifest_label_key_is_translated(self) -> None:
+        """A missing label leaves the operator reading a raw config path.
+
+        The settings form falls back to the dotted path when a label_key is
+        absent from the locales, so the field renders as SCAN_SECONDS S rather
+        than "Scan duration" - visible, but nothing fails.
+        """
+        import json as _json
+
+        en = _json.loads(_read(WEB / "locales" / "en.json"))
+        de = _json.loads(_read(WEB / "locales" / "de.json"))
+
+        referenced: set[str] = set()
+        for manifest_path in (PROJECT_ROOT / "study_runner" / "integrations").glob("*/manifest.json"):
+            manifest = _json.loads(_read(manifest_path))
+            for scope in (manifest.get("settings") or {}).values():
+                if not isinstance(scope, dict):
+                    continue
+                for field in scope.values():
+                    if isinstance(field, dict) and field.get("label_key"):
+                        referenced.add(field["label_key"])
+
+        self.assertEqual(sorted(referenced - set(en)), [], "label keys missing from en.json")
+        self.assertEqual(sorted(referenced - set(de)), [], "label keys missing from de.json")
+
     def test_per_study_settings_are_not_reachable_from_the_machine_hub(self) -> None:
         """Study settings belong to the study, machine settings to the computer.
 
@@ -283,25 +489,25 @@ class PluginUiContractTests(unittest.TestCase):
 
     def test_catalog_visibility_drives_all_generic_plugin_surfaces(self) -> None:
         catalog = _read(WEB / "scripts" / "lib" / "plugin-catalog.js")
-        admin = _read(WEB / "scripts" / "admin-controller.js")
+        machine_panel = _read(WEB / "scripts" / "settings" / "machine" / "machine-settings-panel.js")
         dashboard = _read(WEB / "scripts" / "admin-dashboard-controller.js")
-        study_panel = _read(WEB / "scripts" / "admin" / "study-settings-panel.js")
+        study_panel = _read(WEB / "scripts" / "settings" / "study" / "study-settings-panel.js")
 
         self.assertIn("PLUGIN_UI_SURFACES", catalog)
-        self.assertIn("PLUGIN_UI_SURFACES.SETTINGS_HUB", admin)
+        self.assertIn("PLUGIN_UI_SURFACES.SETTINGS_HUB", machine_panel)
         self.assertIn("PLUGIN_UI_SURFACES.DASHBOARD", dashboard)
         self.assertGreaterEqual(dashboard.count("PLUGIN_UI_SURFACES.DASHBOARD"), 2)
         self.assertIn("PLUGIN_UI_SURFACES.STUDY_SETTINGS", study_panel)
         self.assertIn("PLUGIN_UI_SURFACES.DESTINATION_SETTINGS", study_panel)
         self.assertNotIn("pluginByKey('notion')", study_panel)
         self.assertNotIn("pluginByKey('nextcloud')", study_panel)
-        self.assertNotIn("settingsHubAction('notion'", admin)
-        self.assertNotIn("settingsHubAction('nextcloud'", admin)
+        self.assertNotIn("settingsHubAction('notion'", machine_panel)
+        self.assertNotIn("settingsHubAction('nextcloud'", machine_panel)
 
     def test_destination_special_settings_are_reachable_without_a_core_key_list(self) -> None:
-        study_panel = _read(WEB / "scripts" / "admin" / "study-settings-panel.js")
-        notion = _read(WEB / "scripts" / "notion-settings-controller.js")
-        nextcloud = _read(WEB / "scripts" / "admin" / "nextcloud-settings-controller.js")
+        study_panel = _read(WEB / "scripts" / "settings" / "study" / "study-settings-panel.js")
+        notion = _read(WEB / "scripts" / "settings" / "study" / "notion-settings-controller.js")
+        nextcloud = _read(WEB / "scripts" / "settings" / "study" / "nextcloud-settings-controller.js")
 
         self.assertIn("`btn-${String(pluginKey || '')}-settings`", study_panel)
         self.assertIn("data-plugin-special-settings", study_panel)

@@ -33,10 +33,6 @@ export function renderEditor(q) {
   const lines = (q.pairs || []).map(p => p.join(' | ')).join('\n');
   return `
     <div class="field">
-      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.enterQuestion', 'Enter question...'))}">
-    </div>
-    <div class="field">
       <label>${escapeHtml(t('editor.wordPairsHint', 'Word pairs - one per line: word A | word B'))}</label>
       <textarea class="qe-pairs">${escapeHtml(lines)}</textarea>
     </div>`;

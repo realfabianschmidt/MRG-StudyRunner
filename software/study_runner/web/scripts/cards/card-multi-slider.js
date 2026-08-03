@@ -46,6 +46,9 @@ export function renderStudy(q, i) {
     <div class="ms-stack">${rows}</div>`;
 }
 
+// The generic prompt field asks a generic question; this card suggests its own.
+export const promptPlaceholder = { key: 'editor.multiSliderPlaceholder', fallback: 'Rate how you feel...' };
+
 export function renderEditor(q) {
   const dims = q.dimensions ?? defaultQuestion.dimensions;
   const dimRows = dims.map((dim, di) => `
@@ -57,10 +60,6 @@ export function renderEditor(q) {
     </div>`).join('');
 
   return `
-    <div class="field">
-      <label>${escapeHtml(t('editor.questionText', 'Question text'))}</label>
-      <input type="text" class="qe-prompt" value="${escapeHtml(q.prompt)}" placeholder="${escapeHtml(t('editor.multiSliderPlaceholder', 'Rate how you feel...'))}">
-    </div>
     <div class="field">
       <label>${escapeHtml(t('editor.dimensions', 'Dimensions'))}</label>
       <div class="ms-ed-dims-header">

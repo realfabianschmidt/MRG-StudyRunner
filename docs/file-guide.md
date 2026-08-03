@@ -177,13 +177,14 @@ mapping:
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `study-controller.js` | The participant flow engine: cards, navigation, snapshots, submit | careful |
+| `study-controller.js` | The participant flow engine: cards, navigation, snapshots, submit, preview mode | careful |
 | `admin-controller.js` | Study editor, save/load, QR codes, updates | careful |
 | `admin-dashboard-controller.js` | Live sensor dashboard with plain-language statuses | careful |
-| `notion-settings-controller.js` | The Notion settings page | careful |
-| `admin/study-settings-panel.js` | Per-study settings shell (editor only): sensors, participant, uploads, export | careful |
-| `admin/nextcloud-settings-controller.js` | Nextcloud fields inside the per-study settings panel | careful |
-| `admin/certificate-settings-controller.js` | The shared-shell certificate status, setup, export, and import page | no |
+| `settings/machine/machine-settings-panel.js` | Machine settings shell: nav, generated sensor forms, tablet links | careful |
+| `settings/machine/certificate-settings-controller.js` | Certificate status, setup, export, and import, inside the machine settings shell | no |
+| `settings/study/study-settings-panel.js` | Per-study settings shell (editor only): sensors, participant, uploads, export | careful |
+| `settings/study/notion-settings-controller.js` | Notion fields inside the per-study settings panel | careful |
+| `settings/study/nextcloud-settings-controller.js` | Nextcloud fields inside the per-study settings panel | careful |
 | `admin/session-timeline.js` | Renders completed-session sensor lanes and answer markers as offline SVG | careful |
 | `admin/sessions-browser.js` | Completed-session hub list, detail panel, and timeline data fetching | careful |
 | `admin/upload-monitor.js` | Background-upload completion modal and the corner progress widget it shrinks to | careful |
@@ -198,7 +199,7 @@ mapping:
 | `lib/view-transition.js` | Full-screen sweep between admin views; swaps the view while covered | careful |
 | `lib/settings-shell.js` | Shared left-nav/right-panel wiring for both settings surfaces | careful |
 | `lib/dom-utils.js` | Shared safe DOM lookup, text/HTML assignment, and escaping helpers | careful |
-| `lib/modal.js` | Shared accessible modal lifecycle and existing modal-shell markup | careful |
+| `lib/modal.js` | Shared accessible modal lifecycle, modal-shell markup, and the yes/no confirmation | careful |
 | `lib/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
 | `api-client.js` | Tiny fetch helpers (getJson/postJson) | careful |
 | `i18n.js` | Translation loading and the `t()` helper | careful |
@@ -221,7 +222,7 @@ mapping:
 | `cards/card-multi-slider.js` | Multiple rating scales in one card | careful |
 | `cards/card-stimulus.js` | Stimulus card: warmup/active phases, sensor triggers | careful |
 | `cards/card-participant-id.js` | Participant identification card + field editor | careful |
-| `cards/card-info.js` | Shared instruction rendering used by other cards | careful |
+| `cards/card-info.js` | The shared editor frame: question text, instruction, note, toggle group | careful |
 | `cards/card-finish.js` | The final thank-you card | careful |
 
 Locales (`web/locales/en.json`, `de.json`) hold every UI string; both

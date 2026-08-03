@@ -5,11 +5,11 @@
  * still missing, a status block, and one card per action. The QR code has a
  * single job - the tablet scans it and downloads the certificate.
  */
-import { getJson } from '../api-client.js';
-import { t } from '../i18n.js';
-import { byId, escapeHtml, formatDateTime, setText } from '../lib/dom-utils.js';
-import { renderTestResult, setStepState, wireSettingsPage, withBusyButton } from '../lib/settings-page.js';
-import { createQrSvg } from '../qr-code.js';
+import { getJson } from '../../api-client.js';
+import { t } from '../../i18n.js';
+import { byId, escapeHtml, formatDateTime, setText } from '../../lib/dom-utils.js';
+import { renderTestResult, setStepState, withBusyButton } from '../../lib/settings-page.js';
+import { createQrSvg } from '../../qr-code.js';
 
 let callbacks = {};
 let initialized = false;
@@ -20,17 +20,18 @@ export function initializeCertificateSettings(options = {}) {
   if (initialized) return;
   initialized = true;
 
-  wireSettingsPage({
-    viewId: 'view-certificate-settings',
-    openButtonId: 'btn-certificate-settings',
-    backButtonId: 'btn-certificate-back',
-    switchView: callbacks.switchView,
-    onOpen: refreshStatus,
-  });
-
   byId('btn-certificate-export')?.addEventListener('click', () => void exportCertificate());
   byId('btn-certificate-import')?.addEventListener('click', () => byId('certificate-import-file')?.click());
   byId('certificate-import-file')?.addEventListener('change', (event) => void importCertificate(event));
+}
+
+/**
+ * Reload the certificate status.
+ * The settings shell calls this when its certificate panel is shown; this
+ * page has no view of its own any more.
+ */
+export async function refreshCertificateStatus() {
+  return refreshStatus();
 }
 
 async function refreshStatus() {

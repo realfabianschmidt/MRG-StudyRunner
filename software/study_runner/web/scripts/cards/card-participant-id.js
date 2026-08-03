@@ -1,4 +1,5 @@
 import { t } from '../i18n.js';
+import { renderEditorToggle } from './card-info.js';
 import { escapeHtml } from '../lib/dom-utils.js';
 import { renderCardInstruction } from './card-info.js';
 
@@ -329,21 +330,29 @@ function openFieldModal(editorEl, fieldKey) {
         </button>
       </div>
       <div class="settings-modal-body">
-        <label class="switch-row" style="margin-bottom:12px;">
-          <span>${escapeHtml(t('cards.participant.useForKeyLabel', 'Use for anonymous code (hash)'))}</span>
-          <span class="switch"><input type="checkbox" class="pid-modal-key" ${state.use_for_key ? 'checked' : ''}><span class="switch-slider"></span></span>
-        </label>
-        <label class="switch-row" style="margin-bottom:12px;">
-          <span>${escapeHtml(t('cards.participant.storeLabel', 'Store in results (DB)'))}</span>
-          <span class="switch"><input type="checkbox" class="pid-modal-store" ${state.store ? 'checked' : ''}><span class="switch-slider"></span></span>
-        </label>
-        <label class="switch-row" style="margin-bottom:12px;">
-          <span style="display:flex; flex-direction:column; gap:2px;">
-            <span>${escapeHtml(t('editor.requiredLabel', 'Required'))}</span>
-            <small class="pid-required-hint" style="color:var(--ink-40); line-height:1.4;" ${state.use_for_key ? '' : 'hidden'}>${escapeHtml(t('cards.participant.requiredLockedHint', 'Locked on: this field feeds the anonymous code.'))}</small>
-          </span>
-          <span class="switch"><input type="checkbox" class="pid-modal-required" ${state.required ? 'checked' : ''} ${state.use_for_key ? 'disabled' : ''}><span class="switch-slider"></span></span>
-        </label>
+        <div class="editor-toggles">
+        ${renderEditorToggle({
+          className: 'pid-modal-key',
+          checked: state.use_for_key,
+          label: t('cards.participant.useForKeyLabel', 'Use for anonymous code (hash)'),
+          title: t('cards.participant.useForKeyHint', 'This field is hashed into the anonymous participant code.'),
+        })}
+        ${renderEditorToggle({
+          className: 'pid-modal-store',
+          checked: state.store,
+          label: t('cards.participant.storeLabel', 'Store in results (DB)'),
+          title: t('cards.participant.storeHint', 'Off means the value is used but never written to the result file.'),
+        })}
+        ${renderEditorToggle({
+          className: 'pid-modal-required',
+          checked: state.required,
+          disabled: state.use_for_key,
+          label: t('editor.requiredLabel', 'Required'),
+          title: state.use_for_key
+            ? t('cards.participant.requiredLockedHint', 'Locked on: this field feeds the anonymous code.')
+            : t('editor.requiredHint', 'Optional questions can be skipped and show an "optional" tag.'),
+        })}
+        </div>
         ${optionsSection}
         <button class="btn-primary pid-modal-apply" type="button" style="width:100%; justify-content:center; margin-top:16px;">
           ${escapeHtml(t('cards.participant.modalApply', 'Apply'))}
@@ -360,14 +369,20 @@ function openFieldModal(editorEl, fieldKey) {
   backdrop.querySelector('.pid-modal-close')?.addEventListener('click', closeFieldModal);
 
   const requiredInput = backdrop.querySelector('.pid-modal-required');
-  const requiredHint = backdrop.querySelector('.pid-required-hint');
+  const requiredRow = requiredInput?.closest('.editor-toggle');
   backdrop.querySelector('.pid-modal-key')?.addEventListener('change', (event) => {
     const useForKey = event.target.checked;
     if (requiredInput) {
       requiredInput.disabled = useForKey;
       if (useForKey) requiredInput.checked = true;
     }
-    if (requiredHint) requiredHint.hidden = !useForKey;
+    // Why the switch will not move is the hover explanation, same as everywhere.
+    if (requiredRow) {
+      requiredRow.classList.toggle('editor-toggle--locked', useForKey);
+      requiredRow.title = useForKey
+        ? t('cards.participant.requiredLockedHint', 'Locked on: this field feeds the anonymous code.')
+        : t('editor.requiredHint', 'Optional questions can be skipped and show an "optional" tag.');
+    }
   });
 
   const optionsEditor = backdrop.querySelector('.pid-options-editor');

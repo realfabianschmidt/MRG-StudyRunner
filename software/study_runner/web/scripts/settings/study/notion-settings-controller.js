@@ -1,8 +1,8 @@
-﻿import { getJson, postJson } from './api-client.js';
+﻿import { getJson, postJson } from '../../api-client.js';
 
-import { t } from './i18n.js';
-import { escapeHtml } from './lib/dom-utils.js';
-import { normalizeStudySettings } from './lib/study-settings.js';
+import { t } from '../../i18n.js';
+import { escapeHtml } from '../../lib/dom-utils.js';
+import { normalizeStudySettings } from '../../lib/study-settings.js';
 
 let callbacks = {};
 let clearKeyRequested = false;

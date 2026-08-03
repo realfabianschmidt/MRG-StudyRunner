@@ -51,14 +51,6 @@
             <i class="iconoir-import"></i>
             <span data-i18n="hub.importStudy">Import study</span>
           </button>
-          <a class="hub-card" href="/audit" target="_blank" rel="noreferrer">
-            <i class="iconoir-book"></i>
-            <span data-i18n="hub.auditSensorSetup">Audit &amp; Sensor Setup</span>
-          </a>
-          <button class="hub-card" id="btn-create-shortcut" type="button">
-            <i class="iconoir-desktop"></i>
-            <span data-i18n="hub.createShortcut">Create desktop shortcut</span>
-          </button>
         </div>
 
         <h2 style="margin-top: 40px;" data-i18n="hub.recent">Recently used</h2>
@@ -100,7 +92,6 @@
             </div>
             <button class="btn-secondary" id="btn-notion-settings" type="button" hidden><i class="iconoir-database"></i> <span data-i18n="hub.notionSettings">Notion settings</span></button>
             <button class="btn-secondary" id="btn-nextcloud-settings" type="button" hidden><i class="iconoir-cloud-upload"></i> <span data-i18n="hub.nextcloudSettings">Nextcloud settings</span></button>
-            <button class="btn-secondary" id="btn-certificate-settings" type="button" hidden><i class="iconoir-shield-check"></i> <span data-i18n="hub.certificateSettings">Certificate</span></button>
         </div>
       </div>
 
@@ -139,28 +130,6 @@
           <div class="hub-access-hint" id="access-hint" data-i18n="access.hint">Use the participant link from a tablet or browser on the same private network.</div>
         </div>
 
-        <div class="hub-update-card" id="admin-update-card">
-          <div class="hub-access-header">
-            <div>
-              <div class="hub-active-label" data-i18n="update.label">UPDATE</div>
-              <div class="hub-access-title" data-i18n="update.title">Python app update</div>
-            </div>
-            <i class="iconoir-download-circled-outline"></i>
-          </div>
-          <div class="update-status-row">
-            <span class="status-pill status-pill--waiting" id="update-status-pill" data-i18n="update.loading">Loading</span>
-            <span id="update-version-line">-</span>
-          </div>
-          <div class="hub-access-hint update-detail" id="update-detail" data-i18n="update.loadingDetail">Checking local update state ...</div>
-          <div class="update-progress" id="update-progress" hidden>
-            <div class="update-progress-fill" id="update-progress-fill"></div>
-          </div>
-          <div class="update-actions">
-            <button class="btn-secondary" type="button" id="btn-update-check"><i class="iconoir-refresh"></i> <span data-i18n="update.check">Check</span></button>
-            <button class="btn-primary" type="button" id="btn-update-download" hidden><i class="iconoir-download"></i> <span data-i18n="update.download">Download</span></button>
-            <button class="btn-primary" type="button" id="btn-update-install" hidden><i class="iconoir-play-solid"></i> <span data-i18n="update.restart">Restart</span></button>
-            <a class="btn-secondary update-notes-link" id="update-release-notes" href="#" target="_blank" rel="noreferrer" hidden><i class="iconoir-open-new-window"></i> <span data-i18n="update.releaseNotes">Notes</span></a>
-          </div>
         </div>
       </div>
     </div>
@@ -185,13 +154,181 @@
     </aside>
     <main class="admin-main">
       <section class="admin-dashboard settings-page">
-        <div class="dashboard-hero">
-          <div>
-            <span class="dashboard-kicker" data-i18n="settingsHub.kicker">Operator settings</span>
-            <h1 id="machine-settings-title" data-i18n="settingsHub.title">Settings</h1>
-            <p id="machine-settings-subtitle" data-i18n="settingsHub.subtitle">Settings for this computer. Everything that belongs to a single study lives in the study editor.</p>
+
+        <!-- Panels with fixed markup. Their controllers bind by element id, so
+             this container is never rewritten; generated panels go below. -->
+        <div id="machine-settings-static-panels">
+
+          <div class="settings-shell-panel" data-shell-panel="certificate" hidden>
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-help-circle"></i> <span data-i18n="certificate.setupTitle">Set up a tablet</span></div>
+              <div class="setup-steps">
+                <div class="setup-step">
+                  <div class="setup-step-num">1</div>
+                  <div>
+                    <strong data-i18n="certificate.step1.title">Scan the code on the tablet</strong>
+                    <p data-i18n="certificate.step1.body">Open the camera app on the tablet and scan the code in the "Tablet setup" card. The download starts by itself.</p>
+                  </div>
+                  <span class="setup-step-state" id="certificate-step-1-state">-</span>
+                </div>
+                <div class="setup-step">
+                  <div class="setup-step-num">2</div>
+                  <div>
+                    <strong data-i18n="certificate.step2.title">Install the downloaded profile</strong>
+                    <p data-i18n="certificate.step2.body">On the iPad: Settings, then "Profile downloaded" at the top, then Install. The iPad asks for its passcode.</p>
+                  </div>
+                  <span class="setup-step-state" id="certificate-step-2-state">-</span>
+                </div>
+                <div class="setup-step">
+                  <div class="setup-step-num">3</div>
+                  <div>
+                    <strong data-i18n="certificate.step3.title">Switch on full trust</strong>
+                    <p data-i18n="certificate.step3.body">Settings, General, About, Certificate Trust Settings: switch on "Study Runner Local Root CA". Apple requires this last step to be done by hand.</p>
+                  </div>
+                  <span class="setup-step-state" id="certificate-step-3-state">-</span>
+                </div>
+                <div class="setup-step">
+                  <div class="setup-step-num">4</div>
+                  <div>
+                    <strong data-i18n="certificate.step4.title">Open the study page</strong>
+                    <p data-i18n="certificate.step4.body">Use the participant link from the hub. The page should open without a warning and may use the camera.</p>
+                  </div>
+                  <span class="setup-step-state" id="certificate-step-4-state">-</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-shield-check"></i> <span data-i18n="certificate.status">Status</span></div>
+              <div class="status-grid status-grid--row">
+                <div class="status-card">
+                  <div class="status-card-label" data-i18n="certificate.httpsLabel">Secure connection</div>
+                  <div class="status-card-value" id="certificate-https-value" data-i18n="certificate.loading">Loading ...</div>
+                  <div class="settings-hint" id="certificate-https-hint"></div>
+                </div>
+                <div class="status-card">
+                  <div class="status-card-label" data-i18n="certificate.validUntilLabel">Valid until</div>
+                  <div class="status-card-value" id="certificate-expiry-value" data-i18n="certificate.loading">Loading ...</div>
+                  <div class="settings-hint" id="certificate-expiry-hint"></div>
+                </div>
+                <div class="status-card">
+                  <div class="status-card-label" data-i18n="certificate.addressesLabel">Covered addresses</div>
+                  <div class="status-card-value" id="certificate-addresses-value" data-i18n="certificate.loading">Loading ...</div>
+                  <div class="settings-hint" id="certificate-addresses-hint"></div>
+                </div>
+                <div class="status-card">
+                  <div class="status-card-label" data-i18n="certificate.fingerprintLabel">Fingerprint</div>
+                  <div class="status-card-value certificate-fingerprint" id="certificate-fingerprint-value" data-i18n="certificate.loading">Loading ...</div>
+                  <div class="settings-hint" data-i18n="certificate.fingerprintHint">Use this to check on the tablet that you installed the right certificate.</div>
+                </div>
+              </div>
+            </article>
+
+            <article class="dashboard-card">
+              <div class="dashboard-card-title"><i class="iconoir-qr-code"></i> <span data-i18n="certificate.tabletSetup">Tablet setup</span></div>
+              <div class="certificate-qr" id="certificate-qr" aria-hidden="true"></div>
+              <code class="access-qr-url" id="certificate-download-url"></code>
+              <div class="settings-hint" id="certificate-download-hint" data-i18n="certificate.downloadHint">The tablet must be on the same network as this computer.</div>
+              <div class="dashboard-actions">
+                <a class="btn-secondary" id="btn-certificate-open-download" href="#" target="_blank" rel="noreferrer">
+                  <i class="iconoir-download"></i> <span data-i18n="certificate.openDownload">Open download link</span>
+                </a>
+              </div>
+            </article>
+
+            <article class="dashboard-card">
+              <div class="dashboard-card-title"><i class="iconoir-data-transfer-both"></i> <span data-i18n="certificate.moveTitle">Move to another computer</span></div>
+              <p class="settings-hint" data-i18n="certificate.moveBody">Save the certificate here and load it on the other computer. Tablets that already trust this certificate then need no new setup.</p>
+              <div class="dashboard-actions">
+                <button class="btn-secondary" id="btn-certificate-export" type="button">
+                  <i class="iconoir-download"></i> <span data-i18n="certificate.exportButton">Save certificate file</span>
+                </button>
+                <button class="btn-secondary" id="btn-certificate-import" type="button">
+                  <i class="iconoir-upload"></i> <span data-i18n="certificate.importButton">Load certificate file</span>
+                </button>
+              </div>
+              <input type="file" id="certificate-import-file" accept="application/json,.json" hidden>
+              <div id="certificate-transfer-result" hidden></div>
+              <div class="certificate-warning" data-i18n="certificate.moveWarning">Keep this file private: whoever has it can pretend to be any website towards your tablets.</div>
+            </article>
           </div>
+
+          <div class="settings-shell-panel" data-shell-panel="update" hidden>
+            <article class="dashboard-card dashboard-card--wide" id="admin-update-card">
+              <div class="dashboard-card-title"><i class="iconoir-download-circled-outline"></i> <span data-i18n="update.title">Python app update</span></div>
+              <div class="update-status-row">
+                <span class="status-pill status-pill--waiting" id="update-status-pill" data-i18n="update.loading">Loading</span>
+                <span id="update-version-line">-</span>
+              </div>
+              <div class="settings-hint update-detail" id="update-detail" data-i18n="update.loadingDetail">Checking local update state ...</div>
+              <div class="update-progress" id="update-progress" hidden>
+                <div class="update-progress-fill" id="update-progress-fill"></div>
+              </div>
+              <div class="dashboard-actions">
+                <button class="btn-secondary" type="button" id="btn-update-check"><i class="iconoir-refresh"></i> <span data-i18n="update.check">Check</span></button>
+                <button class="btn-primary" type="button" id="btn-update-download" hidden><i class="iconoir-download"></i> <span data-i18n="update.download">Download</span></button>
+                <button class="btn-primary" type="button" id="btn-update-install" hidden><i class="iconoir-play-solid"></i> <span data-i18n="update.restart">Restart</span></button>
+                <a class="btn-secondary update-notes-link" id="update-release-notes" href="#" target="_blank" rel="noreferrer" hidden><i class="iconoir-open-new-window"></i> <span data-i18n="update.releaseNotes">Notes</span></a>
+              </div>
+            </article>
+          </div>
+
+          <div class="settings-shell-panel" data-shell-panel="shortcut" hidden>
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-desktop"></i> <span data-i18n="hub.createShortcut">Create desktop shortcut</span></div>
+              <p class="settings-hint" data-i18n="shortcut.body">Places a launcher on this computer's desktop that starts Study Runner and opens the admin page.</p>
+              <div class="dashboard-actions">
+                <button class="btn-primary" id="btn-create-shortcut" type="button">
+                  <i class="iconoir-desktop"></i> <span data-i18n="shortcut.action">Create shortcut</span>
+                </button>
+              </div>
+              <div class="settings-hint" id="shortcut-result"></div>
+            </article>
+          </div>
+
+          <div class="settings-shell-panel" data-shell-panel="audit" hidden>
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-book"></i> <span data-i18n="audit.title">Research-grade biosignal workflow</span></div>
+              <p class="settings-hint" data-i18n="audit.disclaimer">Study Runner is a research tool. It is not a medical device and produces no diagnosis.</p>
+            </article>
+            <article class="dashboard-card">
+              <div class="dashboard-card-title"><i class="iconoir-activity"></i> <span data-i18n="audit.sensors.title">Sensors</span></div>
+              <p class="settings-hint" data-i18n="audit.sensors.body">EEG, heart and breathing rate, and camera-based emotion estimates are recorded as separate streams and never merged into a single score.</p>
+            </article>
+            <article class="dashboard-card">
+              <div class="dashboard-card-title"><i class="iconoir-timer"></i> <span data-i18n="audit.timing.title">Timing</span></div>
+              <p class="settings-hint" data-i18n="audit.timing.body">LSL timestamps are the reference clock. Tablet events carry their own clock offset so browser and sensor time can be compared honestly.</p>
+            </article>
+            <article class="dashboard-card">
+              <div class="dashboard-card-title"><i class="iconoir-database"></i> <span data-i18n="audit.data.title">Data</span></div>
+              <p class="settings-hint" data-i18n="audit.data.body">Raw values are kept. Camera frames are analysed and discarded; no video is ever stored. Results are written crash-safe before any upload is attempted.</p>
+            </article>
+            <article class="dashboard-card">
+              <div class="dashboard-card-title"><i class="iconoir-warning-triangle"></i> <span data-i18n="audit.limits.title">Limits</span></div>
+              <p class="settings-hint" data-i18n="audit.limits.body">Emotion estimates are model output, not ground truth. Wireless sensors can drop samples; gaps are recorded rather than interpolated.</p>
+            </article>
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-list"></i> <span data-i18n="audit.workflow.title">Lab workflow</span></div>
+              <div class="setup-steps">
+                <div class="setup-step"><div class="setup-step-num">1</div><div><p data-i18n="audit.workflow.step1">Check every sensor on the dashboard before the participant arrives.</p></div></div>
+                <div class="setup-step"><div class="setup-step-num">2</div><div><p data-i18n="audit.workflow.step2">Load the study, then press Play only when exactly one tablet is waiting.</p></div></div>
+                <div class="setup-step"><div class="setup-step-num">3</div><div><p data-i18n="audit.workflow.step3">Watch the live status during the session; interruptions are recorded, not hidden.</p></div></div>
+                <div class="setup-step"><div class="setup-step-num">4</div><div><p data-i18n="audit.workflow.step4">After the session, verify the saved files and the upload state before clearing the room.</p></div></div>
+              </div>
+            </article>
+            <article class="dashboard-card dashboard-card--wide">
+              <div class="dashboard-card-title"><i class="iconoir-open-new-window"></i> <span data-i18n="audit.references.title">References</span></div>
+              <ul class="audit-links">
+                <li><a href="https://labstreaminglayer.readthedocs.io/" target="_blank" rel="noreferrer">Lab Streaming Layer &amp; XDF</a></li>
+                <li><a href="https://bids-specification.readthedocs.io/en/stable/modality-specific-files/task-events.html" target="_blank" rel="noreferrer">BIDS Events</a></li>
+                <li><a href="https://bids-specification.readthedocs.io/en/stable/modality-specific-files/physiological-and-other-continuous-recordings.html" target="_blank" rel="noreferrer">BIDS Physio</a></li>
+              </ul>
+            </article>
+          </div>
+
         </div>
+
+        <!-- Generated per-plugin panels. -->
         <div id="machine-settings-panels"></div>
       </section>
     </main>
@@ -450,9 +587,12 @@
       <div class="sidebar-header">
         <button class="btn-icon-only" id="btn-workspace-home" data-i18n-title="workspace.backToHub" title="Back to hub"><i class="iconoir-home"></i></button>
         <span class="sidebar-logo"><i class="iconoir-brain"></i> <span data-i18n="workspace.studyAdmin">Study Admin</span></span>
-        <a href="/" target="_blank" class="sidebar-link" data-i18n-title="workspace.openStudy" title="Open study">
-          <i class="iconoir-open-new-window"></i>
+        <a href="/?preview=1" target="_blank" class="sidebar-link" id="btn-workspace-preview" data-i18n-title="workspace.preview" title="Preview">
+          <i class="iconoir-eye"></i>
         </a>
+        <button class="btn-icon-only btn-icon-only--go" id="btn-workspace-start" type="button" data-i18n-title="workspace.startStudy" data-i18n-aria-label="workspace.startStudy" title="Start study" aria-label="Start study">
+          <i class="iconoir-play"></i>
+        </button>
       </div>
 
       <div class="sidebar-section">
@@ -715,117 +855,6 @@
 </div>
 
 
-<div id="view-certificate-settings" class="admin-view" hidden>
-  <div style="padding: 60px 40px;">
-    <section class="admin-dashboard settings-page" id="certificate-settings-page">
-      <div class="dashboard-hero">
-        <div>
-          <span class="dashboard-kicker" data-i18n="certificate.kicker">Tablet connection</span>
-          <h1 data-i18n="certificate.title">Certificate</h1>
-          <p data-i18n="certificate.subtitle">The tablet needs this certificate once so its camera may be used. Scan the code below on the tablet, then follow the steps.</p>
-        </div>
-        <button class="btn-secondary" id="btn-certificate-back" type="button">
-          <i class="iconoir-home"></i> <span data-i18n="certificate.backToHub">Back to hub</span>
-        </button>
-      </div>
-
-      <div class="dashboard-grid settings-grid">
-        <article class="dashboard-card dashboard-card--wide">
-          <div class="dashboard-card-title"><i class="iconoir-help-circle"></i> <span data-i18n="certificate.setupTitle">Set up a tablet</span></div>
-          <div class="setup-steps">
-            <div class="setup-step">
-              <div class="setup-step-num">1</div>
-              <div>
-                <strong data-i18n="certificate.step1.title">Scan the code on the tablet</strong>
-                <p data-i18n="certificate.step1.body">Open the camera app on the tablet and scan the code in the "Tablet setup" card. The download starts by itself.</p>
-              </div>
-              <span class="setup-step-state" id="certificate-step-1-state">-</span>
-            </div>
-            <div class="setup-step">
-              <div class="setup-step-num">2</div>
-              <div>
-                <strong data-i18n="certificate.step2.title">Install the downloaded profile</strong>
-                <p data-i18n="certificate.step2.body">On the iPad: Settings, then "Profile downloaded" at the top, then Install. The iPad asks for its passcode.</p>
-              </div>
-              <span class="setup-step-state" id="certificate-step-2-state">-</span>
-            </div>
-            <div class="setup-step">
-              <div class="setup-step-num">3</div>
-              <div>
-                <strong data-i18n="certificate.step3.title">Switch on full trust</strong>
-                <p data-i18n="certificate.step3.body">Settings, General, About, Certificate Trust Settings: switch on "Study Runner Local Root CA". Apple requires this last step to be done by hand.</p>
-              </div>
-              <span class="setup-step-state" id="certificate-step-3-state">-</span>
-            </div>
-            <div class="setup-step">
-              <div class="setup-step-num">4</div>
-              <div>
-                <strong data-i18n="certificate.step4.title">Open the study page</strong>
-                <p data-i18n="certificate.step4.body">Use the participant link from the hub. The page should open without a warning and may use the camera.</p>
-              </div>
-              <span class="setup-step-state" id="certificate-step-4-state">-</span>
-            </div>
-          </div>
-        </article>
-
-        <article class="dashboard-card dashboard-card--wide">
-          <div class="dashboard-card-title"><i class="iconoir-shield-check"></i> <span data-i18n="certificate.status">Status</span></div>
-          <div class="status-grid status-grid--row">
-            <div class="status-card">
-              <div class="status-card-label" data-i18n="certificate.httpsLabel">Secure connection</div>
-              <div class="status-card-value" id="certificate-https-value" data-i18n="certificate.loading">Loading ...</div>
-              <div class="settings-hint" id="certificate-https-hint"></div>
-            </div>
-            <div class="status-card">
-              <div class="status-card-label" data-i18n="certificate.validUntilLabel">Valid until</div>
-              <div class="status-card-value" id="certificate-expiry-value" data-i18n="certificate.loading">Loading ...</div>
-              <div class="settings-hint" id="certificate-expiry-hint"></div>
-            </div>
-            <div class="status-card">
-              <div class="status-card-label" data-i18n="certificate.addressesLabel">Covered addresses</div>
-              <div class="status-card-value" id="certificate-addresses-value" data-i18n="certificate.loading">Loading ...</div>
-              <div class="settings-hint" id="certificate-addresses-hint"></div>
-            </div>
-            <div class="status-card">
-              <div class="status-card-label" data-i18n="certificate.fingerprintLabel">Fingerprint</div>
-              <div class="status-card-value certificate-fingerprint" id="certificate-fingerprint-value" data-i18n="certificate.loading">Loading ...</div>
-              <div class="settings-hint" data-i18n="certificate.fingerprintHint">Use this to check on the tablet that you installed the right certificate.</div>
-            </div>
-          </div>
-        </article>
-
-        <article class="dashboard-card">
-          <div class="dashboard-card-title"><i class="iconoir-qr-code"></i> <span data-i18n="certificate.tabletSetup">Tablet setup</span></div>
-          <div class="certificate-qr" id="certificate-qr" aria-hidden="true"></div>
-          <code class="access-qr-url" id="certificate-download-url"></code>
-          <div class="settings-hint" id="certificate-download-hint" data-i18n="certificate.downloadHint">The tablet must be on the same network as this computer.</div>
-          <div class="dashboard-actions">
-            <a class="btn-secondary" id="btn-certificate-open-download" href="#" target="_blank" rel="noreferrer">
-              <i class="iconoir-download"></i> <span data-i18n="certificate.openDownload">Open download link</span>
-            </a>
-          </div>
-        </article>
-
-        <article class="dashboard-card">
-          <div class="dashboard-card-title"><i class="iconoir-data-transfer-both"></i> <span data-i18n="certificate.moveTitle">Move to another computer</span></div>
-          <p class="settings-hint" data-i18n="certificate.moveBody">Save the certificate here and load it on the other computer. Tablets that already trust this certificate then need no new setup.</p>
-          <div class="dashboard-actions">
-            <button class="btn-secondary" id="btn-certificate-export" type="button">
-              <i class="iconoir-download"></i> <span data-i18n="certificate.exportButton">Save certificate file</span>
-            </button>
-            <button class="btn-secondary" id="btn-certificate-import" type="button">
-              <i class="iconoir-upload"></i> <span data-i18n="certificate.importButton">Load certificate file</span>
-            </button>
-          </div>
-          <input type="file" id="certificate-import-file" accept="application/json,.json" hidden>
-          <div id="certificate-transfer-result" hidden></div>
-          <div class="certificate-warning" data-i18n="certificate.moveWarning">Keep this file private: whoever has it can pretend to be any website towards your tablets.</div>
-        </article>
-
-      </div>
-    </section>
-  </div>
-</div>
 <!-- Access QR Modal -->
 <div class="modal-backdrop" id="access-qr-modal" hidden>
   <div class="settings-modal settings-modal--qr" role="dialog" aria-modal="true" aria-labelledby="access-qr-title">
