@@ -12,7 +12,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Write the trusted Python updater public key for release builds.")
     parser.add_argument(
         "--output",
-        default="software/study_runner/update_keys.py",
+        default="software/study_runner/updates/trusted_keys.py",
         help="Output Python module that defines TRUSTED_UPDATE_PUBLIC_KEYS.",
     )
     parser.add_argument("--key", default="", help="Base64 Ed25519 public key. Defaults to env.")

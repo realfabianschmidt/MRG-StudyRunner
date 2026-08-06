@@ -14,12 +14,12 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 # The signature must cover exactly the bytes installed clients verify,
-# so the payload builder is shared with the app (study_runner.update_crypto).
+# so the payload builder is shared with the app (study_runner.updates.signatures).
 SOFTWARE_ROOT = Path(__file__).resolve().parents[1] / "software"
 if str(SOFTWARE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOFTWARE_ROOT))
 
-from study_runner.update_crypto import UPDATER_SCHEMA_VERSION, canonical_asset_payload  # noqa: E402
+from study_runner.updates.signatures import UPDATER_SCHEMA_VERSION, canonical_asset_payload  # noqa: E402
 
 
 def main() -> int:

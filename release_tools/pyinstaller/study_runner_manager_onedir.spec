@@ -17,8 +17,8 @@ a = Analysis(
     binaries=[],
     datas=[],
     hiddenimports=[
-        "study_runner.update_crypto",
-        "study_runner.update_keys",
+        "study_runner.updates.signatures",
+        "study_runner.updates.trusted_keys",
     ],
     hookspath=[],
     hooksconfig={},

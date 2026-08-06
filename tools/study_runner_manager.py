@@ -39,7 +39,7 @@ if SOFTWARE_ROOT.exists():
 
 # Shared signature-verification core; also baked into the frozen manager
 # build via the spec's hiddenimports.
-from study_runner import update_crypto
+from study_runner.updates import signatures as update_signatures
 
 
 @dataclass(frozen=True)
@@ -60,7 +60,7 @@ class InstallResult:
 
 
 def detect_platform_key() -> str:
-    key = update_crypto.detect_platform_key()
+    key = update_signatures.detect_platform_key()
     if key.split("-", 1)[0] not in {"windows", "macos", "linux"}:
         raise RuntimeError(f"Unsupported platform: {platform.system()}")
     return key
@@ -132,11 +132,11 @@ def select_platform_asset(manifest: dict[str, Any], platform_key: str | None = N
 
 
 def canonical_asset_payload(version: str, platform_key: str, asset: dict[str, Any]) -> bytes:
-    return update_crypto.canonical_asset_payload(version, platform_key, asset)
+    return update_signatures.canonical_asset_payload(version, platform_key, asset)
 
 
 def load_public_keys() -> list:
-    keys = update_crypto.load_trusted_public_keys()
+    keys = update_signatures.load_trusted_public_keys()
     if not keys:
         raise RuntimeError("No trusted Study Runner updater public key is available in this manager build.")
     return keys
@@ -144,8 +144,8 @@ def load_public_keys() -> list:
 
 def verify_asset_signature(version: str, platform_key: str, asset: dict[str, Any]) -> None:
     try:
-        update_crypto.verify_asset_signature(version, platform_key, asset, public_keys=load_public_keys())
-    except (update_crypto.SignatureVerificationError, ValueError) as error:
+        update_signatures.verify_asset_signature(version, platform_key, asset, public_keys=load_public_keys())
+    except (update_signatures.SignatureVerificationError, ValueError) as error:
         raise RuntimeError("Release asset signature could not be verified.") from error
 
 

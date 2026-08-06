@@ -144,8 +144,8 @@ def common_hidden_imports() -> list[str]:
             "mtcnn",
             "retinaface",
             "tensorflow",
-            "study_runner.update_helper",
-            "study_runner.update_keys",
+            "study_runner.updates.installer",
+            "study_runner.updates.trusted_keys",
             "study_runner.version",
             "tf_keras",
         ]

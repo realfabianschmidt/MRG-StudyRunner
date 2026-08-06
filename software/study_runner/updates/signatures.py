@@ -66,11 +66,11 @@ def load_trusted_public_keys() -> list:
     """Return the Ed25519 keys trusted for release signatures.
 
     Combines the optional env override with the keys baked into
-    study_runner/update_keys.py at release-build time. May be empty
+    study_runner/updates/trusted_keys.py at release-build time. May be empty
     (source checkouts); malformed keys raise.
     """
     try:
-        from study_runner.update_keys import TRUSTED_UPDATE_PUBLIC_KEYS
+        from study_runner.updates.trusted_keys import TRUSTED_UPDATE_PUBLIC_KEYS
     except Exception:
         TRUSTED_UPDATE_PUBLIC_KEYS = []
 

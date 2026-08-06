@@ -39,7 +39,7 @@ class StudyRunnerManagerTests(unittest.TestCase):
         platform_key = "windows-x86_64"
         asset = _signed_asset(private_key, "9.9.9", platform_key, "b" * 64)
 
-        with patch("study_runner.update_keys.TRUSTED_UPDATE_PUBLIC_KEYS", [public_key]):
+        with patch("study_runner.updates.trusted_keys.TRUSTED_UPDATE_PUBLIC_KEYS", [public_key]):
             manager.verify_asset_signature("9.9.9", platform_key, asset)
 
     def test_safe_zip_extraction_rejects_parent_paths(self) -> None:
@@ -71,7 +71,7 @@ class StudyRunnerManagerTests(unittest.TestCase):
                 destination.write_bytes(source_zip.read_bytes())
                 return sha256
 
-            with patch("study_runner.update_keys.TRUSTED_UPDATE_PUBLIC_KEYS", [public_key]):
+            with patch("study_runner.updates.trusted_keys.TRUSTED_UPDATE_PUBLIC_KEYS", [public_key]):
                 with patch("tools.study_runner_manager.fetch_json", return_value=manifest):
                     with patch("tools.study_runner_manager.download_file", side_effect=fake_download):
                         result = manager.install_or_update_release(install_root, data_dir, lambda _msg: None)

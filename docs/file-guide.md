@@ -127,9 +127,9 @@ it deliberately contains no HTTP, LSL, plugin, or study logic.
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `software/study_runner/update_crypto.py` | THE shared signed-update wire format + Ed25519 verification | no |
-| `software/study_runner/update_keys.py` | Trusted public keys (filled in by CI at release build) | no |
-| `software/study_runner/update_helper.py` | Applies a staged update on restart (`--apply-update`) | no |
+| `software/study_runner/updates/signatures.py` | THE shared signed-update wire format + Ed25519 verification | no |
+| `software/study_runner/updates/trusted_keys.py` | Trusted public keys (filled in by CI at release build) | no |
+| `software/study_runner/updates/installer.py` | Applies a staged update on restart (`--apply-update`) | no |
 
 ## Integrations (`software/study_runner/integrations/`)
 

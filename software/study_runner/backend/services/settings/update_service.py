@@ -16,8 +16,8 @@ import zipfile
 
 import requests
 
-from study_runner import update_crypto
-from study_runner.update_crypto import UPDATER_SCHEMA_VERSION
+from study_runner.updates import signatures as update_signatures
+from study_runner.updates.signatures import UPDATER_SCHEMA_VERSION
 from study_runner.version import __version__
 
 
@@ -213,8 +213,8 @@ def get_public_key_status() -> dict[str, Any]:
 
 def load_public_keys() -> list:
     try:
-        return update_crypto.load_trusted_public_keys()
-    except update_crypto.SignatureVerificationError as error:
+        return update_signatures.load_trusted_public_keys()
+    except update_signatures.SignatureVerificationError as error:
         raise UpdateError(str(error)) from error
 
 
@@ -292,7 +292,7 @@ def select_platform_asset(manifest: dict[str, Any], platform_key: str | None = N
 
 
 def detect_platform_key() -> str:
-    return update_crypto.detect_platform_key()
+    return update_signatures.detect_platform_key()
 
 
 def compare_versions(left: str, right: str) -> int:
@@ -306,13 +306,13 @@ def compare_versions(left: str, right: str) -> int:
 
 
 def canonical_asset_payload(version: str, platform_key: str, asset: dict[str, Any]) -> bytes:
-    return update_crypto.canonical_asset_payload(version, platform_key, asset)
+    return update_signatures.canonical_asset_payload(version, platform_key, asset)
 
 
 def verify_asset_signature(version: str, platform_key: str, asset: dict[str, Any]) -> None:
     try:
-        update_crypto.verify_asset_signature(version, platform_key, asset, public_keys=load_public_keys())
-    except (update_crypto.SignatureVerificationError, ValueError) as error:
+        update_signatures.verify_asset_signature(version, platform_key, asset, public_keys=load_public_keys())
+    except (update_signatures.SignatureVerificationError, ValueError) as error:
         raise UpdateError("Update asset signature could not be verified.") from error
 
 
@@ -455,7 +455,7 @@ def _spawn_update_helper(state_file: Path, app_config: dict[str, Any]) -> None:
     if getattr(sys, "frozen", False):
         cmd = [sys.executable, "--apply-update", str(state_file)]
     else:
-        cmd = [sys.executable, "-m", "study_runner.update_helper", str(state_file)]
+        cmd = [sys.executable, "-m", "study_runner.updates.installer", str(state_file)]
 
     kwargs: dict[str, Any] = {"cwd": str(base_dir), "env": os.environ.copy(), "close_fds": True}
     if os.name == "nt":
