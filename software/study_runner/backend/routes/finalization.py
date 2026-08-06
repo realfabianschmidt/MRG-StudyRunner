@@ -7,8 +7,8 @@ from pathlib import PurePosixPath
 
 from flask import Blueprint, current_app, jsonify, request
 
-from ..services.folder_open_service import FolderOpenError, open_session_folder, resolve_session_folder
-from ..services.finalization_service import (
+from ..services.settings.folder_open_service import FolderOpenError, open_session_folder, resolve_session_folder
+from ..services.delivery.finalization_service import (
     FinalizationError,
     FinalizationNotFoundError,
     InvalidTransitionError,

@@ -13,14 +13,14 @@ import time
 import webbrowser
 
 from study_runner.backend import create_app
-from study_runner.backend.services.certificate_download_service import (
+from study_runner.backend.services.delivery.certificate_download_service import (
     CertificateDownloadError,
     CertificateDownloadServer,
     certificate_download_url,
     start_certificate_download_server,
 )
-from study_runner.backend.services.finalization_service import FinalizationService
-from study_runner.backend.services.runtime_config import (
+from study_runner.backend.services.delivery.finalization_service import FinalizationService
+from study_runner.backend.services.settings.runtime_config import (
     get_app_mode,
     get_local_private_ips,
     is_background_disabled,
@@ -29,9 +29,9 @@ from study_runner.backend.services.runtime_config import (
     read_server_host,
     read_server_port,
 )
-from study_runner.backend.services.sensor_flush_service import SensorFlushService
-from study_runner.backend.services.ssl_service import ensure_local_ssl_certificate
-from study_runner.backend.services.upload_jobs_service import UploadJobService
+from study_runner.backend.services.recording.sensor_flush_service import SensorFlushService
+from study_runner.backend.services.settings.ssl_service import ensure_local_ssl_certificate
+from study_runner.backend.services.delivery.upload_jobs_service import UploadJobService
 
 
 app = create_app()

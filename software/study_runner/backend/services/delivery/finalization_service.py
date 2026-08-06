@@ -22,15 +22,15 @@ from typing import Any, Callable, Mapping, Protocol
 from study_runner.backend.recording.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
 
 from .artifact_manifest_service import ArtifactManifestError, ArtifactManifestStore
-from .atomic_io import atomic_write_json
-from .card_summary_service import CardSummaryBuilder
+from ..shared.atomic_io import atomic_write_json
+from ..studies.card_summary_service import CardSummaryBuilder
 from .destination_plugin_service import (
     DestinationPluginDefinition,
     definitions_from_state,
     installed_destination_definitions,
     validate_destination_definitions,
 )
-from .results_service import sanitize_canonical_submission_sensor_summaries
+from ..studies.results_service import sanitize_canonical_submission_sensor_summaries
 
 
 FINALIZATION_SCHEMA = "study-runner/finalization-state/v1"

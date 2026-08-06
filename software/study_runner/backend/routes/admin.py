@@ -5,26 +5,26 @@ import threading
 from flask import Blueprint, current_app, jsonify, request
 
 from study_runner.plugin_framework.registry import initialize_plugin, run_runtime_action
-from ..services.admin_status_service import build_admin_status
-from ..services.runtime_config import build_runtime_info
-from ..services.shortcut_service import ShortcutError, create_desktop_shortcut
-from ..services.study_client_service import get_client_status
-from ..services.secrets_service import (
+from ..services.settings.admin_status_service import build_admin_status
+from ..services.settings.runtime_config import build_runtime_info
+from ..services.settings.shortcut_service import ShortcutError, create_desktop_shortcut
+from ..services.studies.study_client_service import get_client_status
+from ..services.settings.secrets_service import (
     NEXTCLOUD_PASSWORD_ENV,
     NOTION_API_KEY_ENV,
     load_local_secrets,
     save_local_secrets,
 )
-from ..services.study_config_service import delete_study, list_studies, load_config, load_study, save_config
-from ..services.study_readiness_service import check_study_readiness, describe_credentials
-from ..services.study_secrets_service import (
+from ..services.studies.study_config_service import delete_study, list_studies, load_config, load_study, save_config
+from ..services.studies.study_readiness_service import check_study_readiness, describe_credentials
+from ..services.studies.study_secrets_service import (
     SECRET_FIELDS,
     forget_study_secrets,
     list_study_credential_state,
     set_study_secret,
 )
-from ..services.study_sensor_runtime import STUDY_SENSOR_KEYS
-from ..services.validation import validate_and_normalize_config
+from ..services.recording.study_sensor_runtime import STUDY_SENSOR_KEYS
+from ..services.shared.validation import validate_and_normalize_config
 from .helpers import (
     _clear_session_overrides,
     _delayed_shutdown,

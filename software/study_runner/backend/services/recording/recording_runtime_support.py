@@ -10,9 +10,9 @@ import socket
 import time
 from typing import Any, Callable, Mapping
 
-from ..recording.artifacts import ArtifactPaths, SessionIdentity
-from ..recording.errors import RecordingError
-from ..recording.worker_protocol import LoopbackWorkerClient
+from ...recording.artifacts import ArtifactPaths, SessionIdentity
+from ...recording.errors import RecordingError
+from ...recording.worker_protocol import LoopbackWorkerClient
 
 
 RECORDING_PLAN_SCHEMA = "study-runner/recording-plan/v1"

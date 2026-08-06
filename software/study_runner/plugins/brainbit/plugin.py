@@ -32,7 +32,7 @@ def _runtime_dir(context: PluginContext, configured: Any, default_relative: str,
     saved results instead. Settings files from earlier versions pin the in-repo
     paths explicitly, so those are redirected too rather than trusted blindly.
     """
-    from study_runner.backend.services.runtime_config import is_frozen
+    from study_runner.backend.services.settings.runtime_config import is_frozen
 
     writable = str(context.data_dir.parent / "brainbit" / name)
     resolved = context.resolve_platform_value(configured)

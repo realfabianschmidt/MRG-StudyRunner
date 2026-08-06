@@ -15,12 +15,12 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
-from .study_plugin_config import (
+from ..studies.study_plugin_config import (
     PluginConfigError,
     normalize_card_plugin_actions,
     normalize_study_settings_plugins,
 )
-from .study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
+from ..recording.study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
 
 
 ALLOWED_QUESTION_TYPES = {
@@ -1060,7 +1060,7 @@ def _validate_plugin_study_settings(
 def _validate_manifest_url(value: str, format_name: str, path: str) -> None:
     if format_name == "nextcloud_public_share":
         try:
-            from .nextcloud_service import parse_share_link
+            from ..delivery.nextcloud_service import parse_share_link
 
             parse_share_link(value)
         except ValueError as error:

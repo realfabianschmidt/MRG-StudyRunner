@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .atomic_io import atomic_write_bytes
+from ..shared.atomic_io import atomic_write_bytes
 
 
 EXPORT_SCHEMA = 1

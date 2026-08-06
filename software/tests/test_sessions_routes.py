@@ -14,13 +14,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend import create_app
-from study_runner.backend.services.sessions_index_service import (
+from study_runner.backend.services.studies.sessions_index_service import (
     _stream_descriptor,
     _validate_window,
     list_sessions,
     min_max_envelope,
 )
-from study_runner.backend.services import sessions_index_service
+from study_runner.backend.services.studies import sessions_index_service
 
 
 class SessionsRouteTests(unittest.TestCase):

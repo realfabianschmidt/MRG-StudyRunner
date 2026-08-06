@@ -9,7 +9,7 @@ from typing import Any, Iterable
 
 from study_runner.backend.recording.artifacts import ArtifactPaths, SessionIdentity, sha256_file
 
-from .atomic_io import atomic_write_bytes, atomic_write_json
+from ..shared.atomic_io import atomic_write_bytes, atomic_write_json
 
 
 MANIFEST_SCHEMA = "study-runner/artifact-manifest/v1"

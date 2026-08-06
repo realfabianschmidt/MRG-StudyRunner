@@ -9,12 +9,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.study_plugin_config import (
+from study_runner.backend.services.studies.study_plugin_config import (
     migrate_study_plugin_config,
     normalize_study_settings_plugins,
 )
-from study_runner.backend.services.study_readiness_service import check_study_readiness
-from study_runner.backend.services.validation import validate_and_normalize_config
+from study_runner.backend.services.studies.study_readiness_service import check_study_readiness
+from study_runner.backend.services.shared.validation import validate_and_normalize_config
 
 
 class StudyPluginMigrationTests(unittest.TestCase):

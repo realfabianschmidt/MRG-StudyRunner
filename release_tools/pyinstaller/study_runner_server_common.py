@@ -117,6 +117,7 @@ def common_binaries(root: Path | None = None) -> list[tuple[str, str]]:
 def common_hidden_imports() -> list[str]:
     return (
         collect_submodules("study_runner.backend")
+        + collect_submodules("study_runner.plugin_framework")
         + collect_submodules("study_runner.plugins")
         + collect_submodules("neurosdk")
         + collect_submodules("em_st_artifacts")

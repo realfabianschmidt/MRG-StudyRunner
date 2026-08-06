@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from study_runner.plugin_framework.dependency_utils import ensure_requirements
-from study_runner.backend.services.validation import PARTICIPANT_FIELD_ORDER
+from study_runner.backend.services.shared.validation import PARTICIPANT_FIELD_ORDER
 
 
 # Clients are cached by a hash of their API key, not by study id: two studies
@@ -851,7 +851,7 @@ def _refresh_config_for_retry(
 
     try:
         from flask import current_app
-        from study_runner.backend.services.study_config_service import load_config, load_study
+        from study_runner.backend.services.studies.study_config_service import load_config, load_study
 
         if current_app:
             config_file = current_app.config["CONFIG_FILE"]
@@ -871,8 +871,8 @@ def _refresh_config_for_retry(
 def _persist_study_database_id(config_data: dict[str, Any]) -> None:
     try:
         from flask import current_app
-        from study_runner.backend.services.study_config_service import save_config, save_study
-        from study_runner.backend.services.study_plugin_config import (
+        from study_runner.backend.services.studies.study_config_service import save_config, save_study
+        from study_runner.backend.services.studies.study_plugin_config import (
             normalize_study_settings_plugins,
         )
 

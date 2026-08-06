@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.runtime_config import (
+from study_runner.backend.services.settings.runtime_config import (
     DEFAULT_CERTIFICATE_DOWNLOAD_PORT,
     get_app_mode,
     get_server_scheme,

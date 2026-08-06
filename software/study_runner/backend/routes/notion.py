@@ -1,13 +1,13 @@
 """Notion upload integration endpoints (status, queue flush, connection test)."""
 from flask import Blueprint, current_app, jsonify, request
 
-from ..services.secrets_service import (
+from ..services.settings.secrets_service import (
     describe_notion_api_key_source,
     describe_notion_api_key_storage,
     resolve_notion_api_key,
 )
-from ..services.study_config_service import load_config
-from ..services.validation import validate_and_normalize_config
+from ..services.studies.study_config_service import load_config
+from ..services.shared.validation import validate_and_normalize_config
 
 bp = Blueprint("notion", __name__)
 

@@ -43,7 +43,8 @@ def get_project_base_dir() -> Path:
     """Return the folder that contains bundled project resources."""
     if is_frozen():
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent)).resolve()
-    return Path(__file__).resolve().parents[3]
+    # …/software/study_runner/backend/services/settings/runtime_config.py -> …/software
+    return Path(__file__).resolve().parents[4]
 
 
 def get_app_mode() -> str:

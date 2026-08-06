@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from .atomic_io import atomic_write_json
+from ..shared.atomic_io import atomic_write_json
 
 
 INITIAL_STATUS = "loaded"

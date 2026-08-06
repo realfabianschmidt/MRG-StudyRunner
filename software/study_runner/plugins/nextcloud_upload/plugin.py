@@ -24,8 +24,8 @@ def _status(context: PluginContext) -> dict[str, Any]:
 
 
 def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
-    from study_runner.backend.services.nextcloud_service import NextcloudPublicShareClient
-    from study_runner.backend.services.secrets_service import resolve_nextcloud_password
+    from study_runner.backend.services.delivery.nextcloud_service import NextcloudPublicShareClient
+    from study_runner.backend.services.settings.secrets_service import resolve_nextcloud_password
 
     config_data = payload.get("config_data") or {}
     study_settings = config_data.get("study_settings") or {}

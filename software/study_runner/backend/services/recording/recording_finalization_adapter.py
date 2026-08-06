@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 
-from .finalization_service import FinalizationContext, FinalizationError, StepResult
+from ..delivery.finalization_service import FinalizationContext, FinalizationError, StepResult
 from .recording_quality import (
     producer_stop_failures,
     validation_details,

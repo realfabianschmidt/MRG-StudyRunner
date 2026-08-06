@@ -8,18 +8,18 @@ import time
 
 from flask import Blueprint, current_app, jsonify, request
 
-from ..services.secrets_service import load_local_secrets, save_local_secrets
-from ..services.study_client_service import register_heartbeat
-from ..services.study_secrets_service import copy_study_secrets
-from ..services.study_config_service import load_config, save_config, save_study
-from ..services.study_readiness_service import check_study_readiness
-from ..services.recording_runtime import required_recording_plugins
-from ..services.trial_service import send_trial_marker, start_trial_session, stop_trial_session
-from ..services.trial_event_service import (
+from ..services.settings.secrets_service import load_local_secrets, save_local_secrets
+from ..services.studies.study_client_service import register_heartbeat
+from ..services.studies.study_secrets_service import copy_study_secrets
+from ..services.studies.study_config_service import load_config, save_config, save_study
+from ..services.studies.study_readiness_service import check_study_readiness
+from ..services.recording.recording_runtime import required_recording_plugins
+from ..services.studies.trial_service import send_trial_marker, start_trial_session, stop_trial_session
+from ..services.studies.trial_event_service import (
     TrialEventConflictError,
     TrialEventInProgressError,
 )
-from ..services.validation import validate_and_normalize_config, validate_and_normalize_trial_options
+from ..services.shared.validation import validate_and_normalize_config, validate_and_normalize_trial_options
 from .helpers import (
     _current_config_data,
     _public_study_session,

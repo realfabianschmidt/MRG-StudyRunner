@@ -18,8 +18,8 @@ from typing import Any, Callable
 
 from study_runner.plugin_framework.registry import build_context, export_interval_sidecars
 
-from .atomic_io import atomic_write_json
-from .results_service import sanitize_identifier_for_filename
+from ..shared.atomic_io import atomic_write_json
+from ..studies.results_service import sanitize_identifier_for_filename
 
 DEFAULT_INTERVAL_SECONDS = 60
 

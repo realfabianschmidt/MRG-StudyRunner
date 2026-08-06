@@ -18,7 +18,7 @@ import time
 import uuid
 from typing import Any, Callable
 
-from .atomic_io import atomic_write_json
+from ..shared.atomic_io import atomic_write_json
 
 
 BACKOFF_SECONDS = (30, 120, 600, 1800)

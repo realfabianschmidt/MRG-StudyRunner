@@ -9,7 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.study_sensor_runtime import (
+from study_runner.backend.services.recording.study_sensor_runtime import (
     build_sensor_runtime_state,
     build_effective_hardware_config,
     normalize_study_sensors,

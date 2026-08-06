@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services import shortcut_service
+from study_runner.backend.services.settings import shortcut_service
 
 
 class ShortcutServiceTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class ShortcutServiceTests(unittest.TestCase):
         self.assertEqual(working_dir, base_dir)
 
     def test_unsupported_platform_returns_clear_error(self) -> None:
-        with patch("study_runner.backend.services.shortcut_service.platform.system", return_value="Linux"):
+        with patch("study_runner.backend.services.settings.shortcut_service.platform.system", return_value="Linux"):
             with self.assertRaises(shortcut_service.ShortcutError) as raised:
                 shortcut_service.create_desktop_shortcut({"BASE_DIR": "."})
 

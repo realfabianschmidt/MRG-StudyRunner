@@ -21,7 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend import create_app
-from study_runner.backend.services.plugin_settings_service import (
+from study_runner.backend.services.settings.plugin_settings_service import (
     PluginSettingsError,
     apply_plugin_settings,
     build_plugin_settings_schema,

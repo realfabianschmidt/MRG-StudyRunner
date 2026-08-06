@@ -14,7 +14,8 @@ from study_runner.plugin_framework.registry import (
     build_interval_summary as build_plugin_interval_summary,
     export_interval_sidecars,
 )
-from .atomic_io import atomic_write_json
+from ..settings.runtime_config import get_project_base_dir
+from ..shared.atomic_io import atomic_write_json
 
 
 TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
@@ -612,7 +613,7 @@ def time_now_epoch() -> float:
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    return get_project_base_dir()
 
 
 def _question_prompt(question: dict[str, Any]) -> str:

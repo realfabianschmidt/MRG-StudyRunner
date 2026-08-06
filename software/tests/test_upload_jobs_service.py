@@ -15,12 +15,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend import create_app
-from study_runner.backend.services.folder_open_service import (
+from study_runner.backend.services.settings.folder_open_service import (
     FolderOpenError,
     resolve_results_folder,
     resolve_session_folder,
 )
-from study_runner.backend.services.upload_jobs_service import (
+from study_runner.backend.services.delivery.upload_jobs_service import (
     MAX_RETRY_AGE_SECONDS,
     UploadJobService,
     retry_delay_seconds,

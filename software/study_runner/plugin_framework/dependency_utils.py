@@ -65,6 +65,6 @@ def _runtime_pip_install_disabled() -> bool:
     if disabled in {"1", "true", "yes", "on"}:
         return True
 
-    from study_runner.backend.services.runtime_config import get_app_mode
+    from study_runner.backend.services.settings.runtime_config import get_app_mode
 
     return get_app_mode() in {"desktop", "packaged"}

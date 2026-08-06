@@ -23,20 +23,18 @@ from study_runner.backend.recording.worker_protocol import (
     LoopbackWorkerClient,
     WorkerEndpointState,
 )
-from study_runner.backend.services import (
-    recording_dependencies,
-    study_readiness_service,
-    study_sensor_runtime,
-    validation,
-)
-from study_runner.backend.services.card_summary_service import CardSummaryBuilder
-from study_runner.backend.services.plugin_settings_service import (
+from study_runner.backend.services.recording import recording_dependencies
+from study_runner.backend.services.recording import study_sensor_runtime
+from study_runner.backend.services.shared import validation
+from study_runner.backend.services.studies import study_readiness_service
+from study_runner.backend.services.studies.card_summary_service import CardSummaryBuilder
+from study_runner.backend.services.settings.plugin_settings_service import (
     apply_plugin_settings,
     build_plugin_settings_schema,
 )
-from study_runner.backend.services.recording_runtime import RecordingRuntimeService
-from study_runner.backend.services.recording_runtime_support import RECORDING_PLAN_SCHEMA
-from study_runner.backend.services.study_plugin_config import normalize_card_plugin_actions
+from study_runner.backend.services.recording.recording_runtime import RecordingRuntimeService
+from study_runner.backend.services.recording.recording_runtime_support import RECORDING_PLAN_SCHEMA
+from study_runner.backend.services.studies.study_plugin_config import normalize_card_plugin_actions
 from study_runner.plugin_framework import registry
 from study_runner.plugin_framework.plugin_catalog import PluginCatalog, discover_plugin_catalog
 
@@ -309,7 +307,7 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
         self.assertIs(registry.get_plugin_catalog(), original_catalog)
         self.assertIsNone(registry.get_plugin(PLUGIN_KEY))
         for relative_path in (
-            "study_runner/backend/services/recording_runtime.py",
+            "study_runner/backend/services/recording/recording_runtime.py",
             "study_runner/web/scripts/lib/plugin-catalog.js",
             "study_runner/web/scripts/settings/study/study-settings-panel.js",
             "study_runner/web/scripts/cards/card-stimulus.js",

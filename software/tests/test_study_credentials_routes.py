@@ -19,12 +19,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend import create_app
-from study_runner.backend.services.secrets_service import (
+from study_runner.backend.services.settings.secrets_service import (
     NEXTCLOUD_PASSWORD_ENV,
     NOTION_API_KEY_ENV,
     load_local_secrets,
 )
-from study_runner.backend.services.study_secrets_service import get_study_secret
+from study_runner.backend.services.studies.study_secrets_service import get_study_secret
 
 
 def _app(data_dir: str):
@@ -192,7 +192,7 @@ class StudyCredentialRouteTests(unittest.TestCase):
             _save_study(client, "Study A")
             client.post("/api/admin/studies/Study A/credentials", json={"notion": "study-key"})
 
-            from study_runner.backend.services.secrets_service import resolve_notion_api_key
+            from study_runner.backend.services.settings.secrets_service import resolve_notion_api_key
 
             resolved = resolve_notion_api_key(
                 app.config.get("HARDWARE_CONFIG", {}),

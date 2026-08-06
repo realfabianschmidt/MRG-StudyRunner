@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..settings.runtime_config import get_project_base_dir
 from study_runner.plugin_framework.registry import (
     build_context,
     run_trial_marker,
@@ -66,7 +67,7 @@ def send_trial_marker(event: str, options=None):
 def _runtime_context():
     base_dir = _RUNTIME.get("base_dir")
     if base_dir is None:
-        base_dir = Path(__file__).resolve().parent.parent
+        base_dir = get_project_base_dir()
     data_dir = _RUNTIME.get("data_dir") or Path(base_dir) / "saved_results"
     local_secrets_file = _RUNTIME.get("local_secrets_file") or Path(base_dir) / "settings" / "local_secrets.json"
     return build_context(

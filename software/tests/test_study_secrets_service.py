@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.secrets_service import (
+from study_runner.backend.services.settings.secrets_service import (
     NEXTCLOUD_PASSWORD_ENV,
     NOTION_API_KEY_ENV,
     load_local_secrets,
@@ -27,7 +27,7 @@ from study_runner.backend.services.secrets_service import (
     resolve_notion_api_key,
     save_local_secrets,
 )
-from study_runner.backend.services.study_secrets_service import (
+from study_runner.backend.services.studies.study_secrets_service import (
     copy_study_secrets,
     describe_secret_state,
     forget_study_secrets,
@@ -65,7 +65,7 @@ class StudySecretStorageTests(unittest.TestCase):
 
     def test_key_matches_the_filename_normalizer(self) -> None:
         # Credential key and study filename must agree, or a rename strands secrets.
-        from study_runner.backend.services.study_config_service import normalize_study_id
+        from study_runner.backend.services.studies.study_config_service import normalize_study_id
 
         for raw in ("My Study!", "study/../etc", "Neue Studie"):
             self.assertEqual(study_key(raw), normalize_study_id(raw))
@@ -228,7 +228,7 @@ class LeakageTests(unittest.TestCase):
 
     def test_study_settings_never_carry_a_credential_field(self) -> None:
         """The exported study file must have nowhere to put a secret."""
-        from study_runner.backend.services.validation import _validate_study_settings
+        from study_runner.backend.services.shared.validation import _validate_study_settings
 
         keys = set(_validate_study_settings({}))
 

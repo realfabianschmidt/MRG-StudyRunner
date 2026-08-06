@@ -745,7 +745,7 @@ def _worker_command(script_path: Path) -> tuple[list[str], Path]:
 
 
 def _is_packaged_runtime() -> bool:
-    from study_runner.backend.services.runtime_config import get_app_mode
+    from study_runner.backend.services.settings.runtime_config import get_app_mode
 
     return get_app_mode() in {"packaged", "desktop"}
 

@@ -3,14 +3,14 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
 
-from ..services.recovery_service import (
+from ..services.studies.recovery_service import (
     RecoveryError,
     discard_recovery_candidate,
     finalize_recovery_candidate,
     list_recovery_candidates,
 )
-from ..services.study_config_service import load_config
-from ..services.validation import validate_and_normalize_config
+from ..services.studies.study_config_service import load_config
+from ..services.shared.validation import validate_and_normalize_config
 from .helpers import _plugin_context, _runtime_hardware_config, _stop_study_session_tracking
 from .results import _enqueue_upload_jobs
 

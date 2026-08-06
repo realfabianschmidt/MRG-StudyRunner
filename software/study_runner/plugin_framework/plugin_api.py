@@ -67,7 +67,7 @@ class PluginContext:
         return str(path.resolve())
 
     def notion_api_key(self) -> str:
-        from study_runner.backend.services.secrets_service import resolve_notion_api_key
+        from study_runner.backend.services.settings.secrets_service import resolve_notion_api_key
 
         return resolve_notion_api_key(self.hardware_config, self.local_secrets)
 

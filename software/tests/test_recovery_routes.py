@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend import create_app
-from study_runner.backend.services.atomic_io import atomic_write_json
+from study_runner.backend.services.shared.atomic_io import atomic_write_json
 
 
 def _app(data_dir: str):

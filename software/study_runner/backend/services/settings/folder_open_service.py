@@ -6,7 +6,7 @@ from pathlib import Path
 import platform
 import subprocess
 
-from .results_service import sanitize_identifier_for_filename
+from ..studies.results_service import sanitize_identifier_for_filename
 
 
 class FolderOpenError(RuntimeError):

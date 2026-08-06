@@ -24,18 +24,18 @@ from study_runner.plugin_framework.registry import (
 )
 from study_runner.recording_worker.lsl_recording import lsl_version_info, require_pylsl
 
-from ..recording.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
-from ..recording.backup import BackupSampler, projections_from_manifest
-from ..recording.coordinator import RecordingCoordinator, SegmentLedger
-from ..recording.errors import WorkerUnavailableError
-from ..recording.recovery import RecordingLeaseStore
-from ..recording.worker_binary import BundledWorkerLocator, WorkerBinaryAvailability
-from ..recording.worker_protocol import (
+from ...recording.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
+from ...recording.backup import BackupSampler, projections_from_manifest
+from ...recording.coordinator import RecordingCoordinator, SegmentLedger
+from ...recording.errors import WorkerUnavailableError
+from ...recording.recovery import RecordingLeaseStore
+from ...recording.worker_binary import BundledWorkerLocator, WorkerBinaryAvailability
+from ...recording.worker_protocol import (
     LoopbackWorkerClient,
     WorkerEndpointState,
     WorkerStateStore,
 )
-from ..recording.xdf import (
+from ...recording.xdf import (
     NativeWorkerXdfBackend,
     PyXdfInspector,
     XdfArtifactInspection,
@@ -44,7 +44,7 @@ from ..recording.xdf import (
     validate_sources,
     validator_dependency_status,
 )
-from .atomic_io import atomic_write_json
+from ..shared.atomic_io import atomic_write_json
 from .recording_dependencies import (
     InternalProviderResolution,
     probe_lsl_dependencies,

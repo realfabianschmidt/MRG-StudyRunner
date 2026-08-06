@@ -28,7 +28,7 @@ from study_runner.backend.recording.worker_binary import WorkerBinaryAvailabilit
 from study_runner.backend.recording.worker_protocol import LoopbackWorkerClient, WorkerEndpointState
 from study_runner.backend.recording.xdf import StreamInspection, XdfArtifactInspection
 from study_runner.backend.recording.errors import WorkerUnavailableError
-from study_runner.backend.services.recording_runtime import (
+from study_runner.backend.services.recording.recording_runtime import (
     NativeWorkerLauncher,
     RecordingRuntimeService,
     RuntimeRecordingFinalizationAdapter,
@@ -38,8 +38,8 @@ from study_runner.backend.services.recording_runtime import (
     _recovery_backup_grid_anchor,
     recording_lsl_dependency_status,
 )
-from study_runner.backend.services.finalization_service import FinalizationError
-from study_runner.backend.services.recording_dependencies import (
+from study_runner.backend.services.delivery.finalization_service import FinalizationError
+from study_runner.backend.services.recording.recording_dependencies import (
     PINNED_PYLSL_VERSION,
     probe_lsl_dependencies,
 )
@@ -270,7 +270,7 @@ class RecordingRuntimeTests(unittest.TestCase):
                 popen=popen,
             )
             with mock.patch(
-                "study_runner.backend.services.recording_runtime.LoopbackWorkerClient",
+                "study_runner.backend.services.recording.recording_runtime.LoopbackWorkerClient",
                 Client,
             ):
                 endpoint, _client = launcher.launch(paths)
@@ -381,7 +381,7 @@ class RecordingRuntimeTests(unittest.TestCase):
 
     def test_lsl_dependency_probe_fails_closed_before_session_start(self) -> None:
         with mock.patch(
-            "study_runner.backend.services.recording_runtime.require_pylsl",
+            "study_runner.backend.services.recording.recording_runtime.require_pylsl",
             side_effect=RuntimeError("liblsl missing"),
         ):
             status = recording_lsl_dependency_status()
@@ -475,7 +475,7 @@ class RecordingRuntimeTests(unittest.TestCase):
                     )
 
             with mock.patch(
-                "study_runner.backend.services.recording_runtime.PyXdfInspector",
+                "study_runner.backend.services.recording.recording_runtime.PyXdfInspector",
                 return_value=Inspector(),
             ):
                 inspections, report = runtime.inspect_sources(paths)

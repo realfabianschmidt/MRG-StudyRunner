@@ -6,8 +6,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .atomic_io import atomic_write_json
-from .study_secrets_service import describe_secret_state, get_study_secret
+from ..shared.atomic_io import atomic_write_json
+from ..studies.study_secrets_service import describe_secret_state, get_study_secret
 
 
 NOTION_API_KEY_ENV = "STUDY_RUNNER_NOTION_API_KEY"

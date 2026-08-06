@@ -9,7 +9,7 @@ import threading
 import time
 from typing import Any, Callable, Mapping
 
-from study_runner.backend.services.atomic_io import atomic_write_json
+from study_runner.backend.services.shared.atomic_io import atomic_write_json
 
 from .errors import WorkerProtocolError
 

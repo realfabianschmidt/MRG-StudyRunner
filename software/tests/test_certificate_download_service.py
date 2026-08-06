@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.certificate_download_service import (
+from study_runner.backend.services.delivery.certificate_download_service import (
     CERTIFICATE_DOWNLOAD_PATH,
     CertificateDownloadError,
     start_certificate_download_server,

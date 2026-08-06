@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from study_runner.backend.services.atomic_io import atomic_write_json
+from study_runner.backend.services.shared.atomic_io import atomic_write_json
 
 
 IDENTITY_SCHEMA = "study-runner/session-identity/v1"

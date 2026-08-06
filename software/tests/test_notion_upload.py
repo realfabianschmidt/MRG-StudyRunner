@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.validation import validate_and_normalize_config
+from study_runner.backend.services.shared.validation import validate_and_normalize_config
 from study_runner.plugins.notion_upload import adapter
 
 
@@ -157,10 +157,10 @@ class NotionParticipantMetadataTests(unittest.TestCase):
         with (
             app.app_context(),
             patch(
-                "study_runner.backend.services.study_config_service.save_config"
+                "study_runner.backend.services.studies.study_config_service.save_config"
             ) as save_config,
             patch(
-                "study_runner.backend.services.study_config_service.save_study"
+                "study_runner.backend.services.studies.study_config_service.save_study"
             ) as save_study,
         ):
             adapter._persist_study_database_id(projected)

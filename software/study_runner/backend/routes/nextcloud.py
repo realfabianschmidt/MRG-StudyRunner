@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
 
-from ..services.nextcloud_service import test_connection
-from ..services.secrets_service import resolve_nextcloud_password
-from ..services.study_config_service import load_config
-from ..services.validation import validate_and_normalize_config
+from ..services.delivery.nextcloud_service import test_connection
+from ..services.settings.secrets_service import resolve_nextcloud_password
+from ..services.studies.study_config_service import load_config
+from ..services.shared.validation import validate_and_normalize_config
 
 
 bp = Blueprint("nextcloud", __name__)

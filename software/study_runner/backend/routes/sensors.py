@@ -14,14 +14,14 @@ from study_runner.plugin_framework.registry import (
     run_participant_action,
     run_runtime_action,
 )
-from ..services.hardware_settings_service import save_hardware_config
-from ..services.secrets_service import redact_hardware_config
-from ..services.plugin_settings_service import (
+from ..services.settings.hardware_settings_service import save_hardware_config
+from ..services.settings.secrets_service import redact_hardware_config
+from ..services.settings.plugin_settings_service import (
     PluginSettingsError,
     apply_plugin_settings,
     build_plugin_settings_schema,
 )
-from ..services.study_sensor_runtime import SESSION_OVERRIDE_KEYS, STUDY_SENSOR_KEYS
+from ..services.recording.study_sensor_runtime import SESSION_OVERRIDE_KEYS, STUDY_SENSOR_KEYS
 from .helpers import (
     _apply_plugin_toggle_to_active_runtime,
     _apply_session_override_runtime,

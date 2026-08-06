@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.sensor_flush_service import (
+from study_runner.backend.services.recording.sensor_flush_service import (
     SensorFlushService,
     discard_session_flush_files,
 )
@@ -57,7 +57,7 @@ class SensorFlushServiceTests(unittest.TestCase):
             app = FakeApp(data_dir, [session], hardware_config={"mr60": {"enabled": True}})
             service = SensorFlushService(app, clock=lambda: 1_000_100.0)
 
-            with patch("study_runner.backend.services.sensor_flush_service.export_interval_sidecars", return_value=FAKE_EXPORT):
+            with patch("study_runner.backend.services.recording.sensor_flush_service.export_interval_sidecars", return_value=FAKE_EXPORT):
                 written = service.flush_once()
 
             self.assertEqual(written, 1)
@@ -75,7 +75,7 @@ class SensorFlushServiceTests(unittest.TestCase):
             app = FakeApp(data_dir, [session], hardware_config=None)
             service = SensorFlushService(app, clock=lambda: 1_000_100.0)
 
-            with patch("study_runner.backend.services.sensor_flush_service.export_interval_sidecars", return_value=FAKE_EXPORT):
+            with patch("study_runner.backend.services.recording.sensor_flush_service.export_interval_sidecars", return_value=FAKE_EXPORT):
                 written = service.flush_once()
 
             self.assertEqual(written, 0)
@@ -88,7 +88,7 @@ class SensorFlushServiceTests(unittest.TestCase):
             app = FakeApp(data_dir, [session], hardware_config={"mr60": {"enabled": True}})
             service = SensorFlushService(app, clock=lambda: 1_000_100.0)
 
-            with patch("study_runner.backend.services.sensor_flush_service.export_interval_sidecars", return_value=FAKE_EXPORT):
+            with patch("study_runner.backend.services.recording.sensor_flush_service.export_interval_sidecars", return_value=FAKE_EXPORT):
                 written = service.flush_once()
 
             self.assertEqual(written, 0)

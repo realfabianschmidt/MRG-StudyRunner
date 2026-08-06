@@ -22,14 +22,14 @@ import re
 import sys
 from typing import Any
 
-from .runtime_config import is_https_enabled
-from .secrets_service import (
+from ..settings.runtime_config import is_https_enabled
+from ..settings.secrets_service import (
     NEXTCLOUD_PASSWORD_ENV,
     NOTION_API_KEY_ENV,
     resolve_notion_api_key,
 )
 from .study_secrets_service import describe_secret_state
-from .study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
+from ..recording.study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
 
 # Which left-hand panel of the study settings shell fixes each blocker, so the
 # UI can send the operator straight there instead of making them hunt.

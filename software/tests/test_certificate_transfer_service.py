@@ -16,19 +16,19 @@ if str(SOFTWARE_DIR) not in sys.path:
     sys.path.insert(0, str(SOFTWARE_DIR))
 
 from study_runner.backend.routes.certificate import bp
-from study_runner.backend.services.certificate_transfer_service import (
+from study_runner.backend.services.delivery.certificate_transfer_service import (
     CertificateTransferError,
     apply_import,
     build_export,
     inspect_import,
 )
-from study_runner.backend.services.ssl_service import ensure_local_ssl_certificate
+from study_runner.backend.services.settings.ssl_service import ensure_local_ssl_certificate
 
 
 class CertificateTransferServiceTests(unittest.TestCase):
     def _create_ca(self, settings_dir: Path) -> dict:
         with mock.patch(
-            "study_runner.backend.services.ssl_service._local_certificate_names",
+            "study_runner.backend.services.settings.ssl_service._local_certificate_names",
             return_value=({"localhost"}, {"127.0.0.1"}),
         ):
             ensure_local_ssl_certificate(settings_dir)
@@ -69,7 +69,7 @@ class CertificateTransferServiceTests(unittest.TestCase):
             ssl_dir = Path(target) / "ssl"
             self.assertFalse((ssl_dir / "study-runner-local-server.crt").exists())
             with mock.patch(
-                "study_runner.backend.services.ssl_service._local_certificate_names",
+                "study_runner.backend.services.settings.ssl_service._local_certificate_names",
                 return_value=({"localhost"}, {"127.0.0.1"}),
             ):
                 ensure_local_ssl_certificate(Path(target))
@@ -85,7 +85,7 @@ class CertificateTransferServiceTests(unittest.TestCase):
             original_cert = (ssl_dir / "study-runner-local-root-ca.crt").read_bytes()
             original_key = (ssl_dir / "study-runner-local-root-ca.key").read_bytes()
 
-            from study_runner.backend.services import certificate_transfer_service as service
+            from study_runner.backend.services.delivery import certificate_transfer_service as service
 
             real_write = service.atomic_write_bytes
             calls = 0
@@ -111,7 +111,7 @@ class CertificateTransferRouteTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.settings_dir = Path(self.temp_dir.name)
         with mock.patch(
-            "study_runner.backend.services.ssl_service._local_certificate_names",
+            "study_runner.backend.services.settings.ssl_service._local_certificate_names",
             return_value=({"localhost"}, {"127.0.0.1"}),
         ):
             ensure_local_ssl_certificate(self.settings_dir)

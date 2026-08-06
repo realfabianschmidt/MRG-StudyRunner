@@ -7,10 +7,10 @@ from typing import Any, Iterable, Mapping
 
 from study_runner.plugin_framework.registry import get_plugin_manifests
 
-from ..recording.artifacts import ArtifactPaths
-from ..recording.backup import BackupSampler, projections_from_manifest
-from ..recording.recovery import RecordingLeaseStore
-from ..recording.xdf import ValidationIssue, XdfArtifactInspection
+from ...recording.artifacts import ArtifactPaths
+from ...recording.backup import BackupSampler, projections_from_manifest
+from ...recording.recovery import RecordingLeaseStore
+from ...recording.xdf import ValidationIssue, XdfArtifactInspection
 from .recording_dependencies import resolve_internal_recording_plugins
 from .recording_runtime_support import RecordingRuntimeError, read_object
 

@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from .atomic_io import atomic_write_json
+from ..shared.atomic_io import atomic_write_json
 
 STALE_AFTER_SECONDS = 12 * 60 * 60
 MAX_EVENTS_PER_SESSION = 50

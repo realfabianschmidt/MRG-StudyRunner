@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.sensor_coordinator_service import SensorCoordinator
+from study_runner.backend.services.recording.sensor_coordinator_service import SensorCoordinator
 from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
 
 
@@ -94,7 +94,7 @@ class SensorCoordinatorTests(unittest.TestCase):
         context = _context()
         try:
             with patch(
-                "study_runner.backend.services.sensor_coordinator_service.get_plugin_status",
+                "study_runner.backend.services.recording.sensor_coordinator_service.get_plugin_status",
                 side_effect=lambda key, _context: {"status": "ok", "device_label": key},
             ):
                 initial = coordinator.build_status(context)
@@ -129,15 +129,15 @@ class SensorCoordinatorTests(unittest.TestCase):
         try:
             with (
                 patch(
-                    "study_runner.backend.services.sensor_coordinator_service.iter_plugins",
+                    "study_runner.backend.services.recording.sensor_coordinator_service.iter_plugins",
                     return_value=(plugin,),
                 ),
                 patch(
-                    "study_runner.backend.services.sensor_coordinator_service.get_plugin_manifest",
+                    "study_runner.backend.services.recording.sensor_coordinator_service.get_plugin_manifest",
                     return_value=_manifest("paced", poll_interval_ms=1000),
                 ),
                 patch(
-                    "study_runner.backend.services.sensor_coordinator_service.get_plugin_status",
+                    "study_runner.backend.services.recording.sensor_coordinator_service.get_plugin_status",
                     side_effect=get_status,
                 ),
             ):
@@ -191,11 +191,11 @@ class SensorCoordinatorTests(unittest.TestCase):
         try:
             with (
                 patch(
-                    "study_runner.backend.services.sensor_coordinator_service.iter_plugins",
+                    "study_runner.backend.services.recording.sensor_coordinator_service.iter_plugins",
                     return_value=(slow, fast),
                 ),
                 patch(
-                    "study_runner.backend.services.sensor_coordinator_service.get_plugin_manifest",
+                    "study_runner.backend.services.recording.sensor_coordinator_service.get_plugin_manifest",
                     side_effect=lambda key: _manifest(
                         key,
                         poll_interval_ms=1000,
@@ -203,7 +203,7 @@ class SensorCoordinatorTests(unittest.TestCase):
                     ),
                 ),
                 patch(
-                    "study_runner.backend.services.sensor_coordinator_service.get_plugin_status",
+                    "study_runner.backend.services.recording.sensor_coordinator_service.get_plugin_status",
                     side_effect=get_status,
                 ),
             ):
@@ -250,15 +250,15 @@ class SensorCoordinatorTests(unittest.TestCase):
         plugin = _plugin("closed")
         with (
             patch(
-                "study_runner.backend.services.sensor_coordinator_service.iter_plugins",
+                "study_runner.backend.services.recording.sensor_coordinator_service.iter_plugins",
                 return_value=(plugin,),
             ),
             patch(
-                "study_runner.backend.services.sensor_coordinator_service.get_plugin_manifest",
+                "study_runner.backend.services.recording.sensor_coordinator_service.get_plugin_manifest",
                 return_value=_manifest("closed"),
             ),
             patch(
-                "study_runner.backend.services.sensor_coordinator_service.get_plugin_status"
+                "study_runner.backend.services.recording.sensor_coordinator_service.get_plugin_status"
             ) as get_status,
         ):
             status = coordinator.build_status(_context())
@@ -274,9 +274,9 @@ class SensorCoordinatorTests(unittest.TestCase):
         coordinator = SensorCoordinator(monotonic_clock=clock)
         try:
             with (
-                patch("study_runner.backend.services.sensor_coordinator_service.initialize_plugin") as initialize,
+                patch("study_runner.backend.services.recording.sensor_coordinator_service.initialize_plugin") as initialize,
                 patch(
-                    "study_runner.backend.services.sensor_coordinator_service.run_runtime_action",
+                    "study_runner.backend.services.recording.sensor_coordinator_service.run_runtime_action",
                     side_effect=lambda key, action, _context: {"ok": True, "integration": key, "action": action},
                 ) as runtime_action,
             ):

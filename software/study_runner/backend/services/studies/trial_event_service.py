@@ -23,7 +23,7 @@ import time
 import uuid
 from typing import Any
 
-from .atomic_io import atomic_write_json
+from ..shared.atomic_io import atomic_write_json
 
 
 JournalHandler = Callable[[dict[str, Any]], dict[str, Any] | None]
