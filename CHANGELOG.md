@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 0.5.0 - 2026-08-06
+
 ### Added
 
 - Plugin API v3 with trusted directory discovery, manifest validation,
