@@ -76,11 +76,15 @@ FORBIDDEN_SOURCE_SUFFIXES = (
     ".woff2",
     ".toe",
 )
-# Fonts stay forbidden by default: the ones in web/fonts/ have no documented
-# provenance, which is why they are export-ignored. A font may only ship from a
-# vendor folder that also carries the licence text its contract below checks.
-LICENSED_VENDOR_FONT_DIRECTORIES = ("software/study_runner/web/vendor/geist/",)
-LICENSED_VENDOR_FONT_SUFFIXES = (".woff2",)
+# Fonts stay forbidden by default so a stray face can never ride along unnoticed.
+# One may only ship from a folder that documents its terms: web/fonts/ holds the
+# first-party Materiability faces covered by this repository's own LICENSE, and
+# web/vendor/geist/ carries the upstream OFL text the contract below checks.
+LICENSED_FONT_DIRECTORIES = (
+    "software/study_runner/web/fonts/",
+    "software/study_runner/web/vendor/geist/",
+)
+LICENSED_FONT_SUFFIXES = (".ttf", ".woff2")
 SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SUPPORTED_RECORDING_TARGETS = ("windows-x64", "macos-x64", "macos-arm64")
@@ -190,22 +194,25 @@ def validate_archive(path: Path, *, version: str | None = None) -> None:
         lowered = name.casefold()
         if any(part.casefold() in lowered for part in FORBIDDEN_ARCHIVE_PARTS):
             raise ReleaseError(f"generated, native, or private path leaked into {path.name}: {name}")
-        if lowered.endswith(FORBIDDEN_SOURCE_SUFFIXES) and not is_licensed_vendor_font(lowered):
+        if lowered.endswith(FORBIDDEN_SOURCE_SUFFIXES) and not is_licensed_font(lowered):
             raise ReleaseError(f"binary or secret-like file leaked into {path.name}: {name}")
 
 
-def is_licensed_vendor_font(lowered_name: str) -> bool:
-    """True for a font file inside a vendor folder with a release licence contract.
+def is_licensed_font(lowered_name: str) -> bool:
+    """True for a font sitting directly in a folder that documents its terms.
 
     The archive member is prefixed with the release root, so match on the
-    repository-relative tail rather than the whole path.
+    repository-relative tail rather than the whole path. A nested folder does not
+    inherit the exemption: whoever adds one has to document its terms too.
     """
-    if not lowered_name.endswith(LICENSED_VENDOR_FONT_SUFFIXES):
+    if not lowered_name.endswith(LICENSED_FONT_SUFFIXES):
         return False
-    return any(
-        f"/{directory.casefold()}" in lowered_name
-        for directory in LICENSED_VENDOR_FONT_DIRECTORIES
-    )
+    for directory in LICENSED_FONT_DIRECTORIES:
+        marker = f"/{directory.casefold()}"
+        start = lowered_name.find(marker)
+        if start >= 0 and "/" not in lowered_name[start + len(marker):]:
+            return True
+    return False
 
 
 def git_archive(*, commit: str, version: str, output: Path, archive_format: str) -> None:

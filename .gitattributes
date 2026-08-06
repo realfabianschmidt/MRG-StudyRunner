@@ -27,12 +27,9 @@
 *.jpeg binary
 *.gif binary
 *.ico binary
+*.ttf binary
 *.woff binary
 *.woff2 binary
-
-# Legacy fonts with undocumented provenance are not part of source releases.
-# The UI uses the native system-font stack and does not reference these files.
-software/study_runner/web/fonts/ export-ignore
 
 # Optional local TouchDesigner reference asset has no release provenance and is
 # not required by the OSC integration.

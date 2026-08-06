@@ -6,12 +6,10 @@
 - Source: https://registry.npmjs.org/geist/-/geist-1.7.2.tgz (`dist/fonts/geist-sans/`, `dist/fonts/geist-mono/`)
 - License: SIL Open Font License 1.1, Vercel in collaboration with basement.studio
 
-Why vendored: the UI is drawn in Materiability, but `web/fonts/` is
-`export-ignore`d from source archives because those files have no documented
-provenance. Without a second named font the stack fell straight through to
-Segoe UI, so a source-release build looked nothing like a packaged one. Geist
-has a documented licence, so it can ship, and it is close enough to Materiability
-that the layout does not shift.
+Why vendored: Geist is the body face for the whole interface. It also stands behind
+Materiability in the heading stack, so a checkout whose font files have not been
+fetched still renders in a named font instead of falling straight through to Segoe
+UI — and Geist is close enough to Materiability that the layout does not shift.
 
 Geist Sans is the body face. Geist Mono is used only where characters have to
 line up as values change - URLs, fingerprints, counters, the timeline readouts -

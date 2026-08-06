@@ -1,9 +1,10 @@
 ﻿/* ============================================================
    FONTS
 
-   Materiability ships inside packaged builds (the PyInstaller spec bundles
-   the whole web/ tree) but is export-ignored from source archives, so the
-   stack falls through to Geist and then to the native system fonts.
+   Materiability is first-party and ships in every build, packaged and source
+   alike. Geist stays behind it in the stack as the fallback for a checkout
+   whose font files have not been fetched, and the native system fonts behind
+   that. See web/fonts/README.md.
    ============================================================ */
 @font-face {
   font-family: 'Materiability';
@@ -21,7 +22,7 @@
   font-weight: 700; font-style: normal; font-display: swap;
 }
 
-/* Geist catches source-archive builds, where Materiability is absent. */
+/* Geist catches any build where Materiability is absent. */
 @font-face {
   font-family: 'Geist';
   src: url('/static/vendor/geist/Geist-Regular.woff2') format('woff2');

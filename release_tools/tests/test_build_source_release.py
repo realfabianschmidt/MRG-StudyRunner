@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 import stat
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -72,11 +73,11 @@ class SourceReleaseTests(unittest.TestCase):
                     release.validate_archive(path, version=VERSION)
 
     def test_archive_still_rejects_undocumented_fonts_next_to_the_licensed_ones(self) -> None:
-        """The exemption is the vendor folder, not the file extension."""
+        """The exemption is the documented folder, not the file extension."""
         for name in (
-            "software/study_runner/web/fonts/Materiability-Regular.ttf",
-            "software/study_runner/web/vendor/geist/Geist-Regular.ttf",
             "software/study_runner/web/vendor/unlicensed/Other-Regular.woff2",
+            "software/study_runner/web/styles/Smuggled-Regular.ttf",
+            "software/study_runner/web/fonts/nested/Deeper-Regular.otf",
         ):
             with self.subTest(name=name), temporary_directory() as temporary:
                 path = Path(temporary) / release.ARCHIVES[0]
@@ -85,11 +86,14 @@ class SourceReleaseTests(unittest.TestCase):
                 with self.assertRaisesRegex(release.ReleaseError, "leaked"):
                     release.validate_archive(path, version=VERSION)
 
-    def test_archive_carries_the_licensed_vendor_font(self) -> None:
-        """Geist ships so a source build is not left on the system font stack."""
+    def test_archive_carries_both_licensed_font_families(self) -> None:
+        """Materiability draws the headings and Geist the body; both must ship."""
         with temporary_directory() as temporary:
             path = Path(temporary) / release.ARCHIVES[0]
             write_zip(path, members(
+                "software/study_runner/web/fonts/Materiability-Regular.ttf",
+                "software/study_runner/web/fonts/Materiability-SemiBold.ttf",
+                "software/study_runner/web/fonts/Materiability-Bold.ttf",
                 "software/study_runner/web/vendor/geist/Geist-Regular.woff2",
                 "software/study_runner/web/vendor/geist/Geist-SemiBold.woff2",
                 "software/study_runner/web/vendor/geist/Geist-Bold.woff2",
@@ -335,3 +339,60 @@ class RepositoryNoticeTests(unittest.TestCase):
                 path = release.REPOSITORY_ROOT / relative
                 self.assertTrue(path.is_file(), f"{relative} is declared but missing")
                 release.validate_third_party_license(relative, path.read_text(encoding="utf-8"))
+
+
+class FontReleaseContractTests(unittest.TestCase):
+    """Fonts are forbidden by default and exempted only per documented folder.
+
+    Materiability once shipped nowhere because it was export-ignored, and adding
+    it needed two separate guards lifted. These tests keep both halves honest: a
+    folder may only be exempt while it still documents its terms, and no font may
+    enter the repository outside such a folder.
+    """
+
+    FONT_SUFFIXES = (".ttf", ".otf", ".woff", ".woff2")
+
+    @staticmethod
+    def _tracked_files() -> list[str]:
+        result = subprocess.run(
+            ("git", "ls-files"),
+            cwd=release.REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.splitlines()
+
+    def test_every_licensed_font_directory_documents_its_terms(self) -> None:
+        for directory in release.LICENSED_FONT_DIRECTORIES:
+            with self.subTest(directory=directory):
+                path = release.REPOSITORY_ROOT / directory
+                self.assertTrue(path.is_dir(), f"{directory} is exempted but missing")
+                documents = [name for name in ("README.md", "LICENSE") if (path / name).is_file()]
+                self.assertTrue(
+                    documents,
+                    f"{directory} is exempted from the font ban but documents no terms",
+                )
+
+    def test_no_font_ships_from_an_undocumented_folder(self) -> None:
+        stowaways = [
+            name
+            for name in self._tracked_files()
+            if name.casefold().endswith(self.FONT_SUFFIXES)
+            and not release.is_licensed_font(f"/{name.casefold()}")
+        ]
+        self.assertEqual(
+            stowaways,
+            [],
+            "font files outside a documented folder would be rejected by the release build",
+        )
+
+    def test_the_heading_face_is_actually_in_the_archive_set(self) -> None:
+        tracked = set(self._tracked_files())
+        materiability = sorted(
+            name for name in tracked if "web/fonts/materiability" in name.casefold()
+        )
+        self.assertEqual(len(materiability), 3, f"expected three weights, found {materiability}")
+        for name in materiability:
+            with self.subTest(font=name):
+                self.assertTrue(release.is_licensed_font(f"/{name.casefold()}"))

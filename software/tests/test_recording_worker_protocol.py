@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 from pathlib import Path
+import platform
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,13 @@ import unittest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+# An absent worker is unavailable for a different reason on each platform: off Linux
+# the bundled binary is simply missing, while Linux stays fail-closed by policy until
+# a canonical XDF core passes its release gate. Either way the state must be explicit.
+WORKER_UNAVAILABLE_REASON = (
+    "fail-closed" if platform.system().strip().casefold() == "linux" else "not found"
+)
 
 from study_runner.backend.recording.artifacts import ArtifactStore, SessionIdentity
 from study_runner.backend.recording.coordinator import RecordingCoordinator, SegmentLedger
@@ -90,7 +98,7 @@ class RecordingWorkerProtocolTests(unittest.TestCase):
 
         self.assertFalse(status.available)
         self.assertIsNone(status.path)
-        self.assertIn("not found", status.reason)
+        self.assertIn(WORKER_UNAVAILABLE_REASON, status.reason)
 
     def test_worker_restart_allocates_new_segment_never_appends(self) -> None:
         identity = SessionIdentity(

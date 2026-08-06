@@ -36,6 +36,10 @@ All notable Study Runner changes are documented here. Release tags use
   hidden from the sensor dashboard/settings hub.
 - Canonical card statistics are derived only from validated merged XDF data;
   RAM summaries are no longer authoritative.
+- The interface draws headings in Materiability and body text in Geist. Both
+  now ship in source releases, so a source build renders the same as a packaged
+  one. Fonts remain forbidden by default and are exempted only per folder that
+  documents its terms.
 - Releases use the normal Python source-server workflow. Signed/notarized app
   bundles remain a separate future distribution channel.
 
