@@ -253,6 +253,105 @@ Tests: `tests/test_sessions_routes.py` with a fixture `saved_results` tree; down
 >
 > The timeline renderer itself and the emotion sidecar/index/routes were already done (see above) — this closed the last gap: nothing ever called the renderer or populated the list.
 
+> **Claude Opus 5 (timeline rebuild, 2026-08-04):**
+> The viewer now reads the recording rather than a per-sensor configuration.
+> `load_signal_samples` passes the LSL header through — stream name, nominal rate,
+> channel labels, types and units, all already extracted by
+> `_normalize_pyxdf_stream` and previously discarded — and the new pure module
+> `web/scripts/lib/timeline-view-model.js` decides from *that* how each channel is
+> drawn: a rate at or above 20 Hz, or a declared continuous type (EEG, ECG,
+> Respiration, …), becomes a filled min/max waveform; slower channels become
+> lines; marker streams become event ticks. A plugin added later that publishes a
+> well-formed LSL stream therefore gets a labelled, correctly rendered track with
+> no change here and no manifest entry. `ui.timeline.preferred_channels` still
+> works and still *curates* (a sensor recording twenty fields would otherwise
+> arrive as twenty tracks); declaring nothing is the other supported path, not a
+> broken one. The signals endpoint gained `start`/`end` so zooming refetches just
+> the visible window at full resolution instead of stretching one envelope.
+> Interaction is cutting-room style: sticky label column, wheel to zoom anchored
+> at the cursor, shift-wheel to pan, a playhead that reads every track out at the
+> moment under the pointer, and collapsible per-stream groups.
+>
+> **Deferred, deliberately — what a "full editor" would still add:**
+> - per-track solo / hide / reorder, including drag-to-reorder
+> - drag-select a time range, zoom-to-selection, and that selection as an export scope
+> - a transport (play/pause) sweeping the playhead in real time against recorded
+>   video or audio, if a study ever records either
+>
+> Each of those introduces persistent view state that has to survive a repaint and
+> be verified, and none of them answers the question the operator actually has,
+> which is "what were the signals doing around question 4" — zoom, pan and a
+> playhead answer that today. The split into a pure view model is what keeps the
+> door open: selection, solo and ordering are all view-model state, so they can be
+> added and unit-tested without touching the renderer. One trap worth recording
+> for whoever picks it up: `paint()` discards the DOM and every listener on it, so
+> anything that redraws must go through `repaint()`. A zoom refetch that called
+> `paint()` directly silently killed the group buttons until that was centralised.
+
+> **Claude Opus 5 (audit before the first sensor test, 2026-08-05):**
+> Findings from a pass over the whole surface. The bugs below were fixed in the
+> same round; the structural items were deliberately **not** touched, because
+> both sit on the study-run path and a regression there would be
+> indistinguishable from a hardware fault during the test.
+>
+> **Fixed**
+> - *Import did not import.* `loadFromFile` parsed the file into the editor's
+>   memory and called `markUnsaved()`, never persisting. An operator importing
+>   from the hub never sees the editor's Save button, so the study simply never
+>   appeared. It now goes through the same `saveConfig` path as any other save.
+> - *The per-study Notion key was silently discarded.* The field, its hint and
+>   its two buttons had no handler at all, and `saveStudyNotionSettings` writes
+>   only `parent_page_id`/`database_id`. A key typed there was lost on save while
+>   the UI looked like it had worked. Now wired to
+>   `POST /api/admin/studies/<id>/credentials`, which already existed and was
+>   reachable from no client. Credentials deliberately do **not** travel through
+>   the study config, because that config is what the exported `.study-runner`
+>   file contains.
+> - *The session answer popover* was positioned against the `<article>` while the
+>   browser resolved it against a different offset parent, so it appeared far up
+>   and left. Both now agree on one positioned container, and it clamps to the
+>   right edge.
+> - *Preview never showed the waiting slide*, so the title screen could not be
+>   checked at all. Preview now shows the real slide for five seconds, then
+>   continues; it is the same function a participant gets, not a copy.
+>
+> **Verified clean:** no TODO/FIXME/HACK anywhere in the tree; every other
+> button id in `admin.html` has a handler; `status-pill--*`, `toast--*` and
+> `settings-modal--*` are composed at runtime and must never be treated as dead
+> CSS by a sweep.
+>
+> **Removed:** 24 dead CSS class groups (the `audit-*` page, `notion-panel-*`,
+> `settings-tabs`/`-toolbar`/`-json-editor`, `brainbit-band-*` now plugin-owned,
+> `hub-update-card`, `q-block`) and 6 unused JS exports.
+>
+> **Deferred - the two front-end monoliths.**
+> - `web/scripts/study-controller.js`, **2184 lines**: participant lifecycle,
+>   preview barrier, card rendering, reliable-event-queue wiring, plugin
+>   extension dispatch, heartbeat, clock sync. The seams already exist - preview
+>   suppression is a single barrier and the cards are a registry - so a split
+>   into `study-run-lifecycle` / `study-card-host` / `study-preview` is mostly
+>   moving whole functions. Follow the pure-view-model + `node --test` pattern
+>   proven by `finalization-view-model.js` and `timeline-view-model.js`.
+> - `web/scripts/admin-controller.js`, **1617 lines**, after ~340 already moved
+>   into `settings/machine/`. What is left is the hub list, editor state, run
+>   control, view switching and toasts; `admin-editor.js` and `admin-hub.js` are
+>   the natural next extractions, leaving a thin controller owning shared state.
+> - Backend equivalents for the same list: `integrations/plugin_catalog.py`
+>   (1472) and `backend/services/finalization_service.py` (1411).
+>
+> **One trap worth keeping:** the study id is normalised by stripping everything
+> outside `[alnum] _-`, so `Autonomous Materials User Study #1` is stored and
+> listed as `Autonomous Materials User Study 1`. That normalised id is also the
+> per-study credential key, so it cannot be relaxed without stranding secrets on
+> rename - but it does mean the hub can show a different name than the file.
+
+> **Fixture for development:** `tools/make_timeline_fixture.py` writes a complete
+> synthetic session — canonical folder layout, `COMPLETE.json`, a result payload
+> with answered questions, and a real `derived/session.xdf` holding a 64 Hz
+> ECG/Respiration stream, a 1 Hz derived-rate stream and a 250 Hz 4-channel EEG
+> stream, each with full channel metadata. Recording hardware and a matching
+> `pylsl` are otherwise required to see this screen at all.
+
 ---
 
 ## T6 — Nextcloud upload (share link)

@@ -21,6 +21,7 @@ saved_results/
 software/study_content/settings/local_secrets.json
 software/study_content/settings/*.local.json
 software/study_content/settings/ssl/
+software/study_content/settings/branding/
 # Locally authored studies are user data. Curated repository templates must be
 # added intentionally with `git add -f` after review.
 software/study_content/studies/*.study-runner

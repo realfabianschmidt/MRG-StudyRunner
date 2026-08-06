@@ -23,7 +23,7 @@ export function renderStudy(q, i) {
       </div>`;
   });
   return `
-    <div class="q-type-tag"><i class="iconoir-arrows-horizontal"></i> ${escapeHtml(t('cards.semantic.tag', 'Word pairs'))}</div>
+    <div class="q-type-tag"><i class="iconoir-expand-lines"></i> ${escapeHtml(t('cards.semantic.tag', 'Word pairs'))}</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
     ${renderCardInstruction(q)}
     ${pairsHtml}`;

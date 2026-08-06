@@ -33,10 +33,6 @@ export function getLanguage() {
   return activeLanguage;
 }
 
-export function getSupportedLanguages() {
-  return [...SUPPORTED_LANGUAGES];
-}
-
 // Return the translated string for a key, or the fallback (or the key) if missing.
 export function t(key, fallback) {
   if (Object.prototype.hasOwnProperty.call(messages, key)) {
@@ -59,7 +55,7 @@ function has(key) {
 
 // Only overwrite an element when the key exists, so a failed locale load leaves the
 // original (English) HTML in place instead of showing raw keys.
-export function applyTranslations(root = document) {
+function applyTranslations(root = document) {
   root.querySelectorAll('[data-i18n]').forEach((element) => {
     if (has(element.dataset.i18n)) element.textContent = messages[element.dataset.i18n];
   });

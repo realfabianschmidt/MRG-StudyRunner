@@ -58,9 +58,21 @@ def admin_session_signals(study_id: str, participant_id: str):
                 session_id=request.args.get("session_id"),
                 session_folder=request.args.get("session_folder"),
                 max_points=max_points,
+                start=_optional_float(request.args.get("start")),
+                end=_optional_float(request.args.get("end")),
             )
         )
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
     except SessionNotFoundError as error:
         return jsonify({"ok": False, "error": str(error)}), 404
+
+
+def _optional_float(raw: str | None) -> float | None:
+    """Absent means the whole recording; present but unparseable is an error."""
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"'{raw}' is not a valid epoch second.") from error

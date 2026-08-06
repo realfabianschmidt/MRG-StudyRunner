@@ -6,9 +6,9 @@
 <title>Study Runner</title>
 <link rel="stylesheet" href="/static/vendor/iconoir/iconoir.css">
 <link rel="stylesheet" href="/static/styles/main.css">
+<link rel="stylesheet" href="/static/styles/ambient-bubbles.css">
 </head>
 <body>
-<div class="ambient"><div class="orb"></div><div class="orb"></div></div>
 <div class="study-fullscreen-ui" id="study-fullscreen-ui" hidden>
   <button class="study-fullscreen-btn" id="btn-study-fullscreen" type="button" data-i18n-aria-label="study.fullscreenAria" aria-label="Enter fullscreen" data-i18n-title="study.fullscreenTitle" title="Fullscreen">
     <i class="iconoir-expand"></i>
@@ -16,11 +16,15 @@
 </div>
 
 <!-- One card is visible at a time. Navigation controls appear below. -->
-<div id="screen-waiting" class="screen screen--center active">
-  <div class="study-waiting-logo"><i class="iconoir-brain"></i></div>
+<!-- The title slide: no card, the study's own name, and the institution's mark.
+     Funder logos and the ambient background belong to this screen alone. -->
+<div id="screen-waiting" class="screen screen--slide screen--center active">
+  <div class="study-brand" id="study-brand-logo" hidden></div>
   <h1 class="screen-title" id="study-waiting-title" data-i18n="study.waiting.title">Study will start soon</h1>
   <p class="screen-sub" id="study-waiting-body" data-i18n="study.waiting.body">Please keep this page open.</p>
 </div>
+
+<div class="study-funders" id="study-funder-logos" hidden></div>
 
 <div id="screen-questions" class="screen">
   <div id="q-container"></div>

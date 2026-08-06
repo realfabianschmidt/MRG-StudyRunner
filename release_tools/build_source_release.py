@@ -22,6 +22,7 @@ THIRD_PARTY_NOTICE_FILES = (
     "software/recording_worker/native/vendor/App-LabRecorder/LICENSE",
     "software/recording_worker/native/vendor/BOOST_LICENSE_1_0.txt",
     "software/study_runner/web/vendor/iconoir/LICENSE",
+    "software/study_runner/web/vendor/geist/LICENSE",
 )
 REQUIRED_SOURCE_FILES = (
     "LICENSE",
@@ -75,6 +76,11 @@ FORBIDDEN_SOURCE_SUFFIXES = (
     ".woff2",
     ".toe",
 )
+# Fonts stay forbidden by default: the ones in web/fonts/ have no documented
+# provenance, which is why they are export-ignored. A font may only ship from a
+# vendor folder that also carries the licence text its contract below checks.
+LICENSED_VENDOR_FONT_DIRECTORIES = ("software/study_runner/web/vendor/geist/",)
+LICENSED_VENDOR_FONT_SUFFIXES = (".woff2",)
 SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SUPPORTED_RECORDING_TARGETS = ("windows-x64", "macos-x64", "macos-arm64")
@@ -184,8 +190,22 @@ def validate_archive(path: Path, *, version: str | None = None) -> None:
         lowered = name.casefold()
         if any(part.casefold() in lowered for part in FORBIDDEN_ARCHIVE_PARTS):
             raise ReleaseError(f"generated, native, or private path leaked into {path.name}: {name}")
-        if lowered.endswith(FORBIDDEN_SOURCE_SUFFIXES):
+        if lowered.endswith(FORBIDDEN_SOURCE_SUFFIXES) and not is_licensed_vendor_font(lowered):
             raise ReleaseError(f"binary or secret-like file leaked into {path.name}: {name}")
+
+
+def is_licensed_vendor_font(lowered_name: str) -> bool:
+    """True for a font file inside a vendor folder with a release licence contract.
+
+    The archive member is prefixed with the release root, so match on the
+    repository-relative tail rather than the whole path.
+    """
+    if not lowered_name.endswith(LICENSED_VENDOR_FONT_SUFFIXES):
+        return False
+    return any(
+        f"/{directory.casefold()}" in lowered_name
+        for directory in LICENSED_VENDOR_FONT_DIRECTORIES
+    )
 
 
 def git_archive(*, commit: str, version: str, output: Path, archive_format: str) -> None:
@@ -264,6 +284,8 @@ def validate_third_party_notices(notice_text: str) -> None:
         "software/recording_worker/native/vendor/BOOST_LICENSE_1_0.txt",
         "Iconoir",
         "software/study_runner/web/vendor/iconoir/LICENSE",
+        "Geist",
+        "software/study_runner/web/vendor/geist/LICENSE",
         "facial_expression_model_weights.h5",
         "do **not** contain",
     )
@@ -286,6 +308,10 @@ def validate_third_party_license(relative_path: str, license_text: str) -> None:
         ),
         "software/study_runner/web/vendor/iconoir/LICENSE": (
             "MIT License",
+            "Permission is hereby granted",
+        ),
+        "software/study_runner/web/vendor/geist/LICENSE": (
+            "SIL OPEN FONT LICENSE Version 1.1",
             "Permission is hereby granted",
         ),
     }

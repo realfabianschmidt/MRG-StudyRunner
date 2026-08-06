@@ -71,6 +71,32 @@ class SourceReleaseTests(unittest.TestCase):
                 with self.assertRaisesRegex(release.ReleaseError, "leaked"):
                     release.validate_archive(path, version=VERSION)
 
+    def test_archive_still_rejects_undocumented_fonts_next_to_the_licensed_ones(self) -> None:
+        """The exemption is the vendor folder, not the file extension."""
+        for name in (
+            "software/study_runner/web/fonts/Materiability-Regular.ttf",
+            "software/study_runner/web/vendor/geist/Geist-Regular.ttf",
+            "software/study_runner/web/vendor/unlicensed/Other-Regular.woff2",
+        ):
+            with self.subTest(name=name), temporary_directory() as temporary:
+                path = Path(temporary) / release.ARCHIVES[0]
+                write_zip(path, members(name))
+
+                with self.assertRaisesRegex(release.ReleaseError, "leaked"):
+                    release.validate_archive(path, version=VERSION)
+
+    def test_archive_carries_the_licensed_vendor_font(self) -> None:
+        """Geist ships so a source build is not left on the system font stack."""
+        with temporary_directory() as temporary:
+            path = Path(temporary) / release.ARCHIVES[0]
+            write_zip(path, members(
+                "software/study_runner/web/vendor/geist/Geist-Regular.woff2",
+                "software/study_runner/web/vendor/geist/Geist-SemiBold.woff2",
+                "software/study_runner/web/vendor/geist/Geist-Bold.woff2",
+            ))
+
+            release.validate_archive(path, version=VERSION)
+
     def test_archive_rejects_parent_traversal(self) -> None:
         with temporary_directory() as temporary:
             path = Path(temporary) / release.ARCHIVES[0]
@@ -125,7 +151,8 @@ class SourceReleaseTests(unittest.TestCase):
             "App-LabRecorder / XDFWriter native/src/xdfwriter_patched.cpp files "
             "remain derived works under xdfwriter/conversions.h and the Boost Software "
             "License 1.0 at software/recording_worker/native/vendor/BOOST_LICENSE_1_0.txt. "
-            "Iconoir software/study_runner/web/vendor/iconoir/LICENSE. The source archives "
+            "Iconoir software/study_runner/web/vendor/iconoir/LICENSE. "
+            "Geist software/study_runner/web/vendor/geist/LICENSE. The source archives "
             "do **not** contain facial_expression_model_weights.h5."
         )
 
@@ -137,9 +164,17 @@ class SourceReleaseTests(unittest.TestCase):
             "software/recording_worker/native/vendor/BOOST_LICENSE_1_0.txt",
             "Boost Software License - Version 1.0\nPermission is hereby granted",
         )
+        release.validate_third_party_license(
+            "software/study_runner/web/vendor/geist/LICENSE",
+            "SIL OPEN FONT LICENSE Version 1.1\nPermission is hereby granted",
+        )
         with self.assertRaisesRegex(release.ReleaseError, "required license text"):
             release.validate_third_party_license(
                 "software/study_runner/web/vendor/iconoir/LICENSE", "MIT License"
+            )
+        with self.assertRaisesRegex(release.ReleaseError, "required license text"):
+            release.validate_third_party_license(
+                "software/study_runner/web/vendor/geist/LICENSE", "SIL OPEN FONT LICENSE Version 1.1"
             )
 
     def test_output_verification_is_fail_closed_and_declares_source_mode(self) -> None:

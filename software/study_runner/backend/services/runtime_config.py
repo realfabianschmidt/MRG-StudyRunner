@@ -26,6 +26,7 @@ class RuntimePaths:
     data_dir: Path
     saved_studies_dir: Path
     local_secrets_file: Path
+    branding_dir: Path
     uses_external_storage: bool
 
 
@@ -123,6 +124,7 @@ def resolve_runtime_paths(base_dir: Path | None = None) -> RuntimePaths:
         data_dir=data_root / "saved_results",
         saved_studies_dir=settings_root / "studies",
         local_secrets_file=settings_dir / "local_secrets.json",
+        branding_dir=settings_dir / "branding",
         uses_external_storage=uses_external_storage,
     )
 
@@ -132,6 +134,7 @@ def initialize_runtime_storage(paths: RuntimePaths) -> None:
     paths.settings_dir.mkdir(parents=True, exist_ok=True)
     paths.data_dir.mkdir(parents=True, exist_ok=True)
     paths.saved_studies_dir.mkdir(parents=True, exist_ok=True)
+    paths.branding_dir.mkdir(parents=True, exist_ok=True)
 
     if not paths.uses_external_storage:
         return

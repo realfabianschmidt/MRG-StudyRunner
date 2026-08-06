@@ -10,7 +10,7 @@ export const defaultQuestion = {
 
 export function renderStudy(q, i) {
   return `
-    <div class="q-type-tag"><i class="iconoir-sliders-vertical"></i> ${escapeHtml(t('cards.slider.tag', 'Rating scale'))}</div>
+    <div class="q-type-tag"><i class="iconoir-control-slider"></i> ${escapeHtml(t('cards.slider.tag', 'Rating scale'))}</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
     ${renderCardInstruction(q)}
     <div class="vas-wrap">

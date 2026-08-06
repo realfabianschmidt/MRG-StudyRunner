@@ -18,6 +18,7 @@ import { byId, escapeHtml } from '../../lib/dom-utils.js';
 import { getJson, postJson } from '../../api-client.js';
 import { activateShellPanel, bindShellNav, renderShellNav, renderShellPanel } from '../../lib/settings-shell.js';
 import { refreshCertificateStatus } from './certificate-settings-controller.js';
+import { refreshBrandingSettings, renderBrandingSettingsPanel } from './branding-settings-controller.js';
 import {
   PLUGIN_UI_SURFACES,
   getPluginCatalog,
@@ -90,6 +91,7 @@ export function renderSettingsHubShell() {
  */
 function onSettingsPanelShown(key) {
   if (key === 'certificate') void refreshCertificateStatus();
+  if (key === 'branding') void refreshBrandingSettings();
   if (key === 'update') void host.loadUpdateStatus({ silent: true });
 }
 
@@ -99,15 +101,16 @@ function settingsHubEntries() {
   const groupSystem = t('settingsHub.groupSystem', 'System');
   const entries = [
     { key: 'certificate', icon: 'iconoir-shield-check', label: t('hub.certificateSettings', 'Certificate'), group: groupThisComputer },
-    { key: 'tablet', icon: 'iconoir-tablet', label: t('settingsHub.tabTablet', 'Tablet'), group: groupThisComputer },
+    { key: 'tablet', icon: 'iconoir-smartphone-device', label: t('settingsHub.tabTablet', 'Tablet'), group: groupThisComputer },
+    { key: 'branding', icon: 'iconoir-media-image', label: t('branding.title', 'Logos'), group: groupThisComputer },
     ...settingsHubPlugins().map((plugin) => ({
       key: `plugin:${plugin.key}`,
       icon: pluginIcon(plugin),
       label: plugin.label || plugin.key,
       group: groupSensors,
     })),
-    { key: 'update', icon: 'iconoir-download-circled-outline', label: t('update.title', 'Python app update'), group: groupSystem },
-    { key: 'shortcut', icon: 'iconoir-desktop', label: t('hub.createShortcut', 'Create desktop shortcut'), group: groupSystem },
+    { key: 'update', icon: 'iconoir-download-circle', label: t('update.title', 'Python app update'), group: groupSystem },
+    { key: 'shortcut', icon: 'iconoir-computer', label: t('hub.createShortcut', 'Create desktop shortcut'), group: groupSystem },
     { key: 'audit', icon: 'iconoir-book', label: t('hub.auditSensorSetup', 'Audit & Sensor Setup'), group: groupSystem },
   ];
   if (getPluginCatalog().invalid_plugins.length) {
@@ -125,6 +128,7 @@ function settingsHubPanels() {
   const active = host.state.settingsHubActiveTab;
   return [
     renderShellPanel('tablet', renderTabletAccessPanel(), active !== 'tablet'),
+    renderShellPanel('branding', renderBrandingSettingsPanel(), active !== 'branding'),
     ...(getPluginCatalog().invalid_plugins.length ? [renderShellPanel(
       'plugin-problems',
       renderInvalidPlugins(),

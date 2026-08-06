@@ -85,7 +85,7 @@ export function pluginUiIcon(plugin) {
   if (declared) return declared;
   const capabilities = new Set(plugin?.capabilities || []);
   if (capabilities.has('upload_destination')) return 'iconoir-cloud-upload';
-  if (capabilities.has('recording_worker') || capabilities.has('recording_source')) return 'iconoir-save-action-floppy';
+  if (capabilities.has('recording_worker') || capabilities.has('recording_source')) return 'iconoir-floppy-disk-arrow-in';
   if (capabilities.has('lsl_stream_provider')) return 'iconoir-activity';
   if (capabilities.has('processing')) return 'iconoir-cpu';
   if (capabilities.has('runtime_control')) return 'iconoir-settings-profiles';
@@ -120,7 +120,7 @@ export function getPluginUiExtension(pluginOrKey, surface) {
   return extensionModules.get(`${pluginKey || ''}:${surface}`) || null;
 }
 
-export function pluginUiAssetUrl(pluginOrKey, assetPath) {
+function pluginUiAssetUrl(pluginOrKey, assetPath) {
   const pluginKey = typeof pluginOrKey === 'string'
     ? pluginOrKey
     : pluginOrKey?.plugin_key;

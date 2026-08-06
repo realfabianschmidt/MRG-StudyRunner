@@ -67,7 +67,7 @@ export function renderStudySettingsPanel() {
 function studySettingsEntries() {
   return [
     { key: 'sensors', icon: 'iconoir-activity', label: t('studySettings.navSensors', 'Sensors'), group: t('studySettings.groupRecording', 'Recording') },
-    { key: 'participant', icon: 'iconoir-tablet', label: t('studySettings.navParticipant', 'Participant experience'), group: t('studySettings.groupRecording', 'Recording') },
+    { key: 'participant', icon: 'iconoir-smartphone-device', label: t('studySettings.navParticipant', 'Participant experience'), group: t('studySettings.groupRecording', 'Recording') },
     { key: 'destinations', icon: 'iconoir-cloud-upload', label: t('studySettings.navDestinations', 'Data destinations'), group: t('studySettings.groupUploads', 'Uploads') },
     { key: 'export', icon: 'iconoir-download', label: t('studySettings.navExport', 'Export & privacy'), group: t('studySettings.groupFile', 'Study file') },
   ];

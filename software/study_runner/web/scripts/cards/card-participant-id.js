@@ -204,7 +204,7 @@ export function renderEditor(q) {
         ${FIELD_ORDER.map((fieldKey) => renderEditorFieldRow(fieldKey, fields[fieldKey])).join('')}
       </div>
     </div>
-    <p class="editor-hint" style="margin-top:0.75rem;font-size:0.8rem;opacity:0.6;">
+    <p class="editor-hint">
       ${escapeHtml(t('cards.participant.editorHint', 'Turn fields on or off. Use the gear to choose whether a field feeds the anonymous code, is stored in results, and (for choice fields) which answers are allowed. At least one field must feed the code.'))}
     </p>`;
 }

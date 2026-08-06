@@ -8,7 +8,7 @@
 import { getJson } from '../api-client.js';
 import { t } from '../i18n.js';
 import { byId, escapeHtml, formatDateTime, formatFileSize, setHidden, setText } from '../lib/dom-utils.js';
-import { bindTimelineMarkers, renderSessionTimeline } from './session-timeline.js';
+import { bindTimelineMarkers, renderSessionTimeline, updateStreamPoints } from './session-timeline.js';
 
 const MAX_HUB_ITEMS = 25;
 const HUB_REFRESH_INTERVAL_MS = 10000;
@@ -16,6 +16,7 @@ const HUB_REFRESH_INTERVAL_MS = 10000;
 let callbacks = {};
 let initialized = false;
 let currentMarkers = [];
+let currentSession = null;
 let refreshTimer = null;
 
 export function initializeSessionsBrowser(options = {}) {
@@ -64,11 +65,11 @@ function renderHubList(listEl, sessions) {
 
   const shown = sessions.slice(0, MAX_HUB_ITEMS);
   listEl.innerHTML = shown.map((session) => `
-    <div class="hub-recent-item" data-study-id="${escapeHtml(session.study_id)}" data-participant-id="${escapeHtml(session.participant_id)}" data-session-id="${escapeHtml(session.session_id)}" data-session-folder="${escapeHtml(session.session_folder)}" style="justify-content: flex-start; padding: 12px 16px; cursor: pointer;">
-      <i class="iconoir-graph-up" style="font-size: 20px; color: var(--accent);"></i>
-      <div style="text-align: left; flex: 1;">
-        <div style="font-weight: 600; color: var(--ink);">${escapeHtml(session.study_id)} <span style="font-weight: 400; color: var(--ink-40);">/ ${escapeHtml(session.participant_id)}</span></div>
-        <div style="font-size: 0.75rem; color: var(--ink-40);">${escapeHtml(formatDateTime(session.saved_at))} &middot; ${escapeHtml(String(session.answers_count))} ${escapeHtml(t('sessions.answersLabel', 'Answers'))}${sessionTags(session).map((tag) => ` &middot; ${escapeHtml(tag)}`).join('')}</div>
+    <div class="hub-recent-item is-clickable" data-study-id="${escapeHtml(session.study_id)}" data-participant-id="${escapeHtml(session.participant_id)}" data-session-id="${escapeHtml(session.session_id)}" data-session-folder="${escapeHtml(session.session_folder)}">
+      <i class="iconoir-check-circle"></i>
+      <div class="hub-recent-item-body">
+        <div class="hub-recent-item-title">${escapeHtml(session.study_id)} <span class="hub-recent-item-sub">/ ${escapeHtml(session.participant_id)}</span></div>
+        <div class="hub-recent-item-meta">${escapeHtml(formatDateTime(session.saved_at))} &middot; ${escapeHtml(String(session.answers_count))} ${escapeHtml(t('sessions.answersLabel', 'Answers'))}${sessionTags(session).map((tag) => ` &middot; ${escapeHtml(tag)}`).join('')}</div>
       </div>
     </div>
   `).join('') + (sessions.length > MAX_HUB_ITEMS
@@ -182,30 +183,58 @@ async function renderTimeline(session) {
   const streams = (Array.isArray(session.streams) ? session.streams : (Array.isArray(session.sidecars) ? session.sidecars : []))
     .filter((stream) => stream.sensor && stream.sample_count > 0);
 
-  const lanes = (await Promise.all(streams.map(async (stream) => {
-    try {
-      const signals = await getJson(
-        `/api/admin/sessions/${encodeURIComponent(session.study_id)}/${encodeURIComponent(session.participant_id)}/signals`
-        + `?sensor=${encodeURIComponent(stream.sensor)}&session_folder=${encodeURIComponent(session.session_folder)}`,
-      );
-      return { sensor: stream.sensor, points: signals.points, mode: signals.mode };
-    } catch (error) {
-      console.error(`[sessions] Could not load ${stream.sensor} signals:`, error);
-      return null;
-    }
-  }))).filter(Boolean);
+  const loaded = (await Promise.all(
+    streams.map((stream) => fetchSignals(session, stream.sensor)),
+  )).filter(Boolean);
 
   currentMarkers = buildMarkers(session.result?.answer_details);
+  currentSession = session;
 
-  const labels = {
+  renderSessionTimeline(
+    container,
+    { streams: loaded, markers: currentMarkers, labels: timelineLabels() },
+    { onWindowChange: (window) => void refetchWindow(session, loaded, window) },
+  );
+  bindTimelineMarkers(container, currentMarkers, showPopover);
+}
+
+function timelineLabels() {
+  return {
     nothingRecorded: t('sessions.timelineEmpty', 'Nothing was recorded for this session.'),
     chartLabel: t('sessions.timeline', 'Timeline'),
     markersLabel: t('sessions.answersTitle', 'Questions and answers'),
-    channels: {},
+    zoomFull: t('sessions.timelineZoomFull', 'Whole session. Scroll to zoom, shift-scroll to pan.'),
+    zoomPartial: t('sessions.timelineZoomPartial', 'Showing {shown}s of {total}s. Scroll to zoom.'),
   };
+}
 
-  renderSessionTimeline(container, { lanes, markers: currentMarkers, labels });
-  bindTimelineMarkers(container, currentMarkers, showPopover);
+/**
+ * One stream's samples, optionally clipped to a window.
+ *
+ * The descriptor travels with the points: the stream's own LSL header is what
+ * decides how it is drawn, so it must reach the view model unchanged.
+ */
+async function fetchSignals(session, sensor, window = null) {
+  const base = `/api/admin/sessions/${encodeURIComponent(session.study_id)}/${encodeURIComponent(session.participant_id)}/signals`;
+  const params = new URLSearchParams({ sensor, session_folder: session.session_folder });
+  if (window) {
+    params.set('start', String(window.start));
+    params.set('end', String(window.end));
+  }
+  try {
+    return await getJson(`${base}?${params}`);
+  } catch (error) {
+    console.error(`[sessions] Could not load ${sensor} signals:`, error);
+    return null;
+  }
+}
+
+/** Refill the visible window at full resolution after a zoom settles. */
+async function refetchWindow(session, streams, window) {
+  await Promise.all(streams.map(async (stream) => {
+    const refreshed = await fetchSignals(session, stream.stream_key || stream.sensor, window);
+    if (refreshed) updateStreamPoints(stream.stream_key || stream.sensor, refreshed.points, refreshed.mode);
+  }));
 }
 
 function buildMarkers(entries) {
@@ -241,12 +270,18 @@ function showPopover(marker, node) {
   `;
   popover.hidden = false;
 
-  const containerRect = popover.parentElement?.getBoundingClientRect();
+  // Measured against the popover's own offset parent. Using any other element
+  // put the box in a different coordinate space, which is how it used to
+  // appear far away in the top left instead of under the marker.
+  const container = popover.offsetParent || popover.parentElement;
+  const containerRect = container?.getBoundingClientRect();
   const nodeRect = node.getBoundingClientRect();
-  if (containerRect) {
-    popover.style.left = `${Math.max(0, nodeRect.left - containerRect.left - 80)}px`;
-    popover.style.top = `${nodeRect.bottom - containerRect.top + 8}px`;
-  }
+  if (!containerRect) return;
+
+  const left = nodeRect.left - containerRect.left - 80;
+  const maxLeft = containerRect.width - popover.offsetWidth;
+  popover.style.left = `${Math.max(0, Math.min(left, Math.max(0, maxLeft)))}px`;
+  popover.style.top = `${nodeRect.bottom - containerRect.top + 8}px`;
 }
 
 function hidePopover() {

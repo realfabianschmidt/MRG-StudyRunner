@@ -13,8 +13,8 @@ that same license. The complete upstream notice is kept at
 `software/recording_worker/native/vendor/App-LabRecorder/LICENSE`.
 
 App-LabRecorder's `xdfwriter/conversions.h` notes portions derived from
-Christian Pfligersdorffer's portable archive implementation under the Boost
-Software License 1.0. The complete Boost license text is kept at
+Christian Pfligersdorffer's portable archive implementation under the
+Boost Software License 1.0. The complete Boost license text is kept at
 `software/recording_worker/native/vendor/BOOST_LICENSE_1_0.txt`.
 
 ## Iconoir
@@ -23,6 +23,17 @@ Software License 1.0. The complete Boost license text is kept at
 icons by Luca Burgio and contributors. Iconoir is licensed under the MIT
 License. The complete upstream notice is kept at
 `software/study_runner/web/vendor/iconoir/LICENSE`.
+
+## Geist
+
+`software/study_runner/web/vendor/geist/` contains three weights each of Geist
+Sans and Geist Mono 1.7.2 by Vercel, in collaboration with basement.studio. Geist is licensed under
+the SIL Open Font License, Version 1.1. The complete upstream notice is kept at
+`software/study_runner/web/vendor/geist/LICENSE`.
+
+The interface is drawn in Materiability. Those font files are kept out of source
+archives because their provenance is undocumented, so Geist is the licensed
+fallback that a source-release build renders in.
 
 ## DeepFace and optional VGG-Face-derived model weights
 

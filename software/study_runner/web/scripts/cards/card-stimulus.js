@@ -54,7 +54,7 @@ export function renderStudy(q, i) {
         </div>
         <div class="stimulus-content" id="stimulus-content-${i}" hidden></div>
         <svg class="cd-ring" viewBox="0 0 120 120" aria-hidden="true">
-          <circle cx="60" cy="60" r="50" fill="none" stroke="var(--ink-06)" stroke-width="5"></circle>
+          <circle cx="60" cy="60" r="50" fill="none" stroke="var(--ink-08)" stroke-width="5"></circle>
           <circle
             class="cd-ring-progress"
             id="ring-prog-${i}"

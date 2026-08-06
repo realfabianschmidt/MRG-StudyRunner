@@ -14,6 +14,7 @@
   <div class="hub-container">
     <header class="hub-header">
       <div class="hub-header-text">
+        <div class="hub-brand" id="hub-brand-logo" hidden></div>
         <h1 data-i18n="hub.welcome.title">Welcome to Study Runner</h1>
         <p data-i18n="hub.welcome.subtitle">Choose a study or create a new one.</p>
       </div>
@@ -44,7 +45,7 @@
         <h2 data-i18n="hub.quickAccess">Quick access</h2>
         <div class="hub-cards">
           <button class="hub-card" id="btn-hub-new">
-            <i class="iconoir-add-folder"></i>
+            <i class="iconoir-folder-plus"></i>
             <span data-i18n="hub.newStudy">New study</span>
           </button>
           <button class="hub-card" id="btn-load-config">
@@ -76,8 +77,8 @@
           <div class="hub-active-header">
             <div class="hub-active-icon"><i class="iconoir-journal-page"></i></div>
             <div>
-              <div class="hub-active-label" id="hub-active-label" data-i18n="hub.loaded">LOADED</div>
               <div class="hub-active-title" id="hub-active-title" data-i18n="hub.loading">Loading...</div>
+              <div class="hub-active-label" id="hub-active-label" data-i18n="hub.loaded">LOADED</div>
               <span class="readiness-marker" id="hub-readiness-marker" hidden><i class="iconoir-warning-triangle"></i></span>
               <div class="hub-access-hint" id="hub-active-run-hint"></div>
             </div>
@@ -88,7 +89,7 @@
             </button>
             <div class="hub-active-icon-row">
               <button class="btn-icon-only" id="btn-hub-editor" type="button" data-i18n-title="hub.openEditor" data-i18n-aria-label="hub.openEditor" title="Open editor" aria-label="Open editor"><i class="iconoir-edit-pencil"></i></button>
-              <button class="btn-icon-only" id="btn-admin-dashboard" type="button" data-i18n-title="hub.sensorCheck" data-i18n-aria-label="hub.sensorCheck" title="Sensors &amp; live status" aria-label="Sensors &amp; live status"><i class="iconoir-pulse"></i></button>
+              <button class="btn-icon-only" id="btn-admin-dashboard" type="button" data-i18n-title="hub.sensorCheck" data-i18n-aria-label="hub.sensorCheck" title="Sensors &amp; live status" aria-label="Sensors &amp; live status"><i class="iconoir-graph-up"></i></button>
             </div>
             <button class="btn-secondary" id="btn-notion-settings" type="button" hidden><i class="iconoir-database"></i> <span data-i18n="hub.notionSettings">Notion settings</span></button>
             <button class="btn-secondary" id="btn-nextcloud-settings" type="button" hidden><i class="iconoir-cloud-upload"></i> <span data-i18n="hub.nextcloudSettings">Nextcloud settings</span></button>
@@ -97,10 +98,7 @@
 
         <div class="hub-access-card" id="admin-access-card">
           <div class="hub-access-header">
-            <div>
-              <div class="hub-active-label" data-i18n="access.label">ACCESS</div>
-              <div class="hub-access-title" data-i18n="access.browserLinks">Browser links</div>
-            </div>
+            <div class="hub-access-title" data-i18n="access.browserLinks">Browser links</div>
             <i class="iconoir-wifi"></i>
           </div>
           <div class="hub-access-row">
@@ -146,7 +144,7 @@
         <div class="sidebar-main">
           <div class="sidebar-header">
             <button class="btn-icon-only" id="btn-machine-settings-back" type="button" data-i18n-title="settingsHub.backToHub" data-i18n-aria-label="settingsHub.backToHub" title="Back to hub" aria-label="Back to hub"><i class="iconoir-home"></i></button>
-            <span class="sidebar-logo"><i class="iconoir-settings"></i> <span data-i18n="settingsHub.title">Settings</span></span>
+            <span class="sidebar-logo"><span data-i18n="settingsHub.title">Settings</span></span>
           </div>
           <div class="sidebar-section sidebar-section--grow" id="machine-settings-nav"></div>
         </div>
@@ -255,7 +253,7 @@
 
           <div class="settings-shell-panel" data-shell-panel="update" hidden>
             <article class="dashboard-card dashboard-card--wide" id="admin-update-card">
-              <div class="dashboard-card-title"><i class="iconoir-download-circled-outline"></i> <span data-i18n="update.title">Python app update</span></div>
+              <div class="dashboard-card-title"><i class="iconoir-download-circle"></i> <span data-i18n="update.title">Python app update</span></div>
               <div class="update-status-row">
                 <span class="status-pill status-pill--waiting" id="update-status-pill" data-i18n="update.loading">Loading</span>
                 <span id="update-version-line">-</span>
@@ -275,11 +273,11 @@
 
           <div class="settings-shell-panel" data-shell-panel="shortcut" hidden>
             <article class="dashboard-card dashboard-card--wide">
-              <div class="dashboard-card-title"><i class="iconoir-desktop"></i> <span data-i18n="hub.createShortcut">Create desktop shortcut</span></div>
+              <div class="dashboard-card-title"><i class="iconoir-computer"></i> <span data-i18n="hub.createShortcut">Create desktop shortcut</span></div>
               <p class="settings-hint" data-i18n="shortcut.body">Places a launcher on this computer's desktop that starts Study Runner and opens the admin page.</p>
               <div class="dashboard-actions">
                 <button class="btn-primary" id="btn-create-shortcut" type="button">
-                  <i class="iconoir-desktop"></i> <span data-i18n="shortcut.action">Create shortcut</span>
+                  <i class="iconoir-computer"></i> <span data-i18n="shortcut.action">Create shortcut</span>
                 </button>
               </div>
               <div class="settings-hint" id="shortcut-result"></div>
@@ -345,7 +343,7 @@
         <div class="sidebar-main">
           <div class="sidebar-header">
             <button class="btn-icon-only" id="btn-study-settings-back" type="button" data-i18n-title="studySettings.backToEditor" data-i18n-aria-label="studySettings.backToEditor" title="Back to editor" aria-label="Back to editor"><i class="iconoir-nav-arrow-left"></i></button>
-            <span class="sidebar-logo"><i class="iconoir-settings-cloud"></i> <span data-i18n="studySettings.title">Study settings</span></span>
+            <span class="sidebar-logo"><span data-i18n="studySettings.title">Study settings</span></span>
           </div>
           <div class="sidebar-section sidebar-section--grow" id="study-settings-nav"></div>
         </div>
@@ -355,7 +353,6 @@
       <section class="admin-dashboard settings-page">
         <div class="dashboard-hero">
           <div>
-            <span class="dashboard-kicker" data-i18n="studySettings.kicker">This study</span>
             <h1 id="study-settings-heading" data-i18n="studySettings.title">Study settings</h1>
             <p data-i18n="studySettings.subtitle">These settings belong to the loaded study and are saved with it.</p>
           </div>
@@ -370,7 +367,7 @@
                 <label class="switch-row" for="study-sensors-enabled" style="margin-bottom: 0;">
                   <span style="display:flex; flex-direction:column; gap:4px;">
                     <strong style="color:var(--ink);" data-i18n="settings.recordBiosignals">Record biosignals</strong>
-                    <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.recordBiosignalsHint">When disabled, this study sends no triggers to external sensors, even if cards request it.</small>
+                    <small style="color:var(--ink-55); line-height:1.4;" data-i18n="settings.recordBiosignalsHint">When disabled, this study sends no triggers to external sensors, even if cards request it.</small>
                   </span>
                   <span class="switch"><input type="checkbox" id="study-sensors-enabled"><span class="switch-slider"></span></span>
                 </label>
@@ -387,12 +384,12 @@
 
           <div class="settings-shell-panel" data-shell-panel="participant" hidden>
             <article class="dashboard-card dashboard-card--wide">
-              <div class="dashboard-card-title"><i class="iconoir-tablet"></i> <span data-i18n="studySettings.participantTitle">Participant experience</span></div>
+              <div class="dashboard-card-title"><i class="iconoir-smartphone-device"></i> <span data-i18n="studySettings.participantTitle">Participant experience</span></div>
               <div class="field">
                 <label class="switch-row" for="study-progress-bar-enabled" style="margin-bottom: 0;">
                   <span style="display:flex; flex-direction:column; gap:4px;">
                     <strong style="color:var(--ink);" data-i18n="settings.showProgressBar">Show progress bar</strong>
-                    <small style="color:var(--ink-40); line-height:1.4;" data-i18n="settings.showProgressBarHint">Shows a slim progress bar at the bottom of the participant page.</small>
+                    <small style="color:var(--ink-55); line-height:1.4;" data-i18n="settings.showProgressBarHint">Shows a slim progress bar at the bottom of the participant page.</small>
                   </span>
                   <span class="switch"><input type="checkbox" id="study-progress-bar-enabled"><span class="switch-slider"></span></span>
                 </label>
@@ -441,7 +438,7 @@
               </div>
               <div class="dashboard-actions">
                 <button class="btn-secondary" id="btn-notion-study-save-key" type="button">
-                  <i class="iconoir-key-alt"></i> <span data-i18n="studySettings.saveKey">Save key</span>
+                  <i class="iconoir-key"></i> <span data-i18n="studySettings.saveKey">Save key</span>
                 </button>
                 <button class="btn-secondary" id="btn-notion-study-clear-key" type="button">
                   <i class="iconoir-trash"></i> <span data-i18n="studySettings.clearKey">Delete this study's key</span>
@@ -538,7 +535,7 @@
               </div>
               <div class="dashboard-actions">
                 <button class="btn-secondary" id="btn-nextcloud-test" type="button">
-                  <i id="nextcloud-test-icon" class="iconoir-plug"></i> <span data-i18n="nextcloud.testButton">Test connection</span>
+                  <i id="nextcloud-test-icon" class="iconoir-ev-plug"></i> <span data-i18n="nextcloud.testButton">Test connection</span>
                 </button>
                 <button class="btn-secondary" id="btn-nextcloud-clear-password" type="button">
                   <i class="iconoir-trash"></i> <span data-i18n="nextcloud.clearPassword">Delete stored password</span>
@@ -586,24 +583,14 @@
 
       <div class="sidebar-header">
         <button class="btn-icon-only" id="btn-workspace-home" data-i18n-title="workspace.backToHub" title="Back to hub"><i class="iconoir-home"></i></button>
-        <span class="sidebar-logo"><i class="iconoir-brain"></i> <span data-i18n="workspace.studyAdmin">Study Admin</span></span>
-        <a href="/?preview=1" target="_blank" class="sidebar-link" id="btn-workspace-preview" data-i18n-title="workspace.preview" title="Preview">
-          <i class="iconoir-eye"></i>
-        </a>
-        <button class="btn-icon-only btn-icon-only--go" id="btn-workspace-start" type="button" data-i18n-title="workspace.startStudy" data-i18n-aria-label="workspace.startStudy" title="Start study" aria-label="Start study">
-          <i class="iconoir-play"></i>
-        </button>
+        <span class="sidebar-logo"><span data-i18n="workspace.studyAdmin">Study Admin</span></span>
       </div>
 
       <div class="sidebar-section">
-        <div class="sidebar-section-title"><i class="iconoir-settings"></i> <span data-i18n="sidebar.settings">Settings</span></div>
-        <div class="field" style="margin-bottom: 8px;">
-          <label data-i18n="sidebar.studyId">Study ID</label>
+        <div class="sidebar-section-title"><span data-i18n="sidebar.studyId">Study ID</span></div>
+        <div class="field">
           <input type="text" id="cfg-id" data-i18n-placeholder="sidebar.studyIdPlaceholder" placeholder="e.g. US1">
         </div>
-        <button class="btn-secondary" id="btn-study-settings" type="button" style="width: 100%; justify-content: center;">
-          <i class="iconoir-settings-cloud"></i> <span data-i18n="sidebar.studySettings">Study settings</span>
-        </button>
       </div>
 
       <div class="sidebar-section sidebar-section--grow">
@@ -634,9 +621,20 @@
     </div><!-- /sidebar-overlay -->
     </div><!-- /sidebar-content -->
 
-    <!-- Save bar: always visible at the bottom, never covered by the overlay -->
+    <!-- Action bar: always visible at the bottom, never covered by the overlay.
+         Everything you do TO the study as a whole lives here - settings,
+         preview, start, save - rather than being split across the header. -->
     <div class="sidebar-save">
-      <button class="btn-primary" id="btn-save-config" type="button" style="width: 100%;" data-i18n="sidebar.saveStudy">Save study</button>
+      <button class="btn-icon-only" id="btn-study-settings" type="button" data-i18n-title="sidebar.studySettings" data-i18n-aria-label="sidebar.studySettings" title="Study settings" aria-label="Study settings">
+        <i class="iconoir-database-settings"></i>
+      </button>
+      <a href="/?preview=1" target="_blank" class="btn-icon-only" id="btn-workspace-preview" data-i18n-title="workspace.preview" data-i18n-aria-label="workspace.preview" title="Preview" aria-label="Preview">
+        <i class="iconoir-eye"></i>
+      </a>
+      <button class="btn-icon-only btn-icon-only--go" id="btn-workspace-start" type="button" data-i18n-title="workspace.startStudy" data-i18n-aria-label="workspace.startStudy" title="Start study" aria-label="Start study">
+        <i class="iconoir-play"></i>
+      </button>
+      <button class="btn-primary" id="btn-save-config" type="button" data-i18n="sidebar.saveStudy">Save study</button>
     </div>
 
   </aside>
@@ -646,7 +644,7 @@
     <div id="admin-edit-view">
       <div id="study-preview"></div>
       <div class="preview-empty" id="preview-empty">
-        <i class="iconoir-list-plus"></i>
+        <i class="iconoir-playlist-plus"></i>
         <p data-i18n="preview.empty">Add a question to see the preview</p>
       </div>
     </div>
@@ -661,7 +659,6 @@
     <section class="admin-dashboard" id="admin-dashboard">
       <div class="dashboard-hero">
         <div>
-          <span class="dashboard-kicker" data-i18n="dashboard.liveControl">Live Control</span>
           <h1 data-i18n="dashboard.title">Biosignal Dashboard</h1>
           <p data-i18n="dashboard.subtitle">Monitor connected study clients and installed plugins from their declared status and controls.</p>
         </div>
@@ -674,7 +671,7 @@
 
       <div class="dashboard-grid">
         <article class="dashboard-card" data-run-scoped>
-          <div class="dashboard-card-title"><i class="iconoir-tablet"></i> <span data-i18n="dashboard.studyClient">Study client</span></div>
+          <div class="dashboard-card-title"><i class="iconoir-smartphone-device"></i> <span data-i18n="dashboard.studyClient">Study client</span></div>
           <div id="dashboard-clients" class="dashboard-card-body" data-i18n="dashboard.waitingHeartbeat">Waiting for study page heartbeat.</div>
           <div class="dashboard-idle-note" data-i18n="dashboard.idleNote">Live values appear once a study is running.</div>
         </article>
@@ -698,7 +695,6 @@
     <section class="admin-dashboard settings-page" id="notion-settings-page">
       <div class="dashboard-hero">
         <div>
-          <span class="dashboard-kicker" data-i18n="notion.uploadIntegration">Upload Integration</span>
           <h1 data-i18n="notion.title">Notion Settings</h1>
           <p data-i18n="notion.subtitle">Configure the backend-local Notion token, the active study target, and the upload queue without editing raw hardware JSON.</p>
         </div>
@@ -770,7 +766,7 @@
             </label>
           </div>
           <div class="dashboard-actions">
-            <button class="btn-secondary" id="btn-notion-test" type="button"><i class="iconoir-plug-xmark" id="notion-test-icon"></i> <span data-i18n="notion.testConnection">Test connection</span></button>
+            <button class="btn-secondary" id="btn-notion-test" type="button"><i class="iconoir-ev-plug-xmark" id="notion-test-icon"></i> <span data-i18n="notion.testConnection">Test connection</span></button>
             <button class="btn-primary" id="btn-notion-save" type="button" data-i18n="notion.saveGlobal">Save global settings</button>
           </div>
           <div id="notion-test-result" hidden></div>
@@ -796,7 +792,6 @@
     <section class="admin-dashboard settings-page" id="session-detail-page">
       <div class="dashboard-hero">
         <div>
-          <span class="dashboard-kicker" data-i18n="sessions.kicker">Completed study</span>
           <h1 id="session-detail-title" data-i18n="sessions.detailLoading">Loading ...</h1>
           <p id="session-detail-subtitle"></p>
         </div>
@@ -835,8 +830,12 @@
         <article class="dashboard-card dashboard-card--wide">
           <div class="dashboard-card-title"><i class="iconoir-graph-up"></i> <span data-i18n="sessions.timeline">Timeline</span></div>
           <div class="settings-hint" data-i18n="sessions.timelineHint">Each lane is one recorded signal. The markers on top are the answered questions - click one to see the answer.</div>
-          <div class="timeline-wrap" id="session-timeline"></div>
-          <div class="timeline-popover" id="session-timeline-popover" hidden></div>
+          <!-- One positioned box around both: the popover is placed in this
+               container's coordinates, so it must be the offset parent. -->
+          <div class="timeline-panel">
+            <div class="timeline-wrap" id="session-timeline"></div>
+            <div class="timeline-popover" id="session-timeline-popover" hidden></div>
+          </div>
         </article>
 
         <article class="dashboard-card dashboard-card--wide">
@@ -859,10 +858,7 @@
 <div class="modal-backdrop" id="access-qr-modal" hidden>
   <div class="settings-modal settings-modal--qr" role="dialog" aria-modal="true" aria-labelledby="access-qr-title">
     <div class="settings-modal-header">
-      <div>
-        <span class="dashboard-kicker" data-i18n="access.qrKicker">Browser access</span>
-        <h2 id="access-qr-title" data-i18n="access.qrTitle">QR code</h2>
-      </div>
+      <h2 id="access-qr-title" data-i18n="access.qrTitle">QR code</h2>
       <button class="overlay-close" id="btn-close-access-qr" type="button" data-i18n-aria-label="access.closeQr" aria-label="Close QR code">
         <i class="iconoir-xmark"></i>
       </button>

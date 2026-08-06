@@ -14,7 +14,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend import create_app
-from study_runner.backend.services.sessions_index_service import list_sessions, min_max_envelope
+from study_runner.backend.services.sessions_index_service import (
+    _stream_descriptor,
+    _validate_window,
+    list_sessions,
+    min_max_envelope,
+)
 from study_runner.backend.services import sessions_index_service
 
 
@@ -270,3 +275,56 @@ class MinMaxEnvelopeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SignalWindowTests(unittest.TestCase):
+    """Zoom asks for a slice of the recording; the slice must be honest."""
+
+    def test_absent_window_means_the_whole_recording(self) -> None:
+        self.assertIsNone(_validate_window(None, None))
+
+    def test_both_bounds_are_required_together(self) -> None:
+        with self.assertRaises(ValueError):
+            _validate_window(10.0, None)
+        with self.assertRaises(ValueError):
+            _validate_window(None, 10.0)
+
+    def test_an_inverted_or_empty_window_is_rejected(self) -> None:
+        for start, end in ((20.0, 10.0), (10.0, 10.0)):
+            with self.subTest(start=start, end=end), self.assertRaises(ValueError):
+                _validate_window(start, end)
+
+    def test_non_finite_bounds_are_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            _validate_window(float("nan"), 10.0)
+        with self.assertRaises(ValueError):
+            _validate_window(0.0, float("inf"))
+
+    def test_a_valid_window_passes_through(self) -> None:
+        self.assertEqual(_validate_window(10.0, 20.0), (10.0, 20.0))
+
+
+class StreamDescriptorTests(unittest.TestCase):
+    """The viewer draws from the LSL header, so it has to survive the trip."""
+
+    def test_the_header_reaches_the_client(self) -> None:
+        descriptor = _stream_descriptor({
+            "name": "BrainBit EEG",
+            "nominal_rate_hz": 250.0,
+            "channels": ["T3", "T4"],
+            "channel_types": {"T3": "EEG", "T4": "EEG"},
+            "channel_units": {"T3": "microvolts"},
+        })
+
+        self.assertEqual(descriptor["stream_name"], "BrainBit EEG")
+        self.assertEqual(descriptor["nominal_rate_hz"], 250.0)
+        self.assertEqual(descriptor["channels"], ["T3", "T4"])
+        self.assertEqual(descriptor["channel_types"]["T4"], "EEG")
+        self.assertEqual(descriptor["channel_units"]["T3"], "microvolts")
+
+    def test_a_stream_without_metadata_still_yields_a_descriptor(self) -> None:
+        descriptor = _stream_descriptor({})
+
+        self.assertEqual(descriptor["stream_name"], "")
+        self.assertEqual(descriptor["channels"], [])
+        self.assertEqual(descriptor["channel_types"], {})

@@ -33,7 +33,9 @@ export function createQrSvg(text, options = {}) {
   return [
     `<svg class="access-qr-svg" xmlns="http://www.w3.org/2000/svg" width="${pixelSize}" height="${pixelSize}" viewBox="0 0 ${viewBoxSize} ${viewBoxSize}" role="img" aria-hidden="true" shape-rendering="crispEdges">`,
     `<rect width="${viewBoxSize}" height="${viewBoxSize}" fill="#fff"/>`,
-    `<path fill="#08080A" d="${path.join('')}"/>`,
+    // Literal ink, not var(--ink): the SVG is also served standalone and to
+    // scanners, where the stylesheet's custom properties do not resolve.
+    `<path fill="#111113" d="${path.join('')}"/>`,
     `</svg>`,
   ].join('');
 }

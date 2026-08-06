@@ -1,0 +1,61 @@
+/* ============================================================
+   AMBIENT BUBBLES
+
+   Companion stylesheet for scripts/lib/ambient-bubbles.js. Kept out of
+   main.css so the effect stays one self-contained pair of files that can be
+   retuned or removed without reading anything else.
+
+   Every value the JS varies per blob arrives as a custom property, so the
+   rules below never need to change to restyle the field - edit CONFIG in the
+   module instead.
+   ============================================================ */
+
+.ambient-bubbles {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ambient-bubbles__blob {
+  position: absolute;
+  top: var(--blob-top);
+  left: var(--blob-left);
+  width: var(--blob-size);
+  height: var(--blob-size);
+  background: var(--blob-color);
+  opacity: var(--blob-opacity);
+  filter: blur(var(--blob-blur));
+  will-change: transform, border-radius;
+
+  /* Two cycles at different periods: one moves the blob, one reshapes it.
+     Because the periods differ they drift out of phase, so the field never
+     repeats a pose the eye can latch onto. */
+  animation:
+    ambient-bubble-drift var(--blob-drift) ease-in-out infinite alternate,
+    ambient-bubble-morph var(--blob-morph) ease-in-out infinite;
+  animation-delay: var(--blob-delay), var(--blob-delay);
+}
+
+@keyframes ambient-bubble-drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(6vmin, -5vmin, 0) scale(1.08); }
+}
+
+/* Asymmetric radii on both axes are what make it read as an organic blob
+   rather than a breathing circle. */
+@keyframes ambient-bubble-morph {
+  0%   { border-radius: 42% 58% 55% 45% / 52% 44% 56% 48%; }
+  33%  { border-radius: 58% 42% 38% 62% / 44% 58% 42% 56%; }
+  66%  { border-radius: 46% 54% 62% 38% / 60% 46% 54% 40%; }
+  100% { border-radius: 42% 58% 55% 45% / 52% 44% 56% 48%; }
+}
+
+/* Anyone who asked the OS for less motion still gets the texture, held still. */
+@media (prefers-reduced-motion: reduce) {
+  .ambient-bubbles__blob {
+    animation: none;
+    border-radius: 46% 54% 55% 45% / 52% 46% 54% 48%;
+  }
+}

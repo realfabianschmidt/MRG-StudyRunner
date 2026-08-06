@@ -22,6 +22,8 @@ import {
   pluginsWithCapability,
 } from './lib/plugin-catalog.js';
 import { createParticipantPluginExtensionManager } from './lib/participant-plugin-extensions.js';
+import { startAmbientBubbles, stopAmbientBubbles } from './lib/ambient-bubbles.js';
+import { loadBranding, renderFunderLogos, renderGroupLogo } from './lib/branding.js';
 
 /**
  * Preview mode: look at the study without being a participant.
@@ -132,14 +134,17 @@ async function init() {
   try {
     if (!IS_PREVIEW) startRuntimePolling();
     await loadStudyConfig();
-    // A preview shows the study straight away. Parking it in the waiting room
-    // would mean the operator has to start a run to see what they just wrote,
-    // which is the opposite of what the button is for.
     if (isWaitingForAdminStart()) {
       showWaitingForAdminStart();
       return;
     }
-    if (IS_PREVIEW) showPreviewBanner();
+    if (IS_PREVIEW) {
+      showPreviewBanner();
+      // Preview shows the real title slide before the cards, so the operator
+      // can check what the participant meets first. There is no admin to press
+      // Start here, so it advances itself.
+      await showPreviewWaitingSlide();
+    }
     await activateStudyUiAfterAdminStart();
   } catch (error) {
     console.error('[study] Could not load configuration:', error);
@@ -159,11 +164,29 @@ async function loadStudyConfig() {
   // Participant extensions are optional. Their asset loading/initialization may
   // never delay the generic participant UI or its monotonic timers.
   void queueParticipantExtensionSync('config_loaded');
+  void applyBranding();
 }
 
 /** In preview there is no run to wait for, so the gate is simply open. */
 function isWaitingForAdminStart() {
   return !IS_PREVIEW && !isStudyRunRunning();
+}
+
+/** How long preview holds on the title slide before moving to the cards. */
+const PREVIEW_WAITING_SLIDE_MS = 5000;
+
+/**
+ * Show the real waiting slide, then continue.
+ *
+ * Deliberately the same `showWaitingForAdminStart` a participant gets, so the
+ * preview cannot drift away from what is actually shown on the tablet - it is
+ * a mirror, not a second implementation of the same screen.
+ */
+async function showPreviewWaitingSlide() {
+  showWaitingForAdminStart();
+  await new Promise((resolve) => setTimeout(resolve, PREVIEW_WAITING_SLIDE_MS));
+  // Leaving the flag set would make the first card think it is still gated.
+  state.waitingForAdminStart = false;
 }
 
 function isStudyRunRunning(runState = state.studyRunState) {
@@ -188,7 +211,9 @@ function showWaitingForAdminStart(options = {}) {
   const title = getElement('study-waiting-title');
   const body = getElement('study-waiting-body');
   if (title) {
-    title.textContent = options.title || t('study.waiting.title', 'Study will start soon');
+    title.textContent = options.title
+      || state.config?.study_id
+      || t('study.waiting.title', 'Study will start soon');
   }
   if (body) {
     body.textContent = options.body || t('study.waiting.body', 'Please keep this page open.');
@@ -858,6 +883,33 @@ function showScreen(screenName) {
   const targetScreen = getElement(`screen-${screenName}`);
   targetScreen.style.animation = '';
   targetScreen.classList.add('active');
+  setWaitingSlideChrome(screenName === 'waiting');
+}
+
+/**
+ * The brand mark, the funder row and the moving background belong to the
+ * waiting slide alone - nothing may drift behind a question.
+ */
+function setWaitingSlideChrome(isWaitingSlide) {
+  const funders = getElement('study-funder-logos');
+  if (isWaitingSlide) {
+    startAmbientBubbles(document.body);
+    if (funders && funders.childElementCount) funders.hidden = false;
+    return;
+  }
+  stopAmbientBubbles();
+  if (funders) funders.hidden = true;
+}
+
+async function applyBranding() {
+  const branding = await loadBranding();
+  renderGroupLogo(getElement('study-brand-logo'), branding);
+  const funders = getElement('study-funder-logos');
+  renderFunderLogos(funders, branding);
+  // renderFunderLogos reveals the row; keep it hidden unless the slide is up.
+  if (funders && !getElement('screen-waiting')?.classList.contains('active')) {
+    funders.hidden = true;
+  }
 }
 
 function shouldStartStudyImmediately() {

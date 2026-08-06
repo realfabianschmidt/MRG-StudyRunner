@@ -3,6 +3,8 @@ import { initializeAdminDashboard } from './admin-dashboard-controller.js';
 import { initializeNotionSettings } from './settings/study/notion-settings-controller.js';
 import { initializeNextcloudSettings } from './settings/study/nextcloud-settings-controller.js';
 import { initializeCertificateSettings } from './settings/machine/certificate-settings-controller.js';
+import { initializeBrandingSettings } from './settings/machine/branding-settings-controller.js';
+import { loadBranding, renderGroupLogo } from './lib/branding.js';
 import { initializeSessionsBrowser, loadCompletedSessions } from './admin/sessions-browser.js';
 import { initializeUploadMonitor } from './admin/upload-monitor.js';
 import { initializeRecoveryPanel, loadRecoveryCandidates } from './admin/recovery-panel.js';
@@ -121,6 +123,14 @@ async function init() {
     saveStudyConfig: saveConfig,
   });
   initializeCertificateSettings({ showToast, switchView });
+  initializeBrandingSettings({
+    showToast,
+    confirmWithModal,
+    // Re-render the hub mark straight away so the operator sees the change
+    // without reopening the page.
+    onBrandingChanged: (branding) => renderGroupLogo($('hub-brand-logo'), branding),
+  });
+  void applyHubBranding();
   initializeStudySettingsPanel({
     showToast,
     switchView,
@@ -269,6 +279,10 @@ function readinessMessage(blocker) {
   return messages[blocker.code] || blocker.code;
 }
 
+async function applyHubBranding() {
+  renderGroupLogo($('hub-brand-logo'), await loadBranding());
+}
+
 function renderStudyRunState() {
   const runState = state.studyRunState || {};
   const tabletGate = state.tabletGate || {};
@@ -362,7 +376,6 @@ function tabletGateHint(tabletGate) {
  */
 async function confirmAndStartFromEditor() {
   const proceed = await confirmWithModal({
-    kicker: t('workspace.startKicker', 'Start study'),
     title: getCurrentStudyName(),
     message: t('workspace.startConfirm', 'The tablet can join as soon as the study is running. Unsaved changes are saved first.'),
     confirmLabel: t('workspace.startConfirmAction', 'Start study'),
@@ -397,7 +410,6 @@ async function startLoadedStudyRun({ buttonId = 'btn-hub-start-study', goToDashb
       + `${readinessSummary(blockers)}\n\n`
       + t('readiness.confirmBody', 'Measurements are saved locally either way, but the uploads listed above will fail. Start anyway?');
     const proceed = await confirmWithModal({
-      kicker: t('readiness.confirmKicker', 'Pre-run check'),
       title: t('readiness.confirmTitle', 'This study is not fully set up:'),
       message,
       confirmLabel: t('readiness.confirmStart', 'Start anyway'),
@@ -751,7 +763,6 @@ async function downloadPythonUpdate() {
   const version = state.updateStatus?.update?.version || '';
   const message = t('update.downloadConfirm', 'Download and verify update {version}?').replace('{version}', version);
   const proceed = await confirmWithModal({
-    kicker: t('update.title', 'Python app update'),
     title: t('update.downloadTitle', 'Download update'),
     message,
     confirmLabel: t('update.download', 'Download'),
@@ -781,7 +792,6 @@ async function downloadPythonUpdate() {
 async function installPythonUpdate() {
   const message = t('update.restartConfirm', 'Restart Study Runner into the staged update now?');
   const proceed = await confirmWithModal({
-    kicker: t('update.title', 'Python app update'),
     title: t('update.installTitle', 'Restart and install'),
     message,
     confirmLabel: t('update.install', 'Restart now'),
@@ -1303,7 +1313,6 @@ function addQuestion(type) {
 async function removeQuestion(index) {
   const message = t('question.removeConfirm', 'Remove question {number}?').replace('{number}', String(index + 1));
   const proceed = await confirmWithModal({
-    kicker: t('question.removeKicker', 'Remove question'),
     title: getCardLabel(state.config.questions[index]) || String(index + 1),
     message,
     confirmLabel: t('question.remove', 'Remove'),
@@ -1447,8 +1456,13 @@ function loadFromFile() {
       const config = JSON.parse(await file.text());
       state.studyRunState = { status: 'loaded', study_id: config.study_id || '' };
       applyLoadedConfig(config);
-      markUnsaved();
-      showToast(t('toast.loadedFile', 'Loaded: {name}').replace('{name}', file.name), 'info');
+      // Import has to persist. Loading the file into the editor and marking it
+      // unsaved left the study invisible in the hub, because the operator who
+      // imported from the hub never sees the editor's Save button.
+      await saveConfig({
+        successMessage: t('toast.importedFile', 'Imported: {name}').replace('{name}', file.name),
+      });
+      switchView('view-workspace');
     } catch {
       showToast(t('toast.invalidJson'), 'error');
     }
@@ -1490,7 +1504,6 @@ async function downloadStudy(id) {
 async function deleteStudy(id) {
   const message = t('hub.recent.deleteConfirm', 'Delete study "{id}" permanently?').replace('{id}', id);
   const proceed = await confirmWithModal({
-    kicker: t('hub.recent.deleteKicker', 'Delete study'),
     title: id,
     message,
     confirmLabel: t('hub.recent.delete', 'Delete'),
@@ -1524,19 +1537,19 @@ async function loadRecentStudies() {
     }
 
     listEl.innerHTML = studies.map(s => `
-      <div class="hub-recent-item" data-study-id="${escapeHtml(s.id)}" style="justify-content: flex-start; padding: 12px 16px;">
-        <div class="hub-recent-item-main" style="flex: 1; display: flex; align-items: center; gap: 10px; cursor: pointer;">
-          <i class="iconoir-journal-page" style="font-size: 20px; color: var(--accent);"></i>
-          <div style="text-align: left;">
-            <div style="font-weight: 600; color: var(--ink);">${escapeHtml(s.id)}</div>
-            <div style="font-size: 0.75rem; color: var(--ink-40);">${escapeHtml(t('hub.recent.modified', 'Last edited'))}: ${new Date(s.modified * 1000).toLocaleString(getLanguage())}</div>
+      <div class="hub-recent-item" data-study-id="${escapeHtml(s.id)}">
+        <div class="hub-recent-item-main">
+          <i class="iconoir-journal-page"></i>
+          <div>
+            <div class="hub-recent-item-title">${escapeHtml(s.id)}</div>
+            <div class="hub-recent-item-meta">${escapeHtml(t('hub.recent.modified', 'Last edited'))}: ${new Date(s.modified * 1000).toLocaleString(getLanguage())}</div>
           </div>
         </div>
-        <div class="hub-recent-actions" style="display: flex; gap: 6px;">
+        <div class="hub-recent-actions">
           <button class="btn-icon-only" data-action="load" title="${escapeHtml(t('hub.recent.load', 'Load'))}"><i class="iconoir-import"></i></button>
           <button class="btn-icon-only" data-action="edit" title="${escapeHtml(t('hub.recent.edit', 'Edit'))}"><i class="iconoir-edit-pencil"></i></button>
           <button class="btn-icon-only" data-action="download" title="${escapeHtml(t('hub.recent.download', 'Download'))}"><i class="iconoir-download"></i></button>
-          <button class="btn-icon-only" data-action="delete" title="${escapeHtml(t('hub.recent.delete', 'Delete'))}" style="color: #D32F2F; border-color: rgba(211,47,47,0.3);"><i class="iconoir-trash"></i></button>
+          <button class="btn-icon-only is-danger" data-action="delete" title="${escapeHtml(t('hub.recent.delete', 'Delete'))}"><i class="iconoir-trash"></i></button>
         </div>
       </div>
     `).join('');

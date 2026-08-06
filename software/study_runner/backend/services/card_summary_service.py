@@ -180,12 +180,16 @@ def _normalize_pyxdf_stream(stream: dict[str, Any], index: int) -> dict[str, Any
     channel_descriptors = _pyxdf_channel_descriptors(info)
     labels = []
     channel_types: dict[str, str] = {}
+    channel_units: dict[str, str] = {}
     for channel_index, descriptor in enumerate(channel_descriptors):
         label = _first_scalar(descriptor.get("label")) or f"channel_{channel_index + 1}"
         labels.append(str(label))
         declared_type = _first_scalar(descriptor.get("type"))
         if declared_type:
             channel_types[str(label)] = str(declared_type)
+        declared_unit = _first_scalar(descriptor.get("unit"))
+        if declared_unit:
+            channel_units[str(label)] = str(declared_unit)
 
     series = _plain_sequence(stream.get("time_series"))
     if series and not labels:
@@ -209,6 +213,7 @@ def _normalize_pyxdf_stream(stream: dict[str, Any], index: int) -> dict[str, Any
         "nominal_rate_hz": _finite_number(_first_scalar(info.get("nominal_srate"))) or 0.0,
         "channels": labels,
         "channel_types": channel_types,
+        "channel_units": channel_units,
         "timestamps": _plain_sequence(stream.get("time_stamps")),
         "samples": samples,
         "metadata": info,

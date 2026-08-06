@@ -7,7 +7,7 @@
  */
 import { escapeHtml } from './dom-utils.js';
 
-export function createModal({ kicker = '', title = '', variant = '', closeLabel = 'Close', onClose = null } = {}) {
+export function createModal({ title = '', variant = '', closeLabel = 'Close', onClose = null } = {}) {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.hidden = true;
@@ -16,10 +16,7 @@ export function createModal({ kicker = '', title = '', variant = '', closeLabel 
   backdrop.innerHTML = `
     <div class="settings-modal${variantClass}" role="dialog" aria-modal="true">
       <div class="settings-modal-header">
-        <div>
-          ${kicker ? `<span class="dashboard-kicker">${escapeHtml(kicker)}</span>` : ''}
-          <h2>${escapeHtml(title)}</h2>
-        </div>
+        <h2>${escapeHtml(title)}</h2>
         <button class="overlay-close" type="button" aria-label="${escapeHtml(closeLabel)}" title="${escapeHtml(closeLabel)}">
           <i class="iconoir-xmark"></i>
         </button>
@@ -66,17 +63,12 @@ export function createModal({ kicker = '', title = '', variant = '', closeLabel 
     if (heading) heading.textContent = value;
   }
 
-  function setKicker(value) {
-    const kickerEl = dialog?.querySelector('.dashboard-kicker');
-    if (kickerEl) kickerEl.textContent = value;
-  }
-
   function destroy() {
     close();
     backdrop.remove();
   }
 
-  return { element: backdrop, body, open, close, isOpen, setTitle, setKicker, destroy };
+  return { element: backdrop, body, open, close, isOpen, setTitle, destroy };
 }
 
 /**
@@ -89,7 +81,6 @@ export function createModal({ kicker = '', title = '', variant = '', closeLabel 
  * Resolves true when confirmed, false on cancel, Escape, or backdrop click.
  */
 export function confirmWithModal({
-  kicker = '',
   title = '',
   message = '',
   confirmLabel = 'Confirm',
@@ -106,7 +97,6 @@ export function confirmWithModal({
     };
 
     const modal = createModal({
-      kicker,
       title,
       variant,
       closeLabel: cancelLabel,

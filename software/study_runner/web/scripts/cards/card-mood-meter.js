@@ -11,7 +11,7 @@ const QUADRANTS = [
   {
     id: 'red',
     label: 'High Energy - Unpleasant',
-    color: '#C0392B', colorDark: '#7B241C',
+    color: '#B4402E', colorDark: '#7B241C',
     dirX: -1, dirY: -1,
     examples: ['Stressed', 'Anxious', 'Frustrated'],
     words: [
@@ -25,7 +25,7 @@ const QUADRANTS = [
   {
     id: 'yellow',
     label: 'High Energy - Pleasant',
-    color: '#D4860A', colorDark: '#9A6108',
+    color: '#BD7A1E', colorDark: '#9A6108',
     dirX: 1, dirY: -1,
     examples: ['Excited', 'Happy', 'Enthusiastic'],
     words: [
@@ -39,7 +39,7 @@ const QUADRANTS = [
   {
     id: 'green',
     label: 'Low Energy - Pleasant',
-    color: '#1E8449', colorDark: '#145A32',
+    color: '#2F7A4D', colorDark: '#145A32',
     dirX: 1, dirY: 1,
     examples: ['Calm', 'Content', 'Serene'],
     words: [
@@ -53,7 +53,7 @@ const QUADRANTS = [
   {
     id: 'blue',
     label: 'Low Energy - Unpleasant',
-    color: '#2471A3', colorDark: '#1A5276',
+    color: '#2A6FA0', colorDark: '#1A5276',
     dirX: -1, dirY: 1,
     examples: ['Sad', 'Tired', 'Hopeless'],
     words: [

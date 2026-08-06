@@ -257,7 +257,7 @@ class EditorFieldOrderTests(unittest.TestCase):
         self.assertIn(".editor-toggle {", css)
         # .switch-row still carries its filled background for the participant page.
         block = css[css.index(".switch-row {") : css.index("}", css.index(".switch-row {"))]
-        self.assertIn("var(--ink-06)", block)
+        self.assertIn("var(--ink-08)", block)
 
 
 class PreviewModeTests(unittest.TestCase):

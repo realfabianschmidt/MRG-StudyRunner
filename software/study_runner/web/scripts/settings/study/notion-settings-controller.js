@@ -24,6 +24,8 @@ export function initializeNotionSettings(options = {}) {
   $('btn-notion-flush')?.addEventListener('click', () => void flushNotionQueue());
   $('btn-notion-test')?.addEventListener('click', () => void testNotionConnection());
   $('btn-notion-clear-key')?.addEventListener('click', () => setClearKeyRequested(!clearKeyRequested));
+  $('btn-notion-study-save-key')?.addEventListener('click', () => void saveStudyNotionKey());
+  $('btn-notion-study-clear-key')?.addEventListener('click', () => void clearStudyNotionKey());
 
   setClearKeyRequested(false);
 }
@@ -38,6 +40,7 @@ async function openNotionSettings() {
     $('notion-auto-retry').checked = config.auto_retry_failed !== false;
     setClearKeyRequested(false);
     populateStudyForm();
+    void refreshStudyKeyState();
     $('notion-api-key-status').textContent = config.api_key_configured
       ? t('notion.apiKeyAlreadyStored', 'API key is already stored on this backend. Leave the field empty to keep it.')
       : t('notion.noBackendApiKey', 'No backend-local API key is stored yet.');
@@ -142,13 +145,13 @@ async function testNotionConnection() {
       api_key: $('notion-api-key').value.trim(),
     });
     renderTestResult(result);
-    if (icon) icon.className = result.ok ? 'iconoir-plug' : 'iconoir-plug-xmark';
+    if (icon) icon.className = result.ok ? 'iconoir-ev-plug' : 'iconoir-ev-plug-xmark';
   } catch (error) {
     if (resultEl) {
       resultEl.innerHTML = `<div class="notion-test-result-box notion-test-result-box--fail"><div class="notion-test-row"><i class="iconoir-xmark-circle"></i><span>${escapeHtml(t('notion.serverError', 'Server error'))}: ${escapeHtml(error.message)}</span></div></div>`;
       resultEl.hidden = false;
     }
-    if (icon) icon.className = 'iconoir-plug-xmark';
+    if (icon) icon.className = 'iconoir-ev-plug-xmark';
   } finally {
     if (button) button.disabled = false;
   }
@@ -269,15 +272,6 @@ function setStepState(id, state, label) {
   target.dataset.state = state;
 }
 
-/**
- * Fill the per-study Notion fields from the loaded study.
- * The study target now lives in the study-settings shell, so that shell
- * calls this when its Notion panel is shown.
- */
-export function refreshNotionStudyFields() {
-  populateStudyForm();
-}
-
 function populateStudyForm() {
   const config = callbacks.getStudyConfig?.() || {};
   const settings = normalizeStudySettings(config.study_settings);
@@ -311,4 +305,66 @@ function getCurrentStudyName() {
 function setText(id, value) {
   const target = $(id);
   if (target) target.textContent = value;
+}
+
+/**
+ * This study's own Notion key.
+ *
+ * Kept out of `saveStudyNotionSettings` on purpose: the study config travels
+ * in the exported .study-runner file, and a credential must never go with it.
+ * Keys go to the local secrets store through their own endpoint instead.
+ */
+async function saveStudyNotionKey() {
+  const studyId = callbacks.getCurrentStudyName?.();
+  const input = $('notion-study-api-key');
+  if (!studyId || !input) return;
+
+  const value = input.value.trim();
+  if (!value) {
+    callbacks.showToast?.(t('studySettings.keyEmpty', 'Enter a key first, or use Delete to remove it.'), 'error');
+    return;
+  }
+  await writeStudyCredentials(studyId, { notion: value }, t('studySettings.keySaved', 'Key saved for this study'));
+  input.value = '';
+}
+
+async function clearStudyNotionKey() {
+  const studyId = callbacks.getCurrentStudyName?.();
+  if (!studyId) return;
+  await writeStudyCredentials(studyId, { clear_notion: true }, t('studySettings.keyCleared', "This study's key was deleted"));
+  const input = $('notion-study-api-key');
+  if (input) input.value = '';
+}
+
+async function writeStudyCredentials(studyId, body, successMessage) {
+  try {
+    const response = await postJson(`/api/admin/studies/${encodeURIComponent(studyId)}/credentials`, body);
+    if (response?.ok === false) throw new Error(response.error || '');
+    callbacks.showToast?.(successMessage, 'success');
+    await refreshStudyKeyState(studyId);
+  } catch (error) {
+    callbacks.showToast?.(String(error.message || error) || t('studySettings.keyFailed', 'The key could not be saved.'), 'error');
+  }
+}
+
+/** Say whether a key is in place and whose it is; never show the value. */
+export async function refreshStudyKeyState(studyId = callbacks.getCurrentStudyName?.()) {
+  const state = $('notion-study-key-state');
+  if (!state || !studyId) return;
+  try {
+    const response = await getJson(`/api/admin/studies/${encodeURIComponent(studyId)}/credentials`);
+    // `credentials` is keyed by kind; `scope` says where the key comes from.
+    const notion = response?.credentials?.notion || {};
+    if (notion.scope === 'study') {
+      state.textContent = t('studySettings.keyFromStudy', 'This study has its own key.');
+    } else if (notion.scope === 'env') {
+      state.textContent = t('studySettings.keyFromEnv', 'An environment variable is overriding the key.');
+    } else if (notion.configured) {
+      state.textContent = t('studySettings.keyFromShared', 'Using the shared key from the settings hub.');
+    } else {
+      state.textContent = t('studySettings.keyMissing', 'No key configured yet.');
+    }
+  } catch {
+    state.textContent = '';
+  }
 }

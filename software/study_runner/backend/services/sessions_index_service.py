@@ -96,6 +96,8 @@ def load_signal_samples(
     session_id: str | None = None,
     session_folder: str | None = None,
     max_points: int = DEFAULT_MAX_POINTS,
+    start: float | None = None,
+    end: float | None = None,
 ) -> dict[str, Any]:
     # Validate before opening a potentially large XDF.
     if max_points < 1 or max_points > MAX_MAX_POINTS:
@@ -113,16 +115,25 @@ def load_signal_samples(
     if not matching:
         raise SessionNotFoundError(f"No {stream_key} stream was recorded for this session.")
 
+    window = _validate_window(start, end)
+
     stream = matching[0]
     timestamps = list(stream.get("timestamps") or [])
     rows = list(stream.get("samples") or [])
     samples = []
     for timestamp, row in zip(timestamps, rows):
+        # Clip before downsampling, so a zoomed-in request spends its whole
+        # point budget on the span the operator is actually looking at.
+        if window is not None and not (window[0] <= timestamp <= window[1]):
+            continue
         sample = _json_safe(dict(row) if isinstance(row, dict) else {"value": row})
         sample["_epoch"] = _json_safe(timestamp)
         samples.append(sample)
     downsampled = min_max_envelope(samples, max_points)
     return {
+        **_stream_descriptor(stream),
+        "window_start": _json_safe(window[0]) if window else None,
+        "window_end": _json_safe(window[1]) if window else None,
         "study_id": str(payload.get("study_id") or study_id),
         "participant_id": str(payload.get("participant_id") or participant_id),
         "session_id": str(payload.get("session_id") or ""),
@@ -133,6 +144,19 @@ def load_signal_samples(
         "sample_count": len(samples),
         **downsampled,
     }
+
+
+def _validate_window(start: float | None, end: float | None) -> tuple[float, float] | None:
+    """Both bounds or neither; an inverted window is a caller bug, not empty data."""
+    if start is None and end is None:
+        return None
+    if start is None or end is None:
+        raise ValueError("start and end must be given together.")
+    if not (math.isfinite(start) and math.isfinite(end)):
+        raise ValueError("start and end must be finite epoch seconds.")
+    if start >= end:
+        raise ValueError("start must be earlier than end.")
+    return (start, end)
 
 
 def min_max_envelope(samples: list[dict[str, Any]], max_points: int) -> dict[str, Any]:
@@ -318,7 +342,23 @@ def _stream_metadata(session_root: Path, stream: dict[str, Any]) -> dict[str, An
         "sample_count": min(len(timestamps), len(list(stream.get("samples") or []))),
         "timestamp_start": _json_safe(timestamps[0]) if timestamps else None,
         "timestamp_end": _json_safe(timestamps[-1]) if timestamps else None,
+        **_stream_descriptor(stream),
+    }
+
+
+def _stream_descriptor(stream: dict[str, Any]) -> dict[str, Any]:
+    """The parts of the LSL header the viewer renders from.
+
+    Everything here comes out of the recording itself, so a sensor added later
+    through a plugin gets a labelled, correctly drawn track without the viewer
+    or any manifest knowing it exists.
+    """
+    return {
+        "stream_name": str(stream.get("name") or ""),
         "nominal_rate_hz": _json_safe(stream.get("nominal_rate_hz")),
+        "channels": [str(channel) for channel in (stream.get("channels") or [])],
+        "channel_types": {str(k): str(v) for k, v in (stream.get("channel_types") or {}).items()},
+        "channel_units": {str(k): str(v) for k, v in (stream.get("channel_units") or {}).items()},
     }
 
 

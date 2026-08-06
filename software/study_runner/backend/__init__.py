@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 
-from flask import Flask
+from flask import Flask, request
 
 from study_runner.integrations.registry import build_context, initialize_plugins
 from .routes import register_routes
@@ -87,6 +87,7 @@ def create_app() -> Flask:
     app.config["DATA_DIR"] = runtime_paths.data_dir
     app.config["SAVED_STUDIES_DIR"] = runtime_paths.saved_studies_dir
     app.config["LOCAL_SECRETS_FILE"] = runtime_paths.local_secrets_file
+    app.config["BRANDING_DIR"] = runtime_paths.branding_dir
     app.config["USES_EXTERNAL_STORAGE"] = runtime_paths.uses_external_storage
     app.config["APP_MODE"] = get_app_mode()
     app.config["SERVER_HOST"] = read_server_host()
@@ -137,8 +138,36 @@ def create_app() -> Flask:
     )
     configure_finalization(app)
     register_routes(app)
+    _install_cache_policy(app)
     app.config["TRIAL_EVENT_SERVICE"].resume_pending(stop_trial_session)
     return app
+
+
+def _install_cache_policy(app: Flask) -> None:
+    """Never let a browser serve yesterday's interface.
+
+    Study Runner updates in place: the operator restarts the server and the
+    tablet just reloads. Without this, both keep whatever HTML and modules they
+    cached, so a shipped change silently does not arrive - which is exactly how
+    a new participant screen went missing on a tablet nobody thought to
+    hard-reload.
+
+    The pages are tiny and gate every module, so they are never stored. Static
+    assets revalidate instead: Flask already sends ETag and Last-Modified, so an
+    unchanged file answers 304 and stays fast on a lab LAN, while a changed one
+    is always fetched.
+    """
+
+    @app.after_request
+    def apply_cache_policy(response):
+        # Files are served in passthrough mode; setting a header does not touch
+        # the body, so they must not be skipped - they are the whole point.
+        path = request.path or ""
+        if path in {"/", "/admin"}:
+            response.headers["Cache-Control"] = "no-store"
+        elif path.startswith("/static/"):
+            response.headers.setdefault("Cache-Control", "no-cache")
+        return response
 
 
 def _write_finalization_end_marker(app: Flask, context) -> dict:

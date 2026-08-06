@@ -44,7 +44,6 @@ export function initializeUploadMonitor(options = {}) {
   initialized = true;
 
   modal = createModal({
-    kicker: t('finalization.kicker', 'Session finalization'),
     title: t('finalization.title', 'Finalization in progress'),
     closeLabel: t('settings.close', 'Close'),
     onClose: () => {
@@ -191,11 +190,6 @@ function pickLegacyFocus(sessions) {
 
 function openModal(session) {
   modalSessionKey = session.session_key || session.session_id;
-  modal.setKicker?.(session.is_finalization
-    ? t('finalization.kicker', 'Session finalization')
-    : session.local_saved
-      ? t('uploads.completionKicker', 'Completed study')
-      : t('uploads.kicker', 'Background upload'));
   modal.setTitle(session.is_finalization
     ? `${session.study_id} / ${session.participant_id}`
     : session.local_saved

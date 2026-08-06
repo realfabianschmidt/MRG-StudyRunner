@@ -150,13 +150,13 @@ async function testConnection() {
       renderTestResult('nextcloud-test-result', result, {
         fallbackErrorLabel: t('nextcloud.testFailed', 'Connection failed'),
       });
-      if (icon) icon.className = result.ok ? 'iconoir-plug' : 'iconoir-plug-xmark';
+      if (icon) icon.className = result.ok ? 'iconoir-ev-plug' : 'iconoir-ev-plug-xmark';
     } catch (error) {
       console.error('[nextcloud] Test failed:', error);
       renderTestResult('nextcloud-test-result', { ok: false, error: error.message }, {
         fallbackErrorLabel: t('nextcloud.testFailed', 'Connection failed'),
       });
-      if (icon) icon.className = 'iconoir-plug-xmark';
+      if (icon) icon.className = 'iconoir-ev-plug-xmark';
     }
   });
 }

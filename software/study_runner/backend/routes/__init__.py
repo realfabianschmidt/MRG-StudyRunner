@@ -10,6 +10,7 @@
 - nextcloud.py Nextcloud public-share connection test
 - sessions.py completed-session index and timeline data
 - certificate.py certificate status and root-CA transfer between computers
+- branding.py operator-supplied group and funder logos for the waiting slide
 - uploads.py  background upload status/retry and opening result folders
 - recovery.py finalize/discard crash-orphaned sessions
 - finalization.py persistent post-submit state, retry, and degraded approval
@@ -22,7 +23,7 @@ from flask import Flask, jsonify
 
 from ..services.trial_service import configure_runtime
 from ..services.validation import ValidationError
-from . import admin, certificate, finalization, nextcloud, notion, pages, plugins, recovery, results, sensors, sessions, study, update, uploads
+from . import admin, branding, certificate, finalization, nextcloud, notion, pages, plugins, recovery, results, sensors, sessions, study, update, uploads
 
 
 def register_routes(app: Flask) -> None:
@@ -44,6 +45,7 @@ def register_routes(app: Flask) -> None:
     app.register_blueprint(nextcloud.bp)
     app.register_blueprint(sessions.bp)
     app.register_blueprint(certificate.bp)
+    app.register_blueprint(branding.bp)
     app.register_blueprint(uploads.bp)
     app.register_blueprint(recovery.bp)
     app.register_blueprint(plugins.bp)

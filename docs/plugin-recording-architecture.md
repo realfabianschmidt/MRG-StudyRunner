@@ -486,3 +486,45 @@ macOS Intel, and macOS ARM. Linux runs only Python, JavaScript, schema, and
 static tests. Physical BrainBit, MR60, tablet, camera/emotion, Notion, and
 Nextcloud smoke tests remain a required release gate before recording becomes
 the default in production.
+
+## What the session viewer reads from your stream
+
+The completed-session timeline draws itself from the merged XDF, not from any
+per-sensor code or configuration. A plugin that publishes a well-described LSL
+stream therefore appears in the viewer with correct labels and the right kind of
+track without a single change in the core.
+
+Put these in the stream header when you create the outlet:
+
+| Field | Used for |
+|---|---|
+| `name` | the track group's heading, shown to the operator |
+| `nominal_srate` | rendering: at or above 20 Hz a channel is drawn as a filled waveform, below it as a line |
+| `desc/channels/channel/label` | the per-track label |
+| `desc/channels/channel/type` | rendering override: a continuous LSL type (`EEG`, `ECG`, `EMG`, `EOG`, `GSR`, `EDA`, `PPG`, `Respiration`, `Accelerometer`, …) is drawn as a waveform whatever the rate says; `Markers` is drawn as event ticks |
+| `desc/channels/channel/unit` | shown next to the track label |
+| `desc/study_runner/plugin_key` | ties the stream back to your plugin |
+
+Nothing is mandatory. Without a rate or a type a channel is drawn as a line;
+without labels the viewer falls back to the numeric keys in the samples and
+hides obvious bookkeeping fields (sequence numbers, timestamps, jitter, drop
+counters). The result is still readable — it just does not say `microvolts`.
+
+**Optional curation.** A sensor that records twenty numeric fields would arrive
+as twenty tracks. Listing the ones worth looking at in your manifest limits the
+viewer to exactly those, in your order:
+
+```json
+"ui": { "timeline": {
+  "lane_aliases": ["mr60"],
+  "preferred_channels": ["heartPhase", "heartRate", "breathPhase", "breathRate"]
+}}
+```
+
+Declaring nothing is equally supported and is the path a new plugin should be
+able to take: everything meaningful in the stream is then discovered from the
+header. Note that `preferred_channels` filters, so a channel you leave out will
+not be drawn even though it was recorded — the recording itself is unaffected.
+
+To see any of this without hardware, `tools/make_timeline_fixture.py` writes a
+synthetic session with three streams at 250 Hz, 64 Hz and 1 Hz.

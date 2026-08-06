@@ -13,7 +13,10 @@ class SessionsBrowserContractTests(unittest.TestCase):
 
         self.assertIn('data-session-folder="${escapeHtml(session.session_folder)}"', source)
         self.assertIn("params.set('session_folder', sessionFolder)", source)
-        self.assertIn("session_folder=${encodeURIComponent(session.session_folder)}", source)
+        # The signals request carries the same canonical folder. Asserted on the
+        # parameter rather than on one way of building the query string, so
+        # swapping a template literal for URLSearchParams is not a regression.
+        self.assertIn("session_folder: session.session_folder", source)
         self.assertNotIn("result_file=", source)
 
 

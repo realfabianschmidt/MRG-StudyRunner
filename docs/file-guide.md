@@ -19,6 +19,7 @@ Edit-safety legend:
 | `software/study_runner/version.py` | The single version number of the app | yes |
 | `tools/study_runner_manager.py` | Standalone Install & Repair Wizard (downloads, verifies, installs releases) | no |
 | `tools/setup_recording_worker.py` | One-time source setup: verifies the toolchain, builds only the current native XDF core, runs CTest and the Python/PyXDF smoke test | no |
+| `tools/make_timeline_fixture.py` | Writes a synthetic completed session with a real multi-stream XDF, so the timeline can be seen without recording hardware | no |
 | `tools/install-windows.ps1` / `tools/install-macos.sh` | Idempotent first-install/repair flows: system prerequisites on request, `.venv`, Python requirements, and verified XDF core | careful |
 | `tools/start-windows.ps1` / `tools/start-macos.sh` | Daily source-server launchers that use the repository `.venv` directly | careful |
 | `software/constraints/py312-*.txt` | Bounded release-tested Python 3.12 compatibility pins: bootstrap, common runtime, and platform-selected local emotion stack | careful |
@@ -38,6 +39,7 @@ Edit-safety legend:
 | `routes/nextcloud.py` | Tests a study's writable Nextcloud public-share connection | careful |
 | `routes/sessions.py` | Read-only completed-session list, detail, and timeline-signal APIs | careful |
 | `routes/certificate.py` | Certificate status plus guarded root-CA export/import endpoints | no |
+| `routes/branding.py` | Uploads, removes, and serves the operator's group and funder logos | no |
 | `routes/uploads.py` | Background-upload status/retry and validated result-folder opening | no |
 | `routes/recovery.py` | Lists crash-orphaned sessions and finalizes or discards them | no |
 | `routes/finalization.py` | Read-only status plus guarded retry, degraded-confirmation, and exact-session-folder actions for durable finalization jobs | no |
@@ -63,6 +65,7 @@ Edit-safety legend:
 | `services/ssl_service.py` | Local HTTPS certificate authority for tablet camera access | no |
 | `services/certificate_download_service.py` | Plain-HTTP, one-file bootstrap download for the local root CA | careful |
 | `services/certificate_transfer_service.py` | Validates, exports, and transactionally imports the reusable local root CA | no |
+| `services/branding_service.py` | Validates logo uploads and resolves a slot to a stored file, never to a caller's path | no |
 | `services/upload_jobs_service.py` | Persistent upload journal, crash replay, backoff worker, and retry state | no |
 | `services/upload_runtime.py` | Registers manifest-declared destination plugin handlers with persistent upload jobs | no |
 | `services/folder_open_service.py` | Validates and opens result folders on Windows or macOS | no |
@@ -182,6 +185,7 @@ mapping:
 | `admin-dashboard-controller.js` | Live sensor dashboard with plain-language statuses | careful |
 | `settings/machine/machine-settings-panel.js` | Machine settings shell: nav, generated sensor forms, tablet links | careful |
 | `settings/machine/certificate-settings-controller.js` | Certificate status, setup, export, and import, inside the machine settings shell | no |
+| `settings/machine/branding-settings-controller.js` | Upload and remove the group and funder logos, inside the machine settings shell | no |
 | `settings/study/study-settings-panel.js` | Per-study settings shell (editor only): sensors, participant, uploads, export | careful |
 | `settings/study/notion-settings-controller.js` | Notion fields inside the per-study settings panel | careful |
 | `settings/study/nextcloud-settings-controller.js` | Nextcloud fields inside the per-study settings panel | careful |
@@ -193,6 +197,7 @@ mapping:
 | `lib/study-settings.js` | THE client-side study-settings shape; mirrors `_validate_study_settings` | no |
 | `lib/deadline-timer.js` | Monotonic deadline timer whose UI ticks never define elapsed study time | no |
 | `lib/finalization-view-model.js` | Pure finalization status/progress view model | careful |
+| `lib/timeline-view-model.js` | Pure timeline model: stream grouping, waveform/line classification from the LSL header, zoom window maths | careful |
 | `lib/plugin-catalog.js` | Fetches and indexes manifest-derived plugin UI capabilities | careful |
 | `lib/participant-plugin-extensions.js` | Failure-isolated lifecycle manager for manifest-declared participant extensions | careful |
 | `lib/reliable-event-queue.js` | Session-local idempotent marker/event buffering and retry | no |
@@ -200,6 +205,8 @@ mapping:
 | `lib/settings-shell.js` | Shared left-nav/right-panel wiring for both settings surfaces | careful |
 | `lib/dom-utils.js` | Shared safe DOM lookup, text/HTML assignment, and escaping helpers | careful |
 | `lib/modal.js` | Shared accessible modal lifecycle, modal-shell markup, and the yes/no confirmation | careful |
+| `lib/branding.js` | Shared branding fetch and logo rendering for the waiting slide and the hub | careful |
+| `lib/ambient-bubbles.js` | Self-contained morphing background for the waiting slide; tune CONFIG at the top | no |
 | `lib/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
 | `api-client.js` | Tiny fetch helpers (getJson/postJson) | careful |
 | `i18n.js` | Translation loading and the `t()` helper | careful |

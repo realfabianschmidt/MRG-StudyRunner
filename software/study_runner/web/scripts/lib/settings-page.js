@@ -9,20 +9,6 @@
 import { byId, escapeHtml } from './dom-utils.js';
 
 /**
- * Wire the open/back navigation of a settings view.
- * `onOpen` runs after the view is shown, so it can load and render data.
- */
-export function wireSettingsPage({ viewId, openButtonId, backButtonId, switchView, onOpen }) {
-  const open = async () => {
-    switchView?.(viewId);
-    await onOpen?.();
-  };
-  byId(openButtonId)?.addEventListener('click', () => void open());
-  byId(backButtonId)?.addEventListener('click', () => switchView?.('view-hub'));
-  return { open };
-}
-
-/**
  * Mark one setup step as ready / missing / optional.
  * The state drives the colour via the `data-state` attribute in main.css.
  */

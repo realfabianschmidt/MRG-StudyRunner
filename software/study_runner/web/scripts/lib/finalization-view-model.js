@@ -13,7 +13,7 @@ export function finalizationProgress(job) {
   };
 }
 
-export function isFinalizationActive(job) {
+function isFinalizationActive(job) {
   if (!job?.job_id || job.status === 'completed') return false;
   if (job.status === 'completed_degraded') {
     return (Array.isArray(job.steps) ? job.steps : []).some((step) => (

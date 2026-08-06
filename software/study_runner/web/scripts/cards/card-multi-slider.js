@@ -40,7 +40,7 @@ export function renderStudy(q, i) {
   }).join('');
 
   return `
-    <div class="q-type-tag"><i class="iconoir-sliders-vertical"></i> ${escapeHtml(t('cards.multiSlider.tag', 'Rating scales'))}</div>
+    <div class="q-type-tag"><i class="iconoir-control-slider"></i> ${escapeHtml(t('cards.multiSlider.tag', 'Rating scales'))}</div>
     <p class="q-prompt">${escapeHtml(q.prompt)}</p>
     ${renderCardInstruction(q)}
     <div class="ms-stack">${rows}</div>`;

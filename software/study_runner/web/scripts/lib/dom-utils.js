@@ -23,11 +23,6 @@ export function setText(id, value) {
   if (target) target.textContent = value;
 }
 
-export function setHtml(id, markup) {
-  const target = byId(id);
-  if (target) target.innerHTML = markup;
-}
-
 export function setHidden(id, hidden) {
   const target = byId(id);
   if (target) target.hidden = Boolean(hidden);
