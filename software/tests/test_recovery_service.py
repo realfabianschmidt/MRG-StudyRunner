@@ -19,11 +19,11 @@ from study_runner.backend.services.recovery_service import (
     list_recovery_candidates,
     recovery_session_sets,
 )
-from study_runner.plugin_framework.plugin_api import IntegrationContext
+from study_runner.plugin_framework.plugin_api import PluginContext
 
 
-def _context(data_dir: Path) -> IntegrationContext:
-    return IntegrationContext(
+def _context(data_dir: Path) -> PluginContext:
+    return PluginContext(
         base_dir=data_dir.parent,
         data_dir=data_dir,
         hardware_config={},

@@ -3,34 +3,34 @@ from __future__ import annotations
 
 from typing import Any
 
-from study_runner.plugin_framework.plugin_api import IntegrationContext, IntegrationPlugin
+from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
 
 
-def _initialize(context: IntegrationContext) -> None:
+def _initialize(context: PluginContext) -> None:
     from . import adapter
 
     adapter.initialize()
 
 
-def _status(context: IntegrationContext) -> dict[str, Any]:
+def _status(context: PluginContext) -> dict[str, Any]:
     from . import adapter
 
     return adapter.status()
 
 
-def _stop(context: IntegrationContext) -> None:
+def _stop(context: PluginContext) -> None:
     from . import adapter
 
     adapter.stop()
 
 
-def _emit(context: IntegrationContext, options: dict[str, Any]) -> None:
+def _emit(context: PluginContext, options: dict[str, Any]) -> None:
     from . import adapter
 
     adapter.emit(options)
 
 
-PLUGIN = IntegrationPlugin(
+PLUGIN = Plugin(
     key="clock_diagnostics",
     label="Clock diagnostics",
     category="sync",

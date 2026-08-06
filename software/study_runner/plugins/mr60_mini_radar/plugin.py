@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import config_section
-from study_runner.plugin_framework.plugin_api import IntegrationContext, IntegrationPlugin
+from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
 
 
-def _initialize(context: IntegrationContext) -> None:
+def _initialize(context: PluginContext) -> None:
     config = config_section(context, "mini_radar", "radar")
     if not config:
         return
@@ -36,7 +36,7 @@ def _initialize(context: IntegrationContext) -> None:
     )
 
 
-def _status(context: IntegrationContext) -> dict[str, Any]:
+def _status(context: PluginContext) -> dict[str, Any]:
     config = config_section(context, "mini_radar", "radar")
     from . import adapter
 
@@ -50,7 +50,7 @@ def _status(context: IntegrationContext) -> dict[str, Any]:
     }
 
 
-def _start(context: IntegrationContext) -> Any:
+def _start(context: PluginContext) -> Any:
     from . import adapter
 
     if not adapter.is_configured():
@@ -58,13 +58,13 @@ def _start(context: IntegrationContext) -> Any:
     return adapter.start()
 
 
-def _stop(context: IntegrationContext) -> Any:
+def _stop(context: PluginContext) -> Any:
     from . import adapter
 
     return adapter.stop()
 
 
-def _restart(context: IntegrationContext) -> Any:
+def _restart(context: PluginContext) -> Any:
     from . import adapter
 
     if not adapter.is_configured():
@@ -73,7 +73,7 @@ def _restart(context: IntegrationContext) -> Any:
     return adapter.restart()
 
 
-def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
+def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
     from . import adapter
 
     # The registry invokes this hook only for an enabled plugin. Canonical LSL
@@ -82,25 +82,25 @@ def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
     adapter.set_recording(True)
 
 
-def _trial_stop(context: IntegrationContext, options: dict[str, Any]) -> None:
+def _trial_stop(context: PluginContext, options: dict[str, Any]) -> None:
     from . import adapter
 
     adapter.set_recording(False)
 
 
-def _interval(context: IntegrationContext, start_epoch: float, end_epoch: float) -> dict[str, Any]:
+def _interval(context: PluginContext, start_epoch: float, end_epoch: float) -> dict[str, Any]:
     from . import adapter
 
     return adapter.get_interval_summary(start_epoch, end_epoch)
 
 
-def _export(context: IntegrationContext, start_epoch: float, end_epoch: float) -> list[dict[str, Any]]:
+def _export(context: PluginContext, start_epoch: float, end_epoch: float) -> list[dict[str, Any]]:
     from . import adapter
 
     return adapter.export_interval_samples(start_epoch, end_epoch)
 
 
-PLUGIN = IntegrationPlugin(
+PLUGIN = Plugin(
     key="mini_radar",
     label="MR60 Mini-radar",
     category="biosignal",

@@ -60,8 +60,8 @@ async function runDashboardAction(actionSource, elements, showToast) {
   }
   const toggleMatch = action.match(/^toggle_(.+)_(on|off)$/);
   if (toggleMatch) {
-    const [, integrationKey, state] = toggleMatch;
-    await updateIntegrationToggle(integrationKey, state === 'on', elements, showToast);
+    const [, pluginKey, state] = toggleMatch;
+    await updatePluginToggle(pluginKey, state === 'on', elements, showToast);
     return;
   }
 
@@ -70,9 +70,9 @@ async function runDashboardAction(actionSource, elements, showToast) {
     return;
   }
 
-  const [, integrationKey, runtimeAction] = runtimeMatch;
+  const [, pluginKey, runtimeAction] = runtimeMatch;
   try {
-    const response = await postJson(`/api/admin/integrations/${encodeURIComponent(integrationKey)}/${runtimeAction}`, {});
+    const response = await postJson(`/api/admin/plugins/${encodeURIComponent(pluginKey)}/${runtimeAction}`, {});
     if (response?.study_controlled) {
       showToast?.(t('dashboard.studyControlledWarning', 'Temporary dashboard overrides can overrule the study settings during this server session.'), 'warning');
       await refreshAdminStatus(elements, showToast);
@@ -133,16 +133,16 @@ async function resetSensorOverrides(elements, showToast) {
   }
 }
 
-async function updateIntegrationToggle(integrationKey, enabled, elements, showToast) {
+async function updatePluginToggle(pluginKey, enabled, elements, showToast) {
   try {
-    const response = await postJson(`/api/admin/integrations/${encodeURIComponent(integrationKey)}/enabled`, { enabled });
-    const messageKey = enabled ? 'dashboard.integrationEnabled' : 'dashboard.integrationDisabled';
+    const response = await postJson(`/api/admin/plugins/${encodeURIComponent(pluginKey)}/enabled`, { enabled });
+    const messageKey = enabled ? 'dashboard.pluginEnabled' : 'dashboard.pluginDisabled';
     const fallback = enabled ? '{name} enabled' : '{name} disabled';
-    showToast?.(t(messageKey, fallback).replace('{name}', formatIntegrationName(integrationKey)), 'success');
+    showToast?.(t(messageKey, fallback).replace('{name}', formatPluginName(pluginKey)), 'success');
     await refreshAdminStatus(elements, showToast);
   } catch (error) {
-    console.error('[admin] Integration toggle failed:', error);
-    showToast?.(t('dashboard.integrationToggleFailed', 'Integration toggle failed'), 'error');
+    console.error('[admin] Plugin toggle failed:', error);
+    showToast?.(t('dashboard.pluginToggleFailed', 'Plugin toggle failed'), 'error');
   }
 }
 
@@ -154,7 +154,7 @@ function getDashboardElements() {
     backButton: document.getElementById('btn-admin-edit-view'),
     clients: document.getElementById('dashboard-clients'),
     sensorTiles: document.getElementById('dashboard-sensor-tiles'),
-    controls: document.getElementById('dashboard-integration-controls'),
+    controls: document.getElementById('dashboard-plugin-controls'),
     xdf: document.getElementById('dashboard-xdf'),
   };
 }
@@ -181,24 +181,24 @@ function renderAdminStatus(elements, status) {
 
   renderClients(elements.clients, clients.clients || []);
   renderSensorTiles(elements.sensorTiles, status);
-  renderIntegrationControls(elements.controls, status.integrations || {}, status);
+  renderPluginControls(elements.controls, status.plugins || {}, status);
   renderXdf(elements.xdf, status);
   applyRunScope(status);
 }
 
 function renderSensorTiles(target, status) {
   if (!target) return;
-  const integrations = status.integrations || {};
+  const plugins = status.plugins || {};
   const items = getPluginCatalog().plugins
     .filter((manifest) => isPluginVisible(manifest, PLUGIN_UI_SURFACES.DASHBOARD))
     .map((manifest) => ({
-      ...(integrations[manifest.plugin_key] || {}),
+      ...(plugins[manifest.plugin_key] || {}),
       key: manifest.plugin_key,
-      label: integrations[manifest.plugin_key]?.label || manifest.ui?.label || manifest.plugin_key,
+      label: plugins[manifest.plugin_key]?.label || manifest.ui?.label || manifest.plugin_key,
       manifest,
     }));
   if (!items.length) {
-    target.innerHTML = `<p>${escapeHtml(t('dashboard.noIntegrations', 'No integrations registered.'))}</p>`;
+    target.innerHTML = `<p>${escapeHtml(t('dashboard.noPlugins', 'No plugins registered.'))}</p>`;
     return;
   }
 
@@ -218,7 +218,7 @@ function renderPluginDashboardDetail(item, status) {
   if (!extension) return genericSensorDetail(item);
   try {
     const rendered = extension.renderDashboard(
-      { integration: item, status, manifest: item.manifest },
+      { plugin: item, status, manifest: item.manifest },
       dashboardUiHelpers(),
     );
     return typeof rendered === 'string' ? rendered : genericSensorDetail(item);
@@ -281,7 +281,7 @@ function renderManifestActionInstances(action, manifest, pluginStatus) {
 }
 
 function renderManifestActionButton(action, manifest, payload, detail) {
-  const actionLabel = action.label || formatIntegrationName(action.key);
+  const actionLabel = action.label || formatPluginName(action.key);
   const label = detail ? `${actionLabel}: ${detail}` : actionLabel;
   return `
     <button type="button" class="btn-secondary${action.danger ? ' plugin-admin-action--danger' : ''}"
@@ -350,39 +350,39 @@ function renderClients(target, clients) {
   `).join('');
 }
 
-function renderIntegrationControls(target, integrations, status = {}) {
+function renderPluginControls(target, plugins, status = {}) {
   if (!target) return;
   const rows = getPluginCatalog().plugins
     .filter((manifest) => isPluginVisible(manifest, PLUGIN_UI_SURFACES.DASHBOARD))
     .map((manifest) => ({
-      ...(integrations[manifest.plugin_key] || {}),
+      ...(plugins[manifest.plugin_key] || {}),
       key: manifest.plugin_key,
-      label: integrations[manifest.plugin_key]?.label || manifest.ui?.label || manifest.plugin_key,
+      label: plugins[manifest.plugin_key]?.label || manifest.ui?.label || manifest.plugin_key,
       manifest,
     }));
   if (!rows.length) {
-    target.innerHTML = `<p>${escapeHtml(t('dashboard.noIntegrations', 'No integrations registered.'))}</p>`;
+    target.innerHTML = `<p>${escapeHtml(t('dashboard.noPlugins', 'No plugins registered.'))}</p>`;
     return;
   }
   const sensorRuntime = status.sensor_runtime || {};
   const hasOverrides = Object.values(sensorRuntime.override_active || {}).some(Boolean)
     || Object.keys(status.session_sensor_overrides || {}).length > 0;
   const warning = hasOverrides
-    ? `<div class="integration-control-warning">${escapeHtml(t('dashboard.overrideWarning', 'Temporary dashboard overrides are active for this server session.'))}</div>`
+    ? `<div class="plugin-control-warning">${escapeHtml(t('dashboard.overrideWarning', 'Temporary dashboard overrides are active for this server session.'))}</div>`
     : '';
   const resetButton = hasOverrides
     ? `<button type="button" class="btn-secondary btn-xs" data-dashboard-action="reset_sensor_overrides">${escapeHtml(t('dashboard.overrideReset', 'Reset to study settings'))}</button>`
     : '';
   const settingsButton = `<button type="button" class="btn-secondary btn-xs" data-dashboard-action="open_settings"><i class="iconoir-settings"></i> ${escapeHtml(t('dashboard.openSettings', 'Open settings'))}</button>`;
-  target.innerHTML = `<div class="integration-controls">
-    <div class="integration-control-warning integration-control-warning--info">${escapeHtml(t('dashboard.settingsHint', 'Plugin setup lives in Settings. This dashboard focuses on live status, start, stop, and recovery.'))}</div>
+  target.innerHTML = `<div class="plugin-controls">
+    <div class="plugin-control-warning plugin-control-warning--info">${escapeHtml(t('dashboard.settingsHint', 'Plugin setup lives in Settings. This dashboard focuses on live status, start, stop, and recovery.'))}</div>
     ${warning}
-    <div class="integration-control-reset">${settingsButton}${resetButton}</div>
-    ${rows.map((row) => renderIntegrationControlRow(row, sensorRuntime)).join('')}
+    <div class="plugin-control-reset">${settingsButton}${resetButton}</div>
+    ${rows.map((row) => renderPluginControlRow(row, sensorRuntime)).join('')}
   </div>`;
 }
 
-function renderIntegrationControlRow(item, sensorRuntime = {}) {
+function renderPluginControlRow(item, sensorRuntime = {}) {
   const sensorEffective = sensorRuntime.effective || {};
   const hasSensorState = Object.prototype.hasOwnProperty.call(sensorEffective, item.key);
   const configured = hasSensorState ? Boolean(sensorEffective[item.key]) : Boolean(item.configured_enabled ?? item.enabled);
@@ -390,17 +390,17 @@ function renderIntegrationControlRow(item, sensorRuntime = {}) {
   const runtimeDetail = hasSensorState ? renderSensorRuntimeDetail(item.key, sensorRuntime) : '';
 
   return `
-    <div class="integration-control-row">
-      <div class="integration-control-main">
+    <div class="plugin-control-row">
+      <div class="plugin-control-main">
         <span class="status-pill status-pill--${escapeHtml(status)}">${escapeHtml(statusLabel(status))}</span>
         <div>
           <strong>${escapeHtml(item.label || item.key)}</strong>
-          <span>${buildIntegrationDetail(item)}</span>
+          <span>${buildPluginDetail(item)}</span>
           ${runtimeDetail}
         </div>
       </div>
-      <div class="integration-control-actions">
-        <span class="integration-control-note">${escapeHtml(item.can_toggle ? t('dashboard.settingsManagedInHub', 'Settings hub') : t('dashboard.managedByParent', 'Managed by parent integration'))}</span>
+      <div class="plugin-control-actions">
+        <span class="plugin-control-note">${escapeHtml(item.can_toggle ? t('dashboard.settingsManagedInHub', 'Settings hub') : t('dashboard.managedByParent', 'Managed by parent plugin'))}</span>
       </div>
     </div>`;
 }
@@ -418,7 +418,7 @@ function renderRuntimeButtons(item, compact = false) {
   return compact ? html : `<div class="dashboard-actions">${html}</div>`;
 }
 
-function buildIntegrationDetail(item) {
+function buildPluginDetail(item) {
   const details = [];
   if (item.category) details.push(item.category);
   if (item.device_label) details.push(item.device_label);
@@ -437,7 +437,7 @@ function renderSensorRuntimeDetail(sensorKey, sensorRuntime = {}) {
   const effective = sensorRuntime.effective || {};
   const hasOverride = Boolean(overrideActive[sensorKey]);
   const overrideLabel = hasOverride ? formatOnOff(overrides[sensorKey]) : t('dashboard.none', 'none');
-  return `<span class="integration-runtime-detail">
+  return `<span class="plugin-runtime-detail">
     ${escapeHtml(t('dashboard.runtimeStudy', 'Study'))}: ${escapeHtml(formatOnOff(study[sensorKey]))}
     · ${escapeHtml(t('dashboard.runtimeOverride', 'Override'))}: ${escapeHtml(overrideLabel)}
     · ${escapeHtml(t('dashboard.runtimeEffective', 'Effective'))}: ${escapeHtml(formatOnOff(effective[sensorKey]))}
@@ -548,7 +548,7 @@ function formatCard(client) {
 function formatClientPluginStatus(pluginStatus) {
   if (!pluginStatus || typeof pluginStatus !== 'object' || Array.isArray(pluginStatus)) return '-';
   const rows = Object.entries(pluginStatus).map(([pluginKey, value]) => {
-    const label = pluginByKey(pluginKey)?.ui?.label || formatIntegrationName(pluginKey);
+    const label = pluginByKey(pluginKey)?.ui?.label || formatPluginName(pluginKey);
     const status = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     const summary = status.message || status.permission || status.state || status.status || '-';
     const warning = status.last_error || status.error || '';
@@ -598,7 +598,7 @@ function formatObjectBrief(value) {
     .join('<br>');
 }
 
-function formatIntegrationName(key) {
+function formatPluginName(key) {
   return pluginByKey(key)?.ui?.label
     || String(key || '').replace(/[._-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

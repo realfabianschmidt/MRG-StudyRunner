@@ -1,10 +1,10 @@
-"""Small, state-free helpers shared by integration adapters and plugins."""
+"""Small, state-free helpers shared by plugin adapters."""
 from __future__ import annotations
 
 import time
 from typing import Any
 
-from .plugin_api import IntegrationContext
+from .plugin_api import PluginContext
 
 
 def timestamp(epoch: float | None = None) -> str:
@@ -24,7 +24,7 @@ def set_state(
         state["updated_at"] = timestamp()
 
 
-def config_section(context: IntegrationContext, *keys: str) -> dict[str, Any]:
+def config_section(context: PluginContext, *keys: str) -> dict[str, Any]:
     """Return the first non-empty dictionary config section for ``keys``."""
     for key in keys:
         section = context.hardware_config.get(key)

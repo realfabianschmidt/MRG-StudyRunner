@@ -18,7 +18,7 @@ from study_runner.plugin_framework.plugin_catalog import (
     discover_plugin_catalog,
     validate_and_normalize_manifest,
 )
-from study_runner.plugin_framework.plugin_api import IntegrationContext
+from study_runner.plugin_framework.plugin_api import PluginContext
 from study_runner.plugin_framework.registry import run_admin_action
 from study_runner.plugin_framework.registry import get_plugin_catalog_payload
 from study_runner.backend.routes.plugins import bp as plugins_blueprint
@@ -371,7 +371,7 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
         temp_root.mkdir(parents=True, exist_ok=True)
         self.root = temp_root / uuid.uuid4().hex
         self.root.mkdir()
-        self.package_name = f"fixture_integrations_{self.root.name.replace('-', '_')}"
+        self.package_name = f"fixture_plugins_{self.root.name.replace('-', '_')}"
         self.package_dir = self.root / self.package_name
         self.package_dir.mkdir()
         (self.package_dir / "__init__.py").write_text("", encoding="utf-8")
@@ -390,8 +390,8 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
         (plugin_dir / "__init__.py").write_text("", encoding="utf-8")
         (plugin_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         plugin_source = source or (
-            "from study_runner.plugin_framework.plugin_api import IntegrationPlugin\n"
-            f"PLUGIN = IntegrationPlugin(key={manifest['plugin_key']!r}, label={manifest['ui']['label']!r}, "
+            "from study_runner.plugin_framework.plugin_api import Plugin\n"
+            f"PLUGIN = Plugin(key={manifest['plugin_key']!r}, label={manifest['ui']['label']!r}, "
             f"category='test', config_key={manifest['config_key']!r}, get_status=lambda context: {{}})\n"
         )
         (plugin_dir / "plugin.py").write_text(plugin_source, encoding="utf-8")
@@ -477,8 +477,8 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
 
     def test_missing_declared_handler_is_reported_without_crashing_discovery(self) -> None:
         source = (
-            "from study_runner.plugin_framework.plugin_api import IntegrationPlugin\n"
-            "PLUGIN = IntegrationPlugin(key='no_health', label='no_health', "
+            "from study_runner.plugin_framework.plugin_api import Plugin\n"
+            "PLUGIN = Plugin(key='no_health', label='no_health', "
             "category='test', config_key='no_health')\n"
         )
         self._plugin_folder("no_health", _manifest("no_health"), source)
@@ -498,8 +498,8 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
             "default": "",
         }
         source = (
-            "from study_runner.plugin_framework.plugin_api import IntegrationPlugin\n"
-            "PLUGIN = IntegrationPlugin(key='fixture_export', label='fixture_export', "
+            "from study_runner.plugin_framework.plugin_api import Plugin\n"
+            "PLUGIN = Plugin(key='fixture_export', label='fixture_export', "
             "category='test', config_key='fixture_export', get_status=lambda context: {}, "
             "publish_destination=lambda context, payload: {'ok': True})\n"
         )
@@ -570,7 +570,7 @@ class PublicCatalogTests(unittest.TestCase):
         app.register_blueprint(plugins_blueprint)
         client = app.test_client()
         with patch(
-            "study_runner.backend.routes.plugins._integration_context",
+            "study_runner.backend.routes.plugins._plugin_context",
             return_value=object(),
         ):
             rejected = client.post(
@@ -588,7 +588,7 @@ class PublicCatalogTests(unittest.TestCase):
         client = app.test_client()
         with (
             patch(
-                "study_runner.backend.routes.plugins._integration_context",
+                "study_runner.backend.routes.plugins._plugin_context",
                 return_value=object(),
             ),
             patch(
@@ -635,7 +635,7 @@ class PublicCatalogTests(unittest.TestCase):
         client = app.test_client()
         with (
             patch(
-                "study_runner.backend.routes.plugins._integration_context",
+                "study_runner.backend.routes.plugins._plugin_context",
                 return_value=object(),
             ),
             patch(
@@ -708,7 +708,7 @@ class PublicCatalogTests(unittest.TestCase):
         app.register_blueprint(plugins_blueprint)
         client = app.test_client()
         with patch(
-            "study_runner.backend.routes.plugins._integration_context",
+            "study_runner.backend.routes.plugins._plugin_context",
             return_value=object(),
         ):
             wrong_type = client.post(
@@ -771,7 +771,7 @@ class PublicCatalogTests(unittest.TestCase):
 class BrainBitManifestActionTests(unittest.TestCase):
     def test_select_device_persists_through_generic_action(self) -> None:
         persisted: list[dict] = []
-        context = IntegrationContext(
+        context = PluginContext(
             base_dir=PROJECT_ROOT,
             data_dir=PROJECT_ROOT / ".tmp",
             hardware_config={"brainbit": {"enabled": False, "keep": "value"}},

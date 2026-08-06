@@ -75,7 +75,7 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
         parent.mkdir(parents=True, exist_ok=True)
         self.root = parent / uuid.uuid4().hex
         self.root.mkdir()
-        self.package_name = f"fixture_integrations_{self.root.name}"
+        self.package_name = f"fixture_plugins_{self.root.name}"
         self.package_dir = self.root / self.package_name
         self.package_dir.mkdir()
         (self.package_dir / "__init__.py").write_text("", encoding="utf-8")
@@ -476,7 +476,7 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
             encoding="utf-8",
         )
         (plugin_dir / "plugin.py").write_text(
-            "from study_runner.plugin_framework.plugin_api import IntegrationPlugin\n\n"
+            "from study_runner.plugin_framework.plugin_api import Plugin\n\n"
             "def _status(context):\n"
             f"    configured = bool(context.hardware_config.get({PLUGIN_KEY!r}, {{}}).get('enabled'))\n"
             "    return {\n"
@@ -485,7 +485,7 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
             "        'lsl_enabled': configured,\n"
             "        'last_message': 'fixture ready' if configured else 'fixture disabled',\n"
             "    }\n\n"
-            "PLUGIN = IntegrationPlugin(\n"
+            "PLUGIN = Plugin(\n"
             f"    key={PLUGIN_KEY!r},\n"
             "    label='Blueprint Sensor',\n"
             "    category='biosignal',\n"

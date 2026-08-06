@@ -20,7 +20,7 @@ from study_runner.plugin_framework.registry import (
     initialize_plugin,
     run_runtime_action,
 )
-from ..services.hardware_settings_service import save_hardware_config, set_integration_enabled
+from ..services.hardware_settings_service import save_hardware_config, set_plugin_enabled
 from ..services.secrets_service import load_local_secrets, save_local_secrets
 from ..services.session_store import public_session
 from ..services.study_config_service import load_config
@@ -86,7 +86,7 @@ def _require_secure_participant_ingest(plugin_key: str) -> None:
 
 
 def _hardware_disabled_result(sensor_key: str) -> dict:
-    return {"ok": True, "integration": sensor_key, "skipped": True, "reason": "hardware_disabled"}
+    return {"ok": True, "plugin": sensor_key, "skipped": True, "reason": "hardware_disabled"}
 
 
 def _disable_runtime_hardware(config_data: dict) -> dict:
@@ -104,7 +104,7 @@ def _runtime_hardware_config() -> dict:
     return current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG") or _effective_hardware_config_for_current_study()
 
 
-def _integration_context(
+def _plugin_context(
     hardware_config: dict | None = None,
     *,
     machine_admin: bool = False,
@@ -210,11 +210,11 @@ def _session_overrides() -> dict[str, bool]:
     return normalize_session_overrides(current_app.config.get("SESSION_SENSOR_OVERRIDES", {}))
 
 
-def _set_session_override(integration_key: str, enabled: bool) -> dict[str, bool]:
-    if integration_key not in SESSION_OVERRIDE_KEYS:
-        raise ValueError(f"Integration '{integration_key}' cannot be used as a session override.")
+def _set_session_override(plugin_key: str, enabled: bool) -> dict[str, bool]:
+    if plugin_key not in SESSION_OVERRIDE_KEYS:
+        raise ValueError(f"Integration '{plugin_key}' cannot be used as a session override.")
     overrides = _session_overrides()
-    overrides[integration_key] = bool(enabled)
+    overrides[plugin_key] = bool(enabled)
     current_app.config["SESSION_SENSOR_OVERRIDES"] = overrides
     return overrides
 
@@ -245,17 +245,17 @@ def _effective_hardware_config_for_current_study(study_settings: dict | None = N
     )
 
 
-def _set_runtime_enabled(config_data: dict, integration_key: str, enabled: bool) -> None:
-    set_integration_enabled(config_data, integration_key, enabled)
+def _set_runtime_enabled(config_data: dict, plugin_key: str, enabled: bool) -> None:
+    set_plugin_enabled(config_data, plugin_key, enabled)
 
 
-def _apply_integration_toggle_to_active_runtime(integration_key: str, enabled: bool) -> bool:
+def _apply_plugin_toggle_to_active_runtime(plugin_key: str, enabled: bool) -> bool:
     active_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
-    if not isinstance(active_config, dict) or integration_key not in ACTIVE_RUNTIME_TOGGLE_KEYS:
+    if not isinstance(active_config, dict) or plugin_key not in ACTIVE_RUNTIME_TOGGLE_KEYS:
         return False
 
     active_copy = _copy_config(active_config)
-    _set_runtime_enabled(active_copy, integration_key, enabled)
+    _set_runtime_enabled(active_copy, plugin_key, enabled)
     current_app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = active_copy
     _refresh_trial_runtime()
     return True
@@ -270,31 +270,31 @@ def _rebuild_active_study_runtime_config(study_settings: dict | None = None) -> 
     return active_config
 
 
-def _apply_session_override_runtime(integration_key: str, enabled: bool) -> dict:
+def _apply_session_override_runtime(plugin_key: str, enabled: bool) -> dict:
     active_config = _rebuild_active_study_runtime_config()
-    context = _integration_context(active_config) if isinstance(active_config, dict) else _integration_context()
+    context = _plugin_context(active_config) if isinstance(active_config, dict) else _plugin_context()
     result: dict = {}
 
     if _hardware_disabled():
         if isinstance(active_config, dict):
             current_app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = _disable_runtime_hardware(active_config)
             _refresh_trial_runtime()
-        return _hardware_disabled_result(integration_key)
+        return _hardware_disabled_result(plugin_key)
 
-    if integration_key in STUDY_SENSOR_KEYS:
+    if plugin_key in STUDY_SENSOR_KEYS:
         try:
             if enabled:
-                initialize_plugin(integration_key, context)
-                result = run_runtime_action(integration_key, "start", context)
+                initialize_plugin(plugin_key, context)
+                result = run_runtime_action(plugin_key, "start", context)
                 active_plugins = list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or [])
-                if isinstance(active_config, dict) and integration_key not in active_plugins:
-                    active_plugins.append(integration_key)
+                if isinstance(active_config, dict) and plugin_key not in active_plugins:
+                    active_plugins.append(plugin_key)
                     current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = active_plugins
             else:
-                result = run_runtime_action(integration_key, "stop", context)
+                result = run_runtime_action(plugin_key, "stop", context)
                 active_plugins = [
                     key for key in list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or [])
-                    if key != integration_key
+                    if key != plugin_key
                 ]
                 current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = active_plugins
         except Exception as error:
@@ -302,8 +302,8 @@ def _apply_session_override_runtime(integration_key: str, enabled: bool) -> dict
         return result
 
     try:
-        apply_enabled_runtime(integration_key, enabled, context)
-        result = {"ok": True, "integration": integration_key, "enabled": enabled}
+        apply_enabled_runtime(plugin_key, enabled, context)
+        result = {"ok": True, "plugin": plugin_key, "enabled": enabled}
     except Exception as error:
         result = {"ok": False, "error": str(error)}
     return result
@@ -414,7 +414,7 @@ def _start_study_sensor_runtime(study_settings: dict) -> dict:
 
     _refresh_trial_runtime()
 
-    context = _integration_context(effective_hardware_config)
+    context = _plugin_context(effective_hardware_config)
     coordinator = _sensor_coordinator()
     if coordinator:
         coordinator_result = coordinator.start_selected(selected_sensors, STUDY_SENSOR_KEYS, context)
@@ -451,7 +451,7 @@ def _start_study_sensor_runtime(study_settings: dict) -> dict:
 def _stop_study_sensor_runtime() -> dict:
     active_hardware_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
     active_plugins = list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or [])
-    context = _integration_context(active_hardware_config) if active_hardware_config else _integration_context()
+    context = _plugin_context(active_hardware_config) if active_hardware_config else _plugin_context()
     coordinator = _sensor_coordinator()
     if coordinator:
         coordinator_result = coordinator.stop_plugins(active_plugins, context)

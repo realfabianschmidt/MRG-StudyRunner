@@ -11,7 +11,7 @@ from study_runner.plugin_framework.registry import (
 )
 
 from .helpers import (
-    _integration_context,
+    _plugin_context,
     _request_json_object,
     _require_secure_participant_ingest,
 )
@@ -52,7 +52,7 @@ def plugin_admin_action(plugin_key: str, action_key: str):
             run_admin_action(
                 plugin_key,
                 action_key,
-                _integration_context(machine_admin=True),
+                _plugin_context(machine_admin=True),
                 payload,
             )
         )
@@ -78,7 +78,7 @@ def plugin_participant_action(plugin_key: str, action_key: str):
             run_participant_action(
                 plugin_key,
                 action_key,
-                _integration_context(),
+                _plugin_context(),
                 _request_json_object(),
             )
         )
@@ -105,7 +105,7 @@ def plugin_participant_ingest(plugin_key: str, ingest_key: str):
             ingest_participant_payload(
                 plugin_key,
                 ingest_key,
-                _integration_context(),
+                _plugin_context(),
                 _request_json_object(),
             )
         )

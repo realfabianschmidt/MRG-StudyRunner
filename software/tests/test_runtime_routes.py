@@ -275,7 +275,7 @@ class RuntimeRoutesTests(unittest.TestCase):
             app.config["HARDWARE_CONFIG"] = {"brainbit": {"enabled": False}}
             app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = {"brainbit": {"enabled": True}}
             response = app.test_client().post(
-                "/api/admin/integrations/brainbit/enabled",
+                "/api/admin/plugins/brainbit/enabled",
                 json={"enabled": False},
             )
 
@@ -299,7 +299,7 @@ class RuntimeRoutesTests(unittest.TestCase):
             app.config["HARDWARE_CONFIG"] = {"lsl": {"enabled": True}}
             app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = {"lsl": {"enabled": True}}
             response = app.test_client().post(
-                "/api/admin/integrations/lsl/enabled",
+                "/api/admin/plugins/lsl/enabled",
                 json={"enabled": False},
             )
 
@@ -367,7 +367,7 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertIn("recording_infrastructure", payload)
         self.assertIn("canonical_xdf", payload["recording_infrastructure"])
         self.assertIn("supports_merge", payload["recording_infrastructure"])
-        self.assertEqual(payload["integrations"]["camera_emotion"]["manifest"]["poll_interval_ms"], 1000)
+        self.assertEqual(payload["plugins"]["camera_emotion"]["manifest"]["poll_interval_ms"], 1000)
         self.assertEqual(payload["clock_sync"]["sources"]["tablet-1"]["median_offset_ms"], 12.5)
         client_status = payload["study_clients"]["clients"][0]["plugin_status"]["fixture_sensor"]
         self.assertEqual(client_status["state"], "warning")

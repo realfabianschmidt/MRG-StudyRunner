@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from study_runner.plugins.camera_emotion.worker import plugin as worker_plugin
 from study_runner.plugins.camera_emotion.worker import server as worker_server
-from study_runner.plugin_framework.plugin_api import IntegrationContext
+from study_runner.plugin_framework.plugin_api import PluginContext
 from study_runner.plugins.camera_emotion import adapter as camera_adapter
 from study_runner.plugins.camera_emotion.plugin import PLUGIN as CAMERA_EMOTION_PLUGIN
 
@@ -282,7 +282,7 @@ class CameraEmotionWorkerTests(unittest.TestCase):
     def test_default_model_cache_uses_data_folder(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             data_root = Path(temp_dir)
-            context = IntegrationContext(
+            context = PluginContext(
                 base_dir=PROJECT_ROOT,
                 data_dir=data_root / "saved_results",
                 hardware_config={
@@ -313,7 +313,7 @@ class CameraEmotionWorkerTests(unittest.TestCase):
             legacy = data_root / "runtime" / "local_emotion_worker"
             (legacy / "logs").mkdir(parents=True)
             (legacy / "deepface_home").mkdir()
-            context = IntegrationContext(
+            context = PluginContext(
                 base_dir=PROJECT_ROOT,
                 data_dir=data_root / "saved_results",
                 hardware_config={
@@ -424,8 +424,8 @@ class CameraEmotionWorkerTests(unittest.TestCase):
             worker_server.MODEL_STATE.update(original_state)
 
 
-def _context(hardware_config: dict) -> IntegrationContext:
-    return IntegrationContext(
+def _context(hardware_config: dict) -> PluginContext:
+    return PluginContext(
         base_dir=PROJECT_ROOT,
         data_dir=PROJECT_ROOT / "saved_results",
         hardware_config=hardware_config,

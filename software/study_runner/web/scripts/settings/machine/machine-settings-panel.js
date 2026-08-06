@@ -197,11 +197,11 @@ export async function loadSettingsHubStatus() {
 }
 
 function settingsHubPlugins() {
-  const integrations = host.state.settingsHubStatus?.integrations || {};
+  const plugins = host.state.settingsHubStatus?.plugins || {};
   return getPluginCatalog().plugins
     .filter((manifest) => isPluginVisible(manifest, PLUGIN_UI_SURFACES.SETTINGS_HUB))
     .map((manifest) => {
-      const status = integrations[manifest.plugin_key] || {};
+      const status = plugins[manifest.plugin_key] || {};
       return {
         ...status,
         key: manifest.plugin_key,

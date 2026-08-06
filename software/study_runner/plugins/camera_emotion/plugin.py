@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import config_section
-from study_runner.plugin_framework.plugin_api import IntegrationContext, IntegrationPlugin
+from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
 
 
-def _initialize(context: IntegrationContext) -> None:
+def _initialize(context: PluginContext) -> None:
     config = config_section(context, "camera_emotion", "camera")
     if not config:
         return
@@ -33,7 +33,7 @@ def _initialize(context: IntegrationContext) -> None:
         emotion_worker_plugin.ensure_started(context)
 
 
-def _status(context: IntegrationContext) -> dict[str, Any]:
+def _status(context: PluginContext) -> dict[str, Any]:
     from . import adapter
 
     status = {
@@ -54,7 +54,7 @@ def _status(context: IntegrationContext) -> dict[str, Any]:
     return status
 
 
-def _start(context: IntegrationContext) -> Any:
+def _start(context: PluginContext) -> Any:
     from . import adapter
 
     if not adapter.is_configured():
@@ -68,7 +68,7 @@ def _start(context: IntegrationContext) -> Any:
     return result
 
 
-def _stop(context: IntegrationContext) -> Any:
+def _stop(context: PluginContext) -> Any:
     from . import adapter
     from .worker import plugin as emotion_worker_plugin
 
@@ -77,20 +77,20 @@ def _stop(context: IntegrationContext) -> Any:
     return result
 
 
-def _interval(context: IntegrationContext, start_epoch: float, end_epoch: float) -> dict[str, Any]:
+def _interval(context: PluginContext, start_epoch: float, end_epoch: float) -> dict[str, Any]:
     from . import adapter
 
     return adapter.get_interval_summary(start_epoch, end_epoch)
 
 
-def _export(context: IntegrationContext, start_epoch: float, end_epoch: float) -> list[dict[str, Any]]:
+def _export(context: PluginContext, start_epoch: float, end_epoch: float) -> list[dict[str, Any]]:
     from . import adapter
 
     return adapter.export_interval_samples(start_epoch, end_epoch)
 
 
 def _run_participant_action(
-    context: IntegrationContext,
+    context: PluginContext,
     action_key: str,
     _payload: dict[str, Any],
 ) -> Any:
@@ -113,7 +113,7 @@ def _run_participant_action(
 
 
 def _ingest_participant(
-    context: IntegrationContext,
+    context: PluginContext,
     ingest_key: str,
     payload: dict[str, Any],
 ) -> Any:
@@ -129,7 +129,7 @@ def _ingest_participant(
 
 
 def _run_admin_action(
-    context: IntegrationContext,
+    context: PluginContext,
     action_key: str,
     _payload: dict[str, Any],
 ) -> Any:
@@ -146,7 +146,7 @@ def _run_admin_action(
     return handler(context)
 
 
-PLUGIN = IntegrationPlugin(
+PLUGIN = Plugin(
     key="camera_emotion",
     label="Tablet camera emotion",
     category="biosignal",

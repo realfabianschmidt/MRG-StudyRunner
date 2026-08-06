@@ -23,11 +23,11 @@ from ..services.plugin_settings_service import (
 )
 from ..services.study_sensor_runtime import SESSION_OVERRIDE_KEYS, STUDY_SENSOR_KEYS
 from .helpers import (
-    _apply_integration_toggle_to_active_runtime,
+    _apply_plugin_toggle_to_active_runtime,
     _apply_session_override_runtime,
     _copy_config,
     _hardware_disabled,
-    _integration_context,
+    _plugin_context,
     _rebuild_active_study_runtime_config,
     _refresh_trial_runtime,
     _request_json_object,
@@ -101,7 +101,7 @@ def update_plugin_settings(plugin_key):
     # a settings save must not be able to start real devices during tests.
     if not restart_required and not _hardware_disabled():
         try:
-            initialize_plugin(plugin_key, _integration_context())
+            initialize_plugin(plugin_key, _plugin_context())
         except Exception as error:
             print(f"[SETTINGS] Could not re-initialize {plugin_key}: {error}")
 
@@ -122,35 +122,35 @@ def update_hardware_config():
     save_hardware_config(current_app.config["HARDWARE_CONFIG_FILE"], sanitized_config)
     current_app.config["HARDWARE_CONFIG"] = sanitized_config
     _refresh_trial_runtime()
-    initialize_plugin("notion", _integration_context())
+    initialize_plugin("notion", _plugin_context())
 
     return jsonify(
         {
             "ok": True,
             "restart_required": True,
-            "message": "Hardware config saved. Secrets stay backend-local. Notion was refreshed immediately; restart is recommended for startup integrations.",
-            "notion_runtime": get_plugin_status("notion", _integration_context()),
+            "message": "Hardware config saved. Secrets stay backend-local. Notion was refreshed immediately; restart is recommended for plugins that start with the server.",
+            "notion_runtime": get_plugin_status("notion", _plugin_context()),
         }
     )
 
 
-@bp.route("/api/admin/integrations/<integration_key>/enabled", methods=["POST"])
-def update_integration_enabled(integration_key: str):
+@bp.route("/api/admin/plugins/<plugin_key>/enabled", methods=["POST"])
+def update_plugin_enabled(plugin_key: str):
     payload = request.get_json() or {}
     enabled = payload.get("enabled")
     if not isinstance(enabled, bool):
         return jsonify({"ok": False, "error": "enabled must be true or false."}), 400
 
-    if integration_key in SESSION_OVERRIDE_KEYS:
+    if plugin_key in SESSION_OVERRIDE_KEYS:
         try:
-            _set_session_override(integration_key, enabled)
+            _set_session_override(plugin_key, enabled)
         except ValueError as error:
             return jsonify({"ok": False, "error": str(error)}), 400
-        runtime_result = _apply_session_override_runtime(integration_key, enabled)
+        runtime_result = _apply_session_override_runtime(plugin_key, enabled)
         return jsonify(
             {
                 "ok": True,
-                "integration": integration_key,
+                "plugin": plugin_key,
                 "enabled": enabled,
                 "restart_required": False,
                 "active_runtime_updated": isinstance(current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"), dict),
@@ -159,55 +159,55 @@ def update_integration_enabled(integration_key: str):
                 "session_overrides": _session_overrides(),
                 "sensor_runtime": _sensor_runtime_state(),
                 "runtime": runtime_result,
-                "runtime_status": get_plugin_status(integration_key, _integration_context()),
+                "runtime_status": get_plugin_status(plugin_key, _plugin_context()),
             }
         )
 
     active_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
     hardware_config = _copy_config(current_app.config.get("HARDWARE_CONFIG", {}))
     try:
-        _set_runtime_enabled(hardware_config, integration_key, enabled)
+        _set_runtime_enabled(hardware_config, plugin_key, enabled)
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
 
     save_hardware_config(current_app.config["HARDWARE_CONFIG_FILE"], hardware_config)
     current_app.config["HARDWARE_CONFIG"] = hardware_config
-    active_runtime_updated = _apply_integration_toggle_to_active_runtime(integration_key, enabled)
-    study_controlled = bool(active_config) and integration_key in STUDY_SENSOR_KEYS and not active_runtime_updated
+    active_runtime_updated = _apply_plugin_toggle_to_active_runtime(plugin_key, enabled)
+    study_controlled = bool(active_config) and plugin_key in STUDY_SENSOR_KEYS and not active_runtime_updated
     if not active_runtime_updated:
         _refresh_trial_runtime()
 
     try:
         if not study_controlled:
-            apply_enabled_runtime(integration_key, enabled, _integration_context())
+            apply_enabled_runtime(plugin_key, enabled, _plugin_context())
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
 
     return jsonify(
         {
             "ok": True,
-            "integration": integration_key,
+            "plugin": plugin_key,
             "enabled": enabled,
             "restart_required": False,
             "active_runtime_updated": active_runtime_updated,
             "study_controlled": study_controlled,
-            "runtime_status": get_plugin_status(integration_key, _integration_context()),
+            "runtime_status": get_plugin_status(plugin_key, _plugin_context()),
         }
     )
 
 
-def _run_integration_action_json(integration_key: str, action: str):
+def _run_plugin_action_json(plugin_key: str, action: str):
     try:
         normalized_action = str(action or "").strip().lower()
-        if integration_key in STUDY_SENSOR_KEYS and normalized_action in {"start", "stop", "restart"}:
-            _set_session_override(integration_key, normalized_action != "stop")
+        if plugin_key in STUDY_SENSOR_KEYS and normalized_action in {"start", "stop", "restart"}:
+            _set_session_override(plugin_key, normalized_action != "stop")
             _rebuild_active_study_runtime_config()
         coordinator = current_app.config.get("SENSOR_COORDINATOR")
         if coordinator:
-            result = coordinator.run_action(integration_key, action, _integration_context())
+            result = coordinator.run_action(plugin_key, action, _plugin_context())
         else:
-            result = run_runtime_action(integration_key, action, _integration_context())
-        result["temporary_override"] = integration_key in STUDY_SENSOR_KEYS
+            result = run_runtime_action(plugin_key, action, _plugin_context())
+        result["temporary_override"] = plugin_key in STUDY_SENSOR_KEYS
         result["sensor_runtime"] = _sensor_runtime_state()
         return jsonify(result)
     except ValueError as error:
@@ -216,24 +216,24 @@ def _run_integration_action_json(integration_key: str, action: str):
         return jsonify({"ok": False, "error": str(error)}), 500
 
 
-@bp.route("/api/admin/integrations/<integration_key>/<action>", methods=["POST"])
-def run_integration_runtime_action(integration_key: str, action: str):
-    return _run_integration_action_json(integration_key, action)
+@bp.route("/api/admin/plugins/<plugin_key>/<action>", methods=["POST"])
+def run_plugin_runtime_action(plugin_key: str, action: str):
+    return _run_plugin_action_json(plugin_key, action)
 
 
 @bp.route("/api/admin/brainbit/start", methods=["POST"])
 def start_brainbit():
-    return _run_integration_action_json("brainbit", "start")
+    return _run_plugin_action_json("brainbit", "start")
 
 
 @bp.route("/api/admin/brainbit/stop", methods=["POST"])
 def stop_brainbit():
-    return _run_integration_action_json("brainbit", "stop")
+    return _run_plugin_action_json("brainbit", "stop")
 
 
 @bp.route("/api/admin/brainbit/restart", methods=["POST"])
 def restart_brainbit():
-    return _run_integration_action_json("brainbit", "restart")
+    return _run_plugin_action_json("brainbit", "restart")
 
 
 @bp.route("/api/admin/brainbit/select-device", methods=["POST"])
@@ -244,7 +244,7 @@ def select_brainbit_device():
             run_admin_action(
                 "brainbit",
                 "select_device",
-                _integration_context(machine_admin=True),
+                _plugin_context(machine_admin=True),
                 payload,
             )
         )
@@ -260,17 +260,17 @@ def select_brainbit_device():
 
 @bp.route("/api/admin/radar/start", methods=["POST"])
 def start_mini_radar():
-    return _run_integration_action_json("mini_radar", "start")
+    return _run_plugin_action_json("mini_radar", "start")
 
 
 @bp.route("/api/admin/radar/stop", methods=["POST"])
 def stop_mini_radar():
-    return _run_integration_action_json("mini_radar", "stop")
+    return _run_plugin_action_json("mini_radar", "stop")
 
 
 @bp.route("/api/admin/radar/restart", methods=["POST"])
 def restart_mini_radar():
-    return _run_integration_action_json("mini_radar", "restart")
+    return _run_plugin_action_json("mini_radar", "restart")
 
 
 @bp.route("/api/camera/frame", methods=["POST"])
@@ -283,7 +283,7 @@ def process_camera_frame():
         dispatched = ingest_participant_payload(
             "camera_emotion",
             "frame",
-            _integration_context(),
+            _plugin_context(),
             _request_json_object(),
         )
         frame_result = dispatched.get("result") or {}
@@ -315,8 +315,8 @@ def start_camera_affect():
     """Deprecated fixed-key shim for the generic runtime action route."""
 
     return _mark_deprecated(
-        _run_integration_action_json("camera_emotion", "start"),
-        "/api/admin/integrations/camera_emotion/start",
+        _run_plugin_action_json("camera_emotion", "start"),
+        "/api/admin/plugins/camera_emotion/start",
     )
 
 
@@ -325,8 +325,8 @@ def stop_camera_affect():
     """Deprecated fixed-key shim for the generic runtime action route."""
 
     return _mark_deprecated(
-        _run_integration_action_json("camera_emotion", "stop"),
-        "/api/admin/integrations/camera_emotion/stop",
+        _run_plugin_action_json("camera_emotion", "stop"),
+        "/api/admin/plugins/camera_emotion/stop",
     )
 
 
@@ -335,7 +335,7 @@ def camera_live_status():
     """Deprecated fixed-key shim; status is now owned by the plugin."""
 
     successor = "/api/admin/status"
-    status = get_plugin_status("camera_emotion", _integration_context())
+    status = get_plugin_status("camera_emotion", _plugin_context())
     preview = status.get("preview") or {}
     return _mark_deprecated(
         jsonify({"ok": True, "active": bool(preview.get("active", False)), **preview}),
@@ -352,7 +352,7 @@ def start_study_camera_monitor():
         dispatched = run_participant_action(
             "camera_emotion",
             "start_monitor",
-            _integration_context(),
+            _plugin_context(),
             _request_json_object(),
         )
         return _mark_deprecated(
@@ -377,7 +377,7 @@ def repair_emotion_worker_runtime():
     try:
         from study_runner.plugins.camera_emotion.worker import plugin as emotion_worker_plugin
 
-        result = emotion_worker_plugin.repair_runtime(_integration_context())
+        result = emotion_worker_plugin.repair_runtime(_plugin_context())
         return jsonify({"ok": True, **result})
     except Exception as error:
         return jsonify({"ok": False, "error": str(error)}), 500
@@ -388,7 +388,7 @@ def install_emotion_worker_dependencies():
     try:
         from study_runner.plugins.camera_emotion.worker import plugin as emotion_worker_plugin
 
-        result = emotion_worker_plugin.install_dependencies(_integration_context())
+        result = emotion_worker_plugin.install_dependencies(_plugin_context())
         return jsonify({"ok": True, **result})
     except Exception as error:
         return jsonify({"ok": False, "error": str(error)}), 500

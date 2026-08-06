@@ -19,7 +19,7 @@ from pathlib import PurePosixPath
 import re
 from typing import Any, Callable
 
-from .plugin_api import IntegrationPlugin, PLUGIN_API_VERSION
+from .plugin_api import Plugin, PLUGIN_API_VERSION
 
 
 MANIFEST_FILENAME = "manifest.json"
@@ -107,7 +107,7 @@ class PluginCatalogEntry:
     status: str
     plugin_key: str | None
     manifest: dict[str, Any] | None = None
-    plugin: IntegrationPlugin | None = None
+    plugin: Plugin | None = None
     errors: tuple[str, ...] = ()
 
     def public_payload(self) -> dict[str, Any]:
@@ -130,7 +130,7 @@ class PluginCatalog:
     entries: tuple[PluginCatalogEntry, ...]
 
     @property
-    def plugins(self) -> tuple[IntegrationPlugin, ...]:
+    def plugins(self) -> tuple[Plugin, ...]:
         valid = [entry for entry in self.entries if entry.status == "valid" and entry.plugin]
         return tuple(entry.plugin for entry in valid if entry.plugin is not None)
 
@@ -476,7 +476,7 @@ def _import_plugin(
     candidate: _Candidate,
     package_name: str,
     module_importer: Callable[[str], Any],
-) -> IntegrationPlugin:
+) -> Plugin:
     manifest = candidate.manifest or {}
     entry_point = str(manifest.get("entry_point") or "")
     match = _ENTRY_POINT_PATTERN.fullmatch(entry_point)
@@ -487,14 +487,14 @@ def _import_plugin(
     qualified_module = f"{package_name}.{candidate.directory.name}.{module_name}"
     module = module_importer(qualified_module)
     plugin = getattr(module, attribute, None)
-    if not isinstance(plugin, IntegrationPlugin):
+    if not isinstance(plugin, Plugin):
         raise PluginManifestError(
-            f"entry_point {entry_point!r} did not expose an IntegrationPlugin"
+            f"entry_point {entry_point!r} did not expose an Plugin"
         )
     return plugin
 
 
-def _validate_plugin_object(plugin: IntegrationPlugin, manifest: dict[str, Any]) -> None:
+def _validate_plugin_object(plugin: Plugin, manifest: dict[str, Any]) -> None:
     expected = (
         ("key", "plugin_key", manifest.get("plugin_key")),
         ("config_key", "config_key", manifest.get("config_key")),

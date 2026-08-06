@@ -1,5 +1,5 @@
 /** Optional trusted dashboard renderer for the BrainBit plugin. */
-export function renderDashboard({ integration: brainbit }, ui) {
+export function renderDashboard({ plugin: brainbit }, ui) {
   const latest = brainbit.latest || {};
   const battery = latest.battery || {};
   const quality = latest.quality || {};

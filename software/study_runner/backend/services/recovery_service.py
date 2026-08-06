@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from study_runner.plugin_framework.plugin_api import IntegrationContext
+from study_runner.plugin_framework.plugin_api import PluginContext
 
 from .results_service import (
     _project_root,
@@ -163,7 +163,7 @@ def finalize_recovery_candidate(
     data_dir: Path,
     config_data: dict[str, Any],
     hardware_config: dict[str, Any],
-    context: IntegrationContext,
+    context: PluginContext,
     recovery_id: str,
 ) -> dict[str, Any]:
     data_dir = Path(data_dir)

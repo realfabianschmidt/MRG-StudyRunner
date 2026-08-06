@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend.services.sensor_coordinator_service import SensorCoordinator
-from study_runner.plugin_framework.plugin_api import IntegrationContext, IntegrationPlugin
+from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
 
 
 class FakeClock:
@@ -30,8 +30,8 @@ class FakeClock:
             self._now += float(seconds)
 
 
-def _context() -> IntegrationContext:
-    return IntegrationContext(
+def _context() -> PluginContext:
+    return PluginContext(
         base_dir=PROJECT_ROOT,
         data_dir=PROJECT_ROOT / "saved_results",
         hardware_config={},
@@ -40,8 +40,8 @@ def _context() -> IntegrationContext:
     )
 
 
-def _plugin(key: str) -> IntegrationPlugin:
-    return IntegrationPlugin(
+def _plugin(key: str) -> Plugin:
+    return Plugin(
         key=key,
         label=key.title(),
         category="test",
@@ -68,7 +68,7 @@ def _manifest(
 
 def _wait_for_poll_count(
     coordinator: SensorCoordinator,
-    context: IntegrationContext,
+    context: PluginContext,
     plugin_key: str,
     expected: int,
     *,
@@ -78,13 +78,13 @@ def _wait_for_poll_count(
     latest: dict = {}
     while time.perf_counter() < deadline:
         latest = coordinator.build_status(context)
-        diagnostics = latest["integrations"][plugin_key]["coordinator"]
+        diagnostics = latest["plugins"][plugin_key]["coordinator"]
         if diagnostics["poll_count"] >= expected:
             return latest
         time.sleep(0.005)
     raise AssertionError(
         f"{plugin_key} did not reach poll_count={expected}: "
-        f"{latest.get('integrations', {}).get(plugin_key, {})}"
+        f"{latest.get('plugins', {}).get(plugin_key, {})}"
     )
 
 
@@ -102,7 +102,7 @@ class SensorCoordinatorTests(unittest.TestCase):
 
             self.assertTrue(initial["ok"])
             self.assertIn("source_epoch_ms", initial["sample_metadata_model"])
-            brainbit = status["integrations"]["brainbit"]
+            brainbit = status["plugins"]["brainbit"]
             self.assertEqual(brainbit["status"], "ok")
             self.assertEqual(brainbit["manifest"]["clock_domain"], "lsl")
             self.assertEqual(brainbit["coordinator"]["poll_interval_ms"], 1000)
@@ -120,7 +120,7 @@ class SensorCoordinatorTests(unittest.TestCase):
         calls = 0
         calls_lock = threading.Lock()
 
-        def get_status(_key: str, _context: IntegrationContext) -> dict:
+        def get_status(_key: str, _context: PluginContext) -> dict:
             nonlocal calls
             with calls_lock:
                 calls += 1
@@ -149,14 +149,14 @@ class SensorCoordinatorTests(unittest.TestCase):
                 before_due = coordinator.build_status(context)
                 with calls_lock:
                     self.assertEqual(calls, 1)
-                self.assertFalse(before_due["integrations"]["paced"]["coordinator"]["poll_in_flight"])
+                self.assertFalse(before_due["plugins"]["paced"]["coordinator"]["poll_in_flight"])
 
                 clock.advance(0.001)
                 due = coordinator.build_status(context)
-                self.assertTrue(due["integrations"]["paced"]["coordinator"]["poll_in_flight"])
+                self.assertTrue(due["plugins"]["paced"]["coordinator"]["poll_in_flight"])
                 final = _wait_for_poll_count(coordinator, context, "paced", 2)
 
-            self.assertEqual(final["integrations"]["paced"]["coordinator"]["poll_count"], 2)
+            self.assertEqual(final["plugins"]["paced"]["coordinator"]["poll_count"], 2)
             with calls_lock:
                 self.assertEqual(calls, 2)
         finally:
@@ -178,7 +178,7 @@ class SensorCoordinatorTests(unittest.TestCase):
         call_counts = {"slow": 0, "fast": 0}
         calls_lock = threading.Lock()
 
-        def get_status(key: str, _context: IntegrationContext) -> dict:
+        def get_status(key: str, _context: PluginContext) -> dict:
             with calls_lock:
                 call_counts[key] += 1
             if key == "slow":
@@ -211,15 +211,15 @@ class SensorCoordinatorTests(unittest.TestCase):
                 initial = coordinator.build_status(context)
                 request_duration = time.perf_counter() - started
                 self.assertLess(request_duration, 0.2)
-                self.assertTrue(initial["integrations"]["slow"]["coordinator"]["poll_in_flight"])
+                self.assertTrue(initial["plugins"]["slow"]["coordinator"]["poll_in_flight"])
                 self.assertTrue(fast_finished.wait(1.0))
 
                 fast_snapshot = _wait_for_poll_count(coordinator, context, "fast", 1)
-                self.assertEqual(fast_snapshot["integrations"]["fast"]["status"], "ready")
+                self.assertEqual(fast_snapshot["plugins"]["fast"]["status"], "ready")
 
                 clock.advance(0.100)
                 timed_out = coordinator.build_status(context)
-                slow_diagnostics = timed_out["integrations"]["slow"]["coordinator"]
+                slow_diagnostics = timed_out["plugins"]["slow"]["coordinator"]
                 self.assertTrue(slow_diagnostics["poll_in_flight"])
                 self.assertTrue(slow_diagnostics["last_poll_timed_out"])
                 self.assertEqual(slow_diagnostics["timeout_count"], 1)
@@ -236,7 +236,7 @@ class SensorCoordinatorTests(unittest.TestCase):
                 self.assertTrue(slow_finished.wait(1.0))
                 completed = _wait_for_poll_count(coordinator, context, "slow", 1)
                 self.assertEqual(
-                    completed["integrations"]["slow"]["coordinator"]["timeout_count"],
+                    completed["plugins"]["slow"]["coordinator"]["timeout_count"],
                     1,
                 )
         finally:
@@ -264,7 +264,7 @@ class SensorCoordinatorTests(unittest.TestCase):
             status = coordinator.build_status(_context())
 
         get_status.assert_not_called()
-        diagnostics = status["integrations"]["closed"]["coordinator"]
+        diagnostics = status["plugins"]["closed"]["coordinator"]
         self.assertTrue(diagnostics["poller_closed"])
         self.assertFalse(diagnostics["poll_in_flight"])
 

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import config_section, timestamp
-from study_runner.plugin_framework.plugin_api import IntegrationContext, IntegrationPlugin
+from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
 from .model_errors import (
     DEEPFACE_EMOTION_MODEL_MIN_BYTES,
     DEEPFACE_EMOTION_MODEL_NAME,
@@ -47,7 +47,7 @@ _log_handle: Any = None
 _config: dict[str, Any] = {}
 _registered_shutdown = False
 _monitor_thread: threading.Thread | None = None
-_monitor_context: IntegrationContext | None = None
+_monitor_context: PluginContext | None = None
 _worker_restart_count = 0
 _last_worker_restart_at = 0.0
 _install_lock = threading.Lock()
@@ -88,7 +88,7 @@ def _local_worker_support_error() -> str | None:
     return None
 
 
-def ensure_started(context: IntegrationContext) -> dict[str, Any]:
+def ensure_started(context: PluginContext) -> dict[str, Any]:
     """Start the local worker when camera emotion is enabled and auto_start is set."""
     _configure(context)
     if not _config.get("worker_enabled") or _config.get("worker_mode") != "local_worker":
@@ -100,17 +100,17 @@ def ensure_started(context: IntegrationContext) -> dict[str, Any]:
     return _start(context)
 
 
-def stop_worker(context: IntegrationContext) -> dict[str, Any]:
+def stop_worker(context: PluginContext) -> dict[str, Any]:
     """Stop the managed local worker process."""
     return _stop(context)
 
 
-def install_dependencies(context: IntegrationContext) -> dict[str, Any]:
+def install_dependencies(context: PluginContext) -> dict[str, Any]:
     """Compatibility alias for the full DeepFace runtime repair."""
     return repair_runtime(context)
 
 
-def repair_runtime(context: IntegrationContext) -> dict[str, Any]:
+def repair_runtime(context: PluginContext) -> dict[str, Any]:
     """Repair Python packages and DeepFace model assets in the worker environment."""
     _configure(context)
     with _install_lock:
@@ -176,7 +176,7 @@ def repair_runtime(context: IntegrationContext) -> dict[str, Any]:
     return _repair_status()
 
 
-def _configure(context: IntegrationContext) -> None:
+def _configure(context: PluginContext) -> None:
     global _config
 
     config = config_section(context, "camera_emotion", "camera")
@@ -240,11 +240,11 @@ def _configure(context: IntegrationContext) -> None:
     }
 
 
-def _initialize(context: IntegrationContext) -> None:
+def _initialize(context: PluginContext) -> None:
     ensure_started(context)
 
 
-def _status(context: IntegrationContext) -> dict[str, Any]:
+def _status(context: PluginContext) -> dict[str, Any]:
     if not _config:
         _configure(context)
 
@@ -320,7 +320,7 @@ def _status(context: IntegrationContext) -> dict[str, Any]:
     }
 
 
-def _start(context: IntegrationContext) -> Any:
+def _start(context: PluginContext) -> Any:
     global _process, _log_handle, _registered_shutdown
 
     _configure(context)
@@ -385,7 +385,7 @@ def _start(context: IntegrationContext) -> Any:
     return _status(context)
 
 
-def _ensure_worker_monitor(context: IntegrationContext) -> None:
+def _ensure_worker_monitor(context: PluginContext) -> None:
     global _monitor_thread, _monitor_context
 
     _monitor_context = context
@@ -445,13 +445,13 @@ def _watch_worker() -> None:
             print(f"[EmotionWorker] Automatic worker restart failed: {error}")
 
 
-def _stop(context: IntegrationContext) -> Any:
+def _stop(context: PluginContext) -> Any:
     _configure(context)
     _stop_process()
     return _status(context)
 
 
-def _restart(context: IntegrationContext) -> Any:
+def _restart(context: PluginContext) -> Any:
     _configure(context)
     _stop_process()
     return _start(context)
@@ -549,7 +549,7 @@ def _runtime_error_message(error_info: dict[str, Any]) -> str:
     return f"Local Emotion Worker is reachable, but DeepFace warmup failed. Detail: {detail}"
 
 
-def _run_runtime_repair(context: IntegrationContext) -> None:
+def _run_runtime_repair(context: PluginContext) -> None:
     dependency_ok = True if _is_packaged_runtime() else _run_dependency_install(context)
     if not dependency_ok:
         with _model_lock:
@@ -568,7 +568,7 @@ def _run_runtime_repair(context: IntegrationContext) -> None:
         _restart(context)
 
 
-def _run_dependency_install(context: IntegrationContext) -> bool:
+def _run_dependency_install(context: PluginContext) -> bool:
     if _is_packaged_runtime():
         with _install_lock:
             _install_job.update(
@@ -750,7 +750,7 @@ def _is_packaged_runtime() -> bool:
     return get_app_mode() in {"packaged", "desktop"}
 
 
-def _runtime_storage_root(context: IntegrationContext) -> Path:
+def _runtime_storage_root(context: PluginContext) -> Path:
     data_dir = Path(context.data_dir).expanduser().resolve()
     if data_dir.name == "saved_results":
         return data_dir.parent
@@ -847,7 +847,7 @@ def _timestamp() -> str:
     return timestamp()
 
 
-PLUGIN = IntegrationPlugin(
+PLUGIN = Plugin(
     key="emotion_worker",
     label="Local Emotion Worker",
     category="processing",

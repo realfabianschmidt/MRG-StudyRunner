@@ -4,7 +4,7 @@ import threading
 import time
 from typing import Any, Callable, Iterable
 
-from study_runner.plugin_framework.plugin_api import IntegrationContext
+from study_runner.plugin_framework.plugin_api import PluginContext
 from study_runner.plugin_framework.registry import (
     export_interval_sidecars as registry_export_interval_sidecars,
     get_plugin_manifest,
@@ -45,8 +45,7 @@ class SensorCoordinator:
             max_workers=max_poll_workers,
         )
 
-    def build_status(self, context: IntegrationContext) -> dict[str, Any]:
-        integrations: dict[str, dict[str, Any]] = {}
+    def build_status(self, context: PluginContext) -> dict[str, Any]:
         plugins: dict[str, dict[str, Any]] = {}
         now_monotonic = self._monotonic_clock()
         poll_started_epoch_ms = self._epoch_ms()
@@ -61,12 +60,8 @@ class SensorCoordinator:
                 now_monotonic=now_monotonic,
                 now_epoch_ms=poll_started_epoch_ms,
             )
-            integrations[plugin.key] = {
-                **status,
-                "manifest": manifest,
-                "coordinator": coordinator,
-            }
             plugins[plugin.key] = {
+                **status,
                 "manifest": manifest,
                 "coordinator": coordinator,
             }
@@ -81,7 +76,6 @@ class SensorCoordinator:
                 "note": "Coordinator RTT/offset diagnostics do not replace source timestamps or LSL clock correction.",
             },
             "sample_metadata_model": get_sample_metadata_model(),
-            "integrations": integrations,
             "plugins": plugins,
         }
 
@@ -98,7 +92,7 @@ class SensorCoordinator:
         self,
         selected_sensors: dict[str, bool],
         sensor_keys: Iterable[str],
-        context: IntegrationContext,
+        context: PluginContext,
     ) -> dict[str, Any]:
         active_plugins: list[str] = []
         runtime: dict[str, dict[str, Any]] = {}
@@ -126,7 +120,7 @@ class SensorCoordinator:
             "coordinator": self.lifecycle_summary(),
         }
 
-    def stop_plugins(self, plugin_keys: Iterable[str], context: IntegrationContext) -> dict[str, Any]:
+    def stop_plugins(self, plugin_keys: Iterable[str], context: PluginContext) -> dict[str, Any]:
         stopped_plugins = list(plugin_keys)
         runtime: dict[str, dict[str, Any]] = {}
         for plugin_key in stopped_plugins:
@@ -140,7 +134,7 @@ class SensorCoordinator:
             "coordinator": self.lifecycle_summary(),
         }
 
-    def run_action(self, plugin_key: str, action: str, context: IntegrationContext) -> dict[str, Any]:
+    def run_action(self, plugin_key: str, action: str, context: PluginContext) -> dict[str, Any]:
         started = self._monotonic_clock()
         result = run_runtime_action(plugin_key, action, context)
         latency_ms = round(max(0.0, self._monotonic_clock() - started) * 1000, 3)
@@ -155,7 +149,7 @@ class SensorCoordinator:
 
     def export_interval_sidecars(
         self,
-        context: IntegrationContext,
+        context: PluginContext,
         start_epoch: float,
         end_epoch: float,
     ) -> list[dict[str, Any]]:

@@ -94,7 +94,7 @@ export function normalizeStudyPlugins(plugins) {
 /**
  * Keep the transitional legacy controls and the v3 object consistent.
  * Plugin names are discovered from the object; this bridge does not own a
- * second list of integrations.
+ * second list of plugins.
  */
 function syncLegacyFieldsToPlugins(source, sensors) {
   const plugins = normalizeStudyPlugins(source.plugins);

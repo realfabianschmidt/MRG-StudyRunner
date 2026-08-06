@@ -1,5 +1,5 @@
 /** Optional trusted dashboard renderer for the camera/emotion plugin. */
-export function renderDashboard({ integration: camera, status }, ui) {
+export function renderDashboard({ plugin: camera, status }, ui) {
   const preview = camera.preview || {};
   const runtimeInfo = status.runtime_info || {};
   const sensorRuntime = status.sensor_runtime || {};

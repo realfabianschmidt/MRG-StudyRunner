@@ -1942,11 +1942,11 @@ body.admin::before { display: none; }
 
 .btn-xs { padding: var(--s-1) var(--s-2) !important; font-size: .75rem !important; }
 
-.integration-controls {
+.plugin-controls {
   display: flex;
   flex-direction: column;
 }
-.integration-control-warning {
+.plugin-control-warning {
   padding: var(--s-2) var(--s-3);
   border-radius: var(--r-md);
   background: var(--warn-14);
@@ -1954,17 +1954,17 @@ body.admin::before { display: none; }
   font-size: .78rem;
   line-height: 1.35;
 }
-.integration-control-warning--info {
+.plugin-control-warning--info {
   background: var(--bg-sunken);
   color: var(--ink-70);
 }
-.integration-control-reset {
+.plugin-control-reset {
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: var(--s-2);
 }
-.integration-control-row {
+.plugin-control-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--s-3);
@@ -1972,37 +1972,37 @@ body.admin::before { display: none; }
   padding: var(--s-3) 0;
   border-top: 1px solid var(--ink-08);
 }
-.integration-control-main {
+.plugin-control-main {
   display: flex;
   align-items: center;
   gap: var(--s-3);
   min-width: 0;
 }
-.integration-control-main strong,
-.integration-control-main span {
+.plugin-control-main strong,
+.plugin-control-main span {
   display: block;
 }
-.integration-control-main strong {
+.plugin-control-main strong {
   color: var(--ink);
   font-size: .875rem;
 }
-.integration-control-main span {
+.plugin-control-main span {
   color: var(--ink-55);
   font-size: .75rem;
   overflow-wrap: anywhere;
 }
-.integration-runtime-detail em {
+.plugin-runtime-detail em {
   display: inline;
   color: var(--warn);
   font-style: normal;
 }
-.integration-control-actions {
+.plugin-control-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--s-1);
 }
-.integration-control-note {
+.plugin-control-note {
   font-size: .72rem;
   color: var(--ink-55);
 }
@@ -2035,10 +2035,10 @@ body.admin::before { display: none; }
 .status-pill--error { background: var(--neg-14);  color: var(--neg); }
 
 @media (max-width: 760px) {
-  .integration-control-row {
+  .plugin-control-row {
     grid-template-columns: 1fr;
   }
-  .integration-control-actions {
+  .plugin-control-actions {
     justify-content: flex-start;
   }
 }

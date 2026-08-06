@@ -1,5 +1,5 @@
 /** Optional trusted dashboard renderer for the MR60 mini-radar plugin. */
-export function renderDashboard({ integration: radar }, ui) {
+export function renderDashboard({ plugin: radar }, ui) {
   const latest = radar.latest || {};
   return `
     <div class="status-row">

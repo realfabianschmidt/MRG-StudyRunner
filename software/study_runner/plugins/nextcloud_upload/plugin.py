@@ -8,10 +8,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from study_runner.plugin_framework.plugin_api import IntegrationContext, IntegrationPlugin
+from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
 
 
-def _status(context: IntegrationContext) -> dict[str, Any]:
+def _status(context: PluginContext) -> dict[str, Any]:
     section = context.hardware_config.get("nextcloud")
     configured = section if isinstance(section, dict) else {}
     return {
@@ -23,7 +23,7 @@ def _status(context: IntegrationContext) -> dict[str, Any]:
     }
 
 
-def _publish(context: IntegrationContext, payload: dict[str, Any]) -> dict[str, Any]:
+def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
     from study_runner.backend.services.nextcloud_service import NextcloudPublicShareClient
     from study_runner.backend.services.secrets_service import resolve_nextcloud_password
 
@@ -91,7 +91,7 @@ def _publish(context: IntegrationContext, payload: dict[str, Any]) -> dict[str, 
     )
 
 
-PLUGIN = IntegrationPlugin(
+PLUGIN = Plugin(
     key="nextcloud",
     label="Nextcloud upload",
     category="storage",

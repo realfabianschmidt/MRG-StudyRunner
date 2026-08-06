@@ -72,7 +72,7 @@ def _hardware_disabled() -> bool:
     }
 
 
-def _integration_context(app: Flask):
+def _plugin_context(app: Flask):
     return build_context(
         base_dir=app.config["BASE_DIR"],
         data_dir=app.config["DATA_DIR"],
@@ -135,7 +135,7 @@ def create_app() -> Flask:
     app.config["HARDWARE_DISABLED"] = hardware_disabled
 
     if not hardware_disabled:
-        initialize_plugins(_integration_context(app))
+        initialize_plugins(_plugin_context(app))
 
     configure_upload_jobs(app)
     configured_worker = os.getenv("STUDY_RUNNER_XDF_WORKER", "").strip()

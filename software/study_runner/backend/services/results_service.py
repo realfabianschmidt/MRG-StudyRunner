@@ -8,7 +8,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from study_runner.plugin_framework.plugin_api import IntegrationContext
+from study_runner.plugin_framework.plugin_api import PluginContext
 from study_runner.plugin_framework.registry import (
     build_context,
     build_interval_summary as build_plugin_interval_summary,
@@ -41,7 +41,7 @@ def save_results_payload(
     study_id: str,
     result_payload: dict[str, Any],
     hardware_config: dict[str, Any] | None = None,
-    context: IntegrationContext | None = None,
+    context: PluginContext | None = None,
 ) -> dict[str, str | None]:
     safe_study_id = sanitize_identifier_for_filename(study_id)
     participant_id = str(result_payload.get("participant_id") or "participant")
@@ -86,7 +86,7 @@ def _maybe_write_biosignal_sidecars(
     safe_participant_id: str,
     result_payload: dict[str, Any],
     hardware_config: dict[str, Any],
-    context: IntegrationContext,
+    context: PluginContext,
 ) -> dict[str, Path]:
     start_dt = _parse_iso_timestamp(result_payload.get("timestamp_start"))
     end_dt = _parse_iso_timestamp(result_payload.get("timestamp_end"))
@@ -255,7 +255,7 @@ def _resolve_project_path(value: Any, base_dir: Path) -> Path:
 def build_biosignal_summary(
     hardware_config: dict[str, Any],
     saved_output: dict[str, Any],
-    context: IntegrationContext | None = None,
+    context: PluginContext | None = None,
 ) -> dict[str, Any]:
     """Build lightweight biosignal metadata for Notion upload."""
     runtime_context = context or _context_from_hardware_config(
@@ -556,7 +556,7 @@ def _interval_summary_from_epochs(
     hardware_config: dict[str, Any],
     start_epoch: float | None,
     end_epoch: float | None,
-    context: IntegrationContext | None = None,
+    context: PluginContext | None = None,
 ) -> dict[str, Any]:
     if start_epoch is None or end_epoch is None:
         return _empty_interval_biosignals()
@@ -573,7 +573,7 @@ def build_interval_biosignal_summary(
     hardware_config: dict[str, Any],
     interval_start: Any,
     interval_end: Any,
-    context: IntegrationContext | None = None,
+    context: PluginContext | None = None,
 ) -> dict[str, Any]:
     start_dt = _parse_iso_timestamp(interval_start)
     end_dt = _parse_iso_timestamp(interval_end)
@@ -596,7 +596,7 @@ def _empty_interval_biosignals() -> dict[str, Any]:
 
 
 
-def _context_from_hardware_config(data_dir: Path, hardware_config: dict[str, Any]) -> IntegrationContext:
+def _context_from_hardware_config(data_dir: Path, hardware_config: dict[str, Any]) -> PluginContext:
     base_dir = _project_root()
     return build_context(
         base_dir=base_dir,

@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from study_runner.plugin_framework.registry import iter_plugins, set_plugin_enabled
+from study_runner.plugin_framework.registry import iter_plugins
+from study_runner.plugin_framework.registry import set_plugin_enabled as _write_enabled_flag
 
 
 # Up to 0.5.0 the plugin folder was called `integrations`, and machine settings
@@ -58,18 +59,22 @@ def save_hardware_config(config_path: Path, config_data: dict[str, Any]) -> None
     temp_path.replace(config_path)
 
 
-def known_integration_keys() -> tuple[str, ...]:
+def known_plugin_keys() -> tuple[str, ...]:
     return tuple(plugin.key for plugin in iter_plugins() if plugin.can_toggle)
 
 
-def set_integration_enabled(
+def set_plugin_enabled(
     config_data: dict[str, Any],
-    integration_key: str,
+    plugin_key: str,
     enabled: bool,
 ) -> dict[str, Any]:
-    """Set one registered integration's enabled flag and return the updated config."""
+    """Set one registered plugin's enabled flag and return the updated config.
+
+    Wraps the framework call only to name the plugins an operator could have
+    meant, since the key usually arrives from a request.
+    """
     try:
-        return set_plugin_enabled(config_data, integration_key, enabled)
+        return _write_enabled_flag(config_data, plugin_key, enabled)
     except ValueError as error:
-        known_keys = ", ".join(sorted(known_integration_keys()))
-        raise ValueError(f"{error} Known toggleable integrations: {known_keys}.") from error
+        known_keys = ", ".join(sorted(known_plugin_keys()))
+        raise ValueError(f"{error} Known toggleable plugins: {known_keys}.") from error

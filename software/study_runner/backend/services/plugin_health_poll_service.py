@@ -7,14 +7,14 @@ import time
 from typing import Any, Callable
 import weakref
 
-from study_runner.plugin_framework.plugin_api import IntegrationContext, IntegrationPlugin
+from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
 
 
 DEFAULT_POLL_INTERVAL_MS = 2000
 DEFAULT_REQUEST_TIMEOUT_MS = 1000
 DEFAULT_MAX_POLL_WORKERS = 4
 
-StatusLoader = Callable[[str, IntegrationContext], dict[str, Any]]
+StatusLoader = Callable[[str, PluginContext], dict[str, Any]]
 
 
 class PluginHealthPoller:
@@ -50,8 +50,8 @@ class PluginHealthPoller:
 
     def snapshot(
         self,
-        plugin: IntegrationPlugin,
-        context: IntegrationContext,
+        plugin: Plugin,
+        context: PluginContext,
         manifest: dict[str, Any],
         status_loader: StatusLoader,
         *,
@@ -164,7 +164,7 @@ class PluginHealthPoller:
         self,
         state: dict[str, Any],
         plugin_key: str,
-        context: IntegrationContext,
+        context: PluginContext,
         status_loader: StatusLoader,
         *,
         request_timeout_ms: int,
@@ -275,7 +275,7 @@ class PluginHealthPoller:
 def _load_status(
     status_loader: StatusLoader,
     plugin_key: str,
-    context: IntegrationContext,
+    context: PluginContext,
     monotonic_clock: Callable[[], float],
     wall_clock: Callable[[], float],
 ) -> dict[str, Any]:
@@ -315,7 +315,7 @@ def _new_poll_state(status: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _pending_status(plugin: IntegrationPlugin, context: IntegrationContext) -> dict[str, Any]:
+def _pending_status(plugin: Plugin, context: PluginContext) -> dict[str, Any]:
     section = context.hardware_config.get(plugin.config_key)
     section = section if isinstance(section, dict) else {}
     configured_enabled = bool(section.get("enabled", False))

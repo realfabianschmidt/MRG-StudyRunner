@@ -28,7 +28,7 @@ from ..services.validation import validate_and_normalize_config
 from .helpers import (
     _clear_session_overrides,
     _delayed_shutdown,
-    _integration_context,
+    _plugin_context,
     _load_study_run,
     _rebuild_active_study_runtime_config,
     _sensor_runtime_state,
@@ -180,7 +180,7 @@ def admin_set_study_credentials(study_id):
     save_local_secrets(current_app.config["LOCAL_SECRETS_FILE"], secrets)
     current_app.config["LOCAL_SECRETS"] = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
     # A changed Notion key must not keep serving the cached client.
-    initialize_plugin("notion", _integration_context())
+    initialize_plugin("notion", _plugin_context())
 
     return jsonify({
         "ok": True,
@@ -217,7 +217,7 @@ def admin_study_readiness():
 @bp.route("/api/admin/status")
 def admin_status():
     payload = build_admin_status(
-        _integration_context(),
+        _plugin_context(),
         sensor_coordinator=current_app.config.get("SENSOR_COORDINATOR"),
         clock_sync_service=current_app.config.get("CLOCK_SYNC_SERVICE"),
     )
@@ -341,7 +341,7 @@ def admin_stop_study_run():
 def reset_session_overrides():
     _clear_session_overrides()
     active_config = _rebuild_active_study_runtime_config()
-    context = _integration_context(active_config) if isinstance(active_config, dict) else _integration_context()
+    context = _plugin_context(active_config) if isinstance(active_config, dict) else _plugin_context()
     for sensor_key in STUDY_SENSOR_KEYS:
         effective = _sensor_runtime_state()["effective"].get(sensor_key, False)
         try:

@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import config_section
-from study_runner.plugin_framework.plugin_api import IntegrationContext, IntegrationPlugin
+from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
 
 
-def _initialize(context: IntegrationContext) -> None:
+def _initialize(context: PluginContext) -> None:
     config = config_section(context, "osc")
     if not config.get("enabled"):
         return
@@ -21,7 +21,7 @@ def _initialize(context: IntegrationContext) -> None:
     )
 
 
-def _status(context: IntegrationContext) -> dict[str, Any]:
+def _status(context: PluginContext) -> dict[str, Any]:
     config = config_section(context, "osc")
     enabled = bool(config.get("enabled", False))
     return {
@@ -35,7 +35,7 @@ def _status(context: IntegrationContext) -> dict[str, Any]:
     }
 
 
-def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
+def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
     if not _forward_marker(options):
         return
     from . import adapter
@@ -43,7 +43,7 @@ def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
     adapter.send_start()
 
 
-def _trial_stop(context: IntegrationContext, options: dict[str, Any]) -> None:
+def _trial_stop(context: PluginContext, options: dict[str, Any]) -> None:
     if not _forward_marker(options):
         return
     from . import adapter
@@ -61,7 +61,7 @@ def _forward_marker(options: dict[str, Any]) -> bool:
     return bool(options.get("send_signal", True))
 
 
-PLUGIN = IntegrationPlugin(
+PLUGIN = Plugin(
     key="osc",
     label="OSC / TouchDesigner",
     category="output",

@@ -13,7 +13,7 @@ def ensure_requirements(
     auto_install: bool,
     label: str,
 ) -> bool:
-    """Ensure optional integration dependencies are available."""
+    """Ensure a plugin's optional dependencies are available."""
     missing = [
         (module_name, package_name)
         for module_name, package_name in requirements

@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import config_section
-from study_runner.plugin_framework.plugin_api import IntegrationContext, IntegrationPlugin
+from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
 
 
-def _initialize(context: IntegrationContext) -> None:
+def _initialize(context: PluginContext) -> None:
     config = config_section(context, "lsl")
     from . import adapter
 
@@ -17,7 +17,7 @@ def _initialize(context: IntegrationContext) -> None:
     )
 
 
-def _status(context: IntegrationContext) -> dict[str, Any]:
+def _status(context: PluginContext) -> dict[str, Any]:
     config = config_section(context, "lsl")
     return {
         "status": "enabled",
@@ -29,21 +29,21 @@ def _status(context: IntegrationContext) -> dict[str, Any]:
     }
 
 
-def _stop(context: IntegrationContext) -> None:
+def _stop(context: PluginContext) -> None:
     from . import adapter
 
     adapter.stop()
 
 
-def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
+def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
     _send_marker(options, "study:start")
 
 
-def _trial_stop(context: IntegrationContext, options: dict[str, Any]) -> None:
+def _trial_stop(context: PluginContext, options: dict[str, Any]) -> None:
     _send_marker(options, "study:stop")
 
 
-def _trial_marker(context: IntegrationContext, options: dict[str, Any]) -> None:
+def _trial_marker(context: PluginContext, options: dict[str, Any]) -> None:
     _send_marker(options, "study:marker")
 
 
@@ -53,7 +53,7 @@ def _send_marker(options: dict[str, Any], fallback: str) -> None:
     adapter.send_marker(str(options.get("marker_value") or fallback))
 
 
-PLUGIN = IntegrationPlugin(
+PLUGIN = Plugin(
     key="lsl",
     label="LSL markers",
     category="sync",

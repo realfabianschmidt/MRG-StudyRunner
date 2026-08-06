@@ -11,7 +11,7 @@ from ..services.recovery_service import (
 )
 from ..services.study_config_service import load_config
 from ..services.validation import validate_and_normalize_config
-from .helpers import _integration_context, _runtime_hardware_config, _stop_study_session_tracking
+from .helpers import _plugin_context, _runtime_hardware_config, _stop_study_session_tracking
 from .results import _enqueue_upload_jobs
 
 bp = Blueprint("recovery", __name__)
@@ -42,7 +42,7 @@ def admin_recovery_finalize():
             current_app.config["DATA_DIR"],
             config_data,
             hardware_config,
-            _integration_context(),
+            _plugin_context(),
             recovery_id,
         )
     except RecoveryError as error:

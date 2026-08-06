@@ -11,25 +11,25 @@ PLUGIN_API_VERSION = 3
 
 
 StatusPayload = dict[str, Any]
-InitializeHandler = Callable[["IntegrationContext"], None]
-RuntimeActionHandler = Callable[["IntegrationContext"], Any]
-AdminActionHandler = Callable[["IntegrationContext", str, dict[str, Any]], Any]
-ParticipantActionHandler = Callable[["IntegrationContext", str, dict[str, Any]], Any]
-ParticipantIngestHandler = Callable[["IntegrationContext", str, dict[str, Any]], Any]
-TrialHandler = Callable[["IntegrationContext", dict[str, Any]], None]
-MarkerHandler = Callable[["IntegrationContext", dict[str, Any]], None]
-IntervalSummaryHandler = Callable[["IntegrationContext", float, float], dict[str, Any]]
-IntervalExportHandler = Callable[["IntegrationContext", float, float], list[dict[str, Any]]]
-StatusHandler = Callable[["IntegrationContext"], StatusPayload]
-UploadDestinationHandler = Callable[["IntegrationContext", dict[str, Any]], dict[str, Any]]
+InitializeHandler = Callable[["PluginContext"], None]
+RuntimeActionHandler = Callable[["PluginContext"], Any]
+AdminActionHandler = Callable[["PluginContext", str, dict[str, Any]], Any]
+ParticipantActionHandler = Callable[["PluginContext", str, dict[str, Any]], Any]
+ParticipantIngestHandler = Callable[["PluginContext", str, dict[str, Any]], Any]
+TrialHandler = Callable[["PluginContext", dict[str, Any]], None]
+MarkerHandler = Callable[["PluginContext", dict[str, Any]], None]
+IntervalSummaryHandler = Callable[["PluginContext", float, float], dict[str, Any]]
+IntervalExportHandler = Callable[["PluginContext", float, float], list[dict[str, Any]]]
+StatusHandler = Callable[["PluginContext"], StatusPayload]
+UploadDestinationHandler = Callable[["PluginContext", dict[str, Any]], dict[str, Any]]
 
 
 @dataclass(frozen=True)
-class IntegrationContext:
-    """Runtime data shared with built-in integration plugins.
+class PluginContext:
+    """Runtime data shared with the built-in plugins.
 
     Plugins receive this object instead of importing Flask globals. That keeps each
-    connector easy to test and makes the boundary between persisted config,
+    plugin easy to test and makes the boundary between persisted config,
     backend-local secrets, and runtime adapter state explicit.
     """
 
@@ -81,8 +81,8 @@ class IntegrationContext:
 
 
 @dataclass(frozen=True)
-class IntegrationPlugin:
-    """Definition of one built-in connector shown in the Admin Dashboard."""
+class Plugin:
+    """What one built-in plugin offers: its identity and its handlers."""
 
     key: str
     label: str

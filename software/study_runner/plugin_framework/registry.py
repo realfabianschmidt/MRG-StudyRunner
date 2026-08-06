@@ -11,7 +11,7 @@ from .plugin_catalog import (
     discover_plugin_catalog,
     validate_admin_action_payload,
 )
-from .plugin_api import IntegrationContext, IntegrationPlugin
+from .plugin_api import PluginContext, Plugin
 
 
 def build_context(
@@ -23,8 +23,8 @@ def build_context(
     local_secrets_file: Path,
     runtime_locked: bool = False,
     persist_hardware_config=None,
-) -> IntegrationContext:
-    return IntegrationContext(
+) -> PluginContext:
+    return PluginContext(
         base_dir=Path(base_dir),
         data_dir=Path(data_dir),
         hardware_config=hardware_config,
@@ -35,11 +35,11 @@ def build_context(
     )
 
 
-def iter_plugins() -> tuple[IntegrationPlugin, ...]:
+def iter_plugins() -> tuple[Plugin, ...]:
     return PLUGINS
 
 
-def get_plugin(key: str) -> IntegrationPlugin | None:
+def get_plugin(key: str) -> Plugin | None:
     return PLUGINS_BY_KEY.get(str(key or "").strip())
 
 
@@ -69,7 +69,7 @@ def get_plugin_catalog_payload() -> dict[str, Any]:
     return _PLUGIN_CATALOG.public_payload()
 
 
-def get_plugins_with_capability(capability: str) -> tuple[IntegrationPlugin, ...]:
+def get_plugins_with_capability(capability: str) -> tuple[Plugin, ...]:
     name = str(capability or "").strip()
     manifests = get_plugin_manifests()
     return tuple(
@@ -103,12 +103,12 @@ def get_backup_projection_specs(
     return specs
 
 
-def initialize_plugins(context: IntegrationContext) -> None:
+def initialize_plugins(context: PluginContext) -> None:
     for plugin in PLUGINS:
         initialize_plugin(plugin.key, context)
 
 
-def initialize_plugin(key: str, context: IntegrationContext) -> None:
+def initialize_plugin(key: str, context: PluginContext) -> None:
     plugin = _require_plugin(key)
     if plugin.initialize is None:
         return
@@ -118,11 +118,11 @@ def initialize_plugin(key: str, context: IntegrationContext) -> None:
         print(f"[INTEGRATION] {plugin.key} initialization failed: {error}")
 
 
-def get_integration_statuses(context: IntegrationContext) -> dict[str, dict[str, Any]]:
+def get_plugin_statuses(context: PluginContext) -> dict[str, dict[str, Any]]:
     return {plugin.key: get_plugin_status(plugin.key, context) for plugin in PLUGINS}
 
 
-def get_plugin_status(key: str, context: IntegrationContext) -> dict[str, Any]:
+def get_plugin_status(key: str, context: PluginContext) -> dict[str, Any]:
     plugin = _require_plugin(key)
     try:
         raw_status = plugin.get_status(context) if plugin.get_status else {}
@@ -134,7 +134,7 @@ def get_plugin_status(key: str, context: IntegrationContext) -> dict[str, Any]:
 def set_plugin_enabled(config_data: dict[str, Any], key: str, enabled: bool) -> dict[str, Any]:
     plugin = _require_plugin(key)
     if not plugin.can_toggle:
-        raise ValueError(f"Integration '{key}' cannot be toggled directly.")
+        raise ValueError(f"Plugin '{key}' cannot be toggled directly.")
 
     section = config_data.setdefault(plugin.config_key, {})
     if not isinstance(section, dict):
@@ -144,7 +144,7 @@ def set_plugin_enabled(config_data: dict[str, Any], key: str, enabled: bool) -> 
     return config_data
 
 
-def apply_enabled_runtime(key: str, enabled: bool, context: IntegrationContext) -> None:
+def apply_enabled_runtime(key: str, enabled: bool, context: PluginContext) -> None:
     plugin = _require_plugin(key)
     if enabled:
         initialize_plugin(key, context)
@@ -157,7 +157,7 @@ def apply_enabled_runtime(key: str, enabled: bool, context: IntegrationContext) 
         initialize_plugin(key, context)
 
 
-def run_runtime_action(key: str, action: str, context: IntegrationContext) -> dict[str, Any]:
+def run_runtime_action(key: str, action: str, context: PluginContext) -> dict[str, Any]:
     plugin = _require_plugin(key)
     normalized = str(action or "").strip().lower()
     action_map = {
@@ -170,19 +170,19 @@ def run_runtime_action(key: str, action: str, context: IntegrationContext) -> di
 
     supported, handler = action_map[normalized]
     if not supported or handler is None:
-        raise ValueError(f"Integration '{key}' does not support {normalized}.")
+        raise ValueError(f"Plugin '{key}' does not support {normalized}.")
 
     result = handler(context)
     return {
         "ok": True,
-        "integration": key,
+        "plugin": key,
         "action": normalized,
         "result": result,
         "status": get_plugin_status(key, context),
     }
 
 
-def run_trial_start(options: dict[str, Any], context: IntegrationContext) -> None:
+def run_trial_start(options: dict[str, Any], context: PluginContext) -> None:
     for plugin in PLUGINS:
         if plugin.on_trial_start is None or not _is_config_enabled(context, plugin):
             continue
@@ -192,7 +192,7 @@ def run_trial_start(options: dict[str, Any], context: IntegrationContext) -> Non
             print(f"[INTEGRATION] {plugin.key} trial start failed: {error}")
 
 
-def run_trial_stop(options: dict[str, Any], context: IntegrationContext) -> None:
+def run_trial_stop(options: dict[str, Any], context: PluginContext) -> None:
     for plugin in PLUGINS:
         if plugin.on_trial_stop is None or not _is_config_enabled(context, plugin):
             continue
@@ -202,7 +202,7 @@ def run_trial_stop(options: dict[str, Any], context: IntegrationContext) -> None
             print(f"[INTEGRATION] {plugin.key} trial stop failed: {error}")
 
 
-def run_trial_marker(options: dict[str, Any], context: IntegrationContext) -> None:
+def run_trial_marker(options: dict[str, Any], context: PluginContext) -> None:
     for plugin in PLUGINS:
         if plugin.on_trial_marker is None or not _is_config_enabled(context, plugin):
             continue
@@ -213,7 +213,7 @@ def run_trial_marker(options: dict[str, Any], context: IntegrationContext) -> No
 
 
 def build_interval_summary(
-    context: IntegrationContext,
+    context: PluginContext,
     start_epoch: float,
     end_epoch: float,
 ) -> dict[str, dict[str, Any]]:
@@ -231,7 +231,7 @@ def build_interval_summary(
 
 
 def export_interval_sidecars(
-    context: IntegrationContext,
+    context: PluginContext,
     start_epoch: float,
     end_epoch: float,
 ) -> list[dict[str, Any]]:
@@ -261,8 +261,8 @@ def export_interval_sidecars(
 
 
 def _standardize_status(
-    plugin: IntegrationPlugin,
-    context: IntegrationContext,
+    plugin: Plugin,
+    context: PluginContext,
     raw_status: dict[str, Any],
 ) -> dict[str, Any]:
     config = config_section(context, plugin.config_key)
@@ -313,18 +313,18 @@ def reload_plugin_catalog() -> PluginCatalog:
 
 
 def _default_status_message(configured_enabled: bool) -> str:
-    return "Integration is enabled." if configured_enabled else "Integration is disabled in hardware settings."
+    return "Plugin is enabled." if configured_enabled else "Plugin is disabled in hardware settings."
 
 
-def _require_plugin(key: str) -> IntegrationPlugin:
+def _require_plugin(key: str) -> Plugin:
     plugin = get_plugin(key)
     if plugin is None:
         known = ", ".join(sorted(PLUGINS_BY_KEY))
-        raise ValueError(f"Unknown integration '{key}'. Expected one of: {known}.")
+        raise ValueError(f"Unknown plugin '{key}'. Expected one of: {known}.")
     return plugin
 
 
-def _is_config_enabled(context: IntegrationContext, plugin: IntegrationPlugin) -> bool:
+def _is_config_enabled(context: PluginContext, plugin: Plugin) -> bool:
     manifest = get_plugin_manifests().get(plugin.key) or {}
     capabilities = set(manifest.get("capabilities") or [])
     if "recording_source" in capabilities and "study_sensor" not in capabilities:
@@ -345,7 +345,7 @@ def _empty_interval_summary() -> dict[str, dict[str, Any]]:
 def run_admin_action(
     key: str,
     action: str,
-    context: IntegrationContext,
+    context: PluginContext,
     payload: Any = None,
 ) -> dict[str, Any]:
     """Run one manifest-declared plugin action through the generic boundary."""
@@ -365,9 +365,9 @@ def run_admin_action(
         None,
     )
     if declared is None:
-        raise ValueError(f"Integration '{key}' does not declare admin action '{normalized}'.")
+        raise ValueError(f"Plugin '{key}' does not declare admin action '{normalized}'.")
     if plugin.run_admin_action is None:
-        raise ValueError(f"Integration '{key}' has no admin action handler.")
+        raise ValueError(f"Plugin '{key}' has no admin action handler.")
 
     validated_payload = validate_admin_action_payload(
         declared,
@@ -378,7 +378,7 @@ def run_admin_action(
         "ok": True,
         "plugin_key": key,
         "action_key": normalized,
-        "integration": key,
+        "plugin": key,
         "action": normalized,
         "result": result,
         "status": get_plugin_status(key, context),
@@ -391,7 +391,7 @@ def run_admin_action(
 def run_participant_action(
     key: str,
     action: str,
-    context: IntegrationContext,
+    context: PluginContext,
     payload: Any = None,
 ) -> dict[str, Any]:
     """Run one manifest-declared participant lifecycle action."""
@@ -405,10 +405,10 @@ def run_participant_action(
     )
     if normalized not in declared:
         raise ValueError(
-            f"Integration '{key}' does not declare participant action '{normalized}'."
+            f"Plugin '{key}' does not declare participant action '{normalized}'."
         )
     if plugin.run_participant_action is None:
-        raise ValueError(f"Integration '{key}' has no participant action handler.")
+        raise ValueError(f"Plugin '{key}' has no participant action handler.")
     normalized_payload = {} if payload is None else payload
     if not isinstance(normalized_payload, dict):
         raise ValueError("participant action payload must be a JSON object")
@@ -426,7 +426,7 @@ def run_participant_action(
 def ingest_participant_payload(
     key: str,
     ingest_key: str,
-    context: IntegrationContext,
+    context: PluginContext,
     payload: Any,
 ) -> dict[str, Any]:
     """Dispatch participant data only to a manifest-declared plugin input."""
@@ -440,10 +440,10 @@ def ingest_participant_payload(
     )
     if normalized not in declared:
         raise ValueError(
-            f"Integration '{key}' does not declare participant ingest '{normalized}'."
+            f"Plugin '{key}' does not declare participant ingest '{normalized}'."
         )
     if plugin.ingest_participant is None:
-        raise ValueError(f"Integration '{key}' has no participant ingest handler.")
+        raise ValueError(f"Plugin '{key}' has no participant ingest handler.")
     if not isinstance(payload, dict):
         raise ValueError("participant ingest payload must be a JSON object")
 
@@ -537,6 +537,6 @@ def _report_invalid_plugins(catalog: PluginCatalog) -> None:
 
 
 _PLUGIN_CATALOG = discover_plugin_catalog()
-PLUGINS: tuple[IntegrationPlugin, ...] = _PLUGIN_CATALOG.plugins
+PLUGINS: tuple[Plugin, ...] = _PLUGIN_CATALOG.plugins
 PLUGINS_BY_KEY = {plugin.key: plugin for plugin in PLUGINS}
 _report_invalid_plugins(_PLUGIN_CATALOG)

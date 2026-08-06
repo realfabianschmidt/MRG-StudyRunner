@@ -11,7 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.plugins.clock_diagnostics import adapter
-from study_runner.plugin_framework.plugin_api import IntegrationContext
+from study_runner.plugin_framework.plugin_api import PluginContext
 from study_runner.plugin_framework.registry import run_trial_marker
 
 
@@ -51,7 +51,7 @@ class ClockDiagnosticsTests(unittest.TestCase):
         )
 
     def test_hidden_internal_plugin_receives_events_without_hardware_toggle(self) -> None:
-        context = IntegrationContext(
+        context = PluginContext(
             base_dir=PROJECT_ROOT,
             data_dir=PROJECT_ROOT / "saved_results",
             hardware_config={},

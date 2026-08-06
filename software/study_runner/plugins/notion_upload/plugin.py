@@ -4,10 +4,10 @@ from copy import deepcopy
 from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import config_section
-from study_runner.plugin_framework.plugin_api import IntegrationContext, IntegrationPlugin
+from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
 
 
-def _initialize(context: IntegrationContext) -> None:
+def _initialize(context: PluginContext) -> None:
     config = config_section(context, "notion")
     from . import adapter
 
@@ -20,7 +20,7 @@ def _initialize(context: IntegrationContext) -> None:
     )
 
 
-def _status(context: IntegrationContext) -> dict[str, Any]:
+def _status(context: PluginContext) -> dict[str, Any]:
     config = config_section(context, "notion")
     from . import adapter
 
@@ -57,7 +57,7 @@ def _message(enabled: bool, has_key: bool, connected: bool) -> str:
     return "Notion client is ready."
 
 
-def _publish(context: IntegrationContext, payload: dict[str, Any]) -> dict[str, Any]:
+def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
     """Execute one queued publication through the plugin boundary.
 
     The existing adapter still consumes its historic flat field names. They
@@ -95,7 +95,7 @@ def _publish(context: IntegrationContext, payload: dict[str, Any]) -> dict[str, 
     )
 
 
-PLUGIN = IntegrationPlugin(
+PLUGIN = Plugin(
     key="notion",
     label="Notion upload",
     category="storage",

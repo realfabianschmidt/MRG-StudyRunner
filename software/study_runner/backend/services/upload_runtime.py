@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from study_runner.plugin_framework.plugin_api import IntegrationPlugin
+from study_runner.plugin_framework.plugin_api import Plugin
 from study_runner.plugin_framework.registry import (
     build_context,
     get_plugin_manifest,
@@ -37,7 +37,7 @@ def configure_upload_jobs(app) -> UploadJobService:
 
 def _plugin_executor(
     app: Any,
-    plugin: IntegrationPlugin,
+    plugin: Plugin,
     destination: str,
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     def execute(payload: dict[str, Any]) -> dict[str, Any]:

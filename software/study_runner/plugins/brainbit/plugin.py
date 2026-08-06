@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import config_section
-from study_runner.plugin_framework.plugin_api import IntegrationContext, IntegrationPlugin
+from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
 
 
 DEFAULT_BRAINBIT = {
@@ -24,7 +24,7 @@ def _read_json_file(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _runtime_dir(context: IntegrationContext, configured: Any, default_relative: str, name: str) -> str | None:
+def _runtime_dir(context: PluginContext, configured: Any, default_relative: str, name: str) -> str | None:
     """Resolve a BrainBit working/log folder to somewhere writable.
 
     In packaged builds the bundled project folder can be read-only (or a temp
@@ -45,7 +45,7 @@ def _runtime_dir(context: IntegrationContext, configured: Any, default_relative:
     return resolved_path
 
 
-def _is_inside_bundle(context: IntegrationContext, candidate: str) -> bool:
+def _is_inside_bundle(context: PluginContext, candidate: str) -> bool:
     # resolve_project_path() resolves its result, so resolve base_dir too -
     # otherwise the comparison silently fails on relative or drive-less paths.
     try:
@@ -55,7 +55,7 @@ def _is_inside_bundle(context: IntegrationContext, candidate: str) -> bool:
     return True
 
 
-def _initialize(context: IntegrationContext) -> None:
+def _initialize(context: PluginContext) -> None:
     config = config_section(context, "brainbit")
     if not config.get("enabled"):
         return
@@ -93,7 +93,7 @@ def _initialize(context: IntegrationContext) -> None:
     )
 
 
-def _status(context: IntegrationContext) -> dict[str, Any]:
+def _status(context: PluginContext) -> dict[str, Any]:
     config = config_section(context, "brainbit")
     from . import adapter
 
@@ -128,7 +128,7 @@ def _status(context: IntegrationContext) -> dict[str, Any]:
     }
 
 
-def _start(context: IntegrationContext) -> Any:
+def _start(context: PluginContext) -> Any:
     from . import adapter
 
     if not adapter.is_configured() and config_section(context, "brainbit").get("enabled"):
@@ -138,14 +138,14 @@ def _start(context: IntegrationContext) -> Any:
     return adapter.get_status()
 
 
-def _stop(context: IntegrationContext) -> Any:
+def _stop(context: PluginContext) -> Any:
     from . import adapter
 
     adapter.stop()
     return adapter.get_status()
 
 
-def _restart(context: IntegrationContext) -> Any:
+def _restart(context: PluginContext) -> Any:
     from . import adapter
 
     if not adapter.is_configured() and config_section(context, "brainbit").get("enabled"):
@@ -155,7 +155,7 @@ def _restart(context: IntegrationContext) -> Any:
     return adapter.get_status()
 
 
-def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
+def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
     from . import adapter
 
     plugin_actions = options.get("plugin_actions")
@@ -174,26 +174,26 @@ def _trial_start(context: IntegrationContext, options: dict[str, Any]) -> None:
     )
 
 
-def _trial_stop(context: IntegrationContext, options: dict[str, Any]) -> None:
+def _trial_stop(context: PluginContext, options: dict[str, Any]) -> None:
     from . import adapter
 
     adapter.set_routing(forward_to_lsl=None, forward_to_touchdesigner=False)
 
 
-def _interval(context: IntegrationContext, start_epoch: float, end_epoch: float) -> dict[str, Any]:
+def _interval(context: PluginContext, start_epoch: float, end_epoch: float) -> dict[str, Any]:
     from . import adapter
 
     return adapter.get_interval_summary(start_epoch, end_epoch)
 
 
-def _export(context: IntegrationContext, start_epoch: float, end_epoch: float) -> list[dict[str, Any]]:
+def _export(context: PluginContext, start_epoch: float, end_epoch: float) -> list[dict[str, Any]]:
     from . import adapter
 
     return adapter.export_interval_samples(start_epoch, end_epoch)
 
 
 def _run_admin_action(
-    context: IntegrationContext,
+    context: PluginContext,
     action_key: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
@@ -250,7 +250,7 @@ def _run_admin_action(
     }
 
 
-PLUGIN = IntegrationPlugin(
+PLUGIN = Plugin(
     key="brainbit",
     label="BrainBit",
     category="biosignal",
