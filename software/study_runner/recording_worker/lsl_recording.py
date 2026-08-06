@@ -13,7 +13,7 @@ from typing import Any, Callable, Mapping, Sequence
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
 
-from study_runner.backend.recording.backup import BackupProjection, BackupSampler, projections_from_manifest
+from study_runner.recording.backup import BackupProjection, BackupSampler, projections_from_manifest
 
 from .core import NativeXdfCore, NativeXdfWriter
 

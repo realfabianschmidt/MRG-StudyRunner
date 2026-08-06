@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.recording.artifacts import sha256_file
+from study_runner.recording.artifacts import sha256_file
 from study_runner.backend.services.delivery.artifact_manifest_service import ArtifactManifestStore
 from study_runner.backend.services.studies.card_summary_service import CardSummaryBuilder
 from study_runner.backend.services.delivery.destination_plugin_service import (

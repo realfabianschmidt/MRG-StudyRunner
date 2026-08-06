@@ -12,8 +12,8 @@ import threading
 import time
 from typing import Any, Mapping, Sequence
 
-from study_runner.backend.recording.worker_protocol import WorkerCommand
-from study_runner.backend.recording.recovery import RecordingLeaseStore
+from study_runner.recording.worker_protocol import WorkerCommand
+from study_runner.recording.recovery import RecordingLeaseStore
 from study_runner.backend.services.shared.atomic_io import atomic_write_json
 
 from .core import NativeXdfCore

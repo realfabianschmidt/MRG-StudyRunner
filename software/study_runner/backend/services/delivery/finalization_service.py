@@ -19,7 +19,7 @@ import threading
 import time
 from typing import Any, Callable, Mapping, Protocol
 
-from study_runner.backend.recording.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
+from study_runner.recording.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
 
 from .artifact_manifest_service import ArtifactManifestError, ArtifactManifestStore
 from ..shared.atomic_io import atomic_write_json

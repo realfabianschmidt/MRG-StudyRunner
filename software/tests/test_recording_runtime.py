@@ -21,13 +21,13 @@ WORKER_UNAVAILABLE_REASON = (
     "fail-closed" if platform.system().strip().casefold() == "linux" else "not found"
 )
 
-from study_runner.backend.recording.artifacts import ArtifactStore, SessionIdentity
-from study_runner.backend.recording.coordinator import SegmentLedger
-from study_runner.backend.recording.recovery import RecordingLeaseStore
-from study_runner.backend.recording.worker_binary import WorkerBinaryAvailability
-from study_runner.backend.recording.worker_protocol import LoopbackWorkerClient, WorkerEndpointState
-from study_runner.backend.recording.xdf import StreamInspection, XdfArtifactInspection
-from study_runner.backend.recording.errors import WorkerUnavailableError
+from study_runner.recording.artifacts import ArtifactStore, SessionIdentity
+from study_runner.recording.coordinator import SegmentLedger
+from study_runner.recording.recovery import RecordingLeaseStore
+from study_runner.recording.worker_binary import WorkerBinaryAvailability
+from study_runner.recording.worker_protocol import LoopbackWorkerClient, WorkerEndpointState
+from study_runner.recording.xdf import StreamInspection, XdfArtifactInspection
+from study_runner.recording.errors import WorkerUnavailableError
 from study_runner.backend.services.recording.recording_runtime import (
     NativeWorkerLauncher,
     RecordingRuntimeService,

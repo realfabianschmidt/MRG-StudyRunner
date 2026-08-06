@@ -20,7 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.recording_worker.core import NativeXdfCore, NativeXdfError
-from study_runner.backend.recording.backup import (
+from study_runner.recording.backup import (
     BackupSampler,
     STATUS_DEGRADED,
     STATUS_STALE,
@@ -33,7 +33,7 @@ from study_runner.recording_worker.lsl_recording import (
     StreamSpec,
 )
 from study_runner.recording_worker.runtime import RecordingWorkerRuntime, sha256_file
-from study_runner.backend.recording.worker_protocol import (
+from study_runner.recording.worker_protocol import (
     WorkerCommand,
     WorkerEndpointState,
     WorkerStateStore,
@@ -131,7 +131,7 @@ class NativeCoreSmokeTests(unittest.TestCase):
             shutil.rmtree(root)
 
     def test_truncated_last_chunk_is_preserved_but_never_validated_as_complete(self) -> None:
-        from study_runner.backend.recording.xdf import PyXdfInspector, validate_sources
+        from study_runner.recording.xdf import PyXdfInspector, validate_sources
 
         core = NativeXdfCore(Path(os.environ["STUDY_RUNNER_XDF_CORE_TEST"]))
         root = REPOSITORY_ROOT / ".tmp" / f"native-truncated-smoke-{uuid.uuid4().hex}"

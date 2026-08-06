@@ -10,10 +10,10 @@ import sys
 import time
 from typing import Any, Callable
 
-from ...recording.artifacts import ArtifactPaths
-from ...recording.errors import WorkerUnavailableError
-from ...recording.worker_binary import WorkerBinaryAvailability
-from ...recording.worker_protocol import (
+from study_runner.recording.artifacts import ArtifactPaths
+from study_runner.recording.errors import WorkerUnavailableError
+from study_runner.recording.worker_binary import WorkerBinaryAvailability
+from study_runner.recording.worker_protocol import (
     LoopbackWorkerClient,
     WorkerEndpointState,
     WorkerStateStore,

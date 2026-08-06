@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 from typing import Any, Mapping, Sequence
 
-from study_runner.backend.recording.worker_protocol import (
+from study_runner.recording.worker_protocol import (
     LoopbackWorkerClient,
     PersistentCommandLedger,
     WorkerCommandRouter,

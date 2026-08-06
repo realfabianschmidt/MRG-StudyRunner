@@ -23,7 +23,7 @@ assert SETUP_SPEC is not None and SETUP_SPEC.loader is not None
 setup = importlib.util.module_from_spec(SETUP_SPEC)
 SETUP_SPEC.loader.exec_module(setup)
 
-from study_runner.backend.recording.worker_binary import (  # noqa: E402
+from study_runner.recording.worker_binary import (  # noqa: E402
     BUILD_MANIFEST_SCHEMA,
     BundledWorkerLocator,
     EXPECTED_UPSTREAM_COMMIT,
