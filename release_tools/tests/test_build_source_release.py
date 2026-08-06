@@ -310,3 +310,28 @@ class SourceReleaseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RepositoryNoticeTests(unittest.TestCase):
+    """The real notice files, not synthetic ones.
+
+    Both of these have already failed a release: the LICENSE sentence the
+    validator looks for continued with "and are not", and the Boost phrase in
+    THIRD_PARTY_NOTICES.md was split across a line break. Checking the actual
+    files here turns a failed publish into a failed test.
+    """
+
+    def test_repository_license_satisfies_its_own_validator(self) -> None:
+        license_text = (release.REPOSITORY_ROOT / "LICENSE").read_text(encoding="utf-8")
+        release.validate_repository_license(license_text)
+
+    def test_third_party_notices_satisfy_their_own_validator(self) -> None:
+        notices = (release.REPOSITORY_ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+        release.validate_third_party_notices(notices)
+
+    def test_every_declared_vendor_license_is_present_and_valid(self) -> None:
+        for relative in release.THIRD_PARTY_NOTICE_FILES[1:]:
+            with self.subTest(path=relative):
+                path = release.REPOSITORY_ROOT / relative
+                self.assertTrue(path.is_file(), f"{relative} is declared but missing")
+                release.validate_third_party_license(relative, path.read_text(encoding="utf-8"))
