@@ -74,9 +74,9 @@ class SourceReleaseTests(unittest.TestCase):
     def test_archive_still_rejects_undocumented_fonts_next_to_the_licensed_ones(self) -> None:
         """The exemption is the documented folder, not the file extension."""
         for name in (
-            "software/study_runner/web/vendor/unlicensed/Other-Regular.woff2",
-            "software/study_runner/web/styles/Smuggled-Regular.ttf",
-            "software/study_runner/web/fonts/nested/Deeper-Regular.otf",
+            "software/study_runner/frontend/vendor/unlicensed/Other-Regular.woff2",
+            "software/study_runner/frontend/styles/Smuggled-Regular.ttf",
+            "software/study_runner/frontend/fonts/nested/Deeper-Regular.otf",
         ):
             with self.subTest(name=name), temporary_directory() as temporary:
                 path = Path(temporary) / release.ARCHIVES[0]
@@ -90,12 +90,12 @@ class SourceReleaseTests(unittest.TestCase):
         with temporary_directory() as temporary:
             path = Path(temporary) / release.ARCHIVES[0]
             write_zip(path, members(
-                "software/study_runner/web/fonts/Materiability-Regular.ttf",
-                "software/study_runner/web/fonts/Materiability-SemiBold.ttf",
-                "software/study_runner/web/fonts/Materiability-Bold.ttf",
-                "software/study_runner/web/vendor/geist/Geist-Regular.woff2",
-                "software/study_runner/web/vendor/geist/Geist-SemiBold.woff2",
-                "software/study_runner/web/vendor/geist/Geist-Bold.woff2",
+                "software/study_runner/frontend/fonts/Materiability-Regular.ttf",
+                "software/study_runner/frontend/fonts/Materiability-SemiBold.ttf",
+                "software/study_runner/frontend/fonts/Materiability-Bold.ttf",
+                "software/study_runner/frontend/vendor/geist/Geist-Regular.woff2",
+                "software/study_runner/frontend/vendor/geist/Geist-SemiBold.woff2",
+                "software/study_runner/frontend/vendor/geist/Geist-Bold.woff2",
             ))
 
             release.validate_archive(path, version=VERSION)
@@ -154,8 +154,8 @@ class SourceReleaseTests(unittest.TestCase):
             "App-LabRecorder / XDFWriter native/src/xdfwriter_patched.cpp files "
             "remain derived works under xdfwriter/conversions.h and the Boost Software "
             "License 1.0 at software/recording_worker/native/vendor/BOOST_LICENSE_1_0.txt. "
-            "Iconoir software/study_runner/web/vendor/iconoir/LICENSE. "
-            "Geist software/study_runner/web/vendor/geist/LICENSE. The source archives "
+            "Iconoir software/study_runner/frontend/vendor/iconoir/LICENSE. "
+            "Geist software/study_runner/frontend/vendor/geist/LICENSE. The source archives "
             "do **not** contain facial_expression_model_weights.h5."
         )
 
@@ -168,16 +168,16 @@ class SourceReleaseTests(unittest.TestCase):
             "Boost Software License - Version 1.0\nPermission is hereby granted",
         )
         release.validate_third_party_license(
-            "software/study_runner/web/vendor/geist/LICENSE",
+            "software/study_runner/frontend/vendor/geist/LICENSE",
             "SIL OPEN FONT LICENSE Version 1.1\nPermission is hereby granted",
         )
         with self.assertRaisesRegex(release.ReleaseError, "required license text"):
             release.validate_third_party_license(
-                "software/study_runner/web/vendor/iconoir/LICENSE", "MIT License"
+                "software/study_runner/frontend/vendor/iconoir/LICENSE", "MIT License"
             )
         with self.assertRaisesRegex(release.ReleaseError, "required license text"):
             release.validate_third_party_license(
-                "software/study_runner/web/vendor/geist/LICENSE", "SIL OPEN FONT LICENSE Version 1.1"
+                "software/study_runner/frontend/vendor/geist/LICENSE", "SIL OPEN FONT LICENSE Version 1.1"
             )
 
     def test_output_verification_is_fail_closed_and_declares_source_mode(self) -> None:

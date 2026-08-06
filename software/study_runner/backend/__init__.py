@@ -38,7 +38,7 @@ from .services.delivery.upload_runtime import configure_upload_jobs
 
 
 BASE_DIR = get_project_base_dir()
-WEB_INTERFACE_DIR = BASE_DIR / "study_runner" / "web"
+WEB_INTERFACE_DIR = BASE_DIR / "study_runner" / "frontend"
 
 
 def _load_hardware_config(config_path: Path) -> dict:

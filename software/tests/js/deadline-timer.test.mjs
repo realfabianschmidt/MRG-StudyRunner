@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { startDeadlineTimer, remainingWholeSeconds } from '../../study_runner/web/scripts/lib/deadline-timer.js';
+import { startDeadlineTimer, remainingWholeSeconds } from '../../study_runner/frontend/scripts/shared/deadline-timer.js';
 
 let nowMs = 1_000;
 let scheduled = null;

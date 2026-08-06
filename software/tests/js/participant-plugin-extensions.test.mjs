@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ParticipantPluginExtensionManager } from '../../study_runner/web/scripts/lib/participant-plugin-extensions.js';
+import { ParticipantPluginExtensionManager } from '../../study_runner/frontend/scripts/shared/participant-plugin-extensions.js';
 
 function createManager({ factory, enabled = () => true, warnings = [] }) {
   const plugin = { plugin_key: 'fixture_sensor', ui: { extensions: { participant: 'ui/participant.js' } } };

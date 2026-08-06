@@ -21,8 +21,8 @@ THIRD_PARTY_NOTICE_FILES = (
     "THIRD_PARTY_NOTICES.md",
     "software/recording_worker/native/vendor/App-LabRecorder/LICENSE",
     "software/recording_worker/native/vendor/BOOST_LICENSE_1_0.txt",
-    "software/study_runner/web/vendor/iconoir/LICENSE",
-    "software/study_runner/web/vendor/geist/LICENSE",
+    "software/study_runner/frontend/vendor/iconoir/LICENSE",
+    "software/study_runner/frontend/vendor/geist/LICENSE",
 )
 REQUIRED_SOURCE_FILES = (
     "LICENSE",
@@ -77,12 +77,12 @@ FORBIDDEN_SOURCE_SUFFIXES = (
     ".toe",
 )
 # Fonts stay forbidden by default so a stray face can never ride along unnoticed.
-# One may only ship from a folder that documents its terms: web/fonts/ holds the
-# first-party Materiability faces covered by this repository's own LICENSE, and
-# web/vendor/geist/ carries the upstream OFL text the contract below checks.
+# One may only ship from a folder that documents its terms: frontend/fonts/ holds
+# the first-party Materiability faces covered by this repository's own LICENSE,
+# and frontend/vendor/geist/ carries the upstream OFL text the contract checks.
 LICENSED_FONT_DIRECTORIES = (
-    "software/study_runner/web/fonts/",
-    "software/study_runner/web/vendor/geist/",
+    "software/study_runner/frontend/fonts/",
+    "software/study_runner/frontend/vendor/geist/",
 )
 LICENSED_FONT_SUFFIXES = (".ttf", ".woff2")
 SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -290,9 +290,9 @@ def validate_third_party_notices(notice_text: str) -> None:
         "Boost Software License 1.0",
         "software/recording_worker/native/vendor/BOOST_LICENSE_1_0.txt",
         "Iconoir",
-        "software/study_runner/web/vendor/iconoir/LICENSE",
+        "software/study_runner/frontend/vendor/iconoir/LICENSE",
         "Geist",
-        "software/study_runner/web/vendor/geist/LICENSE",
+        "software/study_runner/frontend/vendor/geist/LICENSE",
         "facial_expression_model_weights.h5",
         "do **not** contain",
     )
@@ -313,11 +313,11 @@ def validate_third_party_license(relative_path: str, license_text: str) -> None:
             "Boost Software License - Version 1.0",
             "Permission is hereby granted",
         ),
-        "software/study_runner/web/vendor/iconoir/LICENSE": (
+        "software/study_runner/frontend/vendor/iconoir/LICENSE": (
             "MIT License",
             "Permission is hereby granted",
         ),
-        "software/study_runner/web/vendor/geist/LICENSE": (
+        "software/study_runner/frontend/vendor/geist/LICENSE": (
             "SIL OPEN FONT LICENSE Version 1.1",
             "Permission is hereby granted",
         ),

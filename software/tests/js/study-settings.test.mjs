@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { normalizeStudySettings } from '../../study_runner/web/scripts/lib/study-settings.js';
-import { configurePluginCatalog } from '../../study_runner/web/scripts/lib/plugin-catalog.js';
+import { normalizeStudySettings } from '../../study_runner/frontend/scripts/shared/study-settings.js';
+import { configurePluginCatalog } from '../../study_runner/frontend/scripts/shared/plugin-catalog.js';
 
 configurePluginCatalog({
   api_version: 3,

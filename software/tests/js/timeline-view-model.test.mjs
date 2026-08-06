@@ -13,7 +13,7 @@ import {
   normalizePoints,
   panWindow,
   zoomWindow,
-} from '../../study_runner/web/scripts/lib/timeline-view-model.js';
+} from '../../study_runner/frontend/scripts/shared/timeline-view-model.js';
 
 const rawPoints = (count, base = 1000) =>
   Array.from({ length: count }, (_, index) => ({

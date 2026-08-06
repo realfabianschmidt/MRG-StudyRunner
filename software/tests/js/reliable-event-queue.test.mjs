@@ -38,7 +38,7 @@ globalThis.fetch = async (endpoint, options) => {
 const {
   flushReliableStudyEvents,
   sendReliableStudyEvent,
-} = await import('../../study_runner/web/scripts/lib/reliable-event-queue.js');
+} = await import('../../study_runner/frontend/scripts/shared/reliable-event-queue.js');
 
 const start = sendReliableStudyEvent('/api/start', {
   event_id: 'event-start',

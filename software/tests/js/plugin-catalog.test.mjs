@@ -9,7 +9,7 @@ import {
   pluginByKey,
   pluginUiIcon,
   visiblePluginsWithCapability,
-} from '../../study_runner/web/scripts/lib/plugin-catalog.js';
+} from '../../study_runner/frontend/scripts/shared/plugin-catalog.js';
 
 configurePluginCatalog({
   api_version: 3,

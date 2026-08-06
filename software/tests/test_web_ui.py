@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-WEB = PROJECT_ROOT / "study_runner" / "web"
+WEB = PROJECT_ROOT / "study_runner" / "frontend"
 
 
 def _read(path: Path) -> str:
@@ -165,11 +165,11 @@ class ParticipantLanguageTests(unittest.TestCase):
         self.assertEqual(offenders, [])
 
     def test_study_page_never_uses_blocking_alerts(self) -> None:
-        text = _read(WEB / "scripts" / "study-controller.js")
+        text = _read(WEB / "scripts" / "participant" / "study-controller.js")
         self.assertNotIn("alert(", text, "use showStudyNotice() instead of alert()")
 
     def test_participant_lifecycle_is_manifest_extension_driven(self) -> None:
-        controller = _read(WEB / "scripts" / "study-controller.js")
+        controller = _read(WEB / "scripts" / "participant" / "study-controller.js")
         camera_extension = _read(
             PROJECT_ROOT / "study_runner" / "plugins" / "camera_emotion" / "ui" / "participant.js"
         )
@@ -219,7 +219,7 @@ class EditorFieldOrderTests(unittest.TestCase):
     ORDER = ("renderPromptField", "renderInstructionField", "renderEditor", "renderNoteField", "renderEditorToggles")
 
     def test_open_overlay_composes_the_agreed_order(self) -> None:
-        admin = _read(WEB / "scripts" / "admin-controller.js")
+        admin = _read(WEB / "scripts" / "admin" / "admin-controller.js")
         start = admin.index("editorEl.innerHTML = [")
         block = admin[start : admin.index("].join('');", start)]
 
@@ -269,7 +269,7 @@ class PreviewModeTests(unittest.TestCase):
         If a preview sent one, opening your own study to look at it would
         block the Play button that starts it.
         """
-        controller = _read(WEB / "scripts" / "study-controller.js")
+        controller = _read(WEB / "scripts" / "participant" / "study-controller.js")
         start = controller.index("startStudyClientHeartbeat(getStudyClientHeartbeatPayload")
         guard = controller[max(0, start - 400) : start]
 
@@ -277,7 +277,7 @@ class PreviewModeTests(unittest.TestCase):
 
     def test_preview_suppresses_every_write_in_one_place(self) -> None:
         """One barrier, not a flag checked at fifteen call sites."""
-        controller = _read(WEB / "scripts" / "study-controller.js")
+        controller = _read(WEB / "scripts" / "participant" / "study-controller.js")
 
         # The real senders are imported under different names and wrapped.
         self.assertIn("postJson as postJsonToServer", controller)
@@ -298,7 +298,7 @@ class PreviewModeTests(unittest.TestCase):
 
     def test_the_admin_page_has_no_browser_confirm_left(self) -> None:
         """confirm() cannot be translated, is unstyled, and freezes the page."""
-        admin = _read(WEB / "scripts" / "admin-controller.js")
+        admin = _read(WEB / "scripts" / "admin" / "admin-controller.js")
         stripped = admin.replace("confirmWithModal(", "").replace("confirmAndStartFromEditor(", "")
 
         self.assertNotIn("confirm(", stripped)
@@ -307,7 +307,7 @@ class PreviewModeTests(unittest.TestCase):
 
     def test_both_start_buttons_drive_the_same_flow(self) -> None:
         """One start path, two entry points - the spinner follows the button."""
-        admin = _read(WEB / "scripts" / "admin-controller.js")
+        admin = _read(WEB / "scripts" / "admin" / "admin-controller.js")
 
         self.assertIn("buttonId = 'btn-hub-start-study'", admin)
         self.assertIn("buttonId: 'btn-workspace-start'", admin)
@@ -432,7 +432,7 @@ class SettingsShellTests(unittest.TestCase):
         A study copied to another computer must not drag that computer's setup
         with it, so the gear hub must not offer a per-study entry.
         """
-        controller = _read(WEB / "scripts" / "admin-controller.js")
+        controller = _read(WEB / "scripts" / "admin" / "admin-controller.js")
 
         self.assertNotIn("'study-settings'", controller)
         self.assertIn('id="view-study-settings"', _read(WEB / "pages" / "admin.html"))
@@ -457,7 +457,7 @@ class SettingsShellTests(unittest.TestCase):
 
 class PluginUiContractTests(unittest.TestCase):
     def test_sensor_rich_views_and_timeline_preferences_are_plugin_owned(self) -> None:
-        dashboard = _read(WEB / "scripts" / "admin-dashboard-controller.js").lower()
+        dashboard = _read(WEB / "scripts" / "admin" / "admin-dashboard-controller.js").lower()
         timeline = _read(WEB / "scripts" / "admin" / "session-timeline.js")
         packaging = _read(
             PROJECT_ROOT.parent
@@ -475,22 +475,22 @@ class PluginUiContractTests(unittest.TestCase):
 
     def test_admin_plugin_lists_have_no_recorder_or_worker_key_maps(self) -> None:
         for name in ("admin-controller.js", "admin-dashboard-controller.js"):
-            source = _read(WEB / "scripts" / name).lower()
+            source = _read(WEB / "scripts" / "admin" / name).lower()
             self.assertNotIn("labrecorder", source)
             self.assertNotIn("emotion_worker", source)
             self.assertNotIn("plugin_tile_icons", source)
             self.assertNotIn("plugin_icons", source)
 
-        dashboard = _read(WEB / "scripts" / "admin-dashboard-controller.js")
+        dashboard = _read(WEB / "scripts" / "admin" / "admin-dashboard-controller.js")
         self.assertIn("status.recording_infrastructure", dashboard)
         self.assertIn("status.recording_worker", dashboard)
         self.assertIn("recording-worker-issues", dashboard)
         self.assertNotIn("pluginsWithCapability('recording_worker')", dashboard)
 
     def test_catalog_visibility_drives_all_generic_plugin_surfaces(self) -> None:
-        catalog = _read(WEB / "scripts" / "lib" / "plugin-catalog.js")
+        catalog = _read(WEB / "scripts" / "shared" / "plugin-catalog.js")
         machine_panel = _read(WEB / "scripts" / "settings" / "machine" / "machine-settings-panel.js")
-        dashboard = _read(WEB / "scripts" / "admin-dashboard-controller.js")
+        dashboard = _read(WEB / "scripts" / "admin" / "admin-dashboard-controller.js")
         study_panel = _read(WEB / "scripts" / "settings" / "study" / "study-settings-panel.js")
 
         self.assertIn("PLUGIN_UI_SURFACES", catalog)
@@ -528,7 +528,7 @@ class PluginUiContractTests(unittest.TestCase):
         self.assertNotIn('iconoir-cloud-upload"></i>', monitor)
 
     def test_required_readiness_blockers_cannot_be_confirmed_away(self) -> None:
-        admin = _read(WEB / "scripts" / "admin-controller.js")
+        admin = _read(WEB / "scripts" / "admin" / "admin-controller.js")
         start = admin.index("async function startLoadedStudyRun")
         blocked = admin.index("state.readiness?.start_blocked === true", start)
         warning = admin.index("state.readiness?.ready === false", blocked)
@@ -539,7 +539,7 @@ class PluginUiContractTests(unittest.TestCase):
         self.assertNotIn("confirm(", blocked_branch)
 
     def test_stimulus_deadline_is_fixed_before_prepare_and_stop_does_not_wait(self) -> None:
-        source = _read(WEB / "scripts" / "study-controller.js")
+        source = _read(WEB / "scripts" / "participant" / "study-controller.js")
         start = source.index("async function startStimulusCard")
         schedule = source.index("const scheduleStartMs = performance.now()", start)
         prepare = source.index("await postJson('/api/trial/prepare'", start)

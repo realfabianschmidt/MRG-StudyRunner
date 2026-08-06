@@ -24,7 +24,7 @@ def software_root(spec_path: str) -> Path:
 
 def common_datas(root: Path) -> list[tuple[str, str]]:
     datas = [
-        (str(root / "study_runner" / "web"), "study_runner/web"),
+        (str(root / "study_runner" / "frontend"), "study_runner/web"),
         (str(root / "study_content"), "study_content"),
     ]
     model_assets = root / "study_runner" / "plugins" / "camera_emotion" / "worker" / "model_assets"

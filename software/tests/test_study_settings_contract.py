@@ -23,7 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from study_runner.backend.services.shared.validation import _validate_study_settings
 
 STUDY_SETTINGS_JS = (
-    PROJECT_ROOT / "study_runner" / "web" / "scripts" / "lib" / "study-settings.js"
+    PROJECT_ROOT / "study_runner" / "frontend" / "scripts" / "shared" / "study-settings.js"
 )
 
 
@@ -91,7 +91,7 @@ class StudySettingsContractTests(unittest.TestCase):
 
     def test_no_controller_redefines_the_shape(self) -> None:
         """The whole point: exactly one client-side definition, no copies."""
-        scripts_dir = PROJECT_ROOT / "study_runner" / "web" / "scripts"
+        scripts_dir = PROJECT_ROOT / "study_runner" / "frontend" / "scripts"
         offenders = []
         for path in scripts_dir.rglob("*.js"):
             if path == STUDY_SETTINGS_JS:
