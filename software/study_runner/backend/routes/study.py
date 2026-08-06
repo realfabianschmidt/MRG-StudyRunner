@@ -19,7 +19,7 @@ from ..services.studies.trial_event_service import (
     TrialEventConflictError,
     TrialEventInProgressError,
 )
-from ..services.shared.validation import validate_and_normalize_config, validate_and_normalize_trial_options
+from ..services.studies.validation import validate_and_normalize_config, validate_and_normalize_trial_options
 from .helpers import (
     _current_config_data,
     _public_study_session,

@@ -10,7 +10,7 @@ from ..services.studies.recovery_service import (
     list_recovery_candidates,
 )
 from ..services.studies.study_config_service import load_config
-from ..services.shared.validation import validate_and_normalize_config
+from ..services.studies.validation import validate_and_normalize_config
 from .helpers import _plugin_context, _runtime_hardware_config, _stop_study_session_tracking
 from .results import _enqueue_upload_jobs
 

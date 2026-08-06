@@ -18,7 +18,7 @@ import time
 import uuid
 from typing import Any, Callable
 
-from ..shared.atomic_io import atomic_write_json
+from study_runner.shared.atomic_io import atomic_write_json
 
 
 BACKOFF_SECONDS = (30, 120, 600, 1800)

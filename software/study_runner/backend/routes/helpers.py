@@ -32,7 +32,7 @@ from ..services.recording.study_sensor_runtime import (
     normalize_session_overrides,
 )
 from ..services.studies.trial_service import configure_runtime
-from ..services.shared.validation import validate_and_normalize_config
+from ..services.studies.validation import validate_and_normalize_config
 
 # Internal marker/clock streams are mandatory recording providers, not
 # operator-toggleable integrations.

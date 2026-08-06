@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.shared.validation import _validate_study_settings
+from study_runner.backend.services.studies.validation import _validate_study_settings
 
 STUDY_SETTINGS_JS = (
     PROJECT_ROOT / "study_runner" / "frontend" / "scripts" / "shared" / "study-settings.js"

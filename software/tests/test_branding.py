@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.shared.atomic_io import atomic_write_json
+from study_runner.shared.atomic_io import atomic_write_json
 from study_runner.backend.services.settings.branding_service import (
     MANIFEST_NAME,
     MAX_ASSET_BYTES,

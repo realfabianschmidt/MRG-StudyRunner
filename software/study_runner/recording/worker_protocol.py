@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 import uuid
 
-from study_runner.backend.services.shared.atomic_io import atomic_write_json
+from study_runner.shared.atomic_io import atomic_write_json
 
 from .errors import (
     CommandConflictError,

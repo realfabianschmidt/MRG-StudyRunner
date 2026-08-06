@@ -228,7 +228,7 @@ class LeakageTests(unittest.TestCase):
 
     def test_study_settings_never_carry_a_credential_field(self) -> None:
         """The exported study file must have nowhere to put a secret."""
-        from study_runner.backend.services.shared.validation import _validate_study_settings
+        from study_runner.backend.services.studies.validation import _validate_study_settings
 
         keys = set(_validate_study_settings({}))
 

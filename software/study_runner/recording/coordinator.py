@@ -15,7 +15,7 @@ import threading
 import time
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from study_runner.backend.services.shared.atomic_io import atomic_write_json
+from study_runner.shared.atomic_io import atomic_write_json
 
 from .artifacts import ArtifactPaths, sha256_file
 from .errors import WorkerProtocolError

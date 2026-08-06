@@ -22,7 +22,7 @@ from typing import Any, Callable, Mapping, Protocol
 from study_runner.recording.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
 
 from .artifact_manifest_service import ArtifactManifestError, ArtifactManifestStore
-from ..shared.atomic_io import atomic_write_json
+from study_runner.shared.atomic_io import atomic_write_json
 from ..studies.card_summary_service import CardSummaryBuilder
 from .destination_plugin_service import (
     DestinationPluginDefinition,

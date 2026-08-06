@@ -6,7 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from ..shared.atomic_io import atomic_write_json
+from study_runner.shared.atomic_io import atomic_write_json
 from ..studies.study_secrets_service import describe_secret_state, get_study_secret
 
 

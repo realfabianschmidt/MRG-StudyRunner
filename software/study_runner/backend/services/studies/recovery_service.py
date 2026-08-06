@@ -42,7 +42,7 @@ from .results_service import (
 )
 from ..recording.sensor_flush_service import discard_session_flush_files
 from .sessions_index_service import list_sessions
-from ..shared.validation import skipped_optional_questions_for_result
+from .validation import skipped_optional_questions_for_result
 
 XDF_GRACE_SECONDS = 600
 STUCK_FINISH_RECOVERY_SECONDS = 90

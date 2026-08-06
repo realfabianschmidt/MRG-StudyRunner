@@ -9,7 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.shared.validation import (
+from study_runner.backend.services.studies.validation import (
     ValidationError,
     validate_and_normalize_config,
     validate_and_normalize_results,

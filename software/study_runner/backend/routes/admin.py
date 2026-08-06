@@ -24,7 +24,7 @@ from ..services.studies.study_secrets_service import (
     set_study_secret,
 )
 from ..services.recording.study_sensor_runtime import STUDY_SENSOR_KEYS
-from ..services.shared.validation import validate_and_normalize_config
+from ..services.studies.validation import validate_and_normalize_config
 from .helpers import (
     _clear_session_overrides,
     _delayed_shutdown,

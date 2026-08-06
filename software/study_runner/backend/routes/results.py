@@ -12,7 +12,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
-from ..services.shared.atomic_io import atomic_write_json
+from study_runner.shared.atomic_io import atomic_write_json
 from ..services.delivery.finalization_service import SubmissionConflictError
 from ..services.studies.results_service import (
     build_answer_details,
@@ -22,7 +22,7 @@ from ..services.studies.results_service import (
 from ..services.settings.secrets_service import redact_hardware_config
 from ..services.studies.study_config_service import load_config
 from ..services.delivery.upload_jobs_service import build_job_metadata
-from ..services.shared.validation import (
+from ..services.studies.validation import (
     ValidationError,
     validate_and_normalize_config,
     validate_and_normalize_results,

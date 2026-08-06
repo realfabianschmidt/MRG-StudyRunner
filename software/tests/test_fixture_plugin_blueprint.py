@@ -25,7 +25,7 @@ from study_runner.recording.worker_protocol import (
 )
 from study_runner.backend.services.recording import recording_dependencies
 from study_runner.backend.services.recording import study_sensor_runtime
-from study_runner.backend.services.shared import validation
+from study_runner.backend.services.studies import validation
 from study_runner.backend.services.studies import study_readiness_service
 from study_runner.backend.services.studies.card_summary_service import CardSummaryBuilder
 from study_runner.backend.services.settings.plugin_settings_service import (

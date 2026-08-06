@@ -7,7 +7,7 @@ from ..services.settings.secrets_service import (
     resolve_notion_api_key,
 )
 from ..services.studies.study_config_service import load_config
-from ..services.shared.validation import validate_and_normalize_config
+from ..services.studies.validation import validate_and_normalize_config
 
 bp = Blueprint("notion", __name__)
 

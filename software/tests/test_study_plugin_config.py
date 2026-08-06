@@ -14,7 +14,7 @@ from study_runner.backend.services.studies.study_plugin_config import (
     normalize_study_settings_plugins,
 )
 from study_runner.backend.services.studies.study_readiness_service import check_study_readiness
-from study_runner.backend.services.shared.validation import validate_and_normalize_config
+from study_runner.backend.services.studies.validation import validate_and_normalize_config
 
 
 class StudyPluginMigrationTests(unittest.TestCase):

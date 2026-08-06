@@ -51,8 +51,8 @@ Edit-safety legend:
 | File | Purpose | Edit? |
 |---|---|---|
 | `services/studies/__init__.py` | Empty package marker | yes |
-| `services/shared/atomic_io.py` | Crash-safe JSON writes (temp file + replace) for all study data | no |
-| `services/shared/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
+| `../shared/atomic_io.py` | Crash-safe JSON writes (temp file + replace) for all study data | no |
+| `services/studies/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
 | `services/studies/results_service.py` | Builds answer details, slices biosignals per card, writes result files | no |
 | `services/studies/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |
 | `services/studies/session_store.py` | Persistent, rehydrating registry of active tablet study sessions | no |

@@ -44,7 +44,7 @@ from study_runner.recording.xdf import (
     validate_sources,
     validator_dependency_status,
 )
-from ..shared.atomic_io import atomic_write_json
+from study_runner.shared.atomic_io import atomic_write_json
 from .recording_dependencies import (
     InternalProviderResolution,
     probe_lsl_dependencies,

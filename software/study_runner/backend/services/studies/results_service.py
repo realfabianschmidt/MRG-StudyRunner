@@ -15,7 +15,7 @@ from study_runner.plugin_framework.registry import (
     export_interval_sidecars,
 )
 from ..settings.runtime_config import get_project_base_dir
-from ..shared.atomic_io import atomic_write_json
+from study_runner.shared.atomic_io import atomic_write_json
 
 
 TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"

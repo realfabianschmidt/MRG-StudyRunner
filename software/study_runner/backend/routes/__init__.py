@@ -22,7 +22,7 @@ has always used.
 from flask import Flask, jsonify
 
 from ..services.studies.trial_service import configure_runtime
-from ..services.shared.validation import ValidationError
+from ..services.studies.validation import ValidationError
 from . import admin, branding, certificate, finalization, nextcloud, notion, pages, plugins, recovery, results, sensors, sessions, study, update, uploads
 
 

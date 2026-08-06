@@ -19,7 +19,7 @@ import re
 from typing import Any
 import uuid
 
-from ..shared.atomic_io import atomic_write_bytes, atomic_write_json
+from study_runner.shared.atomic_io import atomic_write_bytes, atomic_write_json
 
 MANIFEST_NAME = "branding.json"
 
