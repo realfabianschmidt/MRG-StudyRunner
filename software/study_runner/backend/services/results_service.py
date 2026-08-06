@@ -8,8 +8,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from study_runner.integrations.plugin_api import IntegrationContext
-from study_runner.integrations.registry import (
+from study_runner.plugin_framework.plugin_api import IntegrationContext
+from study_runner.plugin_framework.registry import (
     build_context,
     build_interval_summary as build_plugin_interval_summary,
     export_interval_sidecars,

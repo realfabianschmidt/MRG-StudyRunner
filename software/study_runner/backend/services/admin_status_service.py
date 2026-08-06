@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from study_runner.integrations.plugin_api import IntegrationContext
-from study_runner.integrations.registry import get_integration_statuses
+from study_runner.plugin_framework.plugin_api import IntegrationContext
+from study_runner.plugin_framework.registry import get_integration_statuses
 from .study_client_service import get_client_status
 
 

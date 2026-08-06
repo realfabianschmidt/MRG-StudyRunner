@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Iterable, Mapping
 
-from study_runner.integrations.registry import get_plugin_manifests
+from study_runner.plugin_framework.registry import get_plugin_manifests
 
 from ..recording.artifacts import ArtifactPaths
 from ..recording.backup import BackupSampler, projections_from_manifest

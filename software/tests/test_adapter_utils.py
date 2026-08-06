@@ -11,8 +11,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.integrations.adapter_utils import config_section, set_state, timestamp
-from study_runner.integrations.plugin_api import IntegrationContext
+from study_runner.plugin_framework.adapter_utils import config_section, set_state, timestamp
+from study_runner.plugin_framework.plugin_api import IntegrationContext
 
 
 class AdapterUtilsTests(unittest.TestCase):
@@ -39,7 +39,7 @@ class AdapterUtilsTests(unittest.TestCase):
         state = {"status": "waiting"}
 
         with patch(
-            "study_runner.integrations.adapter_utils.timestamp",
+            "study_runner.plugin_framework.adapter_utils.timestamp",
             return_value="2026-07-30 13:30:00",
         ):
             set_state(
@@ -59,10 +59,10 @@ class AdapterUtilsTests(unittest.TestCase):
 
     def test_timestamp_respects_explicit_epoch_zero(self) -> None:
         with patch(
-            "study_runner.integrations.adapter_utils.time.localtime",
+            "study_runner.plugin_framework.adapter_utils.time.localtime",
             return_value="local-time",
         ) as localtime, patch(
-            "study_runner.integrations.adapter_utils.time.strftime",
+            "study_runner.plugin_framework.adapter_utils.time.strftime",
             return_value="formatted",
         ) as strftime:
             self.assertEqual(timestamp(0), "formatted")

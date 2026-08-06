@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.integrations.registry import (
+from study_runner.plugin_framework.registry import (
     PLUGINS,
     PLUGINS_BY_KEY,
     get_plugin_manifest,
@@ -42,7 +42,7 @@ class PluginRegistryContractTests(unittest.TestCase):
         actual = {}
         for folder in EXPECTED_PLUGIN_MAPPING:
             module = importlib.import_module(
-                f"study_runner.integrations.{folder}.plugin"
+                f"study_runner.plugins.{folder}.plugin"
             )
             plugin = module.PLUGIN
             actual[folder] = (plugin.key, plugin.config_key)
@@ -184,7 +184,7 @@ class PluginRegistryContractTests(unittest.TestCase):
                 ]
             )
         registry_source = (
-            PROJECT_ROOT / "study_runner" / "integrations" / "registry.py"
+            PROJECT_ROOT / "study_runner" / "plugin_framework" / "registry.py"
         ).read_text(encoding="utf-8")
         self.assertIn('lifecycle.get("reinitialize_on_disable")', registry_source)
         self.assertNotIn('key in {"mini_radar"', registry_source)
@@ -192,11 +192,11 @@ class PluginRegistryContractTests(unittest.TestCase):
     def test_generic_admin_action_allows_only_manifest_declared_keys(self) -> None:
         with (
             patch(
-                "study_runner.integrations.camera_emotion.worker.plugin.repair_runtime",
+                "study_runner.plugins.camera_emotion.worker.plugin.repair_runtime",
                 return_value={"queued": True},
             ),
             patch(
-                "study_runner.integrations.registry.get_plugin_status",
+                "study_runner.plugin_framework.registry.get_plugin_status",
                 return_value={"status": "running"},
             ),
         ):
@@ -211,25 +211,25 @@ class PluginRegistryContractTests(unittest.TestCase):
     def test_participant_dispatch_uses_only_manifest_declared_operations(self) -> None:
         context = object()
         with (
-            patch("study_runner.integrations.camera_emotion.plugin._initialize"),
+            patch("study_runner.plugins.camera_emotion.plugin._initialize"),
             patch(
-                "study_runner.integrations.camera_emotion.plugin._start",
+                "study_runner.plugins.camera_emotion.plugin._start",
                 return_value={"enabled": True},
             ),
             patch(
-                "study_runner.integrations.camera_emotion.adapter.set_preview_active",
+                "study_runner.plugins.camera_emotion.adapter.set_preview_active",
                 return_value={"active": True},
             ) as preview_active,
             patch(
-                "study_runner.integrations.camera_emotion.adapter.is_configured",
+                "study_runner.plugins.camera_emotion.adapter.is_configured",
                 return_value=True,
             ),
             patch(
-                "study_runner.integrations.camera_emotion.adapter.process_frame",
+                "study_runner.plugins.camera_emotion.adapter.process_frame",
                 return_value={"accepted": True, "sequence_number": 7},
             ) as process_frame,
             patch(
-                "study_runner.integrations.registry.get_plugin_status",
+                "study_runner.plugin_framework.registry.get_plugin_status",
                 return_value={"status": "ready"},
             ),
         ):
@@ -269,7 +269,7 @@ class PluginRegistryContractTests(unittest.TestCase):
         }
         for plugin_key, module_suffix in adapter_modules.items():
             with self.subTest(plugin=plugin_key):
-                adapter = importlib.import_module(f"study_runner.integrations.{module_suffix}")
+                adapter = importlib.import_module(f"study_runner.plugins.{module_suffix}")
                 manifest_ids = {
                     stream["key"]: stream["source_id"]
                     for stream in get_plugin_manifest(plugin_key)["streams"]

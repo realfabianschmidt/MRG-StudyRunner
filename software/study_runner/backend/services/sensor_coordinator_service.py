@@ -4,8 +4,8 @@ import threading
 import time
 from typing import Any, Callable, Iterable
 
-from study_runner.integrations.plugin_api import IntegrationContext
-from study_runner.integrations.registry import (
+from study_runner.plugin_framework.plugin_api import IntegrationContext
+from study_runner.plugin_framework.registry import (
     export_interval_sidecars as registry_export_interval_sidecars,
     get_plugin_manifest,
     get_plugin_status,

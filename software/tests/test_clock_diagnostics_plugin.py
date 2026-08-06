@@ -10,9 +10,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.integrations.clock_diagnostics import adapter
-from study_runner.integrations.plugin_api import IntegrationContext
-from study_runner.integrations.registry import run_trial_marker
+from study_runner.plugins.clock_diagnostics import adapter
+from study_runner.plugin_framework.plugin_api import IntegrationContext
+from study_runner.plugin_framework.registry import run_trial_marker
 
 
 class _Outlet:
@@ -59,7 +59,7 @@ class ClockDiagnosticsTests(unittest.TestCase):
             local_secrets_file=PROJECT_ROOT / "local_secrets.json",
         )
         with patch(
-            "study_runner.integrations.clock_diagnostics.adapter.emit"
+            "study_runner.plugins.clock_diagnostics.adapter.emit"
         ) as emit:
             run_trial_marker({"event_id": "event-1"}, context)
 

@@ -13,7 +13,7 @@ import time
 from flask import current_app, request
 from werkzeug.exceptions import BadRequest, Forbidden, UnsupportedMediaType
 
-from study_runner.integrations.registry import (
+from study_runner.plugin_framework.registry import (
     apply_enabled_runtime,
     build_context,
     get_plugin_manifest,

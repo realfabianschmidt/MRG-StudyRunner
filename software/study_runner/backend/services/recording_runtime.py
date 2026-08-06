@@ -18,7 +18,7 @@ import threading
 import time
 from typing import Any, Callable, Iterable, Mapping
 
-from study_runner.integrations.registry import (
+from study_runner.plugin_framework.registry import (
     get_backup_projection_specs,
     get_plugin_manifests,
 )

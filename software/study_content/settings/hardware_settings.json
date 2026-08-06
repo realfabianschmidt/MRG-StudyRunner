@@ -22,7 +22,7 @@
     "quiet_output": true,
     "resist_seconds": 6,
     "scan_seconds": 5,
-    "script_path": "study_runner/integrations/brainbit/brainbit_realtime_cli.py",
+    "script_path": "study_runner/plugins/brainbit/brainbit_realtime_cli.py",
     "serial_number": "",
     "signal_seconds": 0
   },
@@ -31,12 +31,12 @@
     "emotion_worker": {
       "auto_start": true,
       "health_timeout_seconds": 0.75,
-      "log_dir": "study_runner/integrations/camera_emotion/worker/logs",
+      "log_dir": "study_runner/plugins/camera_emotion/worker/logs",
       "python_executable": {
         "macos": "",
         "windows": ""
       },
-      "script_path": "study_runner/integrations/camera_emotion/worker/server.py"
+      "script_path": "study_runner/plugins/camera_emotion/worker/server.py"
     },
     "emotion_worker_timeout_ms": 5000,
     "emotion_worker_url": "http://127.0.0.1:3001",

@@ -2,7 +2,7 @@
 from flask import Blueprint, jsonify, send_file
 from werkzeug.exceptions import BadRequest, Forbidden, UnsupportedMediaType
 
-from study_runner.integrations.registry import (
+from study_runner.plugin_framework.registry import (
     get_plugin_catalog_payload,
     ingest_participant_payload,
     resolve_plugin_ui_asset,

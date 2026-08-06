@@ -33,4 +33,4 @@
 
 # Optional local TouchDesigner reference asset has no release provenance and is
 # not required by the OSC integration.
-software/study_runner/integrations/brainbit/HelloEEG_HelloMYO_01.3.toe export-ignore
+software/study_runner/plugins/brainbit/HelloEEG_HelloMYO_01.3.toe export-ignore

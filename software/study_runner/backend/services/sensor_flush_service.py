@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from study_runner.integrations.registry import build_context, export_interval_sidecars
+from study_runner.plugin_framework.registry import build_context, export_interval_sidecars
 
 from .atomic_io import atomic_write_json
 from .results_service import sanitize_identifier_for_filename

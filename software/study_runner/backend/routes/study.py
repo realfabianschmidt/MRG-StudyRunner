@@ -196,7 +196,7 @@ def start_study_session():
 
 
 def _required_sensor_runtime_failures(config_data: dict, runtime: dict) -> list[dict]:
-    from study_runner.integrations.registry import get_plugin_manifests
+    from study_runner.plugin_framework.registry import get_plugin_manifests
 
     manifests = get_plugin_manifests()
     settings = config_data.get("study_settings") or {}

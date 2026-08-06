@@ -91,7 +91,7 @@ class SourceInstallScriptTests(unittest.TestCase):
         marker = 'sys_platform != "darwin" or platform_machine != "x86_64"'
         for relative_path in (
             "software/requirements.txt",
-            "software/study_runner/integrations/camera_emotion/worker/requirements.txt",
+            "software/study_runner/plugins/camera_emotion/worker/requirements.txt",
         ):
             requirements = text(relative_path)
             self.assertRegex(requirements, rf"(?m)^deepface[^\n]+; {re.escape(marker)}$")
@@ -110,8 +110,8 @@ class SourceInstallScriptTests(unittest.TestCase):
         fetcher = text("release_tools/fetch_deepface_model_assets.py")
         notices = text("THIRD_PARTY_NOTICES.md")
         ignore = text(".gitignore")
-        manifest = text("software/study_runner/integrations/camera_emotion/manifest.json")
-        worker = text("software/study_runner/integrations/camera_emotion/worker/plugin.py")
+        manifest = text("software/study_runner/plugins/camera_emotion/manifest.json")
+        worker = text("software/study_runner/plugins/camera_emotion/worker/plugin.py")
 
         self.assertIn("--accept-vgg-face-non-commercial-research-terms", fetcher)
         self.assertIn("EXPECTED_SHA256", fetcher)

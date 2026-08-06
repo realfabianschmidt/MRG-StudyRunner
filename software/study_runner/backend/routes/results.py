@@ -238,7 +238,7 @@ def _recording_expected(config_data: dict) -> bool:
     plugins = settings.get("plugins")
     if isinstance(plugins, dict):
         try:
-            from study_runner.integrations.registry import get_plugin_manifests
+            from study_runner.plugin_framework.registry import get_plugin_manifests
 
             manifests = get_plugin_manifests()
         except Exception:

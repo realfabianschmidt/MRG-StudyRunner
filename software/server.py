@@ -17,17 +17,17 @@ if __name__ == "__main__":
     # spawns a child process would re-run this entrypoint recursively.
     multiprocessing.freeze_support()
     if len(sys.argv) > 1 and sys.argv[1] == "--emotion-worker":
-        from study_runner.integrations.camera_emotion.worker.server import main as run_emotion_worker
+        from study_runner.plugins.camera_emotion.worker.server import main as run_emotion_worker
 
         raise SystemExit(run_emotion_worker(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "--emotion-worker-self-test":
-        from study_runner.integrations.camera_emotion.worker.server import self_test_main
+        from study_runner.plugins.camera_emotion.worker.server import self_test_main
 
         raise SystemExit(self_test_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "--brainbit-cli":
         # Packaged builds have no separate Python interpreter to run the BrainBit
         # CLI script with, so the frozen executable re-invokes itself instead.
-        from study_runner.integrations.brainbit.brainbit_realtime_cli import main as run_brainbit_cli
+        from study_runner.plugins.brainbit.brainbit_realtime_cli import main as run_brainbit_cli
 
         raise SystemExit(run_brainbit_cli(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "--recording-worker":

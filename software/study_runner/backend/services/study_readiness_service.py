@@ -77,7 +77,7 @@ def check_study_readiness(
         )
 
     selected_plugins = study_settings.get("plugins")
-    from study_runner.integrations.registry import (
+    from study_runner.plugin_framework.registry import (
         get_plugin,
         get_plugin_catalog,
         get_plugin_manifests,

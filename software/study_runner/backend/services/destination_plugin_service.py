@@ -121,7 +121,7 @@ def destination_definitions_from_manifests(
 
 
 def installed_destination_definitions() -> tuple[DestinationPluginDefinition, ...]:
-    from study_runner.integrations.registry import get_plugin_manifests
+    from study_runner.plugin_framework.registry import get_plugin_manifests
 
     return destination_definitions_from_manifests(get_plugin_manifests())
 

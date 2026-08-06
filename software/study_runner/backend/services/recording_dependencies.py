@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from study_runner.integrations.registry import get_plugin_manifests
+from study_runner.plugin_framework.registry import get_plugin_manifests
 
 
 PINNED_PYLSL_VERSION = "1.18.2"

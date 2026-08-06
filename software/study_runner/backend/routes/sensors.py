@@ -5,7 +5,7 @@ import json
 from flask import Blueprint, current_app, jsonify, request
 from werkzeug.exceptions import BadRequest, Forbidden, UnsupportedMediaType
 
-from study_runner.integrations.registry import (
+from study_runner.plugin_framework.registry import (
     apply_enabled_runtime,
     get_plugin_status,
     ingest_participant_payload,
@@ -375,7 +375,7 @@ def start_study_camera_monitor():
 @bp.route("/api/admin/emotion-worker/repair-runtime", methods=["POST"])
 def repair_emotion_worker_runtime():
     try:
-        from study_runner.integrations.camera_emotion.worker import plugin as emotion_worker_plugin
+        from study_runner.plugins.camera_emotion.worker import plugin as emotion_worker_plugin
 
         result = emotion_worker_plugin.repair_runtime(_integration_context())
         return jsonify({"ok": True, **result})
@@ -386,7 +386,7 @@ def repair_emotion_worker_runtime():
 @bp.route("/api/admin/emotion-worker/install-dependencies", methods=["POST"])
 def install_emotion_worker_dependencies():
     try:
-        from study_runner.integrations.camera_emotion.worker import plugin as emotion_worker_plugin
+        from study_runner.plugins.camera_emotion.worker import plugin as emotion_worker_plugin
 
         result = emotion_worker_plugin.install_dependencies(_integration_context())
         return jsonify({"ok": True, **result})

@@ -17,7 +17,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from study_runner.integrations.registry import get_plugin, iter_plugins
+from study_runner.plugin_framework.registry import get_plugin, iter_plugins
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
 FALSE_VALUES = {"0", "false", "no", "off"}
@@ -54,7 +54,7 @@ def _manifest_settings(plugin_key: str) -> dict[str, dict[str, Any]]:
     plugin = get_plugin(plugin_key)
     if plugin is None:
         raise PluginSettingsError(f"Unknown plugin: {plugin_key}")
-    from study_runner.integrations.registry import get_plugin_manifest
+    from study_runner.plugin_framework.registry import get_plugin_manifest
 
     manifest = get_plugin_manifest(plugin_key) or {}
     settings = manifest.get("runtime_settings")

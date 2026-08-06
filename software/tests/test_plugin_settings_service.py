@@ -29,10 +29,10 @@ from study_runner.backend.services.plugin_settings_service import (
     get_at,
     set_at,
 )
-from study_runner.integrations.registry import get_plugin, get_plugin_manifests, iter_plugins
+from study_runner.plugin_framework.registry import get_plugin, get_plugin_manifests, iter_plugins
 
 MANIFEST_FILES = tuple(
-    sorted((PROJECT_ROOT / "study_runner" / "integrations").glob("*/manifest.json"))
+    sorted((PROJECT_ROOT / "study_runner" / "plugins").glob("*/manifest.json"))
 )
 HARDWARE_FILE = PROJECT_ROOT / "study_content" / "settings" / "hardware_settings.json"
 

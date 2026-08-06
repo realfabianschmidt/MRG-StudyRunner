@@ -6,7 +6,7 @@ from typing import Any
 
 def _study_sensor_contract() -> tuple[tuple[str, ...], dict[str, bool]]:
     """Read sensor membership and defaults from plugin capabilities."""
-    from study_runner.integrations.registry import get_plugin_manifests
+    from study_runner.plugin_framework.registry import get_plugin_manifests
 
     sensor_keys: list[str] = []
     defaults: dict[str, bool] = {}

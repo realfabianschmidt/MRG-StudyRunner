@@ -4,7 +4,7 @@ from pathlib import Path
 
 from flask import Flask, request
 
-from study_runner.integrations.registry import build_context, initialize_plugins
+from study_runner.plugin_framework.registry import build_context, initialize_plugins
 from .routes import register_routes
 from .services.runtime_config import (
     get_app_mode,
@@ -17,6 +17,10 @@ from .services.runtime_config import (
 )
 from .services.clock_sync_service import ClockSyncService
 from .services.finalization_runtime import configure_finalization
+from .services.hardware_settings_service import (
+    migrate_moved_plugin_paths,
+    save_hardware_config,
+)
 from .services.recording_runtime import (
     RecordingRuntimeService,
     RuntimeRecordingFinalizationAdapter,
@@ -38,15 +42,25 @@ WEB_INTERFACE_DIR = BASE_DIR / "study_runner" / "web"
 
 
 def _load_hardware_config(config_path: Path) -> dict:
-    """Read hardware integration settings. Returns an empty dict if not found."""
+    """Read hardware settings, repointing paths left over from the folder rename."""
     if not config_path.exists():
         return {}
     try:
         with config_path.open(encoding="utf-8") as file_handle:
-            return json.load(file_handle)
+            config = json.load(file_handle)
     except (OSError, json.JSONDecodeError) as error:
         print(f"[HARDWARE] Could not read {config_path.name}: {error}")
         return {}
+
+    config, moved = migrate_moved_plugin_paths(config)
+    if moved:
+        # Write it back so the repair happens once rather than on every start.
+        try:
+            save_hardware_config(config_path, config)
+            print(f"[HARDWARE] Repointed {moved} plugin path(s) at the renamed plugins folder.")
+        except OSError as error:
+            print(f"[HARDWARE] Could not persist migrated plugin paths: {error}")
+    return config
 
 
 def _hardware_disabled() -> bool:

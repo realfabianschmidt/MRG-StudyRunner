@@ -260,7 +260,7 @@ def migrate_study_plugin_config(config_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _plugin_manifests() -> dict[str, dict[str, Any]]:
-    from study_runner.integrations.registry import get_plugin_manifests
+    from study_runner.plugin_framework.registry import get_plugin_manifests
 
     return get_plugin_manifests()
 

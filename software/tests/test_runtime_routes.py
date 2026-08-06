@@ -386,7 +386,7 @@ class RuntimeRoutesTests(unittest.TestCase):
                 app = create_app()
 
             with patch(
-                "study_runner.integrations.local_emotion_worker.plugin.repair_runtime",
+                "study_runner.plugins.camera_emotion.worker.plugin.repair_runtime",
                 return_value={
                     "dependency_install": {"status": "running"},
                     "model_asset_install": {"status": "queued"},

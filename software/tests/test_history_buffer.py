@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.integrations.history_buffer import (
+from study_runner.plugin_framework.history_buffer import (
     BUFFER_SECONDS_ENV_VAR,
     history_maxlen,
     samples_in_interval,
@@ -75,7 +75,7 @@ class SamplesInIntervalTests(unittest.TestCase):
 
 class AdapterBufferTests(unittest.TestCase):
     def test_adapter_summaries_report_truncation(self) -> None:
-        from study_runner.integrations.mr60_mini_radar import adapter as mr60_adapter
+        from study_runner.plugins.mr60_mini_radar import adapter as mr60_adapter
 
         original = mr60_adapter._history
         mr60_adapter._history = deque(maxlen=3)

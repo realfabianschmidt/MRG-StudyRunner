@@ -23,7 +23,7 @@ def _loaded_study_id() -> str:
 
 @bp.route("/api/notion/status")
 def notion_status():
-    from study_runner.integrations.notion_upload import adapter as notion_adapter
+    from study_runner.plugins.notion_upload import adapter as notion_adapter
 
     hardware_config = current_app.config.get("HARDWARE_CONFIG", {})
     local_secrets = current_app.config.get("LOCAL_SECRETS", {})
@@ -61,7 +61,7 @@ def notion_flush_queue():
 
 @bp.route("/api/notion/test", methods=["POST"])
 def notion_test():
-    from study_runner.integrations.notion_upload import adapter as notion_adapter
+    from study_runner.plugins.notion_upload import adapter as notion_adapter
 
     payload = request.get_json() or {}
     result = notion_adapter.test_connection(

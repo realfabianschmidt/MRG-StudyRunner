@@ -16,9 +16,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.integrations.brainbit import adapter, brainbit_realtime_cli
-from study_runner.integrations.brainbit import plugin as brainbit_plugin
-from study_runner.integrations.plugin_api import IntegrationContext
+from study_runner.plugins.brainbit import adapter, brainbit_realtime_cli
+from study_runner.plugins.brainbit import plugin as brainbit_plugin
+from study_runner.plugin_framework.plugin_api import IntegrationContext
 
 
 class FakeRunningProcess:
@@ -272,14 +272,14 @@ class RuntimeDirTests(unittest.TestCase):
         if hasattr(sys, "frozen"):
             del sys.frozen
 
-        result = brainbit_plugin._runtime_dir(self.context, None, "integrations/brainbit/logs", "logs")
+        result = brainbit_plugin._runtime_dir(self.context, None, "plugins/brainbit/logs", "logs")
 
-        self.assertIn("integrations", result.replace("\\", "/"))
+        self.assertIn("plugins", result.replace("\\", "/"))
 
     def test_packaged_build_without_setting_uses_the_writable_folder(self) -> None:
         sys.frozen = True
 
-        result = brainbit_plugin._runtime_dir(self.context, None, "integrations/brainbit/logs", "logs")
+        result = brainbit_plugin._runtime_dir(self.context, None, "plugins/brainbit/logs", "logs")
 
         self.assertEqual(Path(result), Path("/writable/brainbit/logs"))
 
@@ -289,7 +289,7 @@ class RuntimeDirTests(unittest.TestCase):
         sys.frozen = True
 
         result = brainbit_plugin._runtime_dir(
-            self.context, "study_runner/integrations/brainbit/logs", "integrations/brainbit/logs", "logs"
+            self.context, "study_runner/plugins/brainbit/logs", "plugins/brainbit/logs", "logs"
         )
 
         self.assertEqual(Path(result), Path("/writable/brainbit/logs"))
@@ -298,7 +298,7 @@ class RuntimeDirTests(unittest.TestCase):
         sys.frozen = True
         external = str(Path("/operator/chosen/logs"))
 
-        result = brainbit_plugin._runtime_dir(self.context, external, "integrations/brainbit/logs", "logs")
+        result = brainbit_plugin._runtime_dir(self.context, external, "plugins/brainbit/logs", "logs")
 
         self.assertEqual(Path(result), Path(external).resolve())
 

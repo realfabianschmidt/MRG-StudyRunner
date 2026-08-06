@@ -4,7 +4,47 @@ import json
 from pathlib import Path
 from typing import Any
 
-from study_runner.integrations.registry import iter_plugins, set_plugin_enabled
+from study_runner.plugin_framework.registry import iter_plugins, set_plugin_enabled
+
+
+# Up to 0.5.0 the plugin folder was called `integrations`, and machine settings
+# store paths into it verbatim: a script to launch, a folder to log into, a
+# directory of model weights. Renaming the folder would leave every one of those
+# pointing nowhere on an operator's existing install, so they are rewritten when
+# the file is read.
+_MOVED_PLUGIN_PATHS = (
+    ("study_runner/integrations/", "study_runner/plugins/"),
+    ("study_runner\\integrations\\", "study_runner\\plugins\\"),
+)
+
+
+def migrate_moved_plugin_paths(value: Any) -> tuple[Any, int]:
+    """Repoint stored plugin paths at the renamed folder.
+
+    Returns the migrated value and how many strings changed, so a caller can
+    decide whether the file is worth rewriting. Walks the whole structure
+    because the paths sit at different depths per plugin and some are inside a
+    per-platform mapping.
+    """
+    if isinstance(value, str):
+        migrated = value
+        for old, new in _MOVED_PLUGIN_PATHS:
+            migrated = migrated.replace(old, new)
+        return migrated, int(migrated != value)
+
+    if isinstance(value, dict):
+        result: dict[Any, Any] = {}
+        changes = 0
+        for key, item in value.items():
+            result[key], changed = migrate_moved_plugin_paths(item)
+            changes += changed
+        return result, changes
+
+    if isinstance(value, list):
+        migrated_items = [migrate_moved_plugin_paths(item) for item in value]
+        return [item for item, _ in migrated_items], sum(changed for _, changed in migrated_items)
+
+    return value, 0
 
 
 def save_hardware_config(config_path: Path, config_data: dict[str, Any]) -> None:

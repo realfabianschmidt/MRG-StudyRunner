@@ -48,7 +48,7 @@ class LocaleTests(unittest.TestCase):
 
         pattern = re.compile(r"""t\(\s*['"]([A-Za-z0-9_.]+)['"]""")
         sources = list((WEB / "scripts").rglob("*.js"))
-        sources += list((PROJECT_ROOT / "study_runner" / "integrations").rglob("ui/*.js"))
+        sources += list((PROJECT_ROOT / "study_runner" / "plugins").rglob("ui/*.js"))
 
         used: set[str] = set()
         for path in sources:
@@ -96,7 +96,7 @@ class ModuleSyntaxTests(unittest.TestCase):
 
         offenders = []
         scripts = sorted((WEB / "scripts").rglob("*.js"))
-        scripts += sorted((PROJECT_ROOT / "study_runner" / "integrations").rglob("ui/*.js"))
+        scripts += sorted((PROJECT_ROOT / "study_runner" / "plugins").rglob("ui/*.js"))
         self.assertGreater(len(scripts), 20, "script discovery is broken")
 
         with tempfile.TemporaryDirectory() as work_dir:
@@ -171,10 +171,10 @@ class ParticipantLanguageTests(unittest.TestCase):
     def test_participant_lifecycle_is_manifest_extension_driven(self) -> None:
         controller = _read(WEB / "scripts" / "study-controller.js")
         camera_extension = _read(
-            PROJECT_ROOT / "study_runner" / "integrations" / "camera_emotion" / "ui" / "participant.js"
+            PROJECT_ROOT / "study_runner" / "plugins" / "camera_emotion" / "ui" / "participant.js"
         )
         camera_capture = _read(
-            PROJECT_ROOT / "study_runner" / "integrations" / "camera_emotion" / "ui" / "camera-capture.js"
+            PROJECT_ROOT / "study_runner" / "plugins" / "camera_emotion" / "ui" / "camera-capture.js"
         )
 
         self.assertNotIn("camera_emotion", controller)
@@ -198,7 +198,7 @@ class ParticipantLanguageTests(unittest.TestCase):
             PROJECT_ROOT / "study_runner" / "backend" / "routes" / "helpers.py",
             PROJECT_ROOT / "study_runner" / "backend" / "routes" / "admin.py",
             PROJECT_ROOT / "study_runner" / "backend" / "routes" / "study.py",
-            PROJECT_ROOT / "study_runner" / "integrations" / "registry.py",
+            PROJECT_ROOT / "study_runner" / "plugin_framework" / "registry.py",
         )
         for path in core_paths:
             with self.subTest(path=path.name):
@@ -414,7 +414,7 @@ class SettingsShellTests(unittest.TestCase):
         de = _json.loads(_read(WEB / "locales" / "de.json"))
 
         referenced: set[str] = set()
-        for manifest_path in (PROJECT_ROOT / "study_runner" / "integrations").glob("*/manifest.json"):
+        for manifest_path in (PROJECT_ROOT / "study_runner" / "plugins").glob("*/manifest.json"):
             manifest = _json.loads(_read(manifest_path))
             for scope in (manifest.get("settings") or {}).values():
                 if not isinstance(scope, dict):

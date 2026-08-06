@@ -25,17 +25,15 @@ software/study_content/settings/branding/
 # Locally authored studies are user data. Curated repository templates must be
 # added intentionally with `git add -f` after review.
 software/study_content/studies/*.study-runner
-software/study_runner/integrations/brainbit_assets_to_copy/
-software/study_runner/integrations/brainbit/logs/
-software/study_runner/integrations/brainbit/recordings/
-software/study_runner/integrations/**/logs/
-software/study_runner/integrations/**/*.log
+software/study_runner/plugins/brainbit_assets_to_copy/
+software/study_runner/plugins/brainbit/logs/
+software/study_runner/plugins/brainbit/recordings/
+software/study_runner/plugins/**/logs/
+software/study_runner/plugins/**/*.log
 software/logs/
 # DeepFace runtime cache and separately licensed operator-provisioned weights.
-software/study_runner/integrations/local_emotion_worker/deepface_home/
-software/study_runner/integrations/camera_emotion/worker/deepface_home/
-software/study_runner/integrations/local_emotion_worker/model_assets/*.h5
-software/study_runner/integrations/camera_emotion/worker/model_assets/*.h5
+software/study_runner/plugins/camera_emotion/worker/deepface_home/
+software/study_runner/plugins/camera_emotion/worker/model_assets/*.h5
 .secrets/
 
 # Environment and editor tooling

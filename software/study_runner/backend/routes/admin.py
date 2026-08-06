@@ -4,7 +4,7 @@ import threading
 
 from flask import Blueprint, current_app, jsonify, request
 
-from study_runner.integrations.registry import initialize_plugin, run_runtime_action
+from study_runner.plugin_framework.registry import initialize_plugin, run_runtime_action
 from ..services.admin_status_service import build_admin_status
 from ..services.runtime_config import build_runtime_info
 from ..services.shortcut_service import ShortcutError, create_desktop_shortcut

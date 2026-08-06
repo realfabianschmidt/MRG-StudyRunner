@@ -13,14 +13,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.integrations.plugin_catalog import (
+from study_runner.plugin_framework.plugin_catalog import (
     PluginManifestError,
     discover_plugin_catalog,
     validate_and_normalize_manifest,
 )
-from study_runner.integrations.plugin_api import IntegrationContext
-from study_runner.integrations.registry import run_admin_action
-from study_runner.integrations.registry import get_plugin_catalog_payload
+from study_runner.plugin_framework.plugin_api import IntegrationContext
+from study_runner.plugin_framework.registry import run_admin_action
+from study_runner.plugin_framework.registry import get_plugin_catalog_payload
 from study_runner.backend.routes.plugins import bp as plugins_blueprint
 
 
@@ -390,7 +390,7 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
         (plugin_dir / "__init__.py").write_text("", encoding="utf-8")
         (plugin_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         plugin_source = source or (
-            "from study_runner.integrations.plugin_api import IntegrationPlugin\n"
+            "from study_runner.plugin_framework.plugin_api import IntegrationPlugin\n"
             f"PLUGIN = IntegrationPlugin(key={manifest['plugin_key']!r}, label={manifest['ui']['label']!r}, "
             f"category='test', config_key={manifest['config_key']!r}, get_status=lambda context: {{}})\n"
         )
@@ -477,7 +477,7 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
 
     def test_missing_declared_handler_is_reported_without_crashing_discovery(self) -> None:
         source = (
-            "from study_runner.integrations.plugin_api import IntegrationPlugin\n"
+            "from study_runner.plugin_framework.plugin_api import IntegrationPlugin\n"
             "PLUGIN = IntegrationPlugin(key='no_health', label='no_health', "
             "category='test', config_key='no_health')\n"
         )
@@ -498,7 +498,7 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
             "default": "",
         }
         source = (
-            "from study_runner.integrations.plugin_api import IntegrationPlugin\n"
+            "from study_runner.plugin_framework.plugin_api import IntegrationPlugin\n"
             "PLUGIN = IntegrationPlugin(key='fixture_export', label='fixture_export', "
             "category='test', config_key='fixture_export', get_status=lambda context: {}, "
             "publish_destination=lambda context, payload: {'ok': True})\n"
@@ -639,11 +639,11 @@ class PublicCatalogTests(unittest.TestCase):
                 return_value=object(),
             ),
             patch(
-                "study_runner.integrations.camera_emotion.adapter.is_configured",
+                "study_runner.plugins.camera_emotion.adapter.is_configured",
                 return_value=True,
             ),
             patch(
-                "study_runner.integrations.camera_emotion.adapter.process_frame",
+                "study_runner.plugins.camera_emotion.adapter.process_frame",
                 side_effect=lambda payload: {
                     "accepted": True,
                     "sequence_number": payload["sequence_number"],
@@ -753,8 +753,8 @@ class PublicCatalogTests(unittest.TestCase):
         with (
             patch("study_runner.backend.routes.helpers.save_hardware_config") as save_config,
             patch("study_runner.backend.routes.helpers._refresh_trial_runtime"),
-            patch("study_runner.integrations.brainbit.plugin._restart", return_value={"status": "waiting"}),
-            patch("study_runner.integrations.registry.get_plugin_status", return_value={"status": "waiting"}),
+            patch("study_runner.plugins.brainbit.plugin._restart", return_value={"status": "waiting"}),
+            patch("study_runner.plugin_framework.registry.get_plugin_status", return_value={"status": "waiting"}),
         ):
             response = app.test_client().post(
                 "/api/admin/plugins/brainbit/actions/select_device",
@@ -780,8 +780,8 @@ class BrainBitManifestActionTests(unittest.TestCase):
             persist_hardware_config=lambda value: persisted.append(value),
         )
         with (
-            patch("study_runner.integrations.brainbit.plugin._restart", return_value={"status": "waiting"}),
-            patch("study_runner.integrations.registry.get_plugin_status", return_value={"status": "waiting"}),
+            patch("study_runner.plugins.brainbit.plugin._restart", return_value={"status": "waiting"}),
+            patch("study_runner.plugin_framework.registry.get_plugin_status", return_value={"status": "waiting"}),
         ):
             response = run_admin_action(
                 "brainbit",

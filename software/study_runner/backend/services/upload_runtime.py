@@ -4,8 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from study_runner.integrations.plugin_api import IntegrationPlugin
-from study_runner.integrations.registry import (
+from study_runner.plugin_framework.plugin_api import IntegrationPlugin
+from study_runner.plugin_framework.registry import (
     build_context,
     get_plugin_manifest,
     get_plugins_with_capability,

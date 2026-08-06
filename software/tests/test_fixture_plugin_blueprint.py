@@ -37,8 +37,8 @@ from study_runner.backend.services.plugin_settings_service import (
 from study_runner.backend.services.recording_runtime import RecordingRuntimeService
 from study_runner.backend.services.recording_runtime_support import RECORDING_PLAN_SCHEMA
 from study_runner.backend.services.study_plugin_config import normalize_card_plugin_actions
-from study_runner.integrations import registry
-from study_runner.integrations.plugin_catalog import PluginCatalog, discover_plugin_catalog
+from study_runner.plugin_framework import registry
+from study_runner.plugin_framework.plugin_catalog import PluginCatalog, discover_plugin_catalog
 
 
 PLUGIN_KEY = "blueprint_sensor"
@@ -476,7 +476,7 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
             encoding="utf-8",
         )
         (plugin_dir / "plugin.py").write_text(
-            "from study_runner.integrations.plugin_api import IntegrationPlugin\n\n"
+            "from study_runner.plugin_framework.plugin_api import IntegrationPlugin\n\n"
             "def _status(context):\n"
             f"    configured = bool(context.hardware_config.get({PLUGIN_KEY!r}, {{}}).get('enabled'))\n"
             "    return {\n"

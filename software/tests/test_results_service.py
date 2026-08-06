@@ -20,14 +20,14 @@ class ResultsServicePathTests(unittest.TestCase):
 
     def test_labrecorder_relative_path_resolves_under_software(self) -> None:
         resolved = results_service._resolve_project_path(
-            "study_runner/integrations/brainbit/recordings",
+            "study_runner/plugins/brainbit/recordings",
             results_service._project_root(),
         )
 
         expected = (
             Path(__file__).resolve().parents[1]
             / "study_runner"
-            / "integrations"
+            / "plugins"
             / "brainbit"
             / "recordings"
         ).resolve()

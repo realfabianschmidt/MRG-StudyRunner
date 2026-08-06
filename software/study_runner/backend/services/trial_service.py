@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from study_runner.integrations.registry import (
+from study_runner.plugin_framework.registry import (
     build_context,
     run_trial_marker,
     run_trial_start,

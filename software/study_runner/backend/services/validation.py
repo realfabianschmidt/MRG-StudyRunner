@@ -1013,7 +1013,7 @@ def _validate_plugin_study_settings(
 ) -> dict[str, dict[str, Any]]:
     """Validate installed plugin settings from manifest schemas, key-agnostically."""
 
-    from study_runner.integrations.registry import get_plugin_manifests
+    from study_runner.plugin_framework.registry import get_plugin_manifests
 
     manifests = get_plugin_manifests()
     normalized = deepcopy(plugins)

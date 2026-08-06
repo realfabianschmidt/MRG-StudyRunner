@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createParticipantExtension } from '../../study_runner/integrations/camera_emotion/ui/participant.js';
+import { createParticipantExtension } from '../../study_runner/plugins/camera_emotion/ui/participant.js';
 
 test('camera participant extension preserves preview, stimulus capture, cleanup, and retry', async () => {
   const originalWindow = globalThis.window;

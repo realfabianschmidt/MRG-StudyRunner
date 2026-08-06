@@ -19,7 +19,7 @@ from study_runner.backend.services.recovery_service import (
     list_recovery_candidates,
     recovery_session_sets,
 )
-from study_runner.integrations.plugin_api import IntegrationContext
+from study_runner.plugin_framework.plugin_api import IntegrationContext
 
 
 def _context(data_dir: Path) -> IntegrationContext:

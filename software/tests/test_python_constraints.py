@@ -56,7 +56,7 @@ class PythonConstraintTests(unittest.TestCase):
         constrained = pins("py312-common.txt") | pins("py312-local-emotion.txt")
         for relative_path in (
             "software/requirements.txt",
-            "software/study_runner/integrations/camera_emotion/worker/requirements.txt",
+            "software/study_runner/plugins/camera_emotion/worker/requirements.txt",
         ):
             missing = requirement_names(relative_path) - constrained.keys()
             self.assertEqual(missing, set(), f"unconstrained direct requirements: {missing}")
@@ -73,7 +73,7 @@ class PythonConstraintTests(unittest.TestCase):
         self.assertEqual(pins("py312-common.txt")["opencv-python"], "4.11.0.86")
         for relative_path in (
             "software/requirements.txt",
-            "software/study_runner/integrations/camera_emotion/worker/requirements.txt",
+            "software/study_runner/plugins/camera_emotion/worker/requirements.txt",
             "software/constraints/py312-common.txt",
             "software/constraints/py312-local-emotion.txt",
         ):
@@ -86,7 +86,7 @@ class PythonConstraintTests(unittest.TestCase):
             "tools/install-macos.sh",
             ".github/workflows/ci.yml",
             ".github/workflows/release.yml",
-            "software/study_runner/integrations/camera_emotion/worker/plugin.py",
+            "software/study_runner/plugins/camera_emotion/worker/plugin.py",
         )
         for relative_path in paths:
             content = (REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")

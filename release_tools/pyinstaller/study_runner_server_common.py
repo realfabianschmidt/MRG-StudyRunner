@@ -27,7 +27,7 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
         (str(root / "study_runner" / "web"), "study_runner/web"),
         (str(root / "study_content"), "study_content"),
     ]
-    model_assets = root / "study_runner" / "integrations" / "camera_emotion" / "worker" / "model_assets"
+    model_assets = root / "study_runner" / "plugins" / "camera_emotion" / "worker" / "model_assets"
     model_weights = model_assets / "facial_expression_model_weights.h5"
     if not model_weights.is_file():
         raise RuntimeError(
@@ -35,12 +35,12 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
             f"{model_weights}. A packaged build without them cannot analyze emotions offline. "
             "Run release_tools/fetch_deepface_model_assets.py first."
         )
-    datas.append((str(model_assets), "study_runner/integrations/camera_emotion/worker/model_assets"))
-    plugin_manifests = sorted((root / "study_runner" / "integrations").glob("*/manifest.json"))
+    datas.append((str(model_assets), "study_runner/plugins/camera_emotion/worker/model_assets"))
+    plugin_manifests = sorted((root / "study_runner" / "plugins").glob("*/manifest.json"))
     if not plugin_manifests:
         raise RuntimeError("No plugin API-v3 manifests were found for the packaged build.")
     for manifest in plugin_manifests:
-        datas.append((str(manifest), f"study_runner/integrations/{manifest.parent.name}"))
+        datas.append((str(manifest), f"study_runner/plugins/{manifest.parent.name}"))
         try:
             payload = json.loads(manifest.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
@@ -75,7 +75,7 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
             if not source.is_file():
                 raise RuntimeError(f"Plugin UI asset is missing: {source}")
             destination = PurePosixPath(
-                "study_runner", "integrations", manifest.parent.name, *relative.parts[:-1]
+                "study_runner", "plugins", manifest.parent.name, *relative.parts[:-1]
             ).as_posix()
             datas.append((str(source), destination))
     # DeepFace's face detector reads cv2's haarcascade XMLs at runtime;
@@ -117,13 +117,13 @@ def common_binaries(root: Path | None = None) -> list[tuple[str, str]]:
 def common_hidden_imports() -> list[str]:
     return (
         collect_submodules("study_runner.backend")
-        + collect_submodules("study_runner.integrations")
+        + collect_submodules("study_runner.plugins")
         + collect_submodules("neurosdk")
         + collect_submodules("em_st_artifacts")
         + [
             # Launched as "<own executable> --brainbit-cli" in packaged builds,
             # because there is no separate Python interpreter to run the script.
-            "study_runner.integrations.brainbit.brainbit_realtime_cli",
+            "study_runner.plugins.brainbit.brainbit_realtime_cli",
             "pythonosc",
             "cv2",
             "deepface",
