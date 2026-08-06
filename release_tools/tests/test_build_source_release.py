@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 import re
 import stat
-import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -351,17 +350,24 @@ class FontReleaseContractTests(unittest.TestCase):
     """
 
     FONT_SUFFIXES = (".ttf", ".otf", ".woff", ".woff2")
+    # These never reach an archive, and half of them do not exist inside one.
+    # This suite runs against the extracted release too, so it cannot ask git.
+    UNRELEASED_DIRECTORIES = {
+        ".git", ".venv", ".build", ".tmp", "build", "dist", "node_modules",
+        "__pycache__", "deepface_home", "model_assets", "saved_results",
+    }
 
-    @staticmethod
-    def _tracked_files() -> list[str]:
-        result = subprocess.run(
-            ("git", "ls-files"),
-            cwd=release.REPOSITORY_ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return result.stdout.splitlines()
+    @classmethod
+    def _repository_fonts(cls) -> list[str]:
+        found: list[str] = []
+        for path in release.REPOSITORY_ROOT.rglob("*"):
+            if path.suffix.casefold() not in cls.FONT_SUFFIXES:
+                continue
+            relative = path.relative_to(release.REPOSITORY_ROOT)
+            if cls.UNRELEASED_DIRECTORIES.intersection(relative.parts):
+                continue
+            found.append(relative.as_posix())
+        return sorted(found)
 
     def test_every_licensed_font_directory_documents_its_terms(self) -> None:
         for directory in release.LICENSED_FONT_DIRECTORIES:
@@ -377,9 +383,8 @@ class FontReleaseContractTests(unittest.TestCase):
     def test_no_font_ships_from_an_undocumented_folder(self) -> None:
         stowaways = [
             name
-            for name in self._tracked_files()
-            if name.casefold().endswith(self.FONT_SUFFIXES)
-            and not release.is_licensed_font(f"/{name.casefold()}")
+            for name in self._repository_fonts()
+            if not release.is_licensed_font(f"/{name.casefold()}")
         ]
         self.assertEqual(
             stowaways,
@@ -387,11 +392,11 @@ class FontReleaseContractTests(unittest.TestCase):
             "font files outside a documented folder would be rejected by the release build",
         )
 
-    def test_the_heading_face_is_actually_in_the_archive_set(self) -> None:
-        tracked = set(self._tracked_files())
-        materiability = sorted(
-            name for name in tracked if "web/fonts/materiability" in name.casefold()
-        )
+    def test_the_heading_face_is_present_and_releasable(self) -> None:
+        materiability = [
+            name for name in self._repository_fonts()
+            if "web/fonts/materiability" in name.casefold()
+        ]
         self.assertEqual(len(materiability), 3, f"expected three weights, found {materiability}")
         for name in materiability:
             with self.subTest(font=name):
