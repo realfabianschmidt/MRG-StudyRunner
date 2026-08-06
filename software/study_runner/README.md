@@ -1,18 +1,40 @@
-# Study Runner App Code
+# Study Runner — the application
 
-This folder contains the runnable application code.
+Each folder here is one area and carries its own README. Start with the one that
+matches what you are looking for.
 
-- `app_server.py`: internal Flask app module used by browser mode and packaged mode. It also prepares the per-computer HTTPS certificate used for tablet camera access.
-- `backend/`: Flask routes and backend services.
-- `web/`: admin page, participant page, scripts, styles, cards, fonts, and locales.
-- `integrations/`: automatically discovered API-v3 plugins such as BrainBit, MR60, camera/emotion, OSC, and the hidden upload destinations. XDF recording is internal infrastructure, not a user plugin.
+| Folder | What lives there |
+|---|---|
+| [`backend/`](backend/) | The Flask server. `routes/` decides what a URL means; `services/` does the work behind it, grouped by what part of a study it serves. |
+| [`frontend/`](frontend/) | Everything the browser loads: the two pages, their ES modules, styles, locales and fonts. No build step. |
+| [`recording/`](recording/) | The host side of recording: session folders, starting and supervising the worker, reading the XDF back. |
+| `recording_worker/` | The separate Python process that actually writes XDF. Its native half is `software/recording_worker/native/`. |
+| [`plugins/`](plugins/) | One folder per plugin, all equal. A folder with a `manifest.json` is discovered automatically. |
+| [`plugin_framework/`](plugin_framework/) | The machinery that finds, validates and talks to those plugins. Nothing here is a plugin. |
+| `updates/` | Verifying a signed release and applying it. |
 
-For local browser-mode development, start the app through the single main entrypoint:
+Two loose files: `app_server.py` is the Flask app module used by browser and
+packaged mode, and also prepares the per-computer HTTPS certificate the tablet
+camera needs; `version.py` is the single source of the version number.
+
+## Running it
 
 ```bash
 cd software
 python server.py
 ```
 
-Normal study content is stored in `software/study_content/`, not in this code package.
-Integration runtime logs, generated DeepFace caches, and generated SSL certificates are local runtime state and should stay out of Git.
+## What is not in here
+
+The studies an operator actually edits, and this machine's settings, live in
+`software/study_content/`. Results go to `software/saved_results/`. Plugin
+runtime logs, DeepFace caches and generated certificates are local state and
+stay out of Git.
+
+## The one rule that keeps this extensible
+
+A plugin declares itself in its manifest and the application reads it. No core
+module may name a plugin — not a route, not a service, not a frontend script.
+While that holds, adding a sensor or an upload destination means adding a
+folder. The moment it stops holding, every new plugin becomes a patch spread
+across the codebase. Several tests exist only to keep it true.

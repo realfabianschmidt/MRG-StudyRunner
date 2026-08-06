@@ -184,7 +184,7 @@ def request_update_install(app_config: dict[str, Any]) -> dict[str, Any]:
     state["install_requested_at"] = _utc_now()
     state["error"] = ""
     _write_state(paths.state_file, state)
-    _spawn_update_helper(paths.state_file, app_config)
+    _spawn_installer(paths.state_file, app_config)
     return build_update_status(app_config)
 
 
@@ -450,7 +450,7 @@ def _find_staged_executable(stage_dir: Path) -> Path:
     return candidates[0]
 
 
-def _spawn_update_helper(state_file: Path, app_config: dict[str, Any]) -> None:
+def _spawn_installer(state_file: Path, app_config: dict[str, Any]) -> None:
     base_dir = Path(app_config.get("BASE_DIR") or ".")
     if getattr(sys, "frozen", False):
         cmd = [sys.executable, "--apply-update", str(state_file)]

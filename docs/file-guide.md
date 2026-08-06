@@ -50,54 +50,54 @@ Edit-safety legend:
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `services/__init__.py` | Empty package marker | yes |
-| `services/atomic_io.py` | Crash-safe JSON writes (temp file + replace) for all study data | no |
-| `services/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
-| `services/results_service.py` | Builds answer details, slices biosignals per card, writes result files | no |
-| `services/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |
-| `services/session_store.py` | Persistent, rehydrating registry of active tablet study sessions | no |
-| `services/sensor_flush_service.py` | Periodic background export of live sensor history for crash recovery | no |
-| `services/sensor_coordinator_service.py` | Central plugin lifecycle/status wrapper with manifest, backpressure, and timing diagnostics | careful |
-| `services/clock_sync_service.py` | Bounded tablet/worker offset and RTT histories for timing diagnostics | careful |
-| `services/recovery_service.py` | Finds crash-orphaned sessions and finalizes or discards them | no |
-| `services/nextcloud_service.py` | Uploads session files to writable Nextcloud public shares over WebDAV | careful |
-| `services/update_service.py` | In-app updater: manifest fetch, signature check, download, staging | no |
-| `services/ssl_service.py` | Local HTTPS certificate authority for tablet camera access | no |
-| `services/certificate_download_service.py` | Plain-HTTP, one-file bootstrap download for the local root CA | careful |
-| `services/certificate_transfer_service.py` | Validates, exports, and transactionally imports the reusable local root CA | no |
-| `services/branding_service.py` | Validates logo uploads and resolves a slot to a stored file, never to a caller's path | no |
-| `services/upload_jobs_service.py` | Persistent upload journal, crash replay, backoff worker, and retry state | no |
-| `services/upload_runtime.py` | Registers manifest-declared destination plugin handlers with persistent upload jobs | no |
-| `services/folder_open_service.py` | Validates and opens result folders on Windows or macOS | no |
-| `services/runtime_config.py` | Paths, ports, app mode, data-folder resolution | careful |
-| `services/study_config_service.py` | Load/save the active study and the saved-studies folder | careful |
-| `services/study_run_state_service.py` | Persists the operator-controlled loaded/running/completed run state | careful |
-| `services/study_sensor_runtime.py` | Which sensors are effectively on (study settings + overrides) | careful |
-| `services/trial_service.py` | Sends stimulus start/stop markers to the integrations | careful |
-| `services/study_client_service.py` | Tablet heartbeat bookkeeping | careful |
-| `services/secrets_service.py` | Keeps the Notion API key backend-local | no |
-| `services/study_secrets_service.py` | Per-study credential overrides, never written into the exported study | no |
-| `services/study_readiness_service.py` | Pre-run check: what would stop the loaded study from delivering results | careful |
-| `services/plugin_settings_service.py` | Manifest-driven machine settings: schema, validation, targeted deep-merge writes | no |
-| `services/hardware_settings_service.py` | Saves hardware_settings.json | careful |
-| `services/shortcut_service.py` | Creates the desktop shortcut | careful |
-| `services/admin_status_service.py` | Aggregates integration status for the dashboard | careful |
-| `services/artifact_manifest_service.py` | Owns artifact provenance, checksums, completion markers, and guarded source purge | no |
-| `services/card_summary_service.py` | Pure merged-XDF-to-card-statistics derivation | no |
-| `services/finalization_runtime.py` | Wires the persistent finalizer to recording and upload adapters | no |
-| `services/finalization_service.py` | Durable, idempotent session-finalization state machine and journal replay | no |
-| `services/destination_plugin_service.py` | Converts upload-destination manifests into persisted finalization steps and recovery/purge policies | no |
-| `services/plugin_health_poll_service.py` | Manifest-paced, non-blocking per-plugin health cache and bounded poll executor | careful |
-| `services/recording_runtime.py` | Public compatibility facade plus session-level recording orchestration; contains no process-launch or scientific-validation implementation | no |
-| `services/recording_dependencies.py` | liblsl dependency probe and capability-based selection of study/internal recording providers | no |
-| `services/recording_worker_launcher.py` | Detached Python/self worker process command, isolation flags, and startup health handshake | no |
-| `services/recording_runtime_support.py` | Shared recording error, constants, safe session-path/JSON helpers, recovery grid, and required-source readiness gate | no |
-| `services/recording_quality.py` | Scientific source, backup, gap/drop, lease-expiry, and finalization quality checks | no |
-| `services/recording_finalization_adapter.py` | Thin bridge from persistent finalization steps to recording freeze, validation, merge, and shutdown | no |
-| `services/study_plugin_config.py` | Migrates legacy sensor/upload/card fields into plugin API v3 settings | careful |
-| `services/trial_event_service.py` | Persists idempotent trial events and backend-enforced deadlines | no |
+| `services/studies/__init__.py` | Empty package marker | yes |
+| `services/shared/atomic_io.py` | Crash-safe JSON writes (temp file + replace) for all study data | no |
+| `services/shared/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
+| `services/studies/results_service.py` | Builds answer details, slices biosignals per card, writes result files | no |
+| `services/studies/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |
+| `services/studies/session_store.py` | Persistent, rehydrating registry of active tablet study sessions | no |
+| `services/recording/sensor_flush_service.py` | Periodic background export of live sensor history for crash recovery | no |
+| `services/recording/sensor_coordinator_service.py` | Central plugin lifecycle/status wrapper with manifest, backpressure, and timing diagnostics | careful |
+| `services/recording/clock_sync_service.py` | Bounded tablet/worker offset and RTT histories for timing diagnostics | careful |
+| `services/studies/recovery_service.py` | Finds crash-orphaned sessions and finalizes or discards them | no |
+| `services/delivery/nextcloud_service.py` | Uploads session files to writable Nextcloud public shares over WebDAV | careful |
+| `services/settings/update_service.py` | In-app updater: manifest fetch, signature check, download, staging | no |
+| `services/settings/ssl_service.py` | Local HTTPS certificate authority for tablet camera access | no |
+| `services/delivery/certificate_download_service.py` | Plain-HTTP, one-file bootstrap download for the local root CA | careful |
+| `services/delivery/certificate_transfer_service.py` | Validates, exports, and transactionally imports the reusable local root CA | no |
+| `services/settings/branding_service.py` | Validates logo uploads and resolves a slot to a stored file, never to a caller's path | no |
+| `services/delivery/upload_jobs_service.py` | Persistent upload journal, crash replay, backoff worker, and retry state | no |
+| `services/delivery/upload_runtime.py` | Registers manifest-declared destination plugin handlers with persistent upload jobs | no |
+| `services/settings/folder_open_service.py` | Validates and opens result folders on Windows or macOS | no |
+| `services/settings/runtime_config.py` | Paths, ports, app mode, data-folder resolution | careful |
+| `services/studies/study_config_service.py` | Load/save the active study and the saved-studies folder | careful |
+| `services/studies/study_run_state_service.py` | Persists the operator-controlled loaded/running/completed run state | careful |
+| `services/recording/study_sensor_runtime.py` | Which sensors are effectively on (study settings + overrides) | careful |
+| `services/studies/trial_service.py` | Sends stimulus start/stop markers to the integrations | careful |
+| `services/studies/study_client_service.py` | Tablet heartbeat bookkeeping | careful |
+| `services/settings/secrets_service.py` | Keeps the Notion API key backend-local | no |
+| `services/studies/study_secrets_service.py` | Per-study credential overrides, never written into the exported study | no |
+| `services/studies/study_readiness_service.py` | Pre-run check: what would stop the loaded study from delivering results | careful |
+| `services/settings/plugin_settings_service.py` | Manifest-driven machine settings: schema, validation, targeted deep-merge writes | no |
+| `services/settings/hardware_settings_service.py` | Saves hardware_settings.json | careful |
+| `services/settings/shortcut_service.py` | Creates the desktop shortcut | careful |
+| `services/settings/admin_status_service.py` | Aggregates integration status for the dashboard | careful |
+| `services/delivery/artifact_manifest_service.py` | Owns artifact provenance, checksums, completion markers, and guarded source purge | no |
+| `services/studies/card_summary_service.py` | Pure merged-XDF-to-card-statistics derivation | no |
+| `services/delivery/finalization_runtime.py` | Wires the persistent finalizer to recording and upload adapters | no |
+| `services/delivery/finalization_service.py` | Durable, idempotent session-finalization state machine and journal replay | no |
+| `services/delivery/destination_plugin_service.py` | Converts upload-destination manifests into persisted finalization steps and recovery/purge policies | no |
+| `services/recording/plugin_health_poll_service.py` | Manifest-paced, non-blocking per-plugin health cache and bounded poll executor | careful |
+| `services/recording/recording_runtime.py` | Public compatibility facade plus session-level recording orchestration; contains no process-launch or scientific-validation implementation | no |
+| `services/recording/recording_dependencies.py` | liblsl dependency probe and capability-based selection of study/internal recording providers | no |
+| `services/recording/recording_worker_launcher.py` | Detached Python/self worker process command, isolation flags, and startup health handshake | no |
+| `services/recording/recording_runtime_support.py` | Shared recording error, constants, safe session-path/JSON helpers, recovery grid, and required-source readiness gate | no |
+| `services/recording/recording_quality.py` | Scientific source, backup, gap/drop, lease-expiry, and finalization quality checks | no |
+| `services/recording/recording_finalization_adapter.py` | Thin bridge from persistent finalization steps to recording freeze, validation, merge, and shutdown | no |
+| `services/studies/study_plugin_config.py` | Migrates legacy sensor/upload/card fields into plugin API v3 settings | careful |
+| `services/studies/trial_event_service.py` | Persists idempotent trial events and backend-enforced deadlines | no |
 
-## Backend - recording core (`software/study_runner/backend/recording/`)
+## Recording, host side (`software/study_runner/recording/`)
 
 | File | Purpose | Edit? |
 |---|---|---|
@@ -131,7 +131,7 @@ it deliberately contains no HTTP, LSL, plugin, or study logic.
 | `software/study_runner/updates/trusted_keys.py` | Trusted public keys (filled in by CI at release build) | no |
 | `software/study_runner/updates/installer.py` | Applies a staged update on restart (`--apply-update`) | no |
 
-## Integrations (`software/study_runner/integrations/`)
+## Plugins (`software/study_runner/plugins/`)
 
 The folder name, public plugin key, and hardware-config key are deliberately
 not assumed to be identical. `test_plugin_registry.py` freezes this compatibility
@@ -149,7 +149,7 @@ mapping:
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `plugin_api.py` | The IntegrationContext/plugin interface every sensor implements | careful |
+| `plugin_api.py` | The PluginContext/plugin interface every sensor implements | careful |
 | `adapter_utils.py` | Shared timestamps, locked state updates, and config-section lookup | careful |
 | `registry.py` | Manifest-driven plugin lookup, generic actions, interval summaries, and sidecar exports | careful |
 | `plugin_catalog.py` | Discovers plugin folders and validates API-v3 manifests before import | no |
@@ -176,13 +176,13 @@ mapping:
 | `notion_upload/adapter.py` + `plugin.py` | Uploads result summaries to Notion (with offline queue) | careful |
 | `nextcloud_upload/plugin.py` | Declares the hidden Nextcloud destination capability and generic settings schema | careful |
 
-## Web UI (`software/study_runner/web/scripts/`)
+## Frontend (`software/study_runner/frontend/scripts/`)
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `study-controller.js` | The participant flow engine: cards, navigation, snapshots, submit, preview mode | careful |
-| `admin-controller.js` | Study editor, save/load, QR codes, updates | careful |
-| `admin-dashboard-controller.js` | Live sensor dashboard with plain-language statuses | careful |
+| `participant/study-controller.js` | The participant flow engine: cards, navigation, snapshots, submit, preview mode | careful |
+| `admin/admin-controller.js` | Study editor, save/load, QR codes, updates | careful |
+| `admin/admin-dashboard-controller.js` | Live sensor dashboard with plain-language statuses | careful |
 | `settings/machine/machine-settings-panel.js` | Machine settings shell: nav, generated sensor forms, tablet links | careful |
 | `settings/machine/certificate-settings-controller.js` | Certificate status, setup, export, and import, inside the machine settings shell | no |
 | `settings/machine/branding-settings-controller.js` | Upload and remove the group and funder logos, inside the machine settings shell | no |
@@ -194,29 +194,29 @@ mapping:
 | `admin/upload-monitor.js` | Background-upload completion modal and the corner progress widget it shrinks to | careful |
 | `admin/finalization-monitor-view.js` | Generic finalization modal/widget renderer and guarded operator actions | careful |
 | `admin/recovery-panel.js` | Hub banner listing crash-orphaned sessions, with finalize/discard actions | careful |
-| `lib/study-settings.js` | THE client-side study-settings shape; mirrors `_validate_study_settings` | no |
-| `lib/deadline-timer.js` | Monotonic deadline timer whose UI ticks never define elapsed study time | no |
-| `lib/finalization-view-model.js` | Pure finalization status/progress view model | careful |
-| `lib/timeline-view-model.js` | Pure timeline model: stream grouping, waveform/line classification from the LSL header, zoom window maths | careful |
-| `lib/plugin-catalog.js` | Fetches and indexes manifest-derived plugin UI capabilities | careful |
-| `lib/participant-plugin-extensions.js` | Failure-isolated lifecycle manager for manifest-declared participant extensions | careful |
-| `lib/reliable-event-queue.js` | Session-local idempotent marker/event buffering and retry | no |
-| `lib/view-transition.js` | Full-screen sweep between admin views; swaps the view while covered | careful |
-| `lib/settings-shell.js` | Shared left-nav/right-panel wiring for both settings surfaces | careful |
-| `lib/dom-utils.js` | Shared safe DOM lookup, text/HTML assignment, and escaping helpers | careful |
-| `lib/modal.js` | Shared accessible modal lifecycle, modal-shell markup, and the yes/no confirmation | careful |
-| `lib/branding.js` | Shared branding fetch and logo rendering for the waiting slide and the hub | careful |
-| `lib/ambient-bubbles.js` | Self-contained morphing background for the waiting slide; tune CONFIG at the top | no |
-| `lib/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
-| `api-client.js` | Tiny fetch helpers (getJson/postJson) | careful |
-| `i18n.js` | Translation loading and the `t()` helper | careful |
+| `shared/study-settings.js` | THE client-side study-settings shape; mirrors `_validate_study_settings` | no |
+| `shared/deadline-timer.js` | Monotonic deadline timer whose UI ticks never define elapsed study time | no |
+| `shared/finalization-view-model.js` | Pure finalization status/progress view model | careful |
+| `shared/timeline-view-model.js` | Pure timeline model: stream grouping, waveform/line classification from the LSL header, zoom window maths | careful |
+| `shared/plugin-catalog.js` | Fetches and indexes manifest-derived plugin UI capabilities | careful |
+| `shared/participant-plugin-extensions.js` | Failure-isolated lifecycle manager for manifest-declared participant extensions | careful |
+| `shared/reliable-event-queue.js` | Session-local idempotent marker/event buffering and retry | no |
+| `shared/view-transition.js` | Full-screen sweep between admin views; swaps the view while covered | careful |
+| `shared/settings-shell.js` | Shared left-nav/right-panel wiring for both settings surfaces | careful |
+| `shared/dom-utils.js` | Shared safe DOM lookup, text/HTML assignment, and escaping helpers | careful |
+| `shared/modal.js` | Shared accessible modal lifecycle, modal-shell markup, and the yes/no confirmation | careful |
+| `shared/branding.js` | Shared branding fetch and logo rendering for the waiting slide and the hub | careful |
+| `shared/ambient-bubbles.js` | Self-contained morphing background for the waiting slide; tune CONFIG at the top | no |
+| `shared/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
+| `shared/api-client.js` | Tiny fetch helpers (getJson/postJson) | careful |
+| `shared/i18n.js` | Translation loading and the `t()` helper | careful |
 | `integrations/camera_emotion/ui/participant.js` | Camera/emotion participant lifecycle extension for preview, stimuli, submit, and heartbeat status | careful |
 | `integrations/camera_emotion/ui/camera-capture.js` | Plugin-owned tablet camera capture and frame upload adapter | careful |
 | `integrations/brainbit/ui/dashboard.js` | Optional BrainBit rich-status renderer loaded through the manifest extension hook | careful |
 | `integrations/mr60_mini_radar/ui/dashboard.js` | Optional MR60 rich-status renderer loaded through the manifest extension hook | careful |
 | `integrations/camera_emotion/ui/dashboard.js` | Optional camera/emotion rich-status renderer loaded through the manifest extension hook | careful |
-| `study-client-heartbeat.js` | Keeps the tablet visible on the dashboard | careful |
-| `qr-code.js` | QR code rendering for the access card | no |
+| `participant/study-client-heartbeat.js` | Keeps the tablet visible on the dashboard | careful |
+| `shared/qr-code.js` | QR code rendering for the access card | no |
 | `cards/index.js` | Registers all card modules | careful |
 | `cards/card-slider.js` | Rating scale card (VAS) | careful |
 | `cards/card-likert.js` | Likert rating card | careful |

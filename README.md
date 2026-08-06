@@ -16,7 +16,7 @@ Most app work happens in `software/`. Source-archive and release helpers live in
 
 In the local lab workspace, `../Sensorik/` is intentionally kept next to this
 repo as the hardware reference and experiment folder. Runtime-ready copies live
-inside `software/study_runner/integrations/`.
+inside `software/study_runner/plugins/`.
 
 ```text
 Software/
@@ -36,10 +36,29 @@ Software/
 |   |-- server.py          Run locally with: cd software && python server.py
 |   |-- requirements.txt   Python dependencies.
 |   |-- constraints/       Release-tested Python 3.12 compatibility pins.
-|   |-- study_runner/      Python backend, browser UI, and integrations.
+|   |-- study_runner/      The application itself, see the map below.
 |   |-- study_content/     Editable default studies and settings.
+|   |-- recording_worker/  C++ source of the XDF core the worker is built on.
 |   `-- tests/             Automated checks.
 `-- release_tools/         Versioning, source archives, validation, release automation.
+```
+
+Inside `software/study_runner/`, each folder is one area and carries its own
+README:
+
+```text
+study_runner/
+|-- backend/           The server: routes/ says what a URL means,
+|                      services/ does the work behind it.
+|-- frontend/          Everything the browser loads: pages, scripts,
+|                      styles, locales, fonts.
+|-- recording/         Host side of recording: starts the worker, owns the
+|                      session folder, reads the XDF back.
+|-- recording_worker/  The separate process that writes the XDF.
+|-- plugins/           One folder per plugin, all equal. Drop a folder with
+|                      a manifest.json in and it appears everywhere.
+|-- plugin_framework/  The machinery that finds and runs those plugins.
+`-- updates/           Verifying and applying a signed update.
 ```
 
 Local study results are written to `software/saved_results/` and are ignored by
@@ -201,7 +220,7 @@ Current built-in lab integrations:
 
 - BrainBit EEG through the repo-local NeuroSDK CLI.
 - MR60 radar through ESP32-C6 BLE firmware in
-  `software/study_runner/integrations/mr60_mini_radar/firmware/`.
+  `software/study_runner/plugins/mr60_mini_radar/firmware/`.
 - Camera and emotion through the single `camera_emotion` plugin, using browser
   `getUserMedia` plus a local or remote analysis worker.
 - Per-plugin LSL acquisition and the detached Python recording worker for

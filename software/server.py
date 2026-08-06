@@ -44,9 +44,9 @@ if __name__ == "__main__":
         print(json.dumps(probe.as_dict(), ensure_ascii=False, sort_keys=True))
         raise SystemExit(0 if probe.usable else 2)
     if len(sys.argv) > 1 and sys.argv[1] == "--apply-update":
-        from study_runner.updates.installer import main as run_update_helper
+        from study_runner.updates.installer import main as run_installer
 
-        raise SystemExit(run_update_helper(sys.argv[2:]))
+        raise SystemExit(run_installer(sys.argv[2:]))
     from study_runner.app_server import run_app
 
     run_app()

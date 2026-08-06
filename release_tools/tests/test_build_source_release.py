@@ -395,7 +395,7 @@ class FontReleaseContractTests(unittest.TestCase):
     def test_the_heading_face_is_present_and_releasable(self) -> None:
         materiability = [
             name for name in self._repository_fonts()
-            if "web/fonts/materiability" in name.casefold()
+            if "frontend/fonts/materiability" in name.casefold()
         ]
         self.assertEqual(len(materiability), 3, f"expected three weights, found {materiability}")
         for name in materiability:

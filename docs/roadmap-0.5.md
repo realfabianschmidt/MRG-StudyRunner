@@ -36,7 +36,7 @@ These are enforced by guard tests — breaking them fails CI:
 | Every new/moved `.py`/`.js` file → row in `docs/file-guide.md` | `software/tests/test_file_guide.py` |
 | Every UI string → identical keys in `web/locales/en.json` AND `de.json` | `software/tests/test_web_ui.py` |
 | Slide toggles only, never checkbox rows; no `alert()` in `study-controller.js`; no CDN URLs | `software/tests/test_web_ui.py` |
-| Updater wire format is byte-frozen — never touch `update_crypto.py` payload shape | `test_route_inventory.py::UpdaterWireFormatTests` |
+| Updater wire format is byte-frozen — never touch `updates/signatures.py` payload shape | `test_route_inventory.py::UpdaterWireFormatTests` |
 
 Additional conventions: plain-language operator messages (technical detail goes to logs only); atomic writes (`backend/services/atomic_io.py`) for anything a crash could corrupt; new background threads must respect a new `STUDY_RUNNER_DISABLE_BACKGROUND=1` flag (mirroring `STUDY_RUNNER_DISABLE_HARDWARE`) so tests stay deterministic.
 
@@ -56,7 +56,7 @@ These are Fabian's standing requirements (2026-07-30). They are not per-topic wi
 
 ### Current state (root cause, verified)
 
-- Packaged releases (exe/zip) **do not ship** `software/study_runner/integrations/brainbit/brainbit_realtime_cli.py`: it is not in the PyInstaller `datas` (`release_tools/pyinstaller/study_runner_server_common.py`), and the adapter launches it as a *file path with a separate Python interpreter* — `_default_python_executable()` (`brainbit/adapter.py`) deliberately returns `""` when frozen → status `not_configured`, silent no-op. Verified empirically: no brainbit/neurosdk files in a local `dist/` build.
+- Packaged releases (exe/zip) **do not ship** `software/study_runner/plugins/brainbit/brainbit_realtime_cli.py`: it is not in the PyInstaller `datas` (`release_tools/pyinstaller/study_runner_server_common.py`), and the adapter launches it as a *file path with a separate Python interpreter* — `_default_python_executable()` (`brainbit/adapter.py`) deliberately returns `""` when frozen → status `not_configured`, silent no-op. Verified empirically: no brainbit/neurosdk files in a local `dist/` build.
 - Second trap: the committed `software/study_content/settings/hardware_settings.json` pins the dev machine's headset (serial `04030072`, MAC `DA:AC:A1:99:7B:BA`). The CLI resolves serial → address → name → index and **exits (code 4) instead of falling back** when the pinned device is absent.
 - The watchdog (`adapter.py`, section 6) only detects *silence* and ends its thread when the child has exited — it never restarts a fast-exiting CLI.
 - The CLI runs `pip install` at **import time** (ignores `STUDY_RUNNER_DISABLE_RUNTIME_PIP`).
@@ -103,8 +103,8 @@ Tests: new `software/tests/test_brainbit_command.py` (command building under fak
 **A. Shared utilities (FIRST — unblocks T1/T4/T6):**
 - `integrations/adapter_utils.py`: shared `timestamp()`, `set_state()`, `config_section()`.
 - One `is_frozen()` / packaged-mode detector in `backend/services/runtime_config.py`; delete the three copies.
-- `web/scripts/lib/dom-utils.js`: one exported `escapeHtml` (ES modules are already in use — pure import swap in 17 files).
-- `web/scripts/lib/modal.js`: **shared modal component** wrapping the existing `.modal-backdrop`/`.settings-modal` CSS (open/close, Escape, backdrop click, focus handling, and a minimize hook — T4's mini widget needs it). Consolidate duplicated modal CSS in `main.css`.
+- `frontend/scripts/shared/dom-utils.js`: one exported `escapeHtml` (ES modules are already in use — pure import swap in 17 files).
+- `frontend/scripts/shared/modal.js`: **shared modal component** wrapping the existing `.modal-backdrop`/`.settings-modal` CSS (open/close, Escape, backdrop click, focus handling, and a minimize hook — T4's mini widget needs it). Consolidate duplicated modal CSS in `main.css`.
 - **Generalize the settings-page building blocks** (this is what makes rule 1 possible for T6 and T8). The Notion settings page already contains every pattern a second and third settings page needs, but under Notion-specific class names in `web/pages/admin.html` and `main.css`:
 
   | Today (Notion-specific) | Becomes (reusable) | What it is |
@@ -112,7 +112,7 @@ Tests: new `software/tests/test_brainbit_command.py` (command building under fak
   | `.notion-settings-page` + `.dashboard-hero` + `.dashboard-grid` | `.settings-page` shell | kicker, title, subtitle, "Back to hub" button, card grid |
   | `.notion-status-grid` / `.notion-status-card` | `.status-grid` / `.status-card` | label + value + hint tiles |
   | `.notion-help-step` / `.notion-help-step-num` / `.notion-step-state` | `.setup-step` / `.setup-step-num` / `.setup-step-state` | numbered setup guide with a per-step state marker |
-  | `notion-settings-controller.js` | keep, but extract the shared load/save/test/status-poll skeleton into `web/scripts/lib/settings-page.js` | one page controller pattern for Notion, Nextcloud, Certificate |
+  | `notion-settings-controller.js` | keep, but extract the shared load/save/test/status-poll skeleton into `frontend/scripts/shared/settings-page.js` | one page controller pattern for Notion, Nextcloud, Certificate |
 
   Keep the old class names as aliases in CSS during the rename so the Notion page cannot regress, and cover the shell with a `test_web_ui` assertion that all three settings pages use the shared classes.
 - Align numpy pins across the two requirements files.
@@ -258,7 +258,7 @@ Tests: `tests/test_sessions_routes.py` with a fixture `saved_results` tree; down
 > `load_signal_samples` passes the LSL header through — stream name, nominal rate,
 > channel labels, types and units, all already extracted by
 > `_normalize_pyxdf_stream` and previously discarded — and the new pure module
-> `web/scripts/lib/timeline-view-model.js` decides from *that* how each channel is
+> `frontend/scripts/shared/timeline-view-model.js` decides from *that* how each channel is
 > drawn: a rate at or above 20 Hz, or a declared continuous type (EEG, ECG,
 > Respiration, …), becomes a filled min/max waveform; slower channels become
 > lines; marker streams become event ticks. A plugin added later that publishes a
@@ -574,14 +574,14 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 
 ### Current state (2026-07-30)
 
-- Sensor integrations already share an `IntegrationPlugin` registry shape (`plugin.py` exposes lifecycle/status/export hooks), and that should stay the base rather than being replaced.
+- Sensor integrations already share an `Plugin` registry shape (`plugin.py` exposes lifecycle/status/export hooks), and that should stay the base rather than being replaced.
 - Timing is split today: tablet markers use server-estimated epoch timestamps and LSL markers; continuous biosignals rely on their own samples and export windows; camera frames are browser snapshots posted to the backend; admin status polling is separate from data collection.
 - The 2026-07-30 tablet-camera run exposed operational pressure: camera frames could backlog, final submit could wait behind best-effort marker/stop work, the admin completion modal only followed upload jobs, and a finished tablet could still recreate a local active-session snapshot on reload.
 - Immediate stabilization is handled in T4/T7 follow-up code. The larger sensor architecture remains separate from this fix commit.
 
 ### Approach
 
-1. Keep the existing `IntegrationPlugin` registry as the compatibility layer.
+1. Keep the existing `Plugin` registry as the compatibility layer.
 2. Add one declarative manifest per sensor plugin: capabilities, streams, desired poll interval, request timeout, backpressure limits, clock domain, expected data rate/resolution, and export support.
 3. Add a `SensorCoordinator` service that owns lifecycle orchestration, status polling, flush/export calls, backpressure policy, and the admin-facing status model.
 4. Add a `ClockSyncService` that stores offset/RTT histories for tablet clients and remote workers. For true biosignal streams, LSL timestamps and XDF remain the reference path; coordinator timing is for control, diagnostics, and non-LSL streams.
@@ -600,7 +600,7 @@ Tests: validation (optional missing OK; required missing still errors; `use_for_
 | Admin status view fed by coordinator model | M | keep operator UI plain-language | medium |
 
 > **GPT 5.6 Sol input:**
-> **Architecture decision recorded (2026-07-30):** Fabian's proposed central worker model is accepted with one correction: the coordinator should coordinate control/status/backpressure and record timing diagnostics, but it should not replace LSL/XDF sample timestamps for scientific multi-stream synchronization. Poll-response delay can estimate RTT/offset for remote workers and web clients, but it is not a substitute for hardware/source timestamps plus LSL clock correction. T10 therefore builds on the existing `IntegrationPlugin` registry with declarative manifests and a new `SensorCoordinator`/`ClockSyncService`, while the immediate tablet-run fixes stay in the current stabilization commit.
+> **Architecture decision recorded (2026-07-30):** Fabian's proposed central worker model is accepted with one correction: the coordinator should coordinate control/status/backpressure and record timing diagnostics, but it should not replace LSL/XDF sample timestamps for scientific multi-stream synchronization. Poll-response delay can estimate RTT/offset for remote workers and web clients, but it is not a substitute for hardware/source timestamps plus LSL clock correction. T10 therefore builds on the existing `Plugin` registry with declarative manifests and a new `SensorCoordinator`/`ClockSyncService`, while the immediate tablet-run fixes stay in the current stabilization commit.
 >
 > **Implementation status (2026-07-30):** no sensor-coordinator behavior has been moved yet. The first T11 run-state slice deliberately keeps today's plugin lifecycle intact and only exposes clearer loaded/running/completed state around it. T10 remains the next architecture block: manifests, coordinator polling, `ClockSyncService`, and unified sample metadata.
 >
@@ -703,7 +703,7 @@ T4 job service ──→ T7 finalize (enqueues uploads for recovered sessions)
 T9 optional-answers ──→ T7 finalize (recovered sessions are incomplete)
 T5 emotion sidecar (tiny, early) ──→ T7 flush covers emotions
 T1 ──→ T2-B brainbit split          T9 ──→ T2-B study-controller split
-T4/T7 stabilization + existing IntegrationPlugin registry ──→ T10 coordinator
+T4/T7 stabilization + existing Plugin registry ──→ T10 coordinator
 T5 sessions browser + T10 plugin manifests ──→ T11 admin shell
 T2-C cosmetics last
 

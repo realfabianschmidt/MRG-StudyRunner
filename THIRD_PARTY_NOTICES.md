@@ -19,23 +19,23 @@ Boost Software License 1.0. The complete Boost license text is kept at
 
 ## Iconoir
 
-`software/study_runner/web/vendor/iconoir/iconoir.css` contains Iconoir 7.11.1
+`software/study_runner/frontend/vendor/iconoir/iconoir.css` contains Iconoir 7.11.1
 icons by Luca Burgio and contributors. Iconoir is licensed under the MIT
 License. The complete upstream notice is kept at
-`software/study_runner/web/vendor/iconoir/LICENSE`.
+`software/study_runner/frontend/vendor/iconoir/LICENSE`.
 
 ## Geist
 
-`software/study_runner/web/vendor/geist/` contains three weights each of Geist
+`software/study_runner/frontend/vendor/geist/` contains three weights each of Geist
 Sans and Geist Mono 1.7.2 by Vercel, in collaboration with basement.studio. Geist is licensed under
 the SIL Open Font License, Version 1.1. The complete upstream notice is kept at
-`software/study_runner/web/vendor/geist/LICENSE`.
+`software/study_runner/frontend/vendor/geist/LICENSE`.
 
 Geist Sans is the body face and Geist Mono carries tabular values. Headings are
 drawn in Materiability, which is first-party and covered by `LICENSE` rather than
 by this file; Geist also stands behind it in the stack as the fallback for a
 checkout whose font files have not been fetched. See
-`software/study_runner/web/fonts/README.md`.
+`software/study_runner/frontend/fonts/README.md`.
 
 ## DeepFace and optional VGG-Face-derived model weights
 

@@ -32,7 +32,7 @@ It keeps only the rules that are useful for this small Study Runner project. The
 ## 1. Keep it simple
 
 - Required: Build direct, simple solutions.
-- Required: Discover only trusted plugin folders shipped below `study_runner/integrations`. Never load plugin paths, packages, or dependencies supplied by a web request.
+- Required: Discover only trusted plugin folders shipped below `study_runner/plugins`. Never load plugin paths, packages, or dependencies supplied by a web request.
 - Required: Do not add structure for a possible future use case unless there is a clear need now.
 - Required: If a term is hard to understand, replace it or explain it immediately.
 

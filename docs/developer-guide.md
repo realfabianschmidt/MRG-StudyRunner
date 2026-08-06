@@ -1,7 +1,7 @@
 # Developer Guide
 
 Study Runner uses trusted built-in integration plugins. A plugin is a Python
-package below `software/study_runner/integrations/`; there is no web upload,
+package below `software/study_runner/plugins/`; there is no web upload,
 marketplace, automatic dependency installation, or untrusted code path.
 
 The complete recording contract is in
@@ -19,17 +19,17 @@ the smallest safe plugin workflow.
 
 ## Important Files
 
-- `software/study_runner/integrations/plugin_api.py`: shared context and plugin
+- `software/study_runner/plugins/plugin_api.py`: shared context and plugin
   callback type.
-- `software/study_runner/integrations/plugin_catalog.py`: trusted directory
+- `software/study_runner/plugins/plugin_catalog.py`: trusted directory
   discovery, manifest-v3 validation, duplicate isolation, and public catalog.
-- `software/study_runner/integrations/registry.py`: compatibility facade over
+- `software/study_runner/plugins/registry.py`: compatibility facade over
   the discovered, validated plugins.
 - `software/study_runner/backend/services/sensor_coordinator_service.py`:
   lifecycle and status orchestration.
 - `software/study_runner/backend/services/recording_runtime.py`: Flask-side
   worker orchestration; it contains no XDF encoding.
-- `software/study_runner/backend/recording/`: worker protocol, session paths,
+- `software/study_runner/recording/`: worker protocol, session paths,
   segment allocation, recovery, and XDF validation contracts.
 - `software/study_runner/recording_worker/`: detached Python worker.
 - `software/recording_worker/native/`: native XDF-core source and CTest.
@@ -43,7 +43,7 @@ the smallest safe plugin workflow.
 ## Required Plugin Shape
 
 ```text
-software/study_runner/integrations/my_new_sensor/
+software/study_runner/plugins/my_new_sensor/
   __init__.py
   manifest.json
   plugin.py
@@ -59,9 +59,9 @@ entry. Discovery validates `manifest.json` before it imports `plugin.py`.
 `plugin.py` exports one object:
 
 ```python
-from study_runner.integrations.plugin_api import IntegrationPlugin
+from study_runner.plugins.plugin_api import Plugin
 
-PLUGIN = IntegrationPlugin(
+PLUGIN = Plugin(
     key="my_new_sensor",
     label="My new sensor",
     category="biosignal",

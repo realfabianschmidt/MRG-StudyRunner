@@ -189,7 +189,7 @@ code:
 | Area | Purpose |
 | --- | --- |
 | `../Sensorik/` | Vendor files, experiments, firmware references, and lab notes. |
-| `software/study_runner/integrations/` | Trusted, tested runtime plugins discovered and shipped by Study Runner. |
+| `software/study_runner/plugins/` | Trusted, tested runtime plugins discovered and shipped by Study Runner. |
 
 Promote only tested runtime files into a plugin package. Add manifest, schema,
 synthetic fixtures, and hardware smoke tests there; do not run experimental

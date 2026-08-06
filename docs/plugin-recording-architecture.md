@@ -89,7 +89,7 @@ environment.
 
 ## Trusted Plugin Layout
 
-Only code shipped in `software/study_runner/integrations/` is discovered. There
+Only code shipped in `software/study_runner/plugins/` is discovered. There
 is no browser upload, dependency installer, marketplace, or third-party plugin
 execution path.
 
