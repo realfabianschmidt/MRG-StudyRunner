@@ -18,10 +18,7 @@ import threading
 import time
 from typing import Any, Callable, Iterable, Mapping
 
-from study_runner.plugin_framework.registry import (
-    get_backup_projection_specs,
-    get_plugin_manifests,
-)
+from study_runner.plugin_framework.registry import get_backup_projection_specs
 from study_runner.recording_worker.lsl_recording import lsl_version_info, require_pylsl
 
 from study_runner.recording.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
@@ -46,10 +43,10 @@ from study_runner.recording.xdf import (
 )
 from study_runner.shared.atomic_io import atomic_write_json
 from .recording_dependencies import (
-    InternalProviderResolution,
+    INTERNAL_RECORDING_SOURCE_KEYS,
+    get_plugin_manifests_with_internal_sources,
     probe_lsl_dependencies,
     required_recording_plugins,
-    resolve_internal_recording_plugins,
     selected_recording_plugins,
 )
 from .recording_finalization_adapter import RuntimeRecordingFinalizationAdapter
@@ -162,26 +159,19 @@ class RecordingRuntimeService:
         selected = selected_recording_plugins(config_data)
         required = required_recording_plugins(config_data)
         availability = self.availability()
-        manifests = get_plugin_manifests()
-        internal = resolve_internal_recording_plugins(manifests)
-        marker_plugin_ready = len(internal.marker_plugin_keys) == 1
-        clock_diagnostics_plugin_ready = len(internal.clock_plugin_keys) == 1
         reasons = [str(availability.get("reason") or "")] if not availability["available"] else []
-        if selected:
-            reasons.extend(internal.errors)
-        ready = not selected or (
-            bool(availability["available"])
-            and internal.ready
-        )
+        ready = not selected or bool(availability["available"])
         return {
             **availability,
             "recording_expected": bool(selected),
             "selected_plugins": list(selected),
             "required_plugins": list(required),
             "marker_stream_enabled": True,
-            "marker_plugin_ready": marker_plugin_ready,
-            "clock_diagnostics_plugin_ready": clock_diagnostics_plugin_ready,
-            "internal_recording_plugins": list(internal.plugin_keys),
+            # Both are structural now -- exactly one Python module provides each,
+            # so there is no "found zero" or "found two" left to report.
+            "marker_plugin_ready": True,
+            "clock_diagnostics_plugin_ready": True,
+            "internal_recording_plugins": list(INTERNAL_RECORDING_SOURCE_KEYS),
             "disabled_lsl_bridges": [],
             "ready": ready,
             "reason": "; ".join(reason for reason in reasons if reason) or None,
@@ -208,13 +198,9 @@ class RecordingRuntimeService:
         if not lsl_dependencies["ok"]:
             raise RecordingRuntimeError(str(lsl_dependencies["reason"]))
 
-        manifests = get_plugin_manifests()
-        internal = resolve_internal_recording_plugins(manifests)
-        if not internal.ready:
-            raise RecordingRuntimeError("; ".join(internal.errors))
-        for plugin_key in internal.plugin_keys:
-            selected.append(plugin_key)
-            required.append(plugin_key)
+        for source_key in INTERNAL_RECORDING_SOURCE_KEYS:
+            selected.append(source_key)
+            required.append(source_key)
         selected = list(dict.fromkeys(selected))
         required = list(dict.fromkeys(required))
 
@@ -427,7 +413,7 @@ class RecordingRuntimeService:
         if endpoint.generation != generation:
             raise RecordingRuntimeError("recording worker generation mismatch")
 
-        manifests = get_plugin_manifests()
+        manifests = get_plugin_manifests_with_internal_sources()
         recording_plugins = [str(key) for key in plan.get("recording_plugins") or []]
         required_sources = {str(key) for key in plan.get("required_source_keys") or []}
         optional_source_warnings: list[dict[str, Any]] = []

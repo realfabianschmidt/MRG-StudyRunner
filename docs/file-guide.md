@@ -109,6 +109,9 @@ Edit-safety legend:
 | `worker_binary.py` | Locates and validates the tiny platform-native XDF core and its build manifest | no |
 | `worker_protocol.py` | Authenticated loopback protocol, persisted endpoint state, and command replay ledger | no |
 | `xdf.py` | Native-worker backend contract plus pinned PyXDF source/merge validation | no |
+| `markers.py` | The study's own event-marker LSL outlet; every session carries it, not a plugin | careful |
+| `clock_diagnostics.py` | Wall/LSL/client clock observations at event boundaries; every session carries it, not a plugin | careful |
+| `markers.manifest.json`, `clock_diagnostics.manifest.json` | Declare each built-in source's streams the same way a plugin manifest does, loaded through the same validator, never discovered from a directory | no |
 
 ## Detached recording worker (`software/study_runner/recording_worker/`)
 
@@ -142,10 +145,14 @@ mapping:
 | `brainbit` | `brainbit` | `brainbit` |
 | `mr60_mini_radar` | `mini_radar` | `mini_radar` |
 | `camera_emotion` | `camera_emotion` | `camera_emotion` |
-| `lsl_markers` | `lsl` | `lsl` |
 | `osc_touchdesigner` | `osc` | `osc` |
 | `notion_upload` | `notion` | `notion` |
 | `nextcloud_upload` | `nextcloud` | `nextcloud` |
+
+`lsl_markers` and `clock_diagnostics` used to be here. Removing either broke
+recording -- see `tests/test_plugin_removability.py` -- so they are core
+recording code now, not plugins: `recording/markers.py` and
+`recording/clock_diagnostics.py`.
 
 | File | Purpose | Edit? |
 |---|---|---|
@@ -168,11 +175,7 @@ mapping:
 | `camera_emotion/worker/plugin.py` | Starts, monitors, and repairs the internal worker | careful |
 | `camera_emotion/worker/analyzer.py` | Runs DeepFace on one frame | careful |
 | `camera_emotion/worker/model_errors.py` | Shared DeepFace error classification + suggested fixes | careful |
-| `tablet_camera_emotion/*.py`, `local_emotion_worker/*.py` | One-release import/CLI compatibility shims; never catalog entries | careful |
-| `lsl_markers/adapter.py` + `plugin.py` | Publishes study markers as an LSL stream | careful |
-| `clock_diagnostics/adapter.py` + `plugin.py` | Hidden LSL wall/client/LSL clock observations at event boundaries | careful |
 | `osc_touchdesigner/adapter.py` + `plugin.py` | Forwards values to TouchDesigner via OSC | careful |
-| `labrecorder_xdf/plugin.py` | Unregistered legacy collector retained temporarily for compatibility | careful |
 | `notion_upload/adapter.py` + `plugin.py` | Uploads result summaries to Notion (with offline queue) | careful |
 | `nextcloud_upload/plugin.py` | Declares the hidden Nextcloud destination capability and generic settings schema | careful |
 

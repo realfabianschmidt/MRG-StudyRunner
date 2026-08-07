@@ -29,8 +29,6 @@ EXPECTED_PLUGIN_MAPPING = {
     "brainbit": ("brainbit", "brainbit"),
     "mr60_mini_radar": ("mini_radar", "mini_radar"),
     "camera_emotion": ("camera_emotion", "camera_emotion"),
-    "lsl_markers": ("lsl", "lsl"),
-    "clock_diagnostics": ("clock_diagnostics", "clock_diagnostics"),
     "osc_touchdesigner": ("osc", "osc"),
     "notion_upload": ("notion", "notion"),
     "nextcloud_upload": ("nextcloud", "nextcloud"),
@@ -138,8 +136,6 @@ class PluginRegistryContractTests(unittest.TestCase):
             "brainbit": ("ble", "host_lsl_bridge"),
             "mini_radar": ("local_hardware", "host_lsl_bridge"),
             "camera_emotion": ("browser_https", "host_lsl_bridge"),
-            "lsl": ("internal", "host_lsl_bridge"),
-            "clock_diagnostics": ("internal", "host_lsl_bridge"),
         }
         for plugin_key, pair in expected.items():
             with self.subTest(plugin=plugin_key):
@@ -154,17 +150,6 @@ class PluginRegistryContractTests(unittest.TestCase):
         self.assertNotIn("labrecorder", manifests)
 
     def test_internal_and_destination_visibility_is_explicit(self) -> None:
-        hidden = {
-            "dashboard": False,
-            "settings_hub": False,
-            "study_settings": False,
-            "destination_settings": False,
-        }
-        self.assertEqual(get_plugin_manifest("lsl")["ui"]["visibility"], hidden)
-        self.assertEqual(
-            get_plugin_manifest("clock_diagnostics")["ui"]["visibility"],
-            hidden,
-        )
         destination = {
             "dashboard": False,
             "settings_hub": False,
@@ -264,8 +249,6 @@ class PluginRegistryContractTests(unittest.TestCase):
             "brainbit": "brainbit.adapter",
             "mini_radar": "mr60_mini_radar.adapter",
             "camera_emotion": "camera_emotion.adapter",
-            "lsl": "lsl_markers.adapter",
-            "clock_diagnostics": "clock_diagnostics.adapter",
         }
         for plugin_key, module_suffix in adapter_modules.items():
             with self.subTest(plugin=plugin_key):
@@ -280,6 +263,42 @@ class PluginRegistryContractTests(unittest.TestCase):
                     for stream in get_plugin_manifest(plugin_key)["streams"]
                 }
                 self.assertEqual(manifest_units, adapter.LSL_CHANNEL_UNITS)
+
+
+class BuiltInRecordingSourceTests(unittest.TestCase):
+    """markers and clock_diagnostics left the catalog in Part C, but the same
+    self-consistency the plugins above are held to still applies to them --
+    see recording/markers.py and recording/clock_diagnostics.py."""
+
+    def test_declared_source_ids_match_module_constants(self) -> None:
+        from study_runner.recording import clock_diagnostics, markers
+
+        for module in (markers, clock_diagnostics):
+            with self.subTest(module=module.__name__):
+                manifest_ids = {
+                    stream["key"]: stream["source_id"] for stream in module.MANIFEST["streams"]
+                }
+                self.assertEqual(manifest_ids, module.LSL_SOURCE_IDS)
+                manifest_units = {
+                    stream["key"]: tuple(stream["channel_units"])
+                    for stream in module.MANIFEST["streams"]
+                }
+                self.assertEqual(manifest_units, module.LSL_CHANNEL_UNITS)
+
+    def test_neither_is_reachable_through_the_plugin_catalog(self) -> None:
+        from study_runner.recording import clock_diagnostics, markers
+
+        manifests = get_plugin_manifests()
+        self.assertNotIn(markers.SOURCE_KEY, manifests)
+        self.assertNotIn(clock_diagnostics.SOURCE_KEY, manifests)
+
+    def test_both_still_declare_how_samples_reach_lsl(self) -> None:
+        from study_runner.recording import clock_diagnostics, markers
+
+        for module in (markers, clock_diagnostics):
+            with self.subTest(module=module.__name__):
+                config = module.MANIFEST["capability_config"]["acquisition_transport"]
+                self.assertEqual((config["transport"], config["delivery"]), ("internal", "host_lsl_bridge"))
 
 
 if __name__ == "__main__":

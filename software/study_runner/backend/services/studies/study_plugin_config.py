@@ -10,6 +10,17 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from study_runner.recording import clock_diagnostics as recording_clock_diagnostics
+from study_runner.recording import markers as recording_markers
+
+
+# markers and clock_diagnostics record unconditionally on every session -- see
+# recording/markers.py -- so no card can address an action at them. A saved
+# study may still carry the field from before they stopped being plugins; it
+# is dropped here rather than in the general "unknown plugin" fallback below,
+# which deliberately preserves settings for plugins that are merely absent
+# from *this* install so a config does not lose data across a machine swap.
+_NOT_ADDRESSABLE_BY_CARDS = {recording_markers.SOURCE_KEY, recording_clock_diagnostics.SOURCE_KEY}
 
 _CANONICAL_RECORDING_DISABLE_TOKENS = {
     "captureenabled",
@@ -219,6 +230,9 @@ def normalize_card_plugin_actions(
                 raise PluginConfigError("plugin_actions contains an empty plugin key")
             if not isinstance(raw_value, dict):
                 raise PluginConfigError(f"plugin_actions.{plugin_key} must be a JSON object")
+            if plugin_key in _NOT_ADDRESSABLE_BY_CARDS:
+                actions.pop(plugin_key, None)
+                continue
             manifest = available.get(plugin_key) or {}
             schema = manifest.get("card_actions_schema") or {}
             normalized_values = _normalize_action_values(

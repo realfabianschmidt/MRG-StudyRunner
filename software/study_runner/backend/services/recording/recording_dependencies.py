@@ -2,13 +2,28 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
 from study_runner.plugin_framework.registry import get_plugin_manifests
+from study_runner.recording import clock_diagnostics, markers
 
 
 PINNED_PYLSL_VERSION = "1.18.2"
+
+# The two recording sources every session carries, whether or not the study
+# asked for them -- see recording/markers.py and recording/clock_diagnostics.py.
+# There is exactly one Python module for each, so unlike a discovered plugin
+# there is no "found zero" or "found two" to guard against.
+INTERNAL_RECORDING_SOURCE_KEYS = (markers.SOURCE_KEY, clock_diagnostics.SOURCE_KEY)
+INTERNAL_RECORDING_MANIFESTS: dict[str, dict[str, Any]] = {
+    markers.SOURCE_KEY: markers.MANIFEST,
+    clock_diagnostics.SOURCE_KEY: clock_diagnostics.MANIFEST,
+}
+
+
+def get_plugin_manifests_with_internal_sources() -> dict[str, dict[str, Any]]:
+    """Every discovered plugin's manifest, plus the two built-in recording sources."""
+    return {**get_plugin_manifests(), **INTERNAL_RECORDING_MANIFESTS}
 
 
 def probe_lsl_dependencies(
@@ -44,64 +59,6 @@ def probe_lsl_dependencies(
         **versions,
         "reason": "; ".join(problems) if problems else None,
     }
-
-
-@dataclass(frozen=True)
-class InternalProviderResolution:
-    plugin_keys: tuple[str, ...]
-    marker_plugin_keys: tuple[str, ...]
-    clock_plugin_keys: tuple[str, ...]
-    errors: tuple[str, ...]
-
-    @property
-    def ready(self) -> bool:
-        return not self.errors
-
-
-def resolve_internal_recording_plugins(
-    manifests: Mapping[str, Mapping[str, Any]] | None = None,
-) -> InternalProviderResolution:
-    """Resolve hidden session providers entirely from declared capabilities."""
-
-    catalog = manifests if manifests is not None else get_plugin_manifests()
-    providers: list[str] = []
-    marker_plugins: list[str] = []
-    clock_plugins: list[str] = []
-    for plugin_key, manifest in catalog.items():
-        capabilities = set(manifest.get("capabilities") or [])
-        internal_role = bool(
-            {"internal_recording_provider", "marker_stream", "clock_diagnostics"}
-            & capabilities
-        )
-        if not internal_role:
-            continue
-        if not {"recording_source", "lsl_stream_provider"}.issubset(capabilities):
-            continue
-        if "study_sensor" in capabilities:
-            continue
-        providers.append(str(plugin_key))
-        if "marker_stream" in capabilities:
-            marker_plugins.append(str(plugin_key))
-        if "clock_diagnostics" in capabilities:
-            clock_plugins.append(str(plugin_key))
-
-    errors: list[str] = []
-    if len(marker_plugins) != 1:
-        errors.append(
-            "exactly one internal marker_stream recording provider is required "
-            f"(found {len(marker_plugins)})"
-        )
-    if len(clock_plugins) != 1:
-        errors.append(
-            "exactly one internal clock_diagnostics recording provider is required "
-            f"(found {len(clock_plugins)})"
-        )
-    return InternalProviderResolution(
-        plugin_keys=tuple(dict.fromkeys(providers)),
-        marker_plugin_keys=tuple(marker_plugins),
-        clock_plugin_keys=tuple(clock_plugins),
-        errors=tuple(errors),
-    )
 
 
 def selected_recording_plugins(config_data: Mapping[str, Any]) -> tuple[str, ...]:

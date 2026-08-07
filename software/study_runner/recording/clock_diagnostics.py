@@ -1,35 +1,34 @@
-"""Irregular LSL diagnostics that tie browser, wall, and LSL clocks together."""
+"""Irregular LSL diagnostics that tie browser, wall, and LSL clocks together.
+
+Every recording carries this stream unconditionally, for the same reason
+`recording/markers.py` does -- see that module's docstring and
+`tests/test_plugin_removability.py`, which is what defines the line between a
+plugin and this.
+"""
 from __future__ import annotations
 
+import json
 import math
 import threading
 import time
-from typing import Any, Callable
+from pathlib import Path
+from typing import Any, Callable, Mapping
 
 from study_runner.plugin_framework.dependency_utils import ensure_requirements
+from study_runner.plugin_framework.plugin_catalog import validate_and_normalize_manifest
 
 
-LSL_SOURCE_IDS = {"clock_diagnostics": "study_runner.clock_diagnostics"}
-LSL_CHANNEL_UNITS = {
-    "clock_diagnostics": (
-        "millisecond",
-        "second",
-        "millisecond",
-        "millisecond",
-        "count",
-        "millisecond",
-        "count",
-    )
-}
-CHANNELS = (
-    "server_wall_epoch_ms",
-    "lsl_local_clock_s",
-    "client_clock_offset_ms",
-    "clock_sync_rtt_ms",
-    "client_sequence",
-    "source_epoch_ms",
-    "event_sequence",
-)
+def _load_manifest() -> dict[str, Any]:
+    path = Path(__file__).resolve().parent / "clock_diagnostics.manifest.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return validate_and_normalize_manifest(payload, directory_name="clock_diagnostics")
+
+
+MANIFEST = _load_manifest()
+SOURCE_KEY = str(MANIFEST["plugin_key"])
+LSL_SOURCE_IDS = {stream["key"]: stream["source_id"] for stream in MANIFEST["streams"]}
+LSL_CHANNEL_UNITS = {stream["key"]: tuple(stream["channel_units"]) for stream in MANIFEST["streams"]}
+CHANNELS = tuple(MANIFEST["streams"][0]["channels"])
 
 _lock = threading.RLock()
 _outlet: Any = None
@@ -59,10 +58,10 @@ def initialize() -> None:
             channel_count=len(CHANNELS),
             nominal_srate=0,
             channel_format="double64",
-            source_id=LSL_SOURCE_IDS["clock_diagnostics"],
+            source_id=LSL_SOURCE_IDS[SOURCE_KEY],
         )
         channels = info.desc().append_child("channels")
-        for label, unit in zip(CHANNELS, LSL_CHANNEL_UNITS["clock_diagnostics"]):
+        for label, unit in zip(CHANNELS, LSL_CHANNEL_UNITS[SOURCE_KEY]):
             channel = channels.append_child("channel")
             channel.append_child_value("label", label)
             channel.append_child_value("unit", unit)
@@ -73,11 +72,11 @@ def initialize() -> None:
         print(f"[CLOCK-DIAGNOSTICS] LSL outlet initialization failed: {error}")
 
 
-def emit(options: dict[str, Any] | None = None) -> None:
+def emit(options: Mapping[str, Any] | None = None) -> None:
     """Publish one timing observation at a trial or marker boundary."""
 
     global _event_sequence, _last_activity_at
-    payload = options if isinstance(options, dict) else {}
+    payload = options if isinstance(options, Mapping) else {}
     with _lock:
         outlet = _outlet
         local_clock = _local_clock
@@ -113,7 +112,6 @@ def status() -> dict[str, Any]:
         sequence = _event_sequence
     return {
         "status": "enabled" if active else "waiting",
-        "configured_enabled": True,
         "runtime_enabled": active,
         "event_sequence": sequence,
         "last_activity_epoch_ms": _last_activity_at,
@@ -134,4 +132,3 @@ def _finite(value: Any, *, default: float = math.nan) -> float:
     except (TypeError, ValueError):
         return default
     return number if math.isfinite(number) else default
-

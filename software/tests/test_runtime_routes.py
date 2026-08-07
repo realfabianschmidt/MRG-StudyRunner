@@ -287,7 +287,9 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertFalse(payload["enabled"])
         self.assertFalse(payload["session_overrides"]["brainbit"])
 
-    def test_internal_lsl_recording_provider_cannot_be_disabled(self) -> None:
+    def test_internal_lsl_recording_provider_is_not_a_toggleable_plugin(self) -> None:
+        """markers/clock_diagnostics are recording code, not plugins -- there is
+        nothing at this route for "lsl" to reach, let alone disable."""
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
                 "STUDY_RUNNER_DATA_DIR": data_dir,
@@ -308,7 +310,7 @@ class RuntimeRoutesTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(response.status_code, 400)
         self.assertFalse(payload["ok"])
-        self.assertIn("cannot be toggled directly", payload["error"])
+        self.assertIn("Unknown plugin", payload["error"])
         self.assertTrue(active_config["lsl"]["enabled"])
 
     def test_study_runtime_reports_session_override_effective_sensor(self) -> None:

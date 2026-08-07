@@ -12,6 +12,8 @@ from study_runner.plugin_framework.registry import (
     run_trial_start,
     run_trial_stop,
 )
+from study_runner.recording import clock_diagnostics as recording_clock_diagnostics
+from study_runner.recording import markers as recording_markers
 
 
 _RUNTIME = {
@@ -46,6 +48,7 @@ def configure_runtime(
 def start_trial_session(options=None):
     options = _prepare_event_options("start", options)
     run_trial_start(options, _runtime_context())
+    _notify_internal_recording_sources(options, fallback_marker="study:start")
     print("[SERVER] Trial started")
     return _public_event_response(options)
 
@@ -53,6 +56,7 @@ def start_trial_session(options=None):
 def stop_trial_session(options=None):
     options = _prepare_event_options("stop", options)
     run_trial_stop(options, _runtime_context())
+    _notify_internal_recording_sources(options, fallback_marker="study:stop")
     print("[SERVER] Trial stopped")
     return _public_event_response(options)
 
@@ -60,8 +64,27 @@ def stop_trial_session(options=None):
 def send_trial_marker(event: str, options=None):
     options = _prepare_event_options(event, options)
     run_trial_marker(options, _runtime_context())
+    _notify_internal_recording_sources(options, fallback_marker="study:marker")
     print(f"[SERVER] Trial marker: {event}")
     return _public_event_response(options)
+
+
+def _notify_internal_recording_sources(options: dict[str, Any], *, fallback_marker: str) -> None:
+    """Feed the two recording sources every session carries.
+
+    They are not plugins -- see study_runner/recording/markers.py -- so they
+    are not reached by run_trial_start/stop/marker above and are called here
+    directly. Each is isolated the same way the generic dispatch isolates a
+    plugin: one failing must not stop the other or the trial event itself.
+    """
+    try:
+        recording_markers.send_marker(str(options.get("marker_value") or fallback_marker))
+    except Exception as error:
+        print(f"[RECORDING] markers trial event failed: {error}")
+    try:
+        recording_clock_diagnostics.emit(options)
+    except Exception as error:
+        print(f"[RECORDING] clock_diagnostics trial event failed: {error}")
 
 
 def _runtime_context():

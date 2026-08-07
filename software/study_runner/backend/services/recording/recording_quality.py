@@ -5,13 +5,12 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Iterable, Mapping
 
-from study_runner.plugin_framework.registry import get_plugin_manifests
-
+from study_runner.recording import markers
 from study_runner.recording.artifacts import ArtifactPaths
 from study_runner.recording.backup import BackupSampler, projections_from_manifest
 from study_runner.recording.recovery import RecordingLeaseStore
 from study_runner.recording.xdf import ValidationIssue, XdfArtifactInspection
-from .recording_dependencies import resolve_internal_recording_plugins
+from .recording_dependencies import get_plugin_manifests_with_internal_sources
 from .recording_runtime_support import RecordingRuntimeError, read_object
 
 
@@ -137,7 +136,7 @@ def scientific_source_checks(
     """Check declared streams, rates, counts, and marker-time coverage."""
 
     artifacts = list(inspections)
-    manifests = get_plugin_manifests()
+    manifests = get_plugin_manifests_with_internal_sources()
     required = set(str(key) for key in (plan.get("required_source_keys") or []))
     aggregated: dict[tuple[str, str], dict[str, Any]] = {}
     for artifact in artifacts:
@@ -198,7 +197,7 @@ def scientific_source_checks(
                 boundary_gap,
             )
 
-    marker_keys = set(resolve_internal_recording_plugins(manifests).marker_plugin_keys)
+    marker_keys = {markers.SOURCE_KEY}
     marker_ranges = [
         item
         for (source_key, _source_id), item in aggregated.items()

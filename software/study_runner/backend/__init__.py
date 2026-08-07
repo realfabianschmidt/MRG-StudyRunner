@@ -5,6 +5,8 @@ from pathlib import Path
 from flask import Flask, request
 
 from study_runner.plugin_framework.registry import build_context, initialize_plugins
+from study_runner.recording import clock_diagnostics as recording_clock_diagnostics
+from study_runner.recording import markers as recording_markers
 from .routes import register_routes
 from .services.settings.runtime_config import (
     get_app_mode,
@@ -136,6 +138,11 @@ def create_app() -> Flask:
 
     if not hardware_disabled:
         initialize_plugins(_plugin_context(app))
+        # The two recording sources every session carries are not plugins -- see
+        # study_runner/recording/markers.py -- so they are not reached by the
+        # generic dispatch above and are initialized directly.
+        recording_markers.initialize(hardware_config)
+        recording_clock_diagnostics.initialize()
 
     configure_upload_jobs(app)
     configured_worker = os.getenv("STUDY_RUNNER_XDF_WORKER", "").strip()
