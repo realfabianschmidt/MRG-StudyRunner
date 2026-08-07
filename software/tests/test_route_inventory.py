@@ -85,8 +85,6 @@ EXPECTED_ROUTES = {
     ("POST", "/api/marker"),
     ("POST", "/api/notion/flush-queue"),
     ("GET", "/api/notion/status"),
-    ("POST", "/api/notion/test"),
-    ("POST", "/api/nextcloud/test"),
     ("GET", "/api/finalization/status"),
     ("GET", "/api/finalization/<job_id>"),
     ("POST", "/api/finalization/<job_id>/retry"),

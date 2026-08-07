@@ -474,7 +474,10 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertTrue(returned["nextcloud"]["password_configured"])
         self.assertNotIn("share-secret", json.dumps(returned))
 
-    def test_nextcloud_test_route_uses_provided_values_without_echoing_password(self) -> None:
+    def test_nextcloud_test_connection_is_a_declared_admin_action(self) -> None:
+        """Testing a connection has no route of its own -- plugins/nextcloud_upload/
+        plugin.py declares it as an admin action and this is the one generic
+        dispatch every plugin's actions go through."""
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
                 "STUDY_RUNNER_DATA_DIR": data_dir,
@@ -484,11 +487,11 @@ class RuntimeRoutesTests(unittest.TestCase):
                 app = create_app()
 
             with patch(
-                "study_runner.backend.routes.nextcloud.test_connection",
+                "study_runner.backend.services.delivery.nextcloud_service.test_connection",
                 return_value={"ok": True, "endpoint": "dav"},
             ) as connection_test:
                 response = app.test_client().post(
-                    "/api/nextcloud/test",
+                    "/api/admin/plugins/nextcloud/actions/test_connection",
                     json={
                         "share_link": "https://cloud.example/s/token",
                         "password": "temporary-secret",
@@ -496,7 +499,9 @@ class RuntimeRoutesTests(unittest.TestCase):
                 )
 
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.get_json()["ok"])
+        body = response.get_json()
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["result"]["ok"])
         connection_test.assert_called_once_with(
             "https://cloud.example/s/token",
             password="temporary-secret",

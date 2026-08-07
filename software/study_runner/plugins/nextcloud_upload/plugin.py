@@ -86,6 +86,24 @@ def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _run_admin_action(
+    context: PluginContext,
+    action_key: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    if action_key != "test_connection":
+        raise ValueError(f"Unknown Nextcloud admin action: {action_key}")
+
+    from study_runner.backend.services.delivery.nextcloud_service import test_connection
+
+    share_link = str(payload.get("share_link") or "").strip()
+    # An omitted password means "use whatever is already stored" - the
+    # operator is testing before saving what they just typed.
+    password = str(payload.get("password") or "") or context.secret("nextcloud")
+    timeout_seconds = int(payload.get("timeout_seconds") or 10)
+    return test_connection(share_link, password=password, timeout_seconds=timeout_seconds)
+
+
 PLUGIN = Plugin(
     key="nextcloud",
     label="Nextcloud upload",
@@ -94,4 +112,5 @@ PLUGIN = Plugin(
     can_toggle=False,
     get_status=_status,
     publish_destination=_publish,
+    run_admin_action=_run_admin_action,
 )

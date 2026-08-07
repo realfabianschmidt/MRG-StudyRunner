@@ -36,6 +36,19 @@
       "config_field": "password",
       "env_var": "STUDY_RUNNER_NEXTCLOUD_PASSWORD",
       "per_study": true
+    },
+    "admin_actions": {
+      "actions": [
+        {
+          "key": "test_connection",
+          "label": "Test connection",
+          "payload_schema": {
+            "share_link": {"type": "string", "required": true, "max_length": 2048},
+            "password": {"type": "string", "required": false, "max_length": 256},
+            "timeout_seconds": {"type": "integer", "required": false, "minimum": 1, "maximum": 120}
+          }
+        }
+      ]
     }
   },
   "streams": [],

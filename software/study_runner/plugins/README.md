@@ -40,6 +40,10 @@ schemas, timing limits, and capabilities. Important capability names are:
 - `machine_settings`, `study_settings`, and `card_actions`: generic UI schemas.
 - `upload_destination`: a background publication target with a required
   `publish_destination(context, payload)` handler.
+- `credentials`: declares the one secret field a plugin needs
+  (`config_field`, `env_var`, `per_study`) so `context.secret(plugin_key)`
+  resolves it env > per-study > machine > legacy config. The manifest never
+  carries the value - see `backend/services/studies/study_secrets_service.py`.
 
 Only manifests in the application package are trusted. The entry point is
 resolved inside its own folder after schema and duplicate checks pass.
@@ -64,8 +68,10 @@ key, legacy load-only aliases, and the policies `requires_valid_result`,
 `purge_verified_sources`. Only one installed destination may grant verified
 source purge. Adding a destination needs no upload-runtime or finalization key
 change: discovery registers its handler and persists a `publish_<plugin-key>`
-step. Credentials remain private plugin/secret-store responsibility, never
-manifest settings or exported study data.
+step. A destination that needs a secret declares `credentials`, and a
+connection to test declares a `test_connection` admin action - both existing
+capabilities, not a special case for uploads. The value itself is never in
+the manifest, machine settings, or exported study data.
 
 Set `lifecycle.reinitialize_on_disable: true` only when disabling a plugin must
 rebuild its inert adapter state. Registry lifecycle behavior is read from this

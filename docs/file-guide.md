@@ -35,8 +35,7 @@ Edit-safety legend:
 | `routes/admin.py` | Operator endpoints: health, studies list/activate/delete, status, restart | careful |
 | `routes/sensors.py` | Hardware config, sensor start/stop/restart, camera frames, worker repair | careful |
 | `routes/update.py` | In-app updater endpoints (check/download/install) | no |
-| `routes/notion.py` | Notion status, queue flush, connection test | careful |
-| `routes/nextcloud.py` | Tests a study's writable Nextcloud public-share connection | careful |
+| `routes/notion.py` | Notion status and offline-queue flush | careful |
 | `routes/sessions.py` | Read-only completed-session list, detail, and timeline-signal APIs | careful |
 | `routes/certificate.py` | Certificate status plus guarded root-CA export/import endpoints | no |
 | `routes/branding.py` | Uploads, removes, and serves the operator's group and funder logos | no |
@@ -73,15 +72,15 @@ Edit-safety legend:
 | `services/studies/study_config_service.py` | Load/save the active study and the saved-studies folder | careful |
 | `services/studies/study_run_state_service.py` | Persists the operator-controlled loaded/running/completed run state | careful |
 | `services/recording/study_sensor_runtime.py` | Which sensors are effectively on (study settings + overrides) | careful |
-| `services/studies/trial_service.py` | Sends stimulus start/stop markers to the integrations | careful |
+| `services/studies/trial_service.py` | Sends stimulus start/stop markers to plugins and the two built-in recording sources | careful |
 | `services/studies/study_client_service.py` | Tablet heartbeat bookkeeping | careful |
-| `services/settings/secrets_service.py` | Keeps the Notion API key backend-local | no |
+| `services/settings/secrets_service.py` | Local-secrets file I/O plus manifest-driven hardware-config redaction | no |
 | `services/studies/study_secrets_service.py` | Per-study credential overrides, never written into the exported study | no |
 | `services/studies/study_readiness_service.py` | Pre-run check: what would stop the loaded study from delivering results | careful |
 | `services/settings/plugin_settings_service.py` | Manifest-driven machine settings: schema, validation, targeted deep-merge writes | no |
 | `services/settings/hardware_settings_service.py` | Saves hardware_settings.json | careful |
 | `services/settings/shortcut_service.py` | Creates the desktop shortcut | careful |
-| `services/settings/admin_status_service.py` | Aggregates integration status for the dashboard | careful |
+| `services/settings/admin_status_service.py` | Aggregates plugin status for the dashboard | careful |
 | `services/delivery/artifact_manifest_service.py` | Owns artifact provenance, checksums, completion markers, and guarded source purge | no |
 | `services/studies/card_summary_service.py` | Pure merged-XDF-to-card-statistics derivation | no |
 | `services/delivery/finalization_runtime.py` | Wires the persistent finalizer to recording and upload adapters | no |

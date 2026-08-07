@@ -42,6 +42,18 @@
       "config_field": "api_key",
       "env_var": "STUDY_RUNNER_NOTION_API_KEY",
       "per_study": true
+    },
+    "admin_actions": {
+      "actions": [
+        {
+          "key": "test_connection",
+          "label": "Test connection",
+          "payload_schema": {
+            "api_key": {"type": "string", "required": false, "max_length": 256},
+            "timeout_seconds": {"type": "integer", "required": false, "minimum": 1, "maximum": 120}
+          }
+        }
+      ]
     }
   },
   "streams": [],

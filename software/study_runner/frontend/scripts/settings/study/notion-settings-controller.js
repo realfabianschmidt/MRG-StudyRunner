@@ -141,9 +141,12 @@ async function testNotionConnection() {
   }
 
   try {
-    const result = await postJson('/api/notion/test', {
+    // Connection tests are a manifest-declared admin action, not a route of
+    // their own - the same generic dispatch every plugin's actions use.
+    const response = await postJson('/api/admin/plugins/notion/actions/test_connection', {
       api_key: $('notion-api-key').value.trim(),
     });
+    const result = response.result;
     renderTestResult(result);
     if (icon) icon.className = result.ok ? 'iconoir-ev-plug' : 'iconoir-ev-plug-xmark';
   } catch (error) {

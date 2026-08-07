@@ -95,6 +95,23 @@ def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _run_admin_action(
+    context: PluginContext,
+    action_key: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    if action_key != "test_connection":
+        raise ValueError(f"Unknown Notion admin action: {action_key}")
+
+    from . import adapter
+
+    # An empty/omitted key means "use whatever is already stored" - the
+    # operator is testing before saving what they just typed.
+    api_key = str(payload.get("api_key") or "").strip() or context.secret("notion")
+    timeout_seconds = int(payload.get("timeout_seconds") or 10)
+    return adapter.test_connection(api_key=api_key, timeout_seconds=timeout_seconds)
+
+
 PLUGIN = Plugin(
     key="notion",
     label="Notion upload",
@@ -103,4 +120,5 @@ PLUGIN = Plugin(
     initialize=_initialize,
     get_status=_status,
     publish_destination=_publish,
+    run_admin_action=_run_admin_action,
 )

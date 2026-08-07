@@ -146,7 +146,10 @@ async function testConnection() {
       // means "use the stored password" instead of "no password".
       const payload = { share_link: shareLink };
       if (password) payload.password = password;
-      const result = await postJson('/api/nextcloud/test', payload);
+      // Connection tests are a manifest-declared admin action, not a route of
+      // their own - the same generic dispatch every plugin's actions use.
+      const response = await postJson('/api/admin/plugins/nextcloud/actions/test_connection', payload);
+      const result = response.result;
       renderTestResult('nextcloud-test-result', result, {
         fallbackErrorLabel: t('nextcloud.testFailed', 'Connection failed'),
       });

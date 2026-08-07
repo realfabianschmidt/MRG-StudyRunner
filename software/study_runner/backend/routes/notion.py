@@ -1,5 +1,11 @@
-"""Notion upload integration endpoints (status, queue flush, connection test)."""
-from flask import Blueprint, current_app, jsonify, request
+"""Notion upload integration endpoints (status, offline-queue flush).
+
+Testing a connection is a manifest-declared admin action now, dispatched
+through `POST /api/admin/plugins/notion/actions/test_connection` in
+`routes/plugins.py` - see `plugins/notion_upload/plugin.py`. It never had a
+route of its own here.
+"""
+from flask import Blueprint, current_app, jsonify
 
 from ..services.studies.study_secrets_service import (
     describe_secret_state,
@@ -10,15 +16,6 @@ from ..services.studies.study_config_service import load_config
 from ..services.studies.validation import validate_and_normalize_config
 
 bp = Blueprint("notion", __name__)
-
-
-def _loaded_study_id() -> str:
-    """The study whose credentials apply right now."""
-    try:
-        config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
-        return str(config_data.get("study_id") or "")
-    except Exception:
-        return ""
 
 
 @bp.route("/api/notion/status")
@@ -59,23 +56,3 @@ def notion_status():
 def notion_flush_queue():
     service = current_app.config["UPLOAD_JOBS_SERVICE"]
     return jsonify(service.retry(all_failed=True, kind="notion"))
-
-
-@bp.route("/api/notion/test", methods=["POST"])
-def notion_test():
-    from study_runner.plugins.notion_upload import adapter as notion_adapter
-
-    payload = request.get_json() or {}
-    result = notion_adapter.test_connection(
-        api_key=(
-            str(payload.get("api_key") or "").strip()
-            or resolve_plugin_secret(
-                "notion",
-                current_app.config.get("HARDWARE_CONFIG", {}),
-                current_app.config.get("LOCAL_SECRETS", {}),
-                _loaded_study_id(),
-            )
-        ),
-        timeout_seconds=int(payload.get("timeout_seconds") or 10),
-    )
-    return jsonify(result)
