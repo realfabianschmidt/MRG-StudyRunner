@@ -66,10 +66,16 @@ class PluginContext:
             path = self.base_dir / path
         return str(path.resolve())
 
-    def notion_api_key(self) -> str:
-        from study_runner.backend.services.settings.secrets_service import resolve_notion_api_key
+    def secret(self, plugin_key: str, study_id: str = "") -> str:
+        """This plugin's declared secret, resolved env > study > machine > legacy.
 
-        return resolve_notion_api_key(self.hardware_config, self.local_secrets)
+        `plugin_key` is also the `kind` its `credentials` capability is filed
+        under - see `study_secrets_service.py`, the single home for how a
+        secret is stored and found regardless of which plugin owns it.
+        """
+        from study_runner.backend.services.studies.study_secrets_service import resolve_plugin_secret
+
+        return resolve_plugin_secret(plugin_key, self.hardware_config, self.local_secrets, study_id)
 
     @staticmethod
     def platform_keys() -> tuple[str, ...]:

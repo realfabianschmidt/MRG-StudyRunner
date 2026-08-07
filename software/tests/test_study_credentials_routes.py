@@ -19,12 +19,16 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend import create_app
-from study_runner.backend.services.settings.secrets_service import (
-    NEXTCLOUD_PASSWORD_ENV,
-    NOTION_API_KEY_ENV,
-    load_local_secrets,
+from study_runner.backend.services.settings.secrets_service import load_local_secrets
+from study_runner.backend.services.studies.study_secrets_service import (
+    _credential_declarations,
+    get_study_secret,
 )
-from study_runner.backend.services.studies.study_secrets_service import get_study_secret
+
+# The env var names now live only in each plugin's manifest; read them from
+# there rather than hardcoding them a second time in the test.
+NOTION_API_KEY_ENV = _credential_declarations()["notion"]["env_var"]
+NEXTCLOUD_PASSWORD_ENV = _credential_declarations()["nextcloud"]["env_var"]
 
 
 def _app(data_dir: str):
@@ -192,9 +196,10 @@ class StudyCredentialRouteTests(unittest.TestCase):
             _save_study(client, "Study A")
             client.post("/api/admin/studies/Study A/credentials", json={"notion": "study-key"})
 
-            from study_runner.backend.services.settings.secrets_service import resolve_notion_api_key
+            from study_runner.backend.services.studies.study_secrets_service import resolve_plugin_secret
 
-            resolved = resolve_notion_api_key(
+            resolved = resolve_plugin_secret(
+                "notion",
                 app.config.get("HARDWARE_CONFIG", {}),
                 load_local_secrets(app.config["LOCAL_SECRETS_FILE"]),
                 "Study A",

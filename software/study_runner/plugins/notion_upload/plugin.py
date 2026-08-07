@@ -13,7 +13,7 @@ def _initialize(context: PluginContext) -> None:
 
     adapter.initialize(
         enabled=bool(config.get("enabled")),
-        api_key=context.notion_api_key(),
+        api_key=context.secret("notion"),
         auto_retry_failed=config.get("auto_retry_failed", True),
         timeout_seconds=config.get("timeout_seconds", 10),
         data_dir=context.data_dir,
@@ -25,7 +25,7 @@ def _status(context: PluginContext) -> dict[str, Any]:
     from . import adapter
 
     status = adapter.get_status()
-    has_key = bool(context.notion_api_key())
+    has_key = bool(context.secret("notion"))
     enabled = bool(config.get("enabled", False))
     if not enabled:
         status_value = "disabled"

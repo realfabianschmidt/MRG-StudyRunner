@@ -25,7 +25,6 @@ def _status(context: PluginContext) -> dict[str, Any]:
 
 def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
     from study_runner.backend.services.delivery.nextcloud_service import NextcloudPublicShareClient
-    from study_runner.backend.services.settings.secrets_service import resolve_nextcloud_password
 
     config_data = payload.get("config_data") or {}
     study_settings = config_data.get("study_settings") or {}
@@ -53,11 +52,7 @@ def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
         or ""
     )
     nextcloud_config = context.hardware_config.get("nextcloud") or {}
-    password = resolve_nextcloud_password(
-        context.hardware_config,
-        context.local_secrets,
-        study_id,
-    )
+    password = context.secret("nextcloud", study_id)
     timeout_seconds = int(nextcloud_config.get("timeout_seconds") or 30)
 
     saved_output = payload.get("saved_output") or {}

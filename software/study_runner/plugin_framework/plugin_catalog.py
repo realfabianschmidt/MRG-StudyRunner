@@ -604,7 +604,31 @@ def _normalize_capability_config(name: str, config: dict[str, Any]) -> dict[str,
         return _normalize_readiness(config)
     if name == "upload_destination":
         return _normalize_upload_destination(config)
+    if name == "credentials":
+        return _normalize_credentials(config)
     return config
+
+
+def _normalize_credentials(config: dict[str, Any]) -> dict[str, Any]:
+    """Validate the one secret field this plugin needs.
+
+    Declaring it here replaces three separate hardcoded maps that used to list
+    the same fact -- which config field a secret lives under, which
+    environment variable can override it, and whether a study may carry its
+    own -- once each, in three different files, guaranteed to agree only by
+    someone remembering to keep them in step.
+    """
+
+    allowed = {"config_field", "env_var", "per_study"}
+    unexpected = sorted(set(config) - allowed)
+    if unexpected:
+        raise PluginManifestError(
+            "credentials contains unsupported fields: " + ", ".join(unexpected)
+        )
+    config_field = _required_key(config, "config_field", prefix="credentials.")
+    env_var = _optional_text(config.get("env_var")) or ""
+    per_study = bool(config.get("per_study", False))
+    return {"config_field": config_field, "env_var": env_var, "per_study": per_study}
 
 
 def _normalize_readiness(config: dict[str, Any]) -> dict[str, Any]:

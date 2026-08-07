@@ -1,10 +1,10 @@
 """Notion upload integration endpoints (status, queue flush, connection test)."""
 from flask import Blueprint, current_app, jsonify, request
 
-from ..services.settings.secrets_service import (
-    describe_notion_api_key_source,
-    describe_notion_api_key_storage,
-    resolve_notion_api_key,
+from ..services.studies.study_secrets_service import (
+    describe_secret_state,
+    describe_secret_storage_location,
+    resolve_plugin_secret,
 )
 from ..services.studies.study_config_service import load_config
 from ..services.studies.validation import validate_and_normalize_config
@@ -39,9 +39,11 @@ def notion_status():
             "failed_uploads": upload_counts["failed"],
             "enabled_globally": bool(hardware_config.get("notion", {}).get("enabled")),
             "auto_retry_failed": bool(hardware_config.get("notion", {}).get("auto_retry_failed", True)),
-            "api_key_configured": bool(resolve_notion_api_key(hardware_config, local_secrets, study_id)),
-            "api_key_source": describe_notion_api_key_source(hardware_config, local_secrets, study_id),
-            "api_key_storage": describe_notion_api_key_storage(hardware_config, local_secrets, current_app.config["LOCAL_SECRETS_FILE"], study_id),
+            "api_key_configured": bool(resolve_plugin_secret("notion", hardware_config, local_secrets, study_id)),
+            "api_key_source": describe_secret_state("notion", hardware_config, local_secrets, study_id)["source"],
+            "api_key_storage": describe_secret_storage_location(
+                "notion", hardware_config, local_secrets, current_app.config["LOCAL_SECRETS_FILE"], study_id
+            ),
             "local_secrets_file": current_app.config["LOCAL_SECRETS_FILE"].name,
             "current_study_id": config_data.get("study_id", ""),
             "current_study_notion_enabled": bool(study_settings.get("notion_enabled")),
@@ -67,7 +69,8 @@ def notion_test():
     result = notion_adapter.test_connection(
         api_key=(
             str(payload.get("api_key") or "").strip()
-            or resolve_notion_api_key(
+            or resolve_plugin_secret(
+                "notion",
                 current_app.config.get("HARDWARE_CONFIG", {}),
                 current_app.config.get("LOCAL_SECRETS", {}),
                 _loaded_study_id(),

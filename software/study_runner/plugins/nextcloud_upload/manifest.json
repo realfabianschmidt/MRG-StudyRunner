@@ -31,7 +31,12 @@
     },
     "readiness": {},
     "health": {},
-    "study_settings": {}
+    "study_settings": {},
+    "credentials": {
+      "config_field": "password",
+      "env_var": "STUDY_RUNNER_NEXTCLOUD_PASSWORD",
+      "per_study": true
+    }
   },
   "streams": [],
   "settings": {

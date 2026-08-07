@@ -4,7 +4,7 @@ from __future__ import annotations
 from flask import Blueprint, current_app, jsonify, request
 
 from ..services.delivery.nextcloud_service import test_connection
-from ..services.settings.secrets_service import resolve_nextcloud_password
+from ..services.studies.study_secrets_service import resolve_plugin_secret
 from ..services.studies.study_config_service import load_config
 from ..services.studies.validation import validate_and_normalize_config
 
@@ -30,7 +30,8 @@ def nextcloud_test():
     password = (
         str(payload.get("password") or "")
         if "password" in payload
-        else resolve_nextcloud_password(
+        else resolve_plugin_secret(
+            "nextcloud",
             current_app.config.get("HARDWARE_CONFIG", {}),
             current_app.config.get("LOCAL_SECRETS", {}),
             str(config_data.get("study_id") or ""),

@@ -9,18 +9,13 @@ from ..services.settings.admin_status_service import build_admin_status
 from ..services.settings.runtime_config import build_runtime_info
 from ..services.settings.shortcut_service import ShortcutError, create_desktop_shortcut
 from ..services.studies.study_client_service import get_client_status
-from ..services.settings.secrets_service import (
-    NEXTCLOUD_PASSWORD_ENV,
-    NOTION_API_KEY_ENV,
-    load_local_secrets,
-    save_local_secrets,
-)
+from ..services.settings.secrets_service import load_local_secrets, save_local_secrets
 from ..services.studies.study_config_service import delete_study, list_studies, load_config, load_study, save_config
 from ..services.studies.study_readiness_service import check_study_readiness, describe_credentials
 from ..services.studies.study_secrets_service import (
-    SECRET_FIELDS,
     forget_study_secrets,
     list_study_credential_state,
+    secret_fields,
     set_study_secret,
 )
 from ..services.recording.study_sensor_runtime import STUDY_SENSOR_KEYS
@@ -122,9 +117,6 @@ def admin_delete_study(study_id):
     return jsonify({"ok": False, "error": "Not found"}), 404
 
 
-_CREDENTIAL_ENV_VARS = {"notion": NOTION_API_KEY_ENV, "nextcloud": NEXTCLOUD_PASSWORD_ENV}
-
-
 def _forget_study_credentials(study_id: str) -> None:
     secrets = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
     if forget_study_secrets(secrets, study_id):
@@ -146,7 +138,6 @@ def admin_get_study_credentials(study_id):
             current_app.config.get("HARDWARE_CONFIG", {}),
             current_app.config.get("LOCAL_SECRETS", {}),
             study_id,
-            env_vars=_CREDENTIAL_ENV_VARS,
         ),
     })
 
@@ -162,7 +153,7 @@ def admin_set_study_credentials(study_id):
     secrets = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
     changed = []
 
-    for kind in SECRET_FIELDS:
+    for kind in secret_fields():
         clear_requested = payload.get(f"clear_{kind}") is True
         raw_value = payload.get(kind)
         if not clear_requested and raw_value is None:
@@ -179,8 +170,11 @@ def admin_set_study_credentials(study_id):
 
     save_local_secrets(current_app.config["LOCAL_SECRETS_FILE"], secrets)
     current_app.config["LOCAL_SECRETS"] = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
-    # A changed Notion key must not keep serving the cached client.
-    initialize_plugin("notion", _plugin_context())
+    # A changed credential must not keep serving a client cached under the old
+    # one - whichever plugin it belongs to, not just the one this used to
+    # hardcode.
+    for kind in changed:
+        initialize_plugin(kind, _plugin_context())
 
     return jsonify({
         "ok": True,
@@ -189,7 +183,6 @@ def admin_set_study_credentials(study_id):
             current_app.config.get("HARDWARE_CONFIG", {}),
             current_app.config.get("LOCAL_SECRETS", {}),
             study_id,
-            env_vars=_CREDENTIAL_ENV_VARS,
         ),
     })
 

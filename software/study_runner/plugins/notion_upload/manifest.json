@@ -37,7 +37,12 @@
     "readiness": {},
     "health": {},
     "machine_settings": {},
-    "study_settings": {}
+    "study_settings": {},
+    "credentials": {
+      "config_field": "api_key",
+      "env_var": "STUDY_RUNNER_NOTION_API_KEY",
+      "per_study": true
+    }
   },
   "streams": [],
   "settings": {

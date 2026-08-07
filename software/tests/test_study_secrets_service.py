@@ -19,23 +19,26 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend.services.settings.secrets_service import (
-    NEXTCLOUD_PASSWORD_ENV,
-    NOTION_API_KEY_ENV,
     load_local_secrets,
     redact_hardware_config,
-    resolve_nextcloud_password,
-    resolve_notion_api_key,
     save_local_secrets,
 )
 from study_runner.backend.services.studies.study_secrets_service import (
+    _credential_declarations,
     copy_study_secrets,
     describe_secret_state,
     forget_study_secrets,
     get_study_secret,
     list_study_credential_state,
+    resolve_plugin_secret,
     set_study_secret,
     study_key,
 )
+
+# The env var names now live only in each plugin's manifest; read them from
+# there rather than hardcoding them a second time in the test.
+NOTION_API_KEY_ENV = _credential_declarations()["notion"]["env_var"]
+NEXTCLOUD_PASSWORD_ENV = _credential_declarations()["nextcloud"]["env_var"]
 
 
 def machine_secrets() -> dict:
@@ -88,34 +91,34 @@ class ResolutionOrderTests(unittest.TestCase):
     def test_study_key_wins_over_machine_key(self) -> None:
         secrets = set_study_secret(machine_secrets(), "Study A", "notion", "study-key")
 
-        self.assertEqual(resolve_notion_api_key({}, secrets, "Study A"), "study-key")
-        self.assertEqual(resolve_notion_api_key({}, secrets, "Study B"), "machine-key")
+        self.assertEqual(resolve_plugin_secret("notion", {}, secrets, "Study A"), "study-key")
+        self.assertEqual(resolve_plugin_secret("notion", {}, secrets, "Study B"), "machine-key")
 
     def test_machine_key_is_the_fallback_for_an_imported_study(self) -> None:
         # A study from another computer carries no credentials at all.
-        self.assertEqual(resolve_notion_api_key({}, machine_secrets(), "Imported"), "machine-key")
+        self.assertEqual(resolve_plugin_secret("notion", {}, machine_secrets(), "Imported"), "machine-key")
 
     def test_env_overrides_everything(self) -> None:
         secrets = set_study_secret(machine_secrets(), "Study A", "notion", "study-key")
 
         with patch.dict(os.environ, {NOTION_API_KEY_ENV: "env-key"}):
-            self.assertEqual(resolve_notion_api_key({}, secrets, "Study A"), "env-key")
+            self.assertEqual(resolve_plugin_secret("notion", {}, secrets, "Study A"), "env-key")
 
     def test_legacy_hardware_config_still_resolves(self) -> None:
         hardware = {"notion": {"api_key": "legacy-key"}}
 
-        self.assertEqual(resolve_notion_api_key(hardware, {}, "Study A"), "legacy-key")
+        self.assertEqual(resolve_plugin_secret("notion", hardware, {}, "Study A"), "legacy-key")
 
     def test_nextcloud_password_follows_the_same_order(self) -> None:
         secrets = set_study_secret(machine_secrets(), "Study A", "nextcloud", "study-pw")
 
-        self.assertEqual(resolve_nextcloud_password({}, secrets, "Study A"), "study-pw")
-        self.assertEqual(resolve_nextcloud_password({}, secrets, "Study B"), "machine-pw")
+        self.assertEqual(resolve_plugin_secret("nextcloud", {}, secrets, "Study A"), "study-pw")
+        self.assertEqual(resolve_plugin_secret("nextcloud", {}, secrets, "Study B"), "machine-pw")
 
     def test_no_study_context_behaves_exactly_as_before(self) -> None:
         secrets = set_study_secret(machine_secrets(), "Study A", "notion", "study-key")
 
-        self.assertEqual(resolve_notion_api_key({}, secrets), "machine-key")
+        self.assertEqual(resolve_plugin_secret("notion", {}, secrets), "machine-key")
 
 
 class ScopeReportingTests(unittest.TestCase):
@@ -138,7 +141,7 @@ class ScopeReportingTests(unittest.TestCase):
 
     def test_scope_reports_env(self) -> None:
         with patch.dict(os.environ, {NOTION_API_KEY_ENV: "env-key"}):
-            state = describe_secret_state("notion", {}, {}, "Study A", env_var=NOTION_API_KEY_ENV)
+            state = describe_secret_state("notion", {}, {}, "Study A")
 
         self.assertEqual(state["scope"], "env")
 

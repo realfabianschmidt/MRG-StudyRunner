@@ -23,12 +23,7 @@ import sys
 from typing import Any
 
 from ..settings.runtime_config import is_https_enabled
-from ..settings.secrets_service import (
-    NEXTCLOUD_PASSWORD_ENV,
-    NOTION_API_KEY_ENV,
-    resolve_notion_api_key,
-)
-from .study_secrets_service import describe_secret_state
+from .study_secrets_service import list_study_credential_state, resolve_plugin_secret
 from ..recording.study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
 
 # Which left-hand panel of the study settings shell fixes each blocker, so the
@@ -120,7 +115,7 @@ def check_study_readiness(
     )
     notion_settings = notion_settings if isinstance(notion_settings, dict) else {}
     if notion_enabled:
-        if not resolve_notion_api_key(hardware_config, local_secrets, study_id):
+        if not resolve_plugin_secret("notion", hardware_config, local_secrets, study_id):
             add("notion_api_key_missing", destination="notion", field="notion-study-api-key")
         if not (notion_settings.get("parent_page_id") or notion_settings.get("database_id")):
             add("notion_target_missing", destination="notion", field="notion-study-parent-id")
@@ -225,11 +220,7 @@ def describe_credentials(
 ) -> dict[str, Any]:
     """Credential scope per destination, for the same report - never a value."""
     study_id = str(study_config.get("study_id") or "")
-    env_vars = {"notion": NOTION_API_KEY_ENV, "nextcloud": NEXTCLOUD_PASSWORD_ENV}
-    return {
-        kind: describe_secret_state(kind, hardware_config, local_secrets, study_id, env_var=env_vars[kind])
-        for kind in env_vars
-    }
+    return list_study_credential_state(hardware_config, local_secrets, study_id)
 
 
 def _plugin_selection(study_settings: dict[str, Any], plugin_key: str) -> dict[str, Any] | None:

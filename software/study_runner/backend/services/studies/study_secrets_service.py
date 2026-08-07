@@ -34,11 +34,27 @@ from typing import Any
 
 from .study_config_service import normalize_study_id
 
-# Kinds of secret a study can override, and where each lives in a section.
-SECRET_FIELDS = {
-    "notion": "api_key",
-    "nextcloud": "password",
-}
+
+def _credential_declarations() -> dict[str, dict[str, Any]]:
+    """plugin_key -> its one declared `credentials` capability, if any.
+
+    Derived from the catalog rather than a hardcoded map, so a plugin that
+    needs a secret declares it in its own manifest and nothing else has to
+    know the field or environment variable name.
+    """
+    from study_runner.plugin_framework.registry import get_plugin_manifests
+
+    declarations: dict[str, dict[str, Any]] = {}
+    for plugin_key, manifest in get_plugin_manifests().items():
+        credentials = (manifest.get("capability_config") or {}).get("credentials")
+        if isinstance(credentials, dict) and credentials.get("config_field"):
+            declarations[plugin_key] = credentials
+    return declarations
+
+
+def secret_fields() -> dict[str, str]:
+    """Kinds of secret a study can override, and where each lives in a section."""
+    return {kind: str(decl["config_field"]) for kind, decl in _credential_declarations().items()}
 
 
 def study_key(study_id: str) -> str:
@@ -49,7 +65,7 @@ def study_key(study_id: str) -> str:
 
 def get_study_secret(local_secrets: dict[str, Any], study_id: str, kind: str) -> str:
     """This study's own secret, or "" when it has none."""
-    field = SECRET_FIELDS.get(kind)
+    field = secret_fields().get(kind)
     key = study_key(study_id)
     if not field or not key:
         return ""
@@ -68,7 +84,7 @@ def get_study_secret(local_secrets: dict[str, Any], study_id: str, kind: str) ->
 
 def set_study_secret(local_secrets: dict[str, Any], study_id: str, kind: str, value: str) -> dict[str, Any]:
     """Store or clear one secret for one study. Returns the updated secrets."""
-    field = SECRET_FIELDS.get(kind)
+    field = secret_fields().get(kind)
     key = study_key(study_id)
     if not field:
         raise ValueError(f"Unknown credential kind: {kind}")
@@ -149,8 +165,6 @@ def describe_secret_state(
     hardware_config: dict[str, Any],
     local_secrets: dict[str, Any],
     study_id: str = "",
-    *,
-    env_var: str = "",
 ) -> dict[str, Any]:
     """Where the secret used for this study actually comes from.
 
@@ -158,7 +172,9 @@ def describe_secret_state(
     "machine" means it is borrowing the shared one, "env" means an environment
     variable overrides both, "none" means nothing is configured.
     """
-    field = SECRET_FIELDS.get(kind, "")
+    declaration = _credential_declarations().get(kind, {})
+    field = str(declaration.get("config_field") or "")
+    env_var = str(declaration.get("env_var") or "")
     if env_var and os.getenv(env_var, "").strip():
         return {"configured": True, "scope": "env", "source": "env"}
 
@@ -182,18 +198,64 @@ def list_study_credential_state(
     hardware_config: dict[str, Any],
     local_secrets: dict[str, Any],
     study_id: str,
-    *,
-    env_vars: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """The full per-study credential picture - never any values."""
-    env_vars = env_vars or {}
     return {
-        kind: describe_secret_state(
-            kind,
-            hardware_config,
-            local_secrets,
-            study_id,
-            env_var=env_vars.get(kind, ""),
-        )
-        for kind in SECRET_FIELDS
+        kind: describe_secret_state(kind, hardware_config, local_secrets, study_id)
+        for kind in secret_fields()
     }
+
+
+def resolve_plugin_secret(
+    kind: str,
+    hardware_config: dict[str, Any],
+    local_secrets: dict[str, Any],
+    study_id: str = "",
+) -> str:
+    """The actual secret value: env > this study's own > machine > legacy config.
+
+    The value twin of `describe_secret_state`, which reports the same chain
+    without ever returning what it found.
+    """
+    declaration = _credential_declarations().get(kind, {})
+    field = str(declaration.get("config_field") or "")
+    env_var = str(declaration.get("env_var") or "")
+    if not field:
+        return ""
+
+    env_value = os.getenv(env_var, "").strip() if env_var else ""
+    if env_value:
+        return env_value
+
+    study_value = get_study_secret(local_secrets, study_id, kind)
+    if study_value:
+        return study_value
+
+    local_value = local_secrets.get(kind, {}).get(field, "") if isinstance(local_secrets.get(kind), dict) else ""
+    if isinstance(local_value, str) and local_value.strip():
+        return local_value.strip()
+
+    legacy_value = hardware_config.get(kind, {}).get(field, "") if isinstance(hardware_config.get(kind), dict) else ""
+    return legacy_value.strip() if isinstance(legacy_value, str) else ""
+
+
+def describe_secret_storage_location(
+    kind: str,
+    hardware_config: dict[str, Any],
+    local_secrets: dict[str, Any],
+    local_secrets_path: Path,
+    study_id: str = "",
+) -> str:
+    """A human-readable answer to "where did this value come from" for a status panel."""
+    declaration = _credential_declarations().get(kind, {})
+    env_var = str(declaration.get("env_var") or "")
+    source = describe_secret_state(kind, hardware_config, local_secrets, study_id)["source"]
+    if source == "env":
+        return f"Umgebungsvariable {env_var}" if env_var else "Umgebungsvariable"
+    if source == "study_file":
+        return f"pro Studie in {local_secrets_path.name}"
+    if source == "local_file":
+        return f"backend-lokal in {local_secrets_path.name}"
+    if source == "hardware_config":
+        return "legacy in hardware settings"
+    return "nicht gespeichert"

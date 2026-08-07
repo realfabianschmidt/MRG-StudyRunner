@@ -16,9 +16,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.settings.secrets_service import NEXTCLOUD_PASSWORD_ENV, NOTION_API_KEY_ENV
 from study_runner.backend.services.studies.study_readiness_service import check_study_readiness
-from study_runner.backend.services.studies.study_secrets_service import set_study_secret
+from study_runner.backend.services.studies.study_secrets_service import (
+    _credential_declarations,
+    set_study_secret,
+)
+
+# The env var names now live only in each plugin's manifest; read them from
+# there rather than hardcoding them a second time in the test.
+NOTION_API_KEY_ENV = _credential_declarations()["notion"]["env_var"]
+NEXTCLOUD_PASSWORD_ENV = _credential_declarations()["nextcloud"]["env_var"]
 
 
 def hardware(**overrides) -> dict:
