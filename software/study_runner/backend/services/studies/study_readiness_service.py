@@ -77,7 +77,7 @@ def check_study_readiness(
     )
 
     manifests = get_plugin_manifests()
-    # A study saved before API v3 carries flat fields (`notion_enabled`, ...)
+    # A study saved before API v3 carries flat fields (`<plugin>_enabled`, ...)
     # instead of `study_settings.plugins.<key>`. The real caller already
     # migrates this via validate_and_normalize_config before readiness is ever
     # checked; doing it again here too means every check below reads one
@@ -105,8 +105,8 @@ def check_study_readiness(
         )
 
     # Every plugin that declared `readiness_requirements` is checked the same
-    # way. Notion and Nextcloud are not special-cased; a third destination
-    # gets this for free by declaring the same capability.
+    # way - no destination is special-cased, so a new one gets this for free
+    # by declaring the same capability its predecessors do.
     for plugin_key, manifest in manifests.items():
         requirements = (manifest.get("capability_config") or {}).get("readiness_requirements")
         if not requirements:
