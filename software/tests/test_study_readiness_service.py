@@ -70,7 +70,7 @@ class ReadinessTests(unittest.TestCase):
             study(notion_enabled=True, notion_parent_page_id="p1"), hardware(), {}, https_active=True
         )
 
-        self.assertIn("notion_api_key_missing", codes(report))
+        self.assertIn("notion.credential_missing", codes(report))
         self.assertFalse(report["ready"])
 
     def test_machine_key_satisfies_notion(self) -> None:
@@ -81,7 +81,7 @@ class ReadinessTests(unittest.TestCase):
             https_active=True,
         )
 
-        self.assertNotIn("notion_api_key_missing", codes(report))
+        self.assertNotIn("notion.credential_missing", codes(report))
 
     def test_study_key_satisfies_notion(self) -> None:
         secrets = set_study_secret({}, "Study A", "notion", "study-key")
@@ -97,7 +97,7 @@ class ReadinessTests(unittest.TestCase):
             study(notion_enabled=True), hardware(), {"notion": {"api_key": "k"}}, https_active=True
         )
 
-        self.assertIn("notion_target_missing", codes(report))
+        self.assertIn("notion.setting_missing", codes(report))
 
     def test_database_id_alone_is_a_valid_target(self) -> None:
         report = check_study_readiness(
@@ -107,7 +107,7 @@ class ReadinessTests(unittest.TestCase):
             https_active=True,
         )
 
-        self.assertNotIn("notion_target_missing", codes(report))
+        self.assertNotIn("notion.setting_missing", codes(report))
 
     def test_notion_disabled_machine_side_blocks(self) -> None:
         report = check_study_readiness(
@@ -117,12 +117,12 @@ class ReadinessTests(unittest.TestCase):
             https_active=True,
         )
 
-        self.assertIn("notion_machine_disabled", codes(report))
+        self.assertIn("notion.machine_disabled", codes(report))
 
     def test_nextcloud_without_a_link_blocks(self) -> None:
         report = check_study_readiness(study(nextcloud_enabled=True), hardware(), {}, https_active=True)
 
-        self.assertIn("nextcloud_link_missing", codes(report))
+        self.assertIn("nextcloud.setting_missing", codes(report))
 
     def test_nextcloud_without_a_password_is_not_a_blocker(self) -> None:
         """Public shares legitimately have no password."""
@@ -159,8 +159,8 @@ class ReadinessTests(unittest.TestCase):
             https_active=True,
         )
 
-        self.assertNotIn("nextcloud_link_missing", codes(report))
-        self.assertNotIn("notion_target_missing", codes(report))
+        self.assertNotIn("nextcloud.setting_missing", codes(report))
+        self.assertNotIn("notion.setting_missing", codes(report))
         self.assertTrue(report["ready"])
 
     def test_sensor_disabled_machine_side_blocks(self) -> None:
@@ -311,8 +311,8 @@ class ReadinessTests(unittest.TestCase):
             https_active=True,
         )
 
-        for expected in ("notion_api_key_missing", "notion_target_missing", "notion_machine_disabled",
-                         "nextcloud_link_missing", "sensor_machine_disabled"):
+        for expected in ("notion.credential_missing", "notion.setting_missing", "notion.machine_disabled",
+                         "nextcloud.setting_missing", "sensor_machine_disabled"):
             self.assertIn(expected, codes(report))
 
 

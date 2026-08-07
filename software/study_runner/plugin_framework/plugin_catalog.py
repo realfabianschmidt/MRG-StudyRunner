@@ -602,6 +602,8 @@ def _normalize_capability_config(name: str, config: dict[str, Any]) -> dict[str,
         )
     if name == "readiness":
         return _normalize_readiness(config)
+    if name == "readiness_requirements":
+        return _normalize_readiness_requirements(config)
     if name == "upload_destination":
         return _normalize_upload_destination(config)
     if name == "credentials":
@@ -629,6 +631,41 @@ def _normalize_credentials(config: dict[str, Any]) -> dict[str, Any]:
     env_var = _optional_text(config.get("env_var")) or ""
     per_study = bool(config.get("per_study", False))
     return {"config_field": config_field, "env_var": env_var, "per_study": per_study}
+
+
+def _normalize_readiness_requirements(config: dict[str, Any]) -> dict[str, Any]:
+    """What a plugin needs before a study using it can actually deliver results.
+
+    Distinct from `readiness` (runtime-mode platform support, below): this is
+    "is the operator's configuration complete", checked before anything starts
+    - see `study_readiness_service.py`. A plugin declares what it needs once;
+    it does not have to also teach core what "not ready" looks like for it.
+    """
+
+    if not config:
+        return {}
+    allowed = {"requires_secret", "requires_settings", "requires_machine_enabled"}
+    unexpected = sorted(set(config) - allowed)
+    if unexpected:
+        raise PluginManifestError(
+            "readiness_requirements contains unsupported fields: " + ", ".join(unexpected)
+        )
+    raw_settings = config.get("requires_settings")
+    if raw_settings is None:
+        requires_settings: list[str] = []
+    elif isinstance(raw_settings, list) and raw_settings and all(
+        isinstance(item, str) and _KEY_PATTERN.fullmatch(item) for item in raw_settings
+    ):
+        requires_settings = [str(item) for item in raw_settings]
+    else:
+        raise PluginManifestError(
+            "readiness_requirements.requires_settings must be a non-empty list of field names"
+        )
+    return {
+        "requires_secret": bool(config.get("requires_secret", False)),
+        "requires_settings": requires_settings,
+        "requires_machine_enabled": bool(config.get("requires_machine_enabled", False)),
+    }
 
 
 def _normalize_readiness(config: dict[str, Any]) -> dict[str, Any]:

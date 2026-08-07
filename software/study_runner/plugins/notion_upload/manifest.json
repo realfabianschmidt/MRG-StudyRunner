@@ -35,6 +35,11 @@
       }
     },
     "readiness": {},
+    "readiness_requirements": {
+      "requires_secret": true,
+      "requires_settings": ["parent_page_id", "database_id"],
+      "requires_machine_enabled": true
+    },
     "health": {},
     "machine_settings": {},
     "study_settings": {},

@@ -260,10 +260,10 @@ function readinessMessage(blocker) {
   const sensorLabel = blocker.sensor ? t(`dashboard.${blocker.sensor}`, blocker.sensor) : '';
   const supportedModes = Array.isArray(blocker.supported_modes) ? blocker.supported_modes.join(', ') : '';
   const messages = {
-    notion_api_key_missing: t('readiness.notionKeyMissing', 'Notion upload is on, but no API key is available for this study.'),
-    notion_target_missing: t('readiness.notionTargetMissing', 'Notion upload is on, but no parent page or database is set.'),
-    notion_machine_disabled: t('readiness.notionMachineDisabled', 'Notion upload is on for this study, but switched off on this computer.'),
-    nextcloud_link_missing: t('readiness.nextcloudLinkMissing', 'Nextcloud upload is on, but no share link is set.'),
+    'notion.credential_missing': t('readiness.notionKeyMissing', 'Notion upload is on, but no API key is available for this study.'),
+    'notion.setting_missing': t('readiness.notionTargetMissing', 'Notion upload is on, but no parent page or database is set.'),
+    'notion.machine_disabled': t('readiness.notionMachineDisabled', 'Notion upload is on for this study, but switched off on this computer.'),
+    'nextcloud.setting_missing': t('readiness.nextcloudLinkMissing', 'Nextcloud upload is on, but no share link is set.'),
     sensor_machine_disabled: t('readiness.sensorMachineDisabled', '{sensor} is used by this study but switched off on this computer.').replace('{sensor}', sensorLabel),
     camera_requires_https: t('readiness.cameraRequiresHttps', 'The tablet camera needs a secure connection, which is currently off.'),
     browser_source_requires_https: t('readiness.browserSourceRequiresHttps', 'A selected browser sensor needs a secure HTTPS connection, which is currently off.'),

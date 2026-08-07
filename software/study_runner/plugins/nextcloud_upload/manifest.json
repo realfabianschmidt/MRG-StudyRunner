@@ -30,6 +30,9 @@
       }
     },
     "readiness": {},
+    "readiness_requirements": {
+      "requires_settings": ["share_link"]
+    },
     "health": {},
     "study_settings": {},
     "credentials": {

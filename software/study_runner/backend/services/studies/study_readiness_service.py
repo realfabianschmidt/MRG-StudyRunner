@@ -23,16 +23,15 @@ import sys
 from typing import Any
 
 from ..settings.runtime_config import is_https_enabled
+from .study_plugin_config import normalize_study_settings_plugins
 from .study_secrets_service import list_study_credential_state, resolve_plugin_secret
 from ..recording.study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
 
 # Which left-hand panel of the study settings shell fixes each blocker, so the
-# UI can send the operator straight there instead of making them hunt.
+# UI can send the operator straight there instead of making them hunt. Only
+# the sensor-side codes are listed: a destination blocker's panel is its own
+# plugin_key, declared once at the call site below rather than listed twice.
 BLOCKER_PANELS = {
-    "notion_api_key_missing": "notion",
-    "notion_target_missing": "notion",
-    "notion_machine_disabled": "notion",
-    "nextcloud_link_missing": "nextcloud",
     "plugin_unavailable": "sensors",
     "sensor_machine_disabled": "sensors",
     "browser_source_requires_https": "sensors",
@@ -61,17 +60,16 @@ def check_study_readiness(
 
     blockers: list[dict[str, Any]] = []
 
-    def add(code: str, *, blocking: bool = False, **extra: Any) -> None:
+    def add(code: str, *, blocking: bool = False, panel: str | None = None, **extra: Any) -> None:
         blockers.append(
             {
                 "code": code,
-                "panel": BLOCKER_PANELS.get(code, "sensors"),
+                "panel": panel or BLOCKER_PANELS.get(code, "sensors"),
                 "blocking": bool(blocking),
                 **extra,
             }
         )
 
-    selected_plugins = study_settings.get("plugins")
     from study_runner.plugin_framework.registry import (
         get_plugin,
         get_plugin_catalog,
@@ -79,67 +77,64 @@ def check_study_readiness(
     )
 
     manifests = get_plugin_manifests()
-    if isinstance(selected_plugins, dict):
-        invalid_by_key = {
-            entry.plugin_key: list(entry.errors)
-            for entry in get_plugin_catalog().invalid_entries
-            if entry.plugin_key
-        }
-        for plugin_key, selection in selected_plugins.items():
-            if not isinstance(selection, dict):
-                continue
-            if not selection.get("enabled") or not selection.get("required"):
-                continue
-            if get_plugin(plugin_key) is not None:
-                continue
-            add(
-                "plugin_unavailable",
-                blocking=True,
-                plugin=plugin_key,
-                details=invalid_by_key.get(plugin_key, ["Plugin is not installed or valid."]),
-            )
+    # A study saved before API v3 carries flat fields (`notion_enabled`, ...)
+    # instead of `study_settings.plugins.<key>`. The real caller already
+    # migrates this via validate_and_normalize_config before readiness is ever
+    # checked; doing it again here too means every check below reads one
+    # shape, so a new destination plugin needs no legacy-field awareness here.
+    study_settings = normalize_study_settings_plugins(study_settings, manifests=manifests)
+    selected_plugins = study_settings.get("plugins") or {}
 
-    notion_selection = _plugin_selection(study_settings, "notion")
-    notion_enabled = (
-        bool(notion_selection.get("enabled"))
-        if notion_selection is not None
-        else bool(study_settings.get("notion_enabled"))
-    )
-    notion_settings = (
-        notion_selection.get("settings")
-        if notion_selection is not None
-        else {
-            "parent_page_id": study_settings.get("notion_parent_page_id"),
-            "database_id": study_settings.get("notion_database_id"),
-        }
-    )
-    notion_settings = notion_settings if isinstance(notion_settings, dict) else {}
-    if notion_enabled:
-        if not resolve_plugin_secret("notion", hardware_config, local_secrets, study_id):
-            add("notion_api_key_missing", destination="notion", field="notion-study-api-key")
-        if not (notion_settings.get("parent_page_id") or notion_settings.get("database_id")):
-            add("notion_target_missing", destination="notion", field="notion-study-parent-id")
-        notion_machine = hardware_config.get("notion")
-        if isinstance(notion_machine, dict) and not notion_machine.get("enabled"):
-            # Notion refuses to build a client when it is off machine-side, so
-            # the study's own switch alone is not enough.
-            add("notion_machine_disabled", destination="notion")
+    invalid_by_key = {
+        entry.plugin_key: list(entry.errors)
+        for entry in get_plugin_catalog().invalid_entries
+        if entry.plugin_key
+    }
+    for plugin_key, selection in selected_plugins.items():
+        if not isinstance(selection, dict):
+            continue
+        if not selection.get("enabled") or not selection.get("required"):
+            continue
+        if get_plugin(plugin_key) is not None:
+            continue
+        add(
+            "plugin_unavailable",
+            blocking=True,
+            plugin=plugin_key,
+            details=invalid_by_key.get(plugin_key, ["Plugin is not installed or valid."]),
+        )
 
-    nextcloud_selection = _plugin_selection(study_settings, "nextcloud")
-    nextcloud_enabled = (
-        bool(nextcloud_selection.get("enabled"))
-        if nextcloud_selection is not None
-        else bool(study_settings.get("nextcloud_enabled"))
-    )
-    nextcloud_settings = (
-        nextcloud_selection.get("settings")
-        if nextcloud_selection is not None
-        else {"share_link": study_settings.get("nextcloud_share_link")}
-    )
-    nextcloud_settings = nextcloud_settings if isinstance(nextcloud_settings, dict) else {}
-    if nextcloud_enabled:
-        if not str(nextcloud_settings.get("share_link") or "").strip():
-            add("nextcloud_link_missing", destination="nextcloud", field="nextcloud-share-link")
+    # Every plugin that declared `readiness_requirements` is checked the same
+    # way. Notion and Nextcloud are not special-cased; a third destination
+    # gets this for free by declaring the same capability.
+    for plugin_key, manifest in manifests.items():
+        requirements = (manifest.get("capability_config") or {}).get("readiness_requirements")
+        if not requirements:
+            continue
+        selection = selected_plugins.get(plugin_key)
+        if not isinstance(selection, dict) or not selection.get("enabled"):
+            continue
+        settings = selection.get("settings")
+        settings = settings if isinstance(settings, dict) else {}
+
+        if requirements.get("requires_secret") and not resolve_plugin_secret(
+            plugin_key, hardware_config, local_secrets, study_id
+        ):
+            add(f"{plugin_key}.credential_missing", panel=plugin_key, destination=plugin_key)
+
+        required_settings = requirements.get("requires_settings") or []
+        if required_settings and not any(
+            str(settings.get(field) or "").strip() for field in required_settings
+        ):
+            add(f"{plugin_key}.setting_missing", panel=plugin_key, destination=plugin_key)
+
+        if requirements.get("requires_machine_enabled"):
+            config_key = str(manifest.get("config_key") or plugin_key)
+            machine_section = hardware_config.get(config_key)
+            if isinstance(machine_section, dict) and not machine_section.get("enabled"):
+                # Some destinations refuse to build a client when off
+                # machine-side, so the study's own switch alone is not enough.
+                add(f"{plugin_key}.machine_disabled", panel=plugin_key, destination=plugin_key)
 
     sensors = normalize_study_sensors(study_settings)
     for sensor_key in STUDY_SENSOR_KEYS:
@@ -221,12 +216,6 @@ def describe_credentials(
     """Credential scope per destination, for the same report - never a value."""
     study_id = str(study_config.get("study_id") or "")
     return list_study_credential_state(hardware_config, local_secrets, study_id)
-
-
-def _plugin_selection(study_settings: dict[str, Any], plugin_key: str) -> dict[str, Any] | None:
-    plugins = study_settings.get("plugins")
-    selection = plugins.get(plugin_key) if isinstance(plugins, dict) else None
-    return selection if isinstance(selection, dict) else None
 
 
 def _current_platform_target() -> str:

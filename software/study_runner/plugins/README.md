@@ -35,6 +35,11 @@ schemas, timing limits, and capabilities. Important capability names are:
   guarantee heartbeat, sequence, and source timestamps.
 - `readiness`, `runtime_control`, `health`, and `admin_actions`: lifecycle,
   diagnostics, and generic manifest-declared operator actions.
+- `readiness_requirements`: distinct from `readiness` above - what a study
+  needs before this plugin can actually deliver results:
+  `requires_secret`, `requires_settings` (a list; any one satisfies it), and
+  `requires_machine_enabled`. `study_readiness_service.py` checks every
+  plugin that declares this the same way, before the study can start.
 - `participant_actions` and `participant_ingest`: closed allow-lists for
   participant lifecycle commands and browser payloads through generic routes.
 - `machine_settings`, `study_settings`, and `card_actions`: generic UI schemas.
