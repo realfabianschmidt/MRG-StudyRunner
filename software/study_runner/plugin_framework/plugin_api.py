@@ -22,6 +22,7 @@ IntervalSummaryHandler = Callable[["PluginContext", float, float], dict[str, Any
 IntervalExportHandler = Callable[["PluginContext", float, float], list[dict[str, Any]]]
 StatusHandler = Callable[["PluginContext"], StatusPayload]
 UploadDestinationHandler = Callable[["PluginContext", dict[str, Any]], dict[str, Any]]
+StudySettingValidator = Callable[[str, str], None]
 
 
 @dataclass(frozen=True)
@@ -114,6 +115,7 @@ class Plugin:
     get_interval_summary: IntervalSummaryHandler | None = None
     export_interval_samples: IntervalExportHandler | None = None
     publish_destination: UploadDestinationHandler | None = None
+    validate_study_setting: StudySettingValidator | None = None
     sidecar_sensor: str | None = None
     sidecar_filename_suffix: str | None = None
     sidecar_output_key: str | None = None

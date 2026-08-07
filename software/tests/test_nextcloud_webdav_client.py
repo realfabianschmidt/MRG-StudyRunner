@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.delivery.nextcloud_service import (
+from study_runner.plugins.nextcloud_upload.webdav_client import (
     NextcloudPublicShareClient,
     parse_share_link,
     test_connection,

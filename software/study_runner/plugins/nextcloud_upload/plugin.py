@@ -1,7 +1,8 @@
-"""Catalog adapter for the existing Nextcloud destination service.
+"""Nextcloud public-share upload destination.
 
-Upload execution remains in the backend destination service.  This small
-plugin only gives it the same capability/status contract as other built-ins.
+Owns its own WebDAV client (`webdav_client.py`) end to end: publishing a
+finished session, testing a connection, and validating the share-link shape a
+study author types into the settings form.
 """
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ def _status(context: PluginContext) -> dict[str, Any]:
 
 
 def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
-    from study_runner.backend.services.delivery.nextcloud_service import NextcloudPublicShareClient
+    from .webdav_client import NextcloudPublicShareClient
 
     config_data = payload.get("config_data") or {}
     study_settings = config_data.get("study_settings") or {}
@@ -94,7 +95,7 @@ def _run_admin_action(
     if action_key != "test_connection":
         raise ValueError(f"Unknown Nextcloud admin action: {action_key}")
 
-    from study_runner.backend.services.delivery.nextcloud_service import test_connection
+    from .webdav_client import test_connection
 
     share_link = str(payload.get("share_link") or "").strip()
     # An omitted password means "use whatever is already stored" - the
@@ -102,6 +103,20 @@ def _run_admin_action(
     password = str(payload.get("password") or "") or context.secret("nextcloud")
     timeout_seconds = int(payload.get("timeout_seconds") or 10)
     return test_connection(share_link, password=password, timeout_seconds=timeout_seconds)
+
+
+def _validate_setting(field_name: str, value: str) -> None:
+    """Reject a share link the WebDAV client could not use, before it is saved.
+
+    Called by `validation.py` because this manifest's `share_link` field
+    declares `"format": "nextcloud_public_share"` - see
+    `Plugin.validate_study_setting`.
+    """
+    if field_name != "share_link":
+        return
+    from .webdav_client import parse_share_link
+
+    parse_share_link(value)
 
 
 PLUGIN = Plugin(
@@ -113,4 +128,5 @@ PLUGIN = Plugin(
     get_status=_status,
     publish_destination=_publish,
     run_admin_action=_run_admin_action,
+    validate_study_setting=_validate_setting,
 )

@@ -1039,7 +1039,7 @@ def _validate_plugin_study_settings(
                         f"{path} must be one of: {', '.join(map(str, field['options']))}."
                     )
                 if field_type == "url" and value:
-                    _validate_manifest_url(value, str(field.get("format") or ""), path)
+                    _validate_manifest_url(value, str(field.get("format") or ""), path, plugin_key, name)
                 settings[name] = value
             elif field_type == "boolean":
                 settings[name] = _normalize_boolean(raw_value)
@@ -1057,12 +1057,32 @@ def _validate_plugin_study_settings(
     return normalized
 
 
-def _validate_manifest_url(value: str, format_name: str, path: str) -> None:
-    if format_name == "nextcloud_public_share":
-        try:
-            from ..delivery.nextcloud_service import parse_share_link
+def _validate_manifest_url(
+    value: str,
+    format_name: str,
+    path: str,
+    plugin_key: str,
+    field_name: str,
+) -> None:
+    """A plain HTTP(S) check, or a plugin-owned shape when the field names one.
 
-            parse_share_link(value)
+    `format_name` is documentation for the operator, not a name core matches
+    on - the plugin that declared the field validates its own shape through
+    `Plugin.validate_study_setting`, the same way it owns everything else
+    about that field.
+    """
+    if format_name:
+        from study_runner.plugin_framework.registry import get_plugin
+
+        plugin = get_plugin(plugin_key)
+        validator = plugin.validate_study_setting if plugin else None
+        if validator is None:
+            raise ValidationError(
+                f"{path}: plugin {plugin_key!r} declares format {format_name!r} "
+                "but has no validator."
+            )
+        try:
+            validator(field_name, value)
         except ValueError as error:
             raise ValidationError(f"{path}: {error}") from error
         return

@@ -59,7 +59,6 @@ Edit-safety legend:
 | `services/recording/sensor_coordinator_service.py` | Central plugin lifecycle/status wrapper with manifest, backpressure, and timing diagnostics | careful |
 | `services/recording/clock_sync_service.py` | Bounded tablet/worker offset and RTT histories for timing diagnostics | careful |
 | `services/studies/recovery_service.py` | Finds crash-orphaned sessions and finalizes or discards them | no |
-| `services/delivery/nextcloud_service.py` | Uploads session files to writable Nextcloud public shares over WebDAV | careful |
 | `services/settings/update_service.py` | In-app updater: manifest fetch, signature check, download, staging | no |
 | `services/settings/ssl_service.py` | Local HTTPS certificate authority for tablet camera access | no |
 | `services/delivery/certificate_download_service.py` | Plain-HTTP, one-file bootstrap download for the local root CA | careful |
@@ -176,7 +175,8 @@ recording code now, not plugins: `recording/markers.py` and
 | `camera_emotion/worker/model_errors.py` | Shared DeepFace error classification + suggested fixes | careful |
 | `osc_touchdesigner/adapter.py` + `plugin.py` | Forwards values to TouchDesigner via OSC | careful |
 | `notion_upload/adapter.py` + `plugin.py` | Uploads result summaries to Notion (with offline queue) | careful |
-| `nextcloud_upload/plugin.py` | Declares the hidden Nextcloud destination capability and generic settings schema | careful |
+| `nextcloud_upload/plugin.py` | Declares the hidden Nextcloud destination capability, publishes, and validates its own share-link setting | careful |
+| `nextcloud_upload/webdav_client.py` | The WebDAV client: uploads session files to a writable Nextcloud public share, checksum-first | careful |
 
 ## Frontend (`software/study_runner/frontend/scripts/`)
 

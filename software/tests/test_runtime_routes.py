@@ -487,7 +487,7 @@ class RuntimeRoutesTests(unittest.TestCase):
                 app = create_app()
 
             with patch(
-                "study_runner.backend.services.delivery.nextcloud_service.test_connection",
+                "study_runner.plugins.nextcloud_upload.webdav_client.test_connection",
                 return_value={"ok": True, "endpoint": "dav"},
             ) as connection_test:
                 response = app.test_client().post(
