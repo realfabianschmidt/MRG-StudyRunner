@@ -82,6 +82,12 @@ export function renderSettingsHubShell() {
   root?.querySelectorAll('[data-save-plugin-settings]').forEach((button) => {
     button.addEventListener('click', () => void savePluginSettings(button.dataset.savePluginSettings));
   });
+  root?.querySelectorAll('[data-save-plugin-credential]').forEach((button) => {
+    button.addEventListener('click', () => void savePluginCredential(button.dataset.savePluginCredential));
+  });
+  root?.querySelectorAll('[data-clear-plugin-credential]').forEach((button) => {
+    button.addEventListener('click', () => void clearPluginCredential(button.dataset.clearPluginCredential));
+  });
 }
 
 /**
@@ -181,9 +187,16 @@ export async function loadSettingsHubStatus() {
   try {
     host.state.settingsHubStatus = await getJson('/api/admin/status', { timeoutMs: 1500 });
     try {
-      host.state.pluginSettings = (await getJson('/api/admin/plugin-settings', { timeoutMs: 1500 })).plugins || {};
+      const settingsPayload = await getJson('/api/admin/plugin-settings', { timeoutMs: 1500 });
+      host.state.pluginSettings = settingsPayload.plugins || {};
+      host.state.pluginSettingsRevision = settingsPayload.revision || '';
     } catch (settingsError) {
       console.debug('[admin] Could not load plugin settings schema:', settingsError);
+    }
+    try {
+      host.state.hardwareConfig = await getJson('/api/hardware-config', { timeoutMs: 1500 });
+    } catch (hardwareError) {
+      console.debug('[admin] Could not load redacted plugin credential state:', hardwareError);
     }
     host.state.tabletGate = host.state.settingsHubStatus?.study_clients?.single_tablet || host.state.tabletGate;
     host.state.studyRunState = host.state.settingsHubStatus?.study_run_state || host.state.studyRunState;
@@ -218,7 +231,10 @@ function renderPluginSettingsPanel(plugin) {
   // same numbers appear in two places with different refresh rates.
   return `
     <div class="settings-hub-plugin">
+      <div class="dashboard-card-title"><i class="${escapeHtml(pluginIcon(plugin))}"></i> <span>${escapeHtml(plugin.label || plugin.key)}</span></div>
+      ${plugin.manifest?.ui?.description ? `<p class="settings-hint">${escapeHtml(plugin.manifest.ui.description)}</p>` : ''}
       ${renderPluginSettingsForm(plugin.key)}
+      ${renderPluginCredentialForm(plugin)}
       <div class="dashboard-actions">
         ${settingsHubAction('dashboard', pluginIcon(plugin), t('settingsHub.openLiveControls', 'Open live controls'), t('settingsHub.openLiveControlsHint', 'Live start, stop, recovery, and monitoring stay on the dashboard.'))}
       </div>
@@ -313,8 +329,12 @@ async function savePluginSettings(pluginKey) {
   });
 
   try {
-    const response = await postJson(`/api/admin/plugin-settings/${encodeURIComponent(pluginKey)}`, { settings });
+    const response = await postJson(`/api/admin/plugin-settings/${encodeURIComponent(pluginKey)}`, {
+      settings,
+      revision: host.state.pluginSettingsRevision || undefined,
+    });
     host.state.pluginSettings = response.plugins || host.state.pluginSettings;
+    host.state.pluginSettingsRevision = response.revision || host.state.pluginSettingsRevision;
     if (feedback) {
       feedback.textContent = response.restart_required
         ? t('pluginSettings.savedRestart', 'Saved. Restart Study Runner for this to take effect.')
@@ -326,6 +346,82 @@ async function savePluginSettings(pluginKey) {
     if (feedback) feedback.textContent = error.message || t('pluginSettings.saveFailed', 'Could not save.');
     host.showToast(t('pluginSettings.saveFailed', 'Could not save.'), 'error');
   }
+}
+
+function renderPluginCredentialForm(plugin) {
+  const manifest = plugin.manifest || {};
+  const credential = manifest.capability_config?.credentials || {};
+  const field = String(credential.config_field || '');
+  if (!field) return '';
+  const section = host.state.hardwareConfig?.[plugin.key] || {};
+  const configured = section[`${field}_configured`] === true;
+  const scope = String(section[`${field}_scope`] || section[`${field}_source`] || '');
+  const status = configured
+    ? t('pluginSettings.credentialConfigured', 'Configured locally ({scope})').replace('{scope}', scope || 'local')
+    : t('pluginSettings.credentialMissing', 'No credential configured');
+  return `
+    <div class="plugin-settings-form" data-plugin-credential="${escapeHtml(plugin.key)}">
+      <div class="dashboard-card-title"><i class="iconoir-key"></i> <span>${escapeHtml(t('pluginSettings.credentialTitle', 'Local credential'))}</span></div>
+      <p class="settings-hint">${escapeHtml(t('pluginSettings.credentialHint', 'The saved value remains in the local secret store and is never returned to this page.'))}</p>
+      <label class="field">
+        <span>${escapeHtml(humanize(field))}</span>
+        <input class="fi-input" type="password" autocomplete="new-password" data-plugin-credential-input>
+        <small class="settings-hint" data-plugin-credential-state>${escapeHtml(status)}</small>
+      </label>
+      <div class="dashboard-actions">
+        <button class="btn-primary" type="button" data-save-plugin-credential="${escapeHtml(plugin.key)}">
+          <i class="iconoir-floppy-disk"></i> ${escapeHtml(t('pluginSettings.saveCredential', 'Save credential'))}
+        </button>
+        <button class="btn-secondary" type="button" data-clear-plugin-credential="${escapeHtml(plugin.key)}">
+          <i class="iconoir-trash"></i> ${escapeHtml(t('pluginSettings.clearCredential', 'Delete credential'))}
+        </button>
+      </div>
+    </div>`;
+}
+
+async function savePluginCredential(pluginKey) {
+  const form = [...(document.querySelectorAll('[data-plugin-credential]') || [])]
+    .find((candidate) => candidate.dataset.pluginCredential === pluginKey);
+  const input = form?.querySelector('[data-plugin-credential-input]');
+  const manifest = getPluginCatalog().plugins_by_key[pluginKey];
+  const field = String(manifest?.capability_config?.credentials?.config_field || '');
+  const value = String(input?.value || '');
+  if (!field || !value) {
+    host.showToast?.(t('pluginSettings.credentialValueRequired', 'Enter a credential before saving.'), 'error');
+    return;
+  }
+  try {
+    await postJson('/api/hardware-config', {
+      _revision: host.state.hardwareConfig?._revision || undefined,
+      [pluginKey]: { [field]: value },
+    });
+    if (input) input.value = '';
+    host.showToast?.(t('pluginSettings.credentialSaved', 'Credential saved locally.'), 'success');
+    await loadSettingsHubStatus();
+  } catch (error) {
+    host.showToast?.(error.message || t('pluginSettings.credentialSaveFailed', 'Could not save credential.'), 'error');
+  }
+}
+
+async function clearPluginCredential(pluginKey) {
+  const manifest = getPluginCatalog().plugins_by_key[pluginKey];
+  const field = String(manifest?.capability_config?.credentials?.config_field || '');
+  if (!field) return;
+  if (!window.confirm(t('pluginSettings.credentialClearConfirm', 'Delete the locally stored credential?'))) return;
+  try {
+    await postJson('/api/hardware-config', {
+      _revision: host.state.hardwareConfig?._revision || undefined,
+      [pluginKey]: { [`clear_${field}`]: true },
+    });
+    host.showToast?.(t('pluginSettings.credentialCleared', 'Credential deleted.'), 'success');
+    await loadSettingsHubStatus();
+  } catch (error) {
+    host.showToast?.(error.message || t('pluginSettings.credentialClearFailed', 'Could not delete credential.'), 'error');
+  }
+}
+
+function humanize(value) {
+  return String(value || '').replace(/[._-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function pluginIcon(plugin) {

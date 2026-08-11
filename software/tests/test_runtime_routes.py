@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -14,9 +15,48 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend import create_app
+from study_runner.backend.routes.helpers import _plugin_context
+from study_runner.plugin_framework.process_host import get_process_runtime
 
 
 class RuntimeRoutesTests(unittest.TestCase):
+    def test_machine_admin_plugin_persistence_works_from_reader_thread(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            app.config["HARDWARE_CONFIG"] = {"brainbit": {"enabled": False}}
+            with app.app_context():
+                context = _plugin_context(machine_admin=True)
+
+            errors: list[BaseException] = []
+
+            def persist_from_reader() -> None:
+                try:
+                    context.persist_hardware_config(
+                        {"brainbit": {"enabled": False, "serial_number": "BB-123"}}
+                    )
+                except BaseException as error:  # surfaced below in the test thread
+                    errors.append(error)
+
+            with patch("study_runner.backend.routes.helpers._refresh_trial_runtime") as refresh:
+                reader_thread = threading.Thread(target=persist_from_reader)
+                reader_thread.start()
+                reader_thread.join(2.0)
+
+            persisted = json.loads(Path(app.config["HARDWARE_CONFIG_FILE"]).read_text("utf-8"))
+
+        self.assertFalse(reader_thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(persisted["brainbit"]["serial_number"], "BB-123")
+        self.assertEqual(app.config["HARDWARE_CONFIG"], persisted)
+        refresh.assert_called_once_with()
+
     def test_health_and_runtime_info_routes(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
@@ -263,6 +303,75 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertEqual(wrong_start.status_code, 409)
         self.assertEqual(allowed.status_code, 200)
 
+    def test_remove_stored_plugin_config_requires_confirm(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+            response = app.test_client().delete("/api/admin/plugins/retired_sensor/config", json={})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.get_json()["ok"])
+
+    def test_remove_stored_plugin_config_rejects_an_installed_plugin(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+            response = app.test_client().delete(
+                "/api/admin/plugins/brainbit/config",
+                json={"confirm": True},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.get_json()["ok"])
+        self.assertIn("installed", response.get_json()["error"])
+
+    def test_remove_stored_plugin_config_deletes_hardware_and_secret_sections(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+
+            hardware_file = Path(app.config["HARDWARE_CONFIG_FILE"])
+            hardware_config = json.loads(hardware_file.read_text("utf-8"))
+            hardware_config["retired_sensor"] = {"enabled": False, "settings_hidden": True}
+            hardware_file.write_text(json.dumps(hardware_config), encoding="utf-8")
+            app.config["HARDWARE_CONFIG"] = hardware_config
+
+            secrets_file = Path(app.config["LOCAL_SECRETS_FILE"])
+            secrets_file.parent.mkdir(parents=True, exist_ok=True)
+            secrets_file.write_text(
+                json.dumps({"retired_sensor": {"api_key": "leftover-secret"}}),
+                encoding="utf-8",
+            )
+
+            response = app.test_client().delete(
+                "/api/admin/plugins/retired_sensor/config",
+                json={"confirm": True},
+            )
+
+            remaining_hardware = json.loads(hardware_file.read_text("utf-8"))
+            remaining_secrets = json.loads(secrets_file.read_text("utf-8"))
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["removed"])
+        self.assertTrue(payload["secret_removed"])
+        self.assertNotIn("retired_sensor", remaining_hardware)
+        self.assertNotIn("retired_sensor", remaining_secrets)
+        self.assertNotIn("retired_sensor", app.config["HARDWARE_CONFIG"])
+
     def test_active_study_sensor_toggle_sets_temporary_override(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
@@ -399,8 +508,8 @@ class RuntimeRoutesTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(response.status_code, 200)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["dependency_install"]["status"], "running")
-        self.assertEqual(payload["model_asset_install"]["status"], "queued")
+        self.assertEqual(payload["result"]["dependency_install"]["status"], "running")
+        self.assertEqual(payload["result"]["model_asset_install"]["status"], "queued")
 
     def test_camera_live_status_replaces_separate_preview_page(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
@@ -477,7 +586,10 @@ class RuntimeRoutesTests(unittest.TestCase):
     def test_nextcloud_test_connection_is_a_declared_admin_action(self) -> None:
         """Testing a connection has no route of its own -- plugins/nextcloud_upload/
         plugin.py declares it as an admin action and this is the one generic
-        dispatch every plugin's actions go through."""
+        dispatch every plugin's actions goes through. API-v4 plugins run in a
+        child process, so this test observes the process RPC boundary rather
+        than patching a module in the server process (which cannot affect the
+        isolated driver)."""
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
                 "STUDY_RUNNER_DATA_DIR": data_dir,
@@ -486,10 +598,21 @@ class RuntimeRoutesTests(unittest.TestCase):
             with patch.dict(os.environ, env, clear=False):
                 app = create_app()
 
-            with patch(
-                "study_runner.plugins.nextcloud_upload.webdav_client.test_connection",
-                return_value={"ok": True, "endpoint": "dav"},
-            ) as connection_test:
+            runtime = get_process_runtime("nextcloud")
+            self.assertIsNotNone(runtime)
+            # Avoid starting a real child: the contract under test is the
+            # generic route -> validated payload -> process request envelope.
+            with app.app_context():
+                runtime._context = _plugin_context(machine_admin=True)
+
+            def driver_response(operation, payload=None, **_kwargs):
+                if operation == "admin_action":
+                    return {"ok": True, "endpoint": "dav"}
+                if operation == "status":
+                    return {"status": "available", "runtime_enabled": True}
+                raise AssertionError(f"Unexpected process operation: {operation}")
+
+            with patch.object(runtime, "request", side_effect=driver_response) as request_rpc:
                 response = app.test_client().post(
                     "/api/admin/plugins/nextcloud/actions/test_connection",
                     json={
@@ -502,10 +625,18 @@ class RuntimeRoutesTests(unittest.TestCase):
         body = response.get_json()
         self.assertTrue(body["ok"])
         self.assertTrue(body["result"]["ok"])
-        connection_test.assert_called_once_with(
-            "https://cloud.example/s/token",
-            password="temporary-secret",
-            timeout_seconds=10,
+        admin_request = next(
+            call for call in request_rpc.call_args_list if call.args[0] == "admin_action"
+        )
+        self.assertEqual(
+            admin_request.args[1],
+            {
+                "action": "test_connection",
+                "payload": {
+                    "share_link": "https://cloud.example/s/token",
+                    "password": "temporary-secret",
+                },
+            },
         )
         self.assertNotIn("temporary-secret", response.get_data(as_text=True))
 

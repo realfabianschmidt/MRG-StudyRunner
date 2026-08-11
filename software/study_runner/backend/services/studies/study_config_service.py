@@ -1,10 +1,22 @@
+import hashlib
 import json
+import threading
+import time
+import uuid
 from pathlib import Path
 from typing import Any
+
+from study_runner.shared.atomic_io import atomic_write_json
 
 from .study_plugin_config import migrate_study_plugin_config
 
 STUDY_FILE_SUFFIXES = (".study-runner", ".json")
+_STUDY_SAVE_LOCK = threading.RLock()
+STUDY_TRANSACTION_SCHEMA = "study-runner/study-save-transaction/v1"
+
+
+class StudyRevisionConflict(ValueError):
+    """A client tried to replace a study revision it did not load."""
 
 
 DEFAULT_STIMULUS_CARD: dict[str, Any] = {
@@ -42,14 +54,17 @@ def normalize_config(config_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_config(config_file: Path) -> dict[str, Any]:
+    recover_active_study_transaction(config_file)
+    return _load_config_unchecked(config_file)
+
+
+def _load_config_unchecked(config_file: Path) -> dict[str, Any]:
     with config_file.open(encoding="utf-8") as file_handle:
         return normalize_config(json.load(file_handle))
 
 
 def save_config(config_file: Path, config_data: dict[str, Any]) -> None:
-    config_file.parent.mkdir(parents=True, exist_ok=True)
-    with config_file.open("w", encoding="utf-8") as file_handle:
-        json.dump(config_data, file_handle, indent=2, ensure_ascii=False)
+    atomic_write_json(config_file, config_data, ensure_ascii=False)
 
 
 def normalize_study_id(study_id: str) -> str:
@@ -108,6 +123,164 @@ def save_study(studies_dir: Path, config_data: dict[str, Any]) -> None:
     safe_id = _normalize_study_id(study_id)
     file_path = studies_dir / f"{safe_id}.study-runner"
     save_config(file_path, config_data)
+
+
+def save_active_study(
+    config_file: Path,
+    studies_dir: Path,
+    config_data: dict[str, Any],
+    *,
+    expected_revision: str | None = None,
+) -> str:
+    """Serialize the archive/current pair and preserve the archive first.
+
+    The two filenames cannot be replaced as one filesystem operation. Writing
+    the recoverable saved-study copy first means a crash or second-write error
+    can leave an older active projection, but cannot leave the only copy of the
+    newly submitted study unarchived. The process lock also prevents concurrent
+    requests from interleaving the two files into mismatched revisions.
+    """
+
+    return save_active_study_revision(
+        config_file,
+        studies_dir,
+        config_data,
+        expected_revision=expected_revision,
+    )
+
+
+def save_active_study_revision(
+    config_file: Path,
+    studies_dir: Path,
+    config_data: dict[str, Any],
+    *,
+    expected_revision: str | None,
+) -> str:
+    """Atomically write each projection under a recoverable CAS transaction."""
+
+    with _STUDY_SAVE_LOCK:
+        recover_active_study_transaction(config_file)
+        current_revision = None
+        if config_file.is_file():
+            current_revision = study_config_revision(_load_config_unchecked(config_file))
+        normalized_expected = str(expected_revision or "").strip().lower() or None
+        if normalized_expected is not None and normalized_expected != current_revision:
+            raise StudyRevisionConflict(
+                "The active study changed after this editor loaded it; reload before saving."
+            )
+
+        revision = study_config_revision(config_data)
+        safe_id = normalize_study_id(str(config_data.get("study_id") or ""))
+        archive_path = studies_dir / f"{safe_id}.study-runner"
+        marker_path = study_transaction_path(config_file)
+        marker: dict[str, Any] = {
+            "schema": STUDY_TRANSACTION_SCHEMA,
+            "transaction_id": uuid.uuid4().hex,
+            "status": "prepared",
+            "started_at_epoch": time.time(),
+            "updated_at_epoch": time.time(),
+            "active_path": str(Path(config_file).resolve(strict=False)),
+            "archive_path": str(Path(archive_path).resolve(strict=False)),
+            "previous_active_revision": current_revision,
+            "revision": revision,
+        }
+        _write_transaction_marker(marker_path, marker)
+        save_config(archive_path, config_data)
+        marker.update(status="archive_written", updated_at_epoch=time.time())
+        _write_transaction_marker(marker_path, marker)
+        save_config(config_file, config_data)
+        marker.update(
+            status="committed",
+            committed_at_epoch=time.time(),
+            updated_at_epoch=time.time(),
+        )
+        _write_transaction_marker(marker_path, marker)
+        return revision
+
+
+def study_config_revision(config_data: dict[str, Any]) -> str:
+    """Return the stable compare-and-swap revision of a stored study."""
+
+    # Revision the same normalized document that a subsequent load exposes;
+    # this also keeps pre-migration study files comparable during the v3/v4
+    # compatibility release.
+    normalized = normalize_config(json.loads(json.dumps(config_data)))
+    encoded = json.dumps(
+        normalized,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def study_transaction_path(config_file: Path) -> Path:
+    config_file = Path(config_file)
+    return config_file.with_name(f".{config_file.name}.transaction.json")
+
+
+def _write_transaction_marker(path: Path, marker: dict[str, Any]) -> None:
+    atomic_write_json(path, marker, ensure_ascii=True, trailing_newline=True)
+
+
+def recover_active_study_transaction(config_file: Path) -> bool:
+    """Finish an archive-first save interrupted before replacing ``current``."""
+
+    marker_path = study_transaction_path(config_file)
+    if not marker_path.is_file():
+        return False
+    try:
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"Study save transaction marker is unreadable: {error}") from error
+    if not isinstance(marker, dict) or marker.get("schema") != STUDY_TRANSACTION_SCHEMA:
+        raise ValueError("Study save transaction marker has an unsupported schema.")
+    marker_active = Path(str(marker.get("active_path") or "")).resolve(strict=False)
+    if marker_active != Path(config_file).resolve(strict=False):
+        raise ValueError("Study save transaction marker targets another active study file.")
+    if marker.get("status") in {"committed", "recovered", "aborted"}:
+        return False
+
+    revision = str(marker.get("revision") or "").strip().lower()
+    archive_path = Path(str(marker.get("archive_path") or ""))
+    archive_payload: dict[str, Any] | None = None
+    if archive_path.is_file():
+        try:
+            candidate = _load_config_unchecked(archive_path)
+            if study_config_revision(candidate) == revision:
+                archive_payload = candidate
+        except (OSError, ValueError, json.JSONDecodeError):
+            archive_payload = None
+
+    if archive_payload is None:
+        if marker.get("status") == "prepared":
+            marker.update(
+                status="aborted",
+                recovery_reason="archive revision was not committed",
+                updated_at_epoch=time.time(),
+            )
+            _write_transaction_marker(marker_path, marker)
+            return False
+        raise ValueError("Study save transaction archive is missing or has the wrong revision.")
+
+    if config_file.is_file():
+        try:
+            if study_config_revision(_load_config_unchecked(config_file)) == revision:
+                marker.update(status="committed", updated_at_epoch=time.time())
+                _write_transaction_marker(marker_path, marker)
+                return False
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+
+    save_config(config_file, archive_payload)
+    marker.update(
+        status="recovered",
+        recovered_at_epoch=time.time(),
+        updated_at_epoch=time.time(),
+    )
+    _write_transaction_marker(marker_path, marker)
+    return True
 
 
 def load_study(studies_dir: Path, study_id: str) -> dict[str, Any]:

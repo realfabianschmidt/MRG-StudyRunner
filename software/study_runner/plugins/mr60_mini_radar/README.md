@@ -25,6 +25,32 @@ Default BLE identity:
 - Notify rate: 10 Hz
 - Payload size: 20 bytes, little-endian
 
+## Architecture (API v4)
+
+Like every Study Runner plugin, the core process never imports this folder's
+Python modules directly — it only ever starts `driver.py` as a subprocess
+(see `docs/file-guide.md`). Inside that subprocess:
+
+- `driver.py` — the only executable entry point (`run_plugin_driver("mini_radar")`).
+- `plugin.py` — status/lifecycle registration and dashboard actions.
+- `adapter.py` — the production BLE/serial reader, 20-byte packet decoder,
+  LSL mirror, and result sidecar export. See "Where the code comes from"
+  below and in `firmware/README.md` for what in this chain is Seeed's own
+  library versus project-specific code.
+- `tools/ble_mr60_receiver.py` — a standalone diagnostic script that imports
+  `adapter.py`'s decoder directly, so a packet that decodes there also
+  decodes in the real plugin.
+
+## Where the code comes from
+
+The firmware (`firmware/GP_mmwaveBreath_and_Pulse_02.ino`) is built on
+Seeed's own `Seeed_Arduino_mmWave` library for the MR60BHA2 sensor — see
+`firmware/README.md` for exactly which calls come from that library. The
+20-byte BLE packet this plugin decodes is a bespoke protocol layered on top
+of it by this project, not a Seeed-published format; `adapter.py`'s decoder
+and this repo's firmware are each other's only source of truth for that
+layout (kept in sync via `software/tests/test_mr60_mini_radar.py`).
+
 ## Important Settings
 
 Radar settings live in:

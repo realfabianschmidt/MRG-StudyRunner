@@ -2,6 +2,7 @@
 
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
+import { openPluginConsole } from './plugin-console.js';
 import {
   getPluginCatalog,
   getPluginUiExtension,
@@ -29,6 +30,11 @@ export function initializeAdminDashboard(options = {}) {
   elements.dashboardButton.addEventListener('click', () => showDashboard(elements));
   elements.backButton?.addEventListener('click', () => showEditor(elements));
   elements.dashboard.addEventListener('click', (event) => {
+    const consoleButton = event.target.closest('[data-plugin-console]');
+    if (consoleButton?.dataset.pluginConsole) {
+      void openPluginConsole(consoleButton.dataset.pluginConsole, { showToast });
+      return;
+    }
     const button = event.target.closest('[data-dashboard-action]');
     if (button) {
       void runDashboardAction(button, elements, showToast);
@@ -208,7 +214,7 @@ function renderSensorTiles(target, status) {
     return `
       <article class="dashboard-card" data-plugin-tile="${escapeHtml(item.key)}">
         <div class="dashboard-card-title"><i class="${escapeHtml(icon)}"></i> <span>${escapeHtml(item.label || item.key)}</span></div>
-        <div class="dashboard-card-body">${detail}${renderPluginAdminActions(item.manifest, item)}</div>
+        <div class="dashboard-card-body">${detail}${renderPluginAdminActions(item.manifest, item)}${renderPluginConsoleButton(item.manifest)}</div>
       </article>`;
   }).join('');
 }
@@ -294,6 +300,15 @@ function renderManifestActionButton(action, manifest, payload, detail) {
     </button>`;
 }
 
+function renderPluginConsoleButton(manifest, compact = false) {
+  if (!manifest?.runtime?.interactive_stdin) return '';
+  const className = compact ? 'btn-secondary btn-xs' : 'btn-secondary';
+  const button = `<button type="button" class="${className}" data-plugin-console="${escapeHtml(manifest.plugin_key)}">
+      <i class="iconoir-terminal"></i> ${escapeHtml(t('pluginConsole.open', 'Diagnostics'))}
+    </button>`;
+  return compact ? button : `<div class="dashboard-actions plugin-console-action">${button}</div>`;
+}
+
 function readObjectPath(source, path) {
   return String(path || '').split('.').reduce(
     (value, key) => (value && typeof value === 'object' ? value[key] : undefined),
@@ -353,7 +368,10 @@ function renderClients(target, clients) {
 function renderPluginControls(target, plugins, status = {}) {
   if (!target) return;
   const rows = getPluginCatalog().plugins
-    .filter((manifest) => isPluginVisible(manifest, PLUGIN_UI_SURFACES.DASHBOARD))
+    .filter((manifest) => (
+      isPluginVisible(manifest, PLUGIN_UI_SURFACES.DASHBOARD)
+      || manifest?.runtime?.interactive_stdin
+    ))
     .map((manifest) => ({
       ...(plugins[manifest.plugin_key] || {}),
       key: manifest.plugin_key,
@@ -401,6 +419,7 @@ function renderPluginControlRow(item, sensorRuntime = {}) {
       </div>
       <div class="plugin-control-actions">
         <span class="plugin-control-note">${escapeHtml(item.can_toggle ? t('dashboard.settingsManagedInHub', 'Settings hub') : t('dashboard.managedByParent', 'Managed by parent plugin'))}</span>
+        ${renderPluginConsoleButton(item.manifest, true)}
       </div>
     </div>`;
 }

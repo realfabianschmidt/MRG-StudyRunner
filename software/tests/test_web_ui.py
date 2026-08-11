@@ -440,7 +440,13 @@ class SettingsShellTests(unittest.TestCase):
     def test_absorbed_views_are_gone(self) -> None:
         admin = _read(WEB / "pages" / "admin.html")
 
-        for removed in ('id="view-nextcloud-settings"', 'id="study-settings-modal"'):
+        for removed in (
+            'id="view-nextcloud-settings"',
+            'id="view-notion-settings"',
+            'data-shell-panel="notion"',
+            'data-shell-panel="nextcloud"',
+            'id="study-settings-modal"',
+        ):
             self.assertNotIn(removed, admin, "absorbed into the study settings panel")
 
     def test_nav_items_reuse_the_existing_tab_styling(self) -> None:
@@ -504,18 +510,31 @@ class PluginUiContractTests(unittest.TestCase):
         self.assertNotIn("settingsHubAction('notion'", machine_panel)
         self.assertNotIn("settingsHubAction('nextcloud'", machine_panel)
 
-    def test_destination_special_settings_are_reachable_without_a_core_key_list(self) -> None:
+    def test_destination_credentials_and_actions_are_manifest_driven(self) -> None:
         study_panel = _read(WEB / "scripts" / "settings" / "study" / "study-settings-panel.js")
-        notion = _read(WEB / "scripts" / "settings" / "study" / "notion-settings-controller.js")
-        nextcloud = _read(WEB / "scripts" / "settings" / "study" / "nextcloud-settings-controller.js")
+        machine_panel = _read(WEB / "scripts" / "settings" / "machine" / "machine-settings-panel.js")
+        admin_html = _read(WEB / "pages" / "admin.html").lower()
 
-        self.assertIn("`btn-${String(pluginKey || '')}-settings`", study_panel)
-        self.assertIn("data-plugin-special-settings", study_panel)
-        self.assertNotIn("btn-notion-settings", study_panel)
-        self.assertNotIn("btn-nextcloud-settings", study_panel)
-        self.assertIn("$('btn-notion-settings')?.addEventListener", notion)
-        self.assertIn("byId('btn-nextcloud-settings')?.addEventListener", nextcloud)
-        self.assertIn("callbacks.openStudySettingsPanel?.('nextcloud')", nextcloud)
+        self.assertIn("capability_config?.credentials", study_panel)
+        self.assertIn("capability_config?.admin_actions", study_panel)
+        self.assertIn("data-study-plugin-credential", study_panel)
+        self.assertIn("data-study-plugin-action", study_panel)
+        self.assertIn("capability_config?.credentials", machine_panel)
+        self.assertNotIn("notion", study_panel.lower())
+        self.assertNotIn("nextcloud", study_panel.lower())
+        self.assertNotIn("btn-notion", admin_html)
+        self.assertNotIn("btn-nextcloud", admin_html)
+        self.assertFalse((WEB / "scripts" / "settings" / "study" / "notion-settings-controller.js").exists())
+        self.assertFalse((WEB / "scripts" / "settings" / "study" / "nextcloud-settings-controller.js").exists())
+
+    def test_missing_plugin_placeholder_is_read_only_until_confirmed_removal(self) -> None:
+        study_panel = _read(WEB / "scripts" / "settings" / "study" / "study-settings-panel.js")
+
+        self.assertIn("data-unavailable-plugin", study_panel)
+        self.assertIn("data-remove-unavailable-plugin", study_panel)
+        self.assertIn("window.confirm(message)", study_panel)
+        self.assertIn("const plugins = { ...current.plugins }", study_panel)
+        self.assertIn("const sensors = { ...current.sensors }", study_panel)
 
     def test_finalization_view_accepts_unknown_steps_and_is_accessible(self) -> None:
         view = _read(WEB / "scripts" / "admin" / "finalization-monitor-view.js")
@@ -542,11 +561,14 @@ class PluginUiContractTests(unittest.TestCase):
         source = _read(WEB / "scripts" / "participant" / "study-controller.js")
         start = source.index("async function startStimulusCard")
         schedule = source.index("const scheduleStartMs = performance.now()", start)
-        prepare = source.index("await postJson('/api/trial/prepare'", start)
+        prepare = source.index("'/api/trial/prepare'", start)
 
         self.assertLess(schedule, prepare)
         self.assertNotIn("await sendReliableStudyEvent('/api/stop'", source)
-        self.assertIn("planned_deadline_epoch_ms: plannedDeadlineEpochMs", source[schedule:prepare + 700])
+        self.assertIn(
+            "planned_deadline_epoch_ms: estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs)",
+            source[schedule:prepare + 700],
+        )
 
 
 if __name__ == "__main__":

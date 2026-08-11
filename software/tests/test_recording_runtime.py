@@ -38,6 +38,13 @@ from study_runner.backend.services.recording.recording_runtime import (
     _recovery_backup_grid_anchor,
     recording_lsl_dependency_status,
 )
+from study_runner.backend.services.recording.recording_contract import (
+    build_recording_contract,
+    load_recording_contract,
+)
+from study_runner.backend.services.recording.recording_runtime_support import RecordingRuntimeError
+from study_runner.plugin_framework.registry import get_plugin_manifest
+from study_runner.backend.services.recording.recording_quality import scientific_source_checks
 from study_runner.backend.services.delivery.finalization_service import FinalizationError
 from study_runner.backend.services.recording.recording_dependencies import (
     PINNED_PYLSL_VERSION,
@@ -150,6 +157,107 @@ class RecordingRuntimeTests(unittest.TestCase):
             session_roots = list((root / "saved_results" / "study" / "participants").glob("*/sessions/*"))
             self.assertEqual(len(session_roots), 1)
             self.assertTrue((session_roots[0] / "raw/plugins/brainbit/segments.json").is_file())
+            plan = json.loads(
+                (session_roots[0] / "recording-plan.json").read_text(encoding="utf-8")
+            )
+            contract = load_recording_contract(plan)
+            self.assertIsNotNone(contract)
+            self.assertEqual(contract["schema"], "study-runner/recording-contract/v1")
+            self.assertEqual(contract["selected_source_keys"], result["plugins"])
+            self.assertEqual(
+                contract["streams_by_source"]["brainbit"],
+                contract["source_manifests"]["brainbit"]["streams"],
+            )
+            self.assertEqual(contract["backup"]["channel_names"], channel_names)
+            self.assertEqual(len(contract["sha256"]), 64)
+
+    def test_device_confirmed_channels_are_sealed_separately_from_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            binary = root / "fake-worker.exe"
+            binary.write_bytes(b"worker")
+            runtime = RecordingRuntimeService(
+                root / "saved_results",
+                root,
+                configured_worker_path=binary,
+                launcher_factory=FakeLauncher,
+            )
+            manifest_eeg = next(
+                stream
+                for stream in get_plugin_manifest("brainbit")["streams"]
+                if stream["key"] == "eeg"
+            )
+            actual_eeg = {
+                **manifest_eeg,
+                "channels": ["O1", "O2", "T3", "T4", "F3", "F4", "C3", "C4"],
+                "channel_units": ["microvolt"] * 8,
+            }
+            runtime.start_session(
+                {
+                    "study_id": "study",
+                    "participant_id": "p01",
+                    "session_id": "dynamic-contract",
+                    "started_at_epoch": 1_753_920_000.0,
+                },
+                {
+                    "study_id": "study",
+                    "study_settings": {
+                        "plugins": {
+                            "brainbit": {"enabled": True, "required": True, "settings": {}}
+                        }
+                    },
+                },
+                {"brainbit": {"enabled": True}},
+                {
+                    "brainbit": {
+                        "ok": True,
+                        "result": {"actual_streams": [actual_eeg]},
+                    }
+                },
+            )
+
+            plan_path = next((root / "saved_results").glob("*/participants/*/sessions/*/recording-plan.json"))
+            contract = load_recording_contract(json.loads(plan_path.read_text(encoding="utf-8")))
+            self.assertIsNotNone(contract)
+
+        self.assertEqual(len(contract["source_manifests"]["brainbit"]["streams"][0]["channels"]), 4)
+        self.assertEqual(contract["streams_by_source"]["brainbit"][0]["channels"], actual_eeg["channels"])
+        self.assertEqual(
+            contract["source_descriptors"]["brainbit"]["stream_contract_origin"],
+            "runtime",
+        )
+        self.assertEqual(len(contract["source_descriptors"]["brainbit"]["manifest_sha256"]), 64)
+
+    def test_dynamic_stream_plugin_cannot_fall_back_to_manifest_in_http_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            binary = root / "fake-worker.exe"
+            binary.write_bytes(b"worker")
+            runtime = RecordingRuntimeService(
+                root / "saved_results",
+                root,
+                configured_worker_path=binary,
+                launcher_factory=FakeLauncher,
+            )
+            with self.assertRaisesRegex(RecordingRuntimeError, "runtime stream contract"):
+                runtime.start_session(
+                    {
+                        "study_id": "study",
+                        "participant_id": "p01",
+                        "session_id": "missing-contract",
+                        "started_at_epoch": 1_753_920_000.0,
+                    },
+                    {
+                        "study_id": "study",
+                        "study_settings": {
+                            "plugins": {
+                                "brainbit": {"enabled": True, "required": True, "settings": {}}
+                            }
+                        },
+                    },
+                    {"brainbit": {"enabled": True}},
+                    {},
+                )
 
     def test_missing_worker_is_fail_closed_in_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -217,6 +325,126 @@ class RecordingRuntimeTests(unittest.TestCase):
             self.assertEqual(len(plan["backup"]["segments"]), 2)
             self.assertIn("recovery-0002.xdf", plan["backup"]["segments"][1]["relative_path"])
             self.assertEqual(plan["backup"]["segments"][1]["grid_anchor_epoch"], 112.0)
+
+    def test_recovery_uses_snapshot_after_all_catalog_plugins_disappear(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            binary = root / "fake-worker.exe"
+            binary.write_bytes(b"worker")
+            runtime = DeadFirstGenerationRuntime(
+                root / "saved_results",
+                root,
+                configured_worker_path=binary,
+                launcher_factory=FakeLauncher,
+            )
+            config = {
+                "study_id": "study",
+                "study_settings": {
+                    "plugins": {
+                        "brainbit": {"enabled": True, "required": True, "settings": {}},
+                    }
+                },
+            }
+            session = {
+                "study_id": "study",
+                "participant_id": "p01",
+                "session_id": "session-plugin-removal",
+                "started_at_epoch": 1_753_920_000.0,
+            }
+            runtime.start_session(session, config, {"lsl": {"enabled": True}})
+
+            with (
+                mock.patch(
+                    "study_runner.backend.services.recording.recording_dependencies.get_plugin_manifests",
+                    return_value={},
+                ),
+                mock.patch(
+                    "study_runner.backend.services.recording.recording_runtime.get_plugin_manifests_with_internal_sources",
+                    side_effect=AssertionError("recovery consulted the live catalog"),
+                ),
+                mock.patch(
+                    "study_runner.backend.services.recording.recording_runtime.get_backup_projection_specs",
+                    side_effect=AssertionError("recovery rebuilt backup from the live catalog"),
+                ),
+            ):
+                recovered = runtime.start_session(
+                    {**session, "reused": True},
+                    config,
+                    {"lsl": {"enabled": True}},
+                )
+
+            self.assertEqual(recovered["worker"]["generation"], 2)
+            brainbit_starts = [
+                command
+                for command in FakeLauncher.commands
+                if command["name"] == "start_recording_source"
+                and command["payload"]["plugin_key"] == "brainbit"
+            ]
+            self.assertEqual(len(brainbit_starts), 2)
+            self.assertGreater(len(brainbit_starts[1]["payload"]["streams"]), 0)
+            backup_starts = [
+                command for command in FakeLauncher.commands
+                if command["name"] == "start_backup_projection"
+            ]
+            self.assertEqual(
+                backup_starts[1]["payload"]["projections"],
+                backup_starts[0]["payload"]["projections"],
+            )
+
+    def test_scientific_checks_fail_closed_on_tamper_and_ignore_live_catalog(self) -> None:
+        manifest = {
+            "plugin_key": "fixture",
+            "version": "1.0.0",
+            "capabilities": ["study_sensor", "recording_source"],
+            "streams": [
+                {
+                    "key": "signal",
+                    "source_id": "fixture.original",
+                    "nominal_rate_hz": 10,
+                    "channels": ["value"],
+                    "channel_units": ["arbitrary_unit"],
+                }
+            ],
+        }
+        backup = {
+            "rate_hz": 1.0,
+            "artifact_role": "derived_backup",
+            "resampling_strategy": "latest_cached_at_slowest_projection_grid; stale_to_nan",
+            "quality_channels": ["valid", "sample_age_ms", "sequence", "status"],
+            "channel_names": ["fixture.signal.value"],
+            "source_rates_hz": {"fixture.signal": 10},
+            "active_plugins": ["fixture"],
+            "projections": [
+                {
+                    "plugin_key": "fixture",
+                    "rate_hz": 1.0,
+                    "channels": [],
+                }
+            ],
+        }
+        contract = build_recording_contract(
+            ["fixture"], ["fixture"], {"fixture": manifest}, backup
+        )
+        plan = {
+            "recording_plugins": ["fixture"],
+            "required_source_keys": ["fixture"],
+            "recording_contract": contract,
+            "backup": None,
+        }
+        with mock.patch(
+            "study_runner.backend.services.recording.recording_quality.get_plugin_manifests_with_internal_sources",
+            side_effect=AssertionError("quality checks consulted the live catalog"),
+        ):
+            issues, metrics = scientific_source_checks(plan, [])
+        self.assertIn("missing_declared_stream", {issue.code for issue in issues})
+        self.assertTrue(metrics["recording_contract"]["valid"])
+
+        plan["recording_contract"]["streams_by_source"]["fixture"][0]["source_id"] = (
+            "fixture.tampered"
+        )
+        issues, metrics = scientific_source_checks(plan, [])
+        self.assertIn("recording_contract_invalid", {issue.code for issue in issues})
+        self.assertFalse(metrics["recording_contract"]["valid"])
 
     def test_hybrid_launcher_uses_python_entrypoint_and_explicit_core(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

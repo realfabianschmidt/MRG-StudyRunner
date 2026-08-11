@@ -1,7 +1,7 @@
 /**
  * The certificate settings page.
  *
- * Same shape as the Notion and Nextcloud pages: setup steps that show what is
+ * Same shape as the other settings pages: setup steps that show what is
  * still missing, a status block, and one card per action. The QR code has a
  * single job - the tablet scans it and downloads the certificate.
  */

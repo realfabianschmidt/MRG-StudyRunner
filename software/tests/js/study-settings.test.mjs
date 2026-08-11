@@ -83,3 +83,36 @@ assert.equal(legacyOnly.plugins.notion.enabled, true);
 assert.equal(legacyOnly.plugins.notion.settings.database_id, 'legacy-db');
 assert.equal(legacyOnly.plugins.nextcloud.enabled, true);
 assert.equal(legacyOnly.plugins.nextcloud.settings.share_link, 'https://cloud.example/s/legacy');
+
+// Removing every plugin must not turn loading/saving into a destructive
+// migration. The master recording choice, unknown legacy sensor key, opaque
+// plugin settings and required flag all survive until explicit removal.
+configurePluginCatalog({ api_version: 4, plugins: [], invalid_plugins: [] });
+const withoutInstalledPlugins = normalizeStudySettings({
+  sensors_enabled: true,
+  sensors: { absent_sensor: true },
+  plugins: {
+    absent_sensor: {
+      enabled: true,
+      required: true,
+      settings: { channel_map: ['A', 'B'], future_field: { nested: true } },
+    },
+    absent_destination: {
+      enabled: true,
+      required: false,
+      settings: { public_target: 'opaque-but-preserved' },
+    },
+  },
+});
+assert.equal(withoutInstalledPlugins.sensors_enabled, true);
+assert.equal(withoutInstalledPlugins.sensors.absent_sensor, true);
+assert.deepEqual(withoutInstalledPlugins.plugins.absent_sensor, {
+  enabled: true,
+  required: true,
+  settings: { channel_map: ['A', 'B'], future_field: { nested: true } },
+});
+assert.deepEqual(withoutInstalledPlugins.plugins.absent_destination, {
+  enabled: true,
+  required: false,
+  settings: { public_target: 'opaque-but-preserved' },
+});

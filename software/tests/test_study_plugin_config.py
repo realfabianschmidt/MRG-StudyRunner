@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -11,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from study_runner.backend.services.studies.study_plugin_config import (
     migrate_study_plugin_config,
+    normalize_card_plugin_actions,
     normalize_study_settings_plugins,
 )
 from study_runner.backend.services.studies.study_readiness_service import check_study_readiness
@@ -87,6 +89,84 @@ class StudyPluginMigrationTests(unittest.TestCase):
             validated["study_settings"]["plugins"]["future_sensor"],
             {"enabled": True, "required": True, "settings": {"mode": "fast"}},
         )
+
+    def test_empty_catalog_preserves_missing_plugins_and_card_actions_opaquely(self) -> None:
+        from study_runner.backend.services.recording import study_sensor_runtime
+        from study_runner.plugin_framework import registry
+
+        source = {
+            "study_id": "Portable study",
+            "questions": [
+                {
+                    "type": "stimulus",
+                    "duration_ms": 1000,
+                    "plugin_actions": {
+                        "future_sensor": {
+                            "nested": {"thresholds": [1, 2, 3]},
+                            "mode": "developer-v2",
+                        }
+                    },
+                },
+                {"type": "finish"},
+            ],
+            "study_settings": {
+                "sensors_enabled": True,
+                "sensors": {"future_sensor": True},
+                "plugins": {
+                    "future_sensor": {
+                        "enabled": True,
+                        "required": True,
+                        "settings": {"nested": {"gain": [1, 2]}, "mode": "fast"},
+                    },
+                    "optional_destination": {
+                        "enabled": True,
+                        "required": False,
+                        "settings": {"target": {"folder": "raw"}},
+                    },
+                },
+            },
+        }
+        with (
+            mock.patch.object(registry, "get_plugin_manifests", return_value={}),
+            mock.patch.object(study_sensor_runtime, "STUDY_SENSOR_KEYS", ()),
+        ):
+            validated = validate_and_normalize_config(source)
+            readiness = check_study_readiness(validated, {}, {}, https_active=True)
+
+        settings = validated["study_settings"]
+        self.assertEqual(settings["sensors"], {})
+        self.assertFalse(settings["sensors_enabled"])
+        self.assertEqual(
+            settings["plugins"]["future_sensor"]["settings"],
+            source["study_settings"]["plugins"]["future_sensor"]["settings"],
+        )
+        self.assertEqual(
+            validated["questions"][0]["plugin_actions"],
+            source["questions"][0]["plugin_actions"],
+        )
+        unavailable = {
+            blocker["plugin"]: blocker
+            for blocker in readiness["blockers"]
+            if blocker["code"] == "plugin_unavailable"
+        }
+        self.assertTrue(unavailable["future_sensor"]["blocking"])
+        self.assertFalse(unavailable["optional_destination"]["blocking"])
+        self.assertTrue(readiness["start_blocked"])
+
+    def test_unknown_card_actions_are_deep_copied_without_a_manifest(self) -> None:
+        actions = {
+            "future_sensor": {
+                "nested": {"labels": ["a", "b"]},
+                "enabled": "vendor-specific",
+            }
+        }
+        normalized = normalize_card_plugin_actions(
+            {"type": "stimulus", "plugin_actions": actions},
+            manifests={},
+        )
+        self.assertEqual(normalized, actions)
+        self.assertIsNot(normalized, actions)
+        self.assertIsNot(normalized["future_sensor"]["nested"], actions["future_sensor"]["nested"])
 
     def test_legacy_emotion_worker_plugin_becomes_camera_emotion(self) -> None:
         migrated = normalize_study_settings_plugins(

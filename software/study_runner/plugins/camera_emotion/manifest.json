@@ -1,10 +1,25 @@
 {
-  "api_version": 3,
+  "api_version": 4,
   "plugin_key": "camera_emotion",
   "version": "1.0.0",
   "category": "biosignal",
   "config_key": "camera_emotion",
   "entry_point": "plugin:PLUGIN",
+  "runtime": {
+    "entrypoint": "driver.py",
+    "protocol": "study-runner-stdio/v1",
+    "interactive_stdin": true,
+    "modes": ["runtime", "diagnostics"],
+    "sample_delivery": "declared_transport",
+    "actions": ["start", "stop"],
+    "trial_events": [],
+    "can_toggle": true,
+    "sidecar": {
+      "sensor": "camera_emotion",
+      "filename_suffix": "camera_emotion_signals",
+      "output_key": "camera_emotion_file"
+    }
+  },
   "lifecycle": {"reinitialize_on_disable": true},
   "ui": {
     "label": "Tablet camera emotion",

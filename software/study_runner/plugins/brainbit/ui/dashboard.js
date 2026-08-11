@@ -3,9 +3,12 @@ export function renderDashboard({ plugin: brainbit }, ui) {
   const latest = brainbit.latest || {};
   const battery = latest.battery || {};
   const quality = latest.quality || {};
+  const resistance = latest.resist || {};
+  const eeg = latest.eeg || {};
   const bands = latest.bands || {};
   const mental = latest.mental || {};
   const calibration = latest.calibration || {};
+  const channels = channelLabels(brainbit, latest);
   const contactState = brainbit.contact_quality_state
     || latest.contact_quality_state
     || brainbit.health?.contact
@@ -14,20 +17,27 @@ export function renderDashboard({ plugin: brainbit }, ui) {
   return `
     <div class="status-row">
       <span class="status-pill status-pill--${ui.escapeHtml(brainbit.status || 'unknown')}">${ui.escapeHtml(ui.statusLabel(brainbit.status))}</span>
-      <strong>${ui.formatEnabled(brainbit.configured_enabled)}</strong>
+      <strong>${ui.formatEnabled(brainbit.configured_enabled ?? brainbit.enabled)}</strong>
     </div>
     <dl class="status-list">
       <dt>${ui.fieldLabel('scanWindow', 'Scan window')}</dt><dd>${ui.formatValue(brainbit.scan_timeout_seconds, ' s')} (${ui.escapeHtml(brainbit.scan_mode || 'one-shot')})</dd>
       <dt>${ui.fieldLabel('lastScan', 'Last scan')}</dt><dd>${ui.escapeHtml(brainbit.last_scan_started_at || '-')}</dd>
       <dt>${ui.fieldLabel('band', 'Band')}</dt><dd>${renderBand(brainbit, ui)}</dd>
+      <dt>${ui.fieldLabel('channels', 'Channels')}</dt><dd>${channels.length ? ui.escapeHtml(channels.join(', ')) : '-'}</dd>
       <dt>${ui.fieldLabel('battery', 'Battery')}</dt><dd>${ui.formatValue(battery.percent, '%')}</dd>
-      <dt>${ui.fieldLabel('quality', 'Quality')}</dt><dd>${formatQuality(quality, contactState, ui)}</dd>
+      <dt>${ui.fieldLabel('rawEeg', 'Latest raw EEG')}</dt><dd>${formatExactChannels(eeg, channels, ui, latest.eeg_batch?.units || '')}</dd>
+      <dt>${ui.fieldLabel('resistance', 'Resistance')}</dt><dd>${formatExactChannels(resistance, channels, ui, resistance.units || 'Ohm')}</dd>
+      <dt>${ui.fieldLabel('quality', 'Quality')}</dt><dd>${formatQuality(quality, channels, contactState, ui)}</dd>
       <dt>${ui.fieldLabel('bands', 'Bands')}</dt><dd>${ui.formatSensorChannels(bands, ['delta', 'theta', 'alpha', 'beta', 'gamma'])}</dd>
       <dt>${ui.fieldLabel('mental', 'Mental')}</dt><dd>${ui.formatSensorChannels(mental, ['Inst_Attention', 'Inst_Relaxation', 'Rel_Attention', 'Rel_Relaxation'])}</dd>
       <dt>${ui.fieldLabel('calibration', 'Calibration')}</dt><dd>${formatCalibration(calibration, ui)}</dd>
+      <dt>${ui.fieldLabel('health', 'Acquisition health')}</dt><dd>${formatHealth(brainbit.health || {}, ui)}</dd>
+      <dt>${ui.fieldLabel('integrity', 'Packet integrity')}</dt><dd>${formatIntegrity(latest, ui)}</dd>
+      <dt>${ui.fieldLabel('streams', 'Actual streams')}</dt><dd>${formatStreams(brainbit.actual_streams || latest.actual_streams, ui)}</dd>
       <dt>${ui.fieldLabel('brainbitDataLsl', 'BrainBit data LSL')}</dt><dd>${ui.formatEnabled(brainbit.lsl_enabled)}</dd>
       <dt>${ui.fieldLabel('touchdesigner', 'TouchDesigner')}</dt><dd>${ui.formatEnabled(brainbit.touchdesigner_forwarding_enabled)}</dd>
       <dt>${ui.fieldLabel('lastActive', 'Last active')}</dt><dd>${ui.formatTimestampAge(latest.last_activity_at || brainbit.last_activity_at, brainbit.seconds_since_last_activity)}</dd>
+      <dt>${ui.fieldLabel('diagnostics', 'Diagnostics')}</dt><dd>${formatDiagnostics(brainbit, latest, ui)}</dd>
       <dt>${ui.fieldLabel('message', 'Message')}</dt><dd>${formatMessage(brainbit, latest, ui)}</dd>
     </dl>
     ${ui.renderRuntimeButtons(brainbit)}
@@ -45,11 +55,98 @@ function formatMessage(brainbit, latest, ui) {
     : ui.escapeHtml(message);
 }
 
-function formatQuality(quality, contactState, ui) {
-  const channels = ui.formatSensorChannels(quality, ['O1', 'O2', 'T3', 'T4']);
+function formatQuality(quality, channelNames, contactState, ui) {
+  const channels = formatExactChannels(quality, channelNames, ui, quality.units || 'ratio');
   const contact = ui.formatHealthValue(contactState);
   if (channels === '-') return contact === '-' ? '-' : contact;
   return `${channels}<br><span class="status-muted">${ui.escapeHtml(ui.t('dashboard.contactPrefix', 'contact'))}: ${contact}</span>`;
+}
+
+function channelLabels(brainbit, latest) {
+  const direct = brainbit.supported_channels || latest.supported_channels;
+  if (Array.isArray(direct) && direct.length) return uniqueLabels(direct);
+  const streams = brainbit.actual_streams || latest.actual_streams || [];
+  const eegStream = Array.isArray(streams) ? streams.find((stream) => stream?.key === 'eeg') : null;
+  if (Array.isArray(eegStream?.channels) && eegStream.channels.length) return uniqueLabels(eegStream.channels);
+  const batchChannels = latest.eeg_batch?.channels;
+  if (Array.isArray(batchChannels) && batchChannels.length) return uniqueLabels(batchChannels);
+  for (const source of [latest.eeg, latest.resist, latest.quality]) {
+    if (source && typeof source === 'object') {
+      const labels = Object.keys(source).filter((key) => !CHANNEL_METADATA.has(key));
+      if (labels.length) return uniqueLabels(labels);
+    }
+  }
+  return [];
+}
+
+function uniqueLabels(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+const CHANNEL_METADATA = new Set([
+  'ts', 'pack', 'marker', 'units', 'source_units', 'processing', 'packet_shape',
+  'open_channels', 'referents_ohm', 'resistance_upper_ohm', 'quality_model',
+]);
+
+function formatExactChannels(source, channels, ui, unit = '') {
+  if (!source || typeof source !== 'object') return '-';
+  const labels = channels.length
+    ? channels
+    : Object.keys(source).filter((key) => !CHANNEL_METADATA.has(key));
+  const rows = labels
+    .filter((label) => source[label] !== undefined)
+    .map((label) => {
+      const value = source[label];
+      const rendered = value === null ? 'null' : String(value);
+      return `${ui.escapeHtml(label)}: ${ui.escapeHtml(rendered)}${unit ? ` ${ui.escapeHtml(unit)}` : ''}`;
+    });
+  return rows.length ? rows.join('<br>') : '-';
+}
+
+function formatHealth(health, ui) {
+  const keys = ['process', 'connection', 'raw_eeg', 'derived_metrics', 'data_integrity', 'recording', 'log_output'];
+  const rows = keys
+    .filter((key) => health[key] !== undefined)
+    .map((key) => `${ui.escapeHtml(key.replaceAll('_', ' '))}: ${ui.formatHealthValue(health[key])}`);
+  return rows.length ? rows.join('<br>') : '-';
+}
+
+function formatIntegrity(latest, ui) {
+  const batch = latest.eeg_batch || {};
+  const warning = latest.data_warning || {};
+  const rows = [
+    `batch samples: ${batch.sample_count ?? '-'}`,
+    `last packet: ${batch.last_pack ?? '-'}`,
+    `gap frames (batch / total): ${batch.packet_gap_frames ?? 0} / ${batch.packet_gap_frames_total ?? warning.packet_gap_frames_total ?? 0}`,
+    `counter resets: ${batch.packet_counter_reset_total ?? warning.packet_counter_reset_total ?? 0}`,
+    `warnings: ${latest.data_warning_count ?? 0}`,
+  ];
+  return rows.map((row) => ui.escapeHtml(row)).join('<br>');
+}
+
+function formatStreams(streams, ui) {
+  if (!Array.isArray(streams) || !streams.length) return '-';
+  return streams.map((stream) => {
+    const rate = Number(stream?.nominal_rate_hz);
+    const rateLabel = Number.isFinite(rate) && rate > 0 ? `${rate} Hz` : 'irregular';
+    const channels = Array.isArray(stream?.channels) ? stream.channels.join(', ') : '-';
+    return ui.escapeHtml(`${stream?.key || stream?.type || 'stream'} · ${rateLabel} · ${channels}`);
+  }).join('<br>');
+}
+
+function formatDiagnostics(brainbit, latest, ui) {
+  const entries = [
+    ['callback', latest.callback_error],
+    ['stream', latest.stream_error],
+    ['LSL', latest.lsl_error || brainbit.lsl_error],
+    ['log', latest.log_error],
+    ['data', latest.data_warning],
+  ].filter(([, value]) => value);
+  if (!entries.length) return ui.escapeHtml(`log: ${brainbit.raw_log_path || '-'}`);
+  return entries.map(([label, value]) => {
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    return `${ui.escapeHtml(label)}: ${ui.escapeHtml(text)}`;
+  }).join('<br>');
 }
 
 function renderBand(brainbit, ui) {

@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-PLUGIN_API_VERSION = 3
+PLUGIN_API_VERSION = 4
+SUPPORTED_PLUGIN_API_VERSIONS = (3, 4)
 
 
 StatusPayload = dict[str, Any]
@@ -23,6 +24,7 @@ IntervalExportHandler = Callable[["PluginContext", float, float], list[dict[str,
 StatusHandler = Callable[["PluginContext"], StatusPayload]
 UploadDestinationHandler = Callable[["PluginContext", dict[str, Any]], dict[str, Any]]
 StudySettingValidator = Callable[[str, str], None]
+ConsoleLineHandler = Callable[["PluginContext", str], Any]
 
 
 @dataclass(frozen=True)
@@ -116,6 +118,7 @@ class Plugin:
     export_interval_samples: IntervalExportHandler | None = None
     publish_destination: UploadDestinationHandler | None = None
     validate_study_setting: StudySettingValidator | None = None
+    handle_console_line: ConsoleLineHandler | None = None
     sidecar_sensor: str | None = None
     sidecar_filename_suffix: str | None = None
     sidecar_output_key: str | None = None

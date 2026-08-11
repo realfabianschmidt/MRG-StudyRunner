@@ -9,7 +9,7 @@ from ..services.settings.admin_status_service import build_admin_status
 from ..services.settings.runtime_config import build_runtime_info
 from ..services.settings.shortcut_service import ShortcutError, create_desktop_shortcut
 from ..services.studies.study_client_service import get_client_status
-from ..services.settings.secrets_service import load_local_secrets, save_local_secrets
+from ..services.settings.secrets_service import update_local_secrets
 from ..services.studies.study_config_service import delete_study, list_studies, load_config, load_study, save_config
 from ..services.studies.study_readiness_service import check_study_readiness, describe_credentials
 from ..services.studies.study_secrets_service import (
@@ -118,10 +118,12 @@ def admin_delete_study(study_id):
 
 
 def _forget_study_credentials(study_id: str) -> None:
-    secrets = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
-    if forget_study_secrets(secrets, study_id):
-        save_local_secrets(current_app.config["LOCAL_SECRETS_FILE"], secrets)
-        current_app.config["LOCAL_SECRETS"] = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
+    secrets, changed = update_local_secrets(
+        current_app.config["LOCAL_SECRETS_FILE"],
+        lambda stored: forget_study_secrets(stored, study_id),
+    )
+    if changed:
+        current_app.config["LOCAL_SECRETS"] = secrets
 
 
 @bp.route("/api/admin/studies/<study_id>/credentials", methods=["GET"])
@@ -150,26 +152,28 @@ def admin_set_study_credentials(study_id):
     the fields named in the body are touched, never the whole secrets file.
     """
     payload = request.get_json(silent=True) or {}
-    secrets = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
-    changed = []
-
-    for kind in secret_fields():
-        clear_requested = payload.get(f"clear_{kind}") is True
-        raw_value = payload.get(kind)
-        if not clear_requested and raw_value is None:
-            continue
-        value = "" if clear_requested else str(raw_value or "")
-        try:
+    def apply_updates(secrets):
+        changed = []
+        for kind in secret_fields():
+            clear_requested = payload.get(f"clear_{kind}") is True
+            raw_value = payload.get(kind)
+            if not clear_requested and raw_value is None:
+                continue
+            value = "" if clear_requested else str(raw_value or "")
             set_study_secret(secrets, study_id, kind, value)
-        except ValueError as error:
-            return jsonify({"ok": False, "error": str(error)}), 400
-        changed.append(kind)
+            changed.append(kind)
+        if not changed:
+            raise ValueError("No credential was provided.")
+        return changed
 
-    if not changed:
-        return jsonify({"ok": False, "error": "No credential was provided."}), 400
-
-    save_local_secrets(current_app.config["LOCAL_SECRETS_FILE"], secrets)
-    current_app.config["LOCAL_SECRETS"] = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
+    try:
+        secrets, changed = update_local_secrets(
+            current_app.config["LOCAL_SECRETS_FILE"],
+            apply_updates,
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    current_app.config["LOCAL_SECRETS"] = secrets
     # A changed credential must not keep serving a client cached under the old
     # one - whichever plugin it belongs to, not just the one this used to
     # hardcode.

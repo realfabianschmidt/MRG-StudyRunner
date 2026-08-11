@@ -66,6 +66,7 @@ class StudyRunStateStore:
         normalized = _clean_study_id(study_id)
         now = self._now()
         with self._lock:
+            _expire_console_interventions(self._state.get("run_id"))
             previous_sequence = int(self._state.get("sequence") or 0)
             self._state = {
                 "status": INITIAL_STATUS,
@@ -94,6 +95,8 @@ class StudyRunStateStore:
             if self._state.get("status") == RUNNING_STATUS and self._state.get("study_id") == normalized:
                 return self.public()
 
+            _expire_console_interventions(self._state.get("run_id"))
+
             previous_sequence = int(self._state.get("sequence") or 0)
             loaded_at = self._state.get("loaded_at") if self._state.get("study_id") == normalized else None
             loaded_at_epoch = self._state.get("loaded_at_epoch") if self._state.get("study_id") == normalized else None
@@ -120,6 +123,7 @@ class StudyRunStateStore:
         normalized = _clean_study_id(study_id)
         now = self._now()
         with self._lock:
+            _expire_console_interventions(self._state.get("run_id"))
             previous_sequence = int(self._state.get("sequence") or 0)
             self._state = {
                 **self._state,
@@ -140,6 +144,7 @@ class StudyRunStateStore:
         normalized = _clean_study_id(study_id or self._state.get("study_id") or "")
         now = self._now()
         with self._lock:
+            _expire_console_interventions(self._state.get("run_id"))
             previous_sequence = int(self._state.get("sequence") or 0)
             self._state = {
                 **self._state,
@@ -167,3 +172,14 @@ def _clean_study_id(value: Any) -> str:
 
 def _format_time(timestamp: float) -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
+
+
+def _expire_console_interventions(run_id: Any) -> None:
+    normalized = str(run_id or "").strip()
+    if not normalized:
+        return
+    # Lazy import keeps persisted run-state usable in recovery tools that do
+    # not load the plugin catalog.
+    from study_runner.plugin_framework.process_host import expire_process_console_unlocks
+
+    expire_process_console_unlocks(normalized)

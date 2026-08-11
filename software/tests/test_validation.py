@@ -229,6 +229,8 @@ class ValidationTests(unittest.TestCase):
                         "shown_at": "2026-01-01T10:00:01Z",
                         "active_started_at": "2026-01-01T10:00:02Z",
                         "active_ended_at": "2026-01-01T10:00:09Z",
+                        "visual_onset_epoch_ms": 1767261602000.0,
+                        "onset_uncertainty_ms": 8.5,
                     },
                     {
                         "question_index": 1,
@@ -243,6 +245,8 @@ class ValidationTests(unittest.TestCase):
 
         self.assertEqual(len(result["card_events"]), 2)
         self.assertEqual(result["card_events"][0]["active_started_at"], "2026-01-01T10:00:02Z")
+        self.assertEqual(result["card_events"][0]["visual_onset_epoch_ms"], 1767261602000.0)
+        self.assertEqual(result["card_events"][0]["onset_uncertainty_ms"], 8.5)
 
     def test_optional_question_may_be_missing_but_required_question_still_fails(self) -> None:
         config = validate_and_normalize_config(
@@ -361,12 +365,16 @@ class ValidationTests(unittest.TestCase):
             {
                 "study_id": "Study A",
                 "participant_id": "p01",
+                "session_id": "session-1",
+                "client_id": "tablet-1",
                 "question_index": 2,
                 "question_type": "stimulus",
                 "phase": "stimulus_active_start",
                 "marker_event": "stimulus_active_start",
                 "clock_offset_ms": 250.5,
                 "client_trigger_epoch_ms": 1760000000123.4,
+                "visual_onset_epoch_ms": 1760000000119.0,
+                "onset_uncertainty_ms": 8.5,
                 "planned_start_epoch_ms": 1760000000200.0,
                 "planned_deadline_epoch_ms": 1760000030200.0,
                 "event_id": "start-1",
@@ -378,10 +386,14 @@ class ValidationTests(unittest.TestCase):
         )
 
         self.assertEqual(options["study_id"], "Study A")
+        self.assertEqual(options["session_id"], "session-1")
+        self.assertEqual(options["client_id"], "tablet-1")
         self.assertEqual(options["question_index"], 2)
         self.assertEqual(options["question_type"], "stimulus")
         self.assertEqual(options["marker_event"], "stimulus_active_start")
         self.assertEqual(options["clock_offset_ms"], 250.5)
+        self.assertEqual(options["visual_onset_epoch_ms"], 1760000000119.0)
+        self.assertEqual(options["onset_uncertainty_ms"], 8.5)
         self.assertEqual(options["event_id"], "start-1")
         self.assertEqual(options["stop_event_id"], "stop-1")
         self.assertEqual(options["stimulus_id"], "stimulus-1")
@@ -437,20 +449,25 @@ class ValidationTests(unittest.TestCase):
             {"brainbit": False, "mini_radar": False, "camera_emotion": False},
         )
 
-    def test_study_sensor_selection_rejects_unknown_sensor_keys(self) -> None:
-        with self.assertRaises(ValidationError):
-            validate_and_normalize_config(
-                {
-                    "study_id": "Unknown Sensor",
-                    "study_settings": {
-                        "sensors": {
-                            "brainbit": True,
-                            "unknown_sensor": True,
-                        },
+    def test_study_sensor_selection_migrates_unknown_sensor_to_missing_plugin(self) -> None:
+        config = validate_and_normalize_config(
+            {
+                "study_id": "Unknown Sensor",
+                "study_settings": {
+                    "sensors": {
+                        "brainbit": True,
+                        "unknown_sensor": True,
                     },
-                    "questions": [{"type": "finish"}],
-                }
-            )
+                },
+                "questions": [{"type": "finish"}],
+            }
+        )
+
+        self.assertNotIn("unknown_sensor", config["study_settings"]["sensors"])
+        self.assertEqual(
+            config["study_settings"]["plugins"]["unknown_sensor"],
+            {"enabled": True, "required": True, "settings": {}},
+        )
 
     def test_nextcloud_study_settings_are_normalized_and_validated(self) -> None:
         config = validate_and_normalize_config(

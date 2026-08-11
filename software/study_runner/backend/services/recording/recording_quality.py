@@ -10,6 +10,7 @@ from study_runner.recording.artifacts import ArtifactPaths
 from study_runner.recording.backup import BackupSampler, projections_from_manifest
 from study_runner.recording.recovery import RecordingLeaseStore
 from study_runner.recording.xdf import ValidationIssue, XdfArtifactInspection
+from .recording_contract import RecordingContractError, load_recording_contract
 from .recording_dependencies import get_plugin_manifests_with_internal_sources
 from .recording_runtime_support import RecordingRuntimeError, read_object
 
@@ -136,8 +137,44 @@ def scientific_source_checks(
     """Check declared streams, rates, counts, and marker-time coverage."""
 
     artifacts = list(inspections)
-    manifests = get_plugin_manifests_with_internal_sources()
     required = set(str(key) for key in (plan.get("required_source_keys") or []))
+    try:
+        contract = load_recording_contract(plan)
+    except RecordingContractError as error:
+        issues = [
+            ValidationIssue(
+                code="recording_contract_invalid",
+                message=str(error),
+            )
+        ]
+        backup_metrics = backup_source_checks(plan, artifacts, issues)
+        return issues, {
+            "recording_contract": {"present": True, "valid": False, "error": str(error)},
+            "declared_streams": [],
+            "derived_backup": backup_metrics,
+        }
+
+    if contract is None:
+        manifests = get_plugin_manifests_with_internal_sources()
+        streams_by_source = {
+            plugin_key: list((manifest or {}).get("streams") or [])
+            for plugin_key, manifest in manifests.items()
+        }
+        contract_metrics = {"present": False, "valid": None, "legacy_fallback": True}
+        quality_plan: Mapping[str, Any] = plan
+    else:
+        streams_by_source = contract["streams_by_source"]
+        contract_metrics = {
+            "present": True,
+            "valid": True,
+            "schema": contract["schema"],
+            "sha256": contract["sha256"],
+        }
+        persisted_backup = plan.get("backup") if isinstance(plan.get("backup"), Mapping) else {}
+        quality_plan = {
+            **dict(plan),
+            "backup": {**dict(persisted_backup), **contract["backup"]},
+        }
     aggregated: dict[tuple[str, str], dict[str, Any]] = {}
     for artifact in artifacts:
         for stream in artifact.streams:
@@ -210,8 +247,7 @@ def scientific_source_checks(
     issues: list[ValidationIssue] = []
     metrics: list[dict[str, Any]] = []
     for plugin_key in sorted(required):
-        manifest = manifests.get(plugin_key) or {}
-        for declared in manifest.get("streams") or []:
+        for declared in streams_by_source.get(plugin_key) or []:
             source_id = str(declared.get("source_id") or "")
             key = (plugin_key, source_id)
             actual = aggregated.get(key)
@@ -312,8 +348,12 @@ def scientific_source_checks(
                         source_key=plugin_key,
                     )
                 )
-    backup_metrics = backup_source_checks(plan, artifacts, issues)
-    return issues, {"declared_streams": metrics, "derived_backup": backup_metrics}
+    backup_metrics = backup_source_checks(quality_plan, artifacts, issues)
+    return issues, {
+        "recording_contract": contract_metrics,
+        "declared_streams": metrics,
+        "derived_backup": backup_metrics,
+    }
 
 
 def backup_source_checks(

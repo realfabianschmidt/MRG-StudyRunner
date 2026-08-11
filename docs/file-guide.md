@@ -94,6 +94,8 @@ Edit-safety legend:
 | `services/recording/recording_finalization_adapter.py` | Thin bridge from persistent finalization steps to recording freeze, validation, merge, and shutdown | no |
 | `services/studies/study_plugin_config.py` | Migrates legacy sensor/upload/card fields into plugin API v3 settings | careful |
 | `services/studies/trial_event_service.py` | Persists idempotent trial events and backend-enforced deadlines | no |
+| `services/studies/session_journal_service.py` | Append-only, fsynced per-session audit journals plus terminal-finalization archive | no |
+| `services/recording/recording_contract.py` | Builds and persists the immutable, hash-checked `recording-plan.json` snapshot each session starts with | no |
 
 ## Recording, host side (`software/study_runner/recording/`)
 
@@ -158,25 +160,34 @@ recording code now, not plugins: `recording/markers.py` and
 | `adapter_utils.py` | Shared timestamps, locked state updates, and config-section lookup | careful |
 | `registry.py` | Manifest-driven plugin lookup, generic actions, interval summaries, and sidecar exports | careful |
 | `plugin_catalog.py` | Discovers plugin folders and validates API-v3 manifests before import | no |
+| `driver_runtime.py` | Runtime used by the single `driver.py` entry point every API-v4 plugin process runs | careful |
+| `process_host.py` | Host-side supervisor for API-v4 drivers: start/stop/restart, line-oriented console, reserved-prefix RPC | careful |
 | `history_buffer.py` | Session-sized ring buffers + gap/truncation detection for all sensors | careful |
 | `dependency_utils.py` | Optional auto-install of Python packages sensors need | careful |
 | `__init__.py` (all) | Empty package markers | yes |
 | `brainbit/adapter.py` | Supervises the BrainBit CLI process (has a TOC docstring) | careful |
-| `brainbit/brainbit_realtime_cli.py` | The external BrainBit EEG CLI itself (SOURCE OF TRUTH, mirrored in Sensorik/); also runs inside packaged builds via `--brainbit-cli` | careful |
+| `brainbit/brainbit_realtime_cli.py` | The external BrainBit EEG CLI itself (SOURCE OF TRUTH); also runs inside packaged builds via `--brainbit-cli`. See `plugins/brainbit/README.md` for NeuroSDK/BrainFlow provenance. | careful |
 | `brainbit/plugin.py` | Plugin wrapper: config defaults + lifecycle for BrainBit | careful |
+| `brainbit/driver.py` | API-v4 process entry point (`run_plugin_driver("brainbit")`) | no |
+| `brainbit/diagnose_backends.py` | Standalone 30-second NeuroSDK vs. BrainFlow A/B diagnostic, outside the acquisition path | careful |
 | `mr60_mini_radar/adapter.py` | MR60 heart/breathing radar via serial or BLE, with auto-reconnect | careful |
 | `mr60_mini_radar/plugin.py` | Plugin wrapper for the radar | careful |
+| `mr60_mini_radar/driver.py` | API-v4 process entry point (`run_plugin_driver("mini_radar")`) | no |
 | `mr60_mini_radar/tools/ble_mr60_receiver.py` | Standalone BLE test receiver for debugging | yes |
 | `camera_emotion/adapter.py` | Accepts tablet camera frames and publishes stable LSL streams | careful |
 | `camera_emotion/plugin.py` | Single public camera/emotion plugin and generic admin actions | careful |
+| `camera_emotion/driver.py` | API-v4 process entry point (`run_plugin_driver("camera_emotion")`) | no |
 | `camera_emotion/worker/server.py` | Internal DeepFace worker process (Flask, `--emotion-worker`) | careful |
 | `camera_emotion/worker/plugin.py` | Starts, monitors, and repairs the internal worker | careful |
 | `camera_emotion/worker/analyzer.py` | Runs DeepFace on one frame | careful |
 | `camera_emotion/worker/model_errors.py` | Shared DeepFace error classification + suggested fixes | careful |
 | `osc_touchdesigner/adapter.py` + `plugin.py` | Forwards values to TouchDesigner via OSC | careful |
+| `osc_touchdesigner/driver.py` | API-v4 process entry point (`run_plugin_driver("osc")`) | no |
 | `notion_upload/adapter.py` + `plugin.py` | Uploads result summaries to Notion (with offline queue) | careful |
+| `notion_upload/driver.py` | API-v4 process entry point (`run_plugin_driver("notion")`) | no |
 | `nextcloud_upload/plugin.py` | Declares the hidden Nextcloud destination capability, publishes, and validates its own share-link setting | careful |
 | `nextcloud_upload/webdav_client.py` | The WebDAV client: uploads session files to a writable Nextcloud public share, checksum-first | careful |
+| `nextcloud_upload/driver.py` | API-v4 process entry point (`run_plugin_driver("nextcloud")`) | no |
 
 ## Frontend (`software/study_runner/frontend/scripts/`)
 
@@ -196,6 +207,7 @@ recording code now, not plugins: `recording/markers.py` and
 | `admin/upload-monitor.js` | Background-upload completion modal and the corner progress widget it shrinks to | careful |
 | `admin/finalization-monitor-view.js` | Generic finalization modal/widget renderer and guarded operator actions | careful |
 | `admin/recovery-panel.js` | Hub banner listing crash-orphaned sessions, with finalize/discard actions | careful |
+| `admin/plugin-console.js` | Diagnostics modal: guided plugin status view plus the line-oriented expert console (SSE-fed) | careful |
 | `shared/study-settings.js` | THE client-side study-settings shape; mirrors `_validate_study_settings` | no |
 | `shared/deadline-timer.js` | Monotonic deadline timer whose UI ticks never define elapsed study time | no |
 | `shared/finalization-view-model.js` | Pure finalization status/progress view model | careful |
@@ -251,6 +263,7 @@ holds offline copies of third-party assets (icons).
 | `release_tools/fetch_deepface_model_assets.py` | Explicitly provisions the separately licensed, SHA-256-pinned DeepFace emotion model after terms acceptance | careful |
 | `release_tools/build_offline_wheelhouse.py` | Builds an offline pip wheelhouse | careful |
 | `release_tools/pyinstaller/study_runner_server_common.py` | Legacy/future PyInstaller spec pieces; not used by the active source release | careful |
+| `release_tools/tests/test_pyinstaller_common.py` | Regression tests for the frontend runtime path and dynamic plugin-bundle collection | yes |
 | `release_tools/release-study-runner.mjs` | The release script: bump, check, tag, push (run via release.ps1) | no |
 | `release_tools/verify-release-version.mjs` | CI guard: tag matches version.py | no |
 

@@ -90,6 +90,26 @@ def normalize_study_plugins(
                 "settings": _legacy_destination_settings(source, destination_config),
             }
 
+    # A legacy sensor mirror may refer to a plugin that is not installed on
+    # this machine.  Turn that opaque reference into the canonical shape before
+    # dropping the mirror, so an empty catalog produces a readiness blocker
+    # instead of either data loss or an "unsupported sensor" load error.
+    raw_sensors = source.get("sensors")
+    if isinstance(raw_sensors, dict):
+        master_enabled = _as_bool(source.get("sensors_enabled", True))
+        for raw_key, raw_enabled in raw_sensors.items():
+            plugin_key = str(raw_key or "").strip()
+            if not plugin_key:
+                raise PluginConfigError("study_settings.sensors contains an empty plugin key")
+            if plugin_key in normalized:
+                continue
+            enabled = master_enabled and _as_bool(raw_enabled)
+            normalized[plugin_key] = {
+                "enabled": enabled,
+                "required": enabled,
+                "settings": {},
+            }
+
     if isinstance(raw_plugins, dict):
         for raw_key, raw_entry in raw_plugins.items():
             plugin_key = str(raw_key or "").strip()
@@ -191,9 +211,10 @@ def normalize_study_settings_plugins(
         for plugin_key, entry in plugins.items()
         if "study_sensor" in set((available.get(plugin_key) or {}).get("capabilities") or [])
     }
-    if sensors:
-        source["sensors_enabled"] = any(sensors.values())
-        source["sensors"] = sensors
+    # The mirror is compatibility output only and therefore contains installed
+    # study sensors exclusively. Missing plugin intent remains in ``plugins``.
+    source["sensors_enabled"] = any(sensors.values())
+    source["sensors"] = sensors
     _remove_legacy_destination_fields(source, available)
     return source
 

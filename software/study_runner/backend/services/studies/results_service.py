@@ -13,6 +13,8 @@ from study_runner.plugin_framework.registry import (
     build_context,
     build_interval_summary as build_plugin_interval_summary,
     export_interval_sidecars,
+    get_plugin_manifest,
+    iter_plugins,
 )
 from ..settings.runtime_config import get_project_base_dir
 from study_runner.shared.atomic_io import atomic_write_json
@@ -73,8 +75,6 @@ def save_results_payload(
         "participant_dir": participant_dir.relative_to(data_dir.parent).as_posix(),
         "json_file": json_path.relative_to(data_dir.parent).as_posix(),
         "xdf_file": xdf_path.relative_to(data_dir.parent).as_posix() if xdf_path else None,
-        "mr60_file": None,
-        "brainbit_file": None,
     }
     for output_key, sidecar_path in sidecar_paths.items():
         output[output_key] = sidecar_path.relative_to(data_dir.parent).as_posix()
@@ -258,20 +258,26 @@ def build_biosignal_summary(
     saved_output: dict[str, Any],
     context: PluginContext | None = None,
 ) -> dict[str, Any]:
-    """Build lightweight biosignal metadata for Notion upload."""
+    """Build lightweight metadata for every installed study-sensor plugin."""
     runtime_context = context or _context_from_hardware_config(
         _project_root() / "saved_results",
         hardware_config,
     )
     summary: dict[str, Any] = {}
 
-    for key in ("brainbit", "mini_radar", "camera_emotion"):
-        config = hardware_config.get(key, {})
+    for plugin in iter_plugins():
+        manifest = get_plugin_manifest(plugin.key)
+        if "study_sensor" not in set(manifest.get("capabilities") or []):
+            continue
+        config = hardware_config.get(plugin.config_key, {})
         if not isinstance(config, dict) or not config.get("enabled"):
             continue
-        summary[key] = {"active": True}
-        if key == "brainbit":
-            summary[key]["xdf_path"] = saved_output.get("xdf_file")
+        entry: dict[str, Any] = {"active": True}
+        if saved_output.get("xdf_file"):
+            entry["xdf_path"] = saved_output["xdf_file"]
+        if plugin.sidecar_output_key and saved_output.get(plugin.sidecar_output_key):
+            entry["sidecar_path"] = saved_output[plugin.sidecar_output_key]
+        summary[plugin.key] = entry
 
     interval_status = build_plugin_interval_summary(runtime_context, 0.0, time_now_epoch())
     for key, value in interval_status.items():
@@ -458,13 +464,6 @@ def _question_is_required(question: dict[str, Any]) -> bool:
     return bool(value)
 
 
-_SENSOR_LABELS = {
-    "brainbit": "BrainBit EEG",
-    "mini_radar": "Heart/breathing radar",
-    "camera_emotion": "Camera emotion",
-}
-
-
 def _build_data_warnings(
     interval_summary: dict[str, Any] | None,
     interval_seconds: float | None,
@@ -478,7 +477,12 @@ def _build_data_warnings(
     for sensor_key, summary in (interval_summary or {}).items():
         if not isinstance(summary, dict) or not summary.get("enabled"):
             continue
-        label = _SENSOR_LABELS.get(sensor_key, sensor_key)
+        try:
+            label = str(get_plugin_manifest(sensor_key).get("ui", {}).get("label") or sensor_key)
+        except KeyError:
+            # Historical result artifacts may name a plugin which is no longer
+            # installed. Preserve the data and use its stable key as label.
+            label = sensor_key
         if summary.get("buffer_overflowed"):
             warnings.append(
                 f"{label}: this card is older than the sensor buffer window; earlier samples were discarded."
@@ -589,9 +593,9 @@ def build_interval_biosignal_summary(
 
 def _empty_interval_biosignals() -> dict[str, Any]:
     return {
-        "brainbit": {"available": False},
-        "mini_radar": {"available": False},
-        "camera_emotion": {"available": False},
+        plugin.key: {"available": False}
+        for plugin in iter_plugins()
+        if plugin.get_interval_summary is not None
     }
 
 

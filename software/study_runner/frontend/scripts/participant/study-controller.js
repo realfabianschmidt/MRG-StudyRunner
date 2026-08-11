@@ -24,6 +24,7 @@ import {
 import { createParticipantPluginExtensionManager } from '../shared/participant-plugin-extensions.js';
 import { startAmbientBubbles, stopAmbientBubbles } from '../shared/ambient-bubbles.js';
 import { loadBranding, renderFunderLogos, renderGroupLogo } from '../shared/branding.js';
+import { createModal } from '../shared/modal.js';
 
 /**
  * Preview mode: look at the study without being a participant.
@@ -813,6 +814,8 @@ function collectParticipantMetadata() {
 function buildEventPayload(questionIndex, question, phase, clientTriggerMs = performance.now()) {
   return {
     study_id: state.config.study_id || '',
+    session_id: state.sessionId || '',
+    client_id: getStudyClientId(),
     participant_id: resolveParticipantId(),
     question_index: Number.isInteger(questionIndex) ? questionIndex : null,
     question_type: question?.type || '',
@@ -1143,27 +1146,10 @@ async function startStimulusCard(questionIndex, question) {
   state.activeStimulus = stimulusRun;
   prepareStimulusCard(questionIndex, question);
 
-  // Fix the monotonic schedule before any network I/O. A slow prepare request
-  // may consume warm-up time, but it can never move the scientific deadline.
-  const scheduleStartMs = performance.now();
-  stimulusRun.plannedStartPerfMs = scheduleStartMs + getWarmupSeconds(question) * 1000;
-  stimulusRun.plannedDeadlinePerfMs = stimulusRun.plannedStartPerfMs + getActiveSeconds(question) * 1000;
-  const plannedStartEpochMs = estimateServerEpochMs(stimulusRun.plannedStartPerfMs);
-  const plannedDeadlineEpochMs = estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs);
-
-  try {
-    await postJson('/api/trial/prepare', {
-      ...buildEventPayload(questionIndex, question, 'stimulus_prepare', scheduleStartMs),
-      event_id: stimulusRun.startEventId,
-      stop_event_id: stimulusRun.stopEventId,
-      stimulus_id: stimulusRun.stimulusId,
-      planned_start_epoch_ms: plannedStartEpochMs,
-      planned_deadline_epoch_ms: plannedDeadlineEpochMs,
-    }, { timeoutMs: TRIAL_PREPARE_TIMEOUT_MS });
-  } catch (error) {
-    console.error('[study] Could not prepare stimulus routing:', error);
-    const metrics = state.questionMetrics[questionIndex] || {};
-    state.questionMetrics[questionIndex] = { ...metrics, prepare_failed: true };
+  assignStimulusSchedule(stimulusRun);
+  if (shouldActivateHardware(question)) {
+    const prepared = await prepareStimulusRouting(stimulusRun);
+    if (!prepared || state.activeStimulus !== stimulusRun) return;
   }
 
   if (state.activeStimulus !== stimulusRun) return;
@@ -1174,6 +1160,155 @@ async function startStimulusCard(questionIndex, question) {
   }
 
   await startActiveStimulusPhase(stimulusRun);
+}
+
+function assignStimulusSchedule(stimulusRun, { replaceIds = false } = {}) {
+  if (replaceIds) {
+    stimulusRun.stimulusId = createEventId(`stimulus-${stimulusRun.index}`);
+    stimulusRun.startEventId = createEventId(`stimulus-${stimulusRun.index}-start`);
+    stimulusRun.stopEventId = createEventId(`stimulus-${stimulusRun.index}-stop`);
+  }
+  // Fix the monotonic schedule before network I/O. The acknowledged values are
+  // later compared with the actual browser onset instead of silently moving it.
+  const scheduleStartMs = performance.now();
+  stimulusRun.scheduleStartPerfMs = scheduleStartMs;
+  stimulusRun.plannedStartPerfMs = scheduleStartMs + getWarmupSeconds(stimulusRun.question) * 1000;
+  stimulusRun.plannedDeadlinePerfMs = stimulusRun.plannedStartPerfMs
+    + getActiveSeconds(stimulusRun.question) * 1000;
+}
+
+function stimulusPreparePayload(stimulusRun) {
+  return {
+    ...buildEventPayload(
+      stimulusRun.index,
+      stimulusRun.question,
+      'stimulus_prepare',
+      stimulusRun.scheduleStartPerfMs,
+    ),
+    event_id: stimulusRun.startEventId,
+    stop_event_id: stimulusRun.stopEventId,
+    stimulus_id: stimulusRun.stimulusId,
+    planned_start_epoch_ms: estimateServerEpochMs(stimulusRun.plannedStartPerfMs),
+    planned_deadline_epoch_ms: estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs),
+  };
+}
+
+async function prepareStimulusRouting(stimulusRun) {
+  while (state.activeStimulus === stimulusRun) {
+    try {
+      const response = await postJson(
+        '/api/trial/prepare',
+        stimulusPreparePayload(stimulusRun),
+        { timeoutMs: TRIAL_PREPARE_TIMEOUT_MS },
+      );
+      const metrics = state.questionMetrics[stimulusRun.index] || {};
+      state.questionMetrics[stimulusRun.index] = {
+        ...metrics,
+        prepare_failed: false,
+        prepare_overridden: response?.overridden === true,
+        prepare_server_epoch_ms: response?.server_epoch_ms || null,
+      };
+      return true;
+    } catch (error) {
+      console.error('[study] Could not prepare stimulus routing:', error);
+      const metrics = state.questionMetrics[stimulusRun.index] || {};
+      state.questionMetrics[stimulusRun.index] = {
+        ...metrics,
+        prepare_failed: true,
+        prepare_error: error?.message || String(error),
+      };
+      const choice = await showPrepareFailureDialog(error);
+      if (choice === 'retry') {
+        // A long operator pause can make the original immutable schedule
+        // unusable. Cancel it first, then retry with fresh identifiers.
+        if (estimateServerEpochMs() >= estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs) - 500) {
+          const cancelled = await cancelStimulusPreparation(stimulusRun, 'expired_before_retry');
+          if (!cancelled) continue;
+          assignStimulusSchedule(stimulusRun, { replaceIds: true });
+        }
+        continue;
+      }
+
+      const reason = choice === 'skip' ? 'tablet_skip' : 'tablet_abort';
+      const cancelled = await cancelStimulusPreparation(stimulusRun, reason);
+      if (!cancelled) continue;
+      state.activeStimulus = null;
+      state.questionMetrics[stimulusRun.index] = {
+        ...state.questionMetrics[stimulusRun.index],
+        prepare_resolution: choice,
+        completed_at: new Date().toISOString(),
+      };
+      updateNavigation();
+      if (choice === 'skip') {
+        await handleNext();
+      } else {
+        await abortStudyAfterPrepareFailure();
+      }
+      return false;
+    }
+  }
+  return false;
+}
+
+async function cancelStimulusPreparation(stimulusRun, reason) {
+  try {
+    await postJson('/api/trial/prepare/cancel', {
+      event_id: stimulusRun.startEventId,
+      stimulus_id: stimulusRun.stimulusId,
+      reason,
+    }, { timeoutMs: TRIAL_STOP_TIMEOUT_MS });
+    return true;
+  } catch (error) {
+    showStudyNotice(
+      t('study.prepareCancelFailed', 'The prepared card could not be cancelled safely. Please retry or tell the study supervisor.'),
+      'error',
+      10000,
+    );
+    return false;
+  }
+}
+
+async function abortStudyAfterPrepareFailure() {
+  try {
+    await postJson('/api/admin/study-run/stop', {});
+  } catch (error) {
+    console.error('[study] Could not stop study run after prepare failure:', error);
+  }
+  await stopStudySensorSession();
+  state.startTime = null;
+  showWaitingForAdminStart({
+    title: t('study.prepareAbortedTitle', 'Study stopped'),
+    body: t('study.prepareAbortedBody', 'The card was not shown. Please tell the study supervisor.'),
+  });
+}
+
+function showPrepareFailureDialog(error) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (choice) => {
+      if (settled) return;
+      settled = true;
+      modal.destroy();
+      resolve(choice);
+    };
+    const modal = createModal({
+      title: t('study.prepareFailedTitle', 'Card could not be prepared'),
+      closeLabel: t('study.prepareAbort', 'Stop study'),
+      onClose: () => finish('abort'),
+    });
+    modal.body.innerHTML = `
+      <p class="settings-hint">${escapeHtml(t('study.prepareFailedBody', 'The stimulus remains hidden so no unrecorded onset can occur.'))}</p>
+      <p class="status-warning">${escapeHtml(error?.message || String(error))}</p>
+      <div class="dashboard-actions">
+        <button type="button" class="btn-secondary" data-prepare-abort>${escapeHtml(t('study.prepareAbort', 'Stop study'))}</button>
+        <button type="button" class="btn-secondary" data-prepare-skip>${escapeHtml(t('study.prepareSkip', 'Skip card'))}</button>
+        <button type="button" class="btn-primary" data-prepare-retry>${escapeHtml(t('study.prepareRetry', 'Retry'))}</button>
+      </div>`;
+    modal.body.querySelector('[data-prepare-abort]')?.addEventListener('click', () => finish('abort'));
+    modal.body.querySelector('[data-prepare-skip]')?.addEventListener('click', () => finish('skip'));
+    modal.body.querySelector('[data-prepare-retry]')?.addEventListener('click', () => finish('retry'));
+    modal.open();
+  });
 }
 
 function startWarmupPhase(stimulusRun) {
@@ -1217,13 +1352,13 @@ async function startActiveStimulusPhase(stimulusRun) {
   const { index, question } = stimulusRun;
   const ring = getElement(`ring-prog-${index}`);
   const numberLabel = getElement(`cd-num-${index}`);
-  const clientTriggerMs = performance.now();
+  const renderRequestedMs = performance.now();
   const plannedStartPerfMs = Number.isFinite(stimulusRun.plannedStartPerfMs)
     ? stimulusRun.plannedStartPerfMs
-    : clientTriggerMs;
+    : renderRequestedMs;
   const plannedDeadlinePerfMs = Number.isFinite(stimulusRun.plannedDeadlinePerfMs)
     ? stimulusRun.plannedDeadlinePerfMs
-    : clientTriggerMs + getActiveSeconds(question) * 1000;
+    : renderRequestedMs + getActiveSeconds(question) * 1000;
   const plannedStartEpochMs = estimateServerEpochMs(plannedStartPerfMs);
   const plannedDeadlineEpochMs = estimateServerEpochMs(plannedDeadlinePerfMs);
 
@@ -1233,13 +1368,12 @@ async function startActiveStimulusPhase(stimulusRun) {
   state.questionMetrics[index] = {
     ...currentMetrics,
     active_started_at: new Date().toISOString(),
-    client_start_trigger_epoch_ms: estimateServerEpochMs(clientTriggerMs),
+    render_requested_epoch_ms: estimateServerEpochMs(renderRequestedMs),
     planned_start_epoch_ms: plannedStartEpochMs,
     planned_deadline_epoch_ms: plannedDeadlineEpochMs,
     stimulus_id: stimulusRun.stimulusId,
     start_event_id: stimulusRun.startEventId,
     stop_event_id: stimulusRun.stopEventId,
-    onset_callback_delay_ms: Math.round(Math.max(0, clientTriggerMs - plannedStartPerfMs)),
   };
 
   // The visual onset is tied to the monotonic timestamp above. It does not wait
@@ -1256,15 +1390,32 @@ async function startActiveStimulusPhase(stimulusRun) {
   };
   updateNavigation();
 
+  // requestAnimationFrame's timestamp identifies the browser frame in which
+  // the already-mutated stimulus DOM becomes visible. This is the scientific
+  // onset sent to the server/LSL mapping; the earlier callback time remains a
+  // separate scheduling diagnostic.
+  const visualOnsetPerfMs = await nextVisualFrameTimestamp();
+  if (state.activeStimulus !== stimulusRun) return;
+  const visualOnsetEpochMs = estimateServerEpochMs(visualOnsetPerfMs);
+  state.questionMetrics[index] = {
+    ...state.questionMetrics[index],
+    visual_onset_epoch_ms: visualOnsetEpochMs,
+    visual_onset_perf_ms: visualOnsetPerfMs,
+    onset_callback_delay_ms: Math.round(Math.max(0, visualOnsetPerfMs - plannedStartPerfMs)),
+    onset_uncertainty_ms: Number.isFinite(state.clockRttMs) ? state.clockRttMs / 2 : null,
+  };
+
   if (shouldActivateHardware(question)) {
     stimulusRun.signalStarted = true;
     void sendReliableStudyEvent('/api/start', {
-        ...buildEventPayload(index, question, 'stimulus_active_start', clientTriggerMs),
+        ...buildEventPayload(index, question, 'stimulus_active_start', visualOnsetPerfMs),
         event_id: stimulusRun.startEventId,
         stop_event_id: stimulusRun.stopEventId,
         stimulus_id: stimulusRun.stimulusId,
         planned_start_epoch_ms: plannedStartEpochMs,
         planned_deadline_epoch_ms: plannedDeadlineEpochMs,
+        visual_onset_epoch_ms: visualOnsetEpochMs,
+        onset_uncertainty_ms: Number.isFinite(state.clockRttMs) ? state.clockRttMs / 2 : null,
         marker_event: 'stimulus_active_start',
       }, { timeoutMs: TRIAL_START_TIMEOUT_MS })
       .then((response) => {
@@ -1303,6 +1454,16 @@ async function startActiveStimulusPhase(stimulusRun) {
       };
       void finishStimulusCard(stimulusRun);
     },
+  });
+}
+
+function nextVisualFrameTimestamp() {
+  return new Promise((resolve) => {
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame((timestamp) => resolve(timestamp));
+      return;
+    }
+    resolve(performance.now());
   });
 }
 
@@ -1647,10 +1808,15 @@ function getTouchedFieldCount(questionIndex) {
 }
 
 function shouldActivateHardware(question) {
-  if (state.config.study_settings && state.config.study_settings.sensors_enabled === false) {
-    return false;
-  }
-  return hasAnyStudySensorEnabled();
+  const sensorsEnabled = state.config.study_settings?.sensors_enabled !== false
+    && hasAnyStudySensorEnabled();
+  // Card actions belong to their plugin, not to biodata recording. OSC or any
+  // future output plugin must still receive a prepared trial when the study
+  // deliberately records no sensor streams.
+  const hasPluginAction = Object.values(getActivePluginActions(question)).some((actions) => (
+    Object.values(actions).some((value) => value !== false && value !== null && value !== '')
+  ));
+  return sensorsEnabled || hasPluginAction;
 }
 
 function getStudySensorSettings() {

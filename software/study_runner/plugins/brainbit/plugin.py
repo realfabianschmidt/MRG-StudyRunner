@@ -90,7 +90,10 @@ def _initialize(context: PluginContext) -> None:
         monitor_refresh_ms=config.get("monitor_refresh_ms", 1000),
         disconnect_timeout_ms=config.get("disconnect_timeout_ms", 20000),
         log_dir=_runtime_dir(context, config.get("log_dir"), DEFAULT_BRAINBIT["log_dir"], "logs"),
+        log_max_bytes=config.get("log_max_bytes", 10 * 1024 * 1024),
+        log_backup_count=config.get("log_backup_count", 3),
     )
+    adapter.wait_for_stream_contract(float(config.get("scan_seconds", 5)) + 10.0)
 
 
 def _status(context: PluginContext) -> dict[str, Any]:
@@ -112,10 +115,38 @@ def _status(context: PluginContext) -> dict[str, Any]:
     elif not status_value or status_value == "not_configured":
         status_value = state_payload.get("status", "waiting") if state_payload else "waiting"
 
+    health = adapter_status.get("health") if isinstance(adapter_status.get("health"), dict) else {}
+    eeg_batch = latest.get("eeg_batch") if isinstance(latest.get("eeg_batch"), dict) else {}
+    resist = latest.get("resist") if isinstance(latest.get("resist"), dict) else {}
+    battery = latest.get("battery") if isinstance(latest.get("battery"), dict) else {}
+    selected = adapter_status.get("selected_device") or latest.get("selected_device") or latest.get("device")
+    actual_streams = adapter_status.get("actual_streams") or latest.get("actual_streams") or []
+    eeg_stream = next(
+        (stream for stream in actual_streams if isinstance(stream, dict) and stream.get("key") == "eeg"),
+        {},
+    )
+    resistance_channels = {
+        key: value
+        for key, value in resist.items()
+        if key not in {
+            "ts", "pack", "marker", "units", "packet_shape", "open_channels", "referents_ohm"
+        }
+    }
+
     return {
         **adapter_status,
         "status": status_value,
         "device_label": "BrainBit",
+        "connected_model": selected,
+        "supported_channels": adapter_status.get("supported_channels") or latest.get("supported_channels") or [],
+        "resistances_ohm": resistance_channels,
+        "battery_percent": battery.get("percent"),
+        "raw_status": health.get("raw_eeg"),
+        "derived_status": health.get("derived_metrics"),
+        "sample_rate_hz": eeg_stream.get("nominal_rate_hz"),
+        "batch_size": eeg_batch.get("sample_count"),
+        "dropped_samples": eeg_batch.get("packet_gap_frames_total", 0),
+        "last_gap_samples": eeg_batch.get("packet_gap_frames", 0),
         "state_file": str(state_path),
         "latest": latest,
         "lsl_enabled": bool(config.get("enabled", False)),
@@ -128,14 +159,76 @@ def _status(context: PluginContext) -> dict[str, Any]:
     }
 
 
+def _handle_console_line(context: PluginContext, line: str) -> Any:
+    """Small, safe BrainBit diagnostic console; never exposes an OS shell."""
+    command = line.strip().lower()
+    status = _status(context)
+    latest = status.get("latest") if isinstance(status.get("latest"), dict) else {}
+    if command == "help":
+        return (
+            "BrainBit commands: help, status, health, channels, raw, derived, errors, "
+            "start, stop, restart. The live driver output above is the bounded terminal relay."
+        )
+    if command == "status":
+        return status
+    if command == "health":
+        return {
+            "status": status.get("status"),
+            "health": status.get("health"),
+            "last_activity_at": status.get("last_activity_at"),
+            "seconds_since_last_eeg": status.get("seconds_since_last_eeg"),
+            "seconds_since_last_raw_lsl": status.get("seconds_since_last_raw_lsl"),
+        }
+    if command == "channels":
+        return {
+            "selected_device": status.get("selected_device"),
+            "channel_map": latest.get("channel_map"),
+            "actual_streams": status.get("actual_streams") or latest.get("actual_streams"),
+        }
+    if command == "raw":
+        return {
+            "eeg": latest.get("eeg"),
+            "eeg_batch": latest.get("eeg_batch"),
+            "resistance_ohm": latest.get("resist"),
+            "quality_diagnostic": latest.get("quality"),
+        }
+    if command == "derived":
+        return {
+            "derived_enabled": latest.get("derived_enabled"),
+            "calibration": latest.get("calibration"),
+            "artifact": latest.get("artifact"),
+            "bands": latest.get("bands"),
+            "mental": latest.get("mental"),
+        }
+    if command == "errors":
+        return {
+            "callback_error": latest.get("callback_error"),
+            "stream_error": latest.get("stream_error"),
+            "lsl_error": latest.get("lsl_error"),
+            "log_error": latest.get("log_error"),
+            "data_warning": latest.get("data_warning"),
+            "data_warning_count": latest.get("data_warning_count", 0),
+            "raw_log_path": status.get("raw_log_path"),
+        }
+    if command == "start":
+        return _start(context)
+    if command == "stop":
+        return _stop(context)
+    if command == "restart":
+        return _restart(context)
+    return f"Unknown BrainBit command: {line!r}. Type 'help'."
+
+
 def _start(context: PluginContext) -> Any:
     from . import adapter
 
     if not adapter.is_configured() and config_section(context, "brainbit").get("enabled"):
         _initialize(context)
-        return adapter.get_status()
-    adapter.start()
-    return adapter.get_status()
+    else:
+        adapter.start()
+    return adapter.wait_for_stream_contract(
+        float(config_section(context, "brainbit").get("scan_seconds", 5)) + 10.0
+    )
 
 
 def _stop(context: PluginContext) -> Any:
@@ -148,11 +241,14 @@ def _stop(context: PluginContext) -> Any:
 def _restart(context: PluginContext) -> Any:
     from . import adapter
 
-    if not adapter.is_configured() and config_section(context, "brainbit").get("enabled"):
-        _initialize(context)
-    else:
-        adapter.restart()
-    return adapter.get_status()
+    config = config_section(context, "brainbit")
+    adapter.stop()
+    if not config.get("enabled"):
+        return adapter.get_status()
+    # Re-read every machine setting from the refreshed v4 context. A plain
+    # adapter.restart() would retain the old serial/path/timeout configuration.
+    _initialize(context)
+    return adapter.wait_for_stream_contract(float(config.get("scan_seconds", 5)) + 10.0)
 
 
 def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
@@ -270,6 +366,7 @@ PLUGIN = Plugin(
     on_trial_stop=_trial_stop,
     get_interval_summary=_interval,
     export_interval_samples=_export,
+    handle_console_line=_handle_console_line,
     sidecar_sensor="brainbit",
     sidecar_filename_suffix="brainbit_signals",
     sidecar_output_key="brainbit_file",

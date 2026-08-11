@@ -182,34 +182,71 @@ def run_runtime_action(key: str, action: str, context: PluginContext) -> dict[st
     }
 
 
-def run_trial_start(options: dict[str, Any], context: PluginContext) -> None:
+def run_trial_start(
+    options: dict[str, Any],
+    context: PluginContext,
+    prior_outcomes: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    return _run_trial_callbacks("start", "on_trial_start", options, context, prior_outcomes)
+
+
+def run_trial_stop(
+    options: dict[str, Any],
+    context: PluginContext,
+    prior_outcomes: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    return _run_trial_callbacks("stop", "on_trial_stop", options, context, prior_outcomes)
+
+
+def run_trial_marker(
+    options: dict[str, Any],
+    context: PluginContext,
+    prior_outcomes: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    return _run_trial_callbacks("marker", "on_trial_marker", options, context, prior_outcomes)
+
+
+def _run_trial_callbacks(
+    event_label: str,
+    handler_name: str,
+    options: dict[str, Any],
+    context: PluginContext,
+    prior_outcomes: dict[str, dict[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    """Dispatch every enabled plugin and report every outcome.
+
+    A failed plugin must remain visible to the durable trial-event journal.
+    Successful components from a prior attempt are retained and skipped so a
+    retry repairs only the failed component instead of duplicating markers or
+    commands that already reached hardware.
+    """
+
+    outcomes = dict(prior_outcomes or {})
     for plugin in PLUGINS:
-        if plugin.on_trial_start is None or not _is_config_enabled(context, plugin):
+        handler = getattr(plugin, handler_name)
+        if handler is None or not _is_config_enabled(context, plugin):
+            continue
+        component = f"plugin.{plugin.key}"
+        previous = outcomes.get(component)
+        if isinstance(previous, dict) and previous.get("ok") is True:
             continue
         try:
-            plugin.on_trial_start(context, options)
+            handler(context, options)
         except Exception as error:
-            print(f"[INTEGRATION] {plugin.key} trial start failed: {error}")
-
-
-def run_trial_stop(options: dict[str, Any], context: PluginContext) -> None:
-    for plugin in PLUGINS:
-        if plugin.on_trial_stop is None or not _is_config_enabled(context, plugin):
-            continue
-        try:
-            plugin.on_trial_stop(context, options)
-        except Exception as error:
-            print(f"[INTEGRATION] {plugin.key} trial stop failed: {error}")
-
-
-def run_trial_marker(options: dict[str, Any], context: PluginContext) -> None:
-    for plugin in PLUGINS:
-        if plugin.on_trial_marker is None or not _is_config_enabled(context, plugin):
-            continue
-        try:
-            plugin.on_trial_marker(context, options)
-        except Exception as error:
-            print(f"[INTEGRATION] {plugin.key} trial marker failed: {error}")
+            outcomes[component] = {
+                "ok": False,
+                "plugin": plugin.key,
+                "event": event_label,
+                "error": str(error),
+            }
+            print(f"[INTEGRATION] {plugin.key} trial {event_label} failed: {error}")
+        else:
+            outcomes[component] = {
+                "ok": True,
+                "plugin": plugin.key,
+                "event": event_label,
+            }
+    return outcomes
 
 
 def build_interval_summary(

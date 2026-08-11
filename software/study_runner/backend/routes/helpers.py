@@ -20,10 +20,15 @@ from study_runner.plugin_framework.registry import (
     initialize_plugin,
     run_runtime_action,
 )
-from ..services.settings.hardware_settings_service import save_hardware_config, set_plugin_enabled
-from ..services.settings.secrets_service import load_local_secrets, save_local_secrets
+from ..services.settings.hardware_settings_service import (
+    HardwareRevisionConflict,
+    set_plugin_enabled,
+    update_hardware_config,
+)
+from ..services.settings.secrets_service import update_local_secrets
 from ..services.studies.session_store import public_session
 from ..services.studies.study_config_service import load_config
+from ..services.studies.study_secrets_service import secret_fields
 from ..services.recording.study_sensor_runtime import (
     SESSION_OVERRIDE_KEYS,
     STUDY_SENSOR_KEYS,
@@ -109,40 +114,113 @@ def _plugin_context(
     *,
     machine_admin: bool = False,
 ):
+    # ``persist_hardware_config`` may be called from a plugin's stdout-reader
+    # thread after the originating request/app context has ended. Resolve the
+    # LocalProxy now so the callback never depends on thread-local Flask state.
+    app = current_app._get_current_object()
     selected_config = hardware_config
     persist_hardware_config = None
     runtime_locked = False
     if machine_admin:
         selected_config = json.loads(
-            json.dumps(current_app.config.get("HARDWARE_CONFIG", {}))
+            json.dumps(app.config.get("HARDWARE_CONFIG", {}))
         )
+        baseline_config = json.loads(json.dumps(selected_config))
         runtime_locked = isinstance(
-            current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"),
+            app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"),
             dict,
         )
 
         def persist_hardware_config(updated_config: dict) -> None:
             safe_config = json.loads(json.dumps(updated_config))
-            save_hardware_config(current_app.config["HARDWARE_CONFIG_FILE"], safe_config)
-            current_app.config["HARDWARE_CONFIG"] = safe_config
-            _refresh_trial_runtime()
+            config_path = app.config["HARDWARE_CONFIG_FILE"]
+            # Apply only leaves changed by this plugin to the latest on-disk
+            # document. Replacing the child's complete, potentially stale
+            # context would silently erase a concurrent admin save.
+            def apply_plugin_delta(current_config: dict) -> None:
+                _apply_config_delta_checked(
+                    current_config,
+                    baseline_config,
+                    safe_config,
+                )
+
+            with app.app_context():
+                persisted, _, _ = update_hardware_config(
+                    config_path,
+                    apply_plugin_delta,
+                )
+                app.config["HARDWARE_CONFIG"] = persisted
+                _refresh_trial_runtime()
 
     return build_context(
-        base_dir=current_app.config["BASE_DIR"],
-        data_dir=current_app.config["DATA_DIR"],
+        base_dir=app.config["BASE_DIR"],
+        data_dir=app.config["DATA_DIR"],
         hardware_config=selected_config if selected_config is not None else _runtime_hardware_config(),
-        local_secrets=current_app.config.get("LOCAL_SECRETS", {}),
-        local_secrets_file=current_app.config["LOCAL_SECRETS_FILE"],
+        local_secrets=app.config.get("LOCAL_SECRETS", {}),
+        local_secrets_file=app.config["LOCAL_SECRETS_FILE"],
         runtime_locked=runtime_locked,
         persist_hardware_config=persist_hardware_config,
     )
 
 
+_MISSING_CONFIG_VALUE = object()
+
+
+def _apply_config_delta_checked(target: dict, before: dict, after: dict, *, path: str = "") -> None:
+    """Merge a plugin's changes and reject same-leaf concurrent edits."""
+
+    for key in set(before) | set(after):
+        old_value = before.get(key, _MISSING_CONFIG_VALUE)
+        new_value = after.get(key, _MISSING_CONFIG_VALUE)
+        if old_value == new_value:
+            continue
+        label = f"{path}.{key}" if path else str(key)
+        current_value = target.get(key, _MISSING_CONFIG_VALUE)
+        if isinstance(old_value, dict) and isinstance(new_value, dict):
+            if current_value is _MISSING_CONFIG_VALUE:
+                # The on-disk document simply never had this section yet (for
+                # example the very first save of a plugin's settings). That is
+                # not a concurrent edit, so create it and let the per-leaf
+                # check below catch genuine conflicting values inside it.
+                current_value = target.setdefault(key, {})
+            if not isinstance(current_value, dict):
+                raise HardwareRevisionConflict(
+                    f"Hardware setting {label!r} changed concurrently; reload and retry."
+                )
+            _apply_config_delta_checked(
+                current_value,
+                old_value,
+                new_value,
+                path=label,
+            )
+            continue
+        # A leaf the baseline snapshot never had an opinion on (``old_value``
+        # missing) has nothing to conflict with: the plugin is introducing or
+        # claiming that field, not overwriting a value someone else changed.
+        if (
+            old_value is not _MISSING_CONFIG_VALUE
+            and current_value != old_value
+            and current_value != new_value
+        ):
+            raise HardwareRevisionConflict(
+                f"Hardware setting {label!r} changed concurrently; reload and retry."
+            )
+        if new_value is _MISSING_CONFIG_VALUE:
+            target.pop(key, None)
+        else:
+            target[key] = json.loads(json.dumps(new_value))
+
+
 def _refresh_trial_runtime() -> None:
+    hardware_config = _runtime_hardware_config()
+    if _hardware_disabled():
+        # The process-host architecture can otherwise launch a driver lazily
+        # on the first trial callback even though startup hardware was disabled.
+        hardware_config = _disable_runtime_hardware(hardware_config)
     configure_runtime(
         base_dir=current_app.config["BASE_DIR"],
         data_dir=current_app.config["DATA_DIR"],
-        hardware_config=_runtime_hardware_config(),
+        hardware_config=hardware_config,
         local_secrets=current_app.config.get("LOCAL_SECRETS", {}),
         local_secrets_file=current_app.config["LOCAL_SECRETS_FILE"],
     )
@@ -346,48 +424,48 @@ def _delayed_shutdown(shutdown_func) -> None:
 
 def _save_hardware_secret_payload(config_data: dict) -> tuple[dict, bool]:
     sanitized_config = json.loads(json.dumps(config_data))
-    notion_config = sanitized_config.get("notion")
-    local_secrets = dict(current_app.config.get("LOCAL_SECRETS", {}))
-    secret_updated = False
+    secret_updates: list[tuple[str, str, str]] = []
+    fields = secret_fields()
+    for plugin_key, field in fields.items():
+        section = sanitized_config.get(plugin_key)
+        if not isinstance(section, dict):
+            continue
+        clear_field = f"clear_{field}"
+        if field in section:
+            provided = str(section.get(field) or "").strip()
+            if provided:
+                secret_updates.append(("set", plugin_key, provided))
+        if section.get(clear_field) is True:
+            secret_updates.append(("clear", plugin_key, ""))
+        for private_field in (
+            field,
+            clear_field,
+            f"{field}_configured",
+            f"{field}_source",
+            f"{field}_scope",
+        ):
+            section.pop(private_field, None)
 
-    if isinstance(notion_config, dict):
-        provided_api_key = str(notion_config.get("api_key") or "").strip()
-        if provided_api_key:
-            local_secrets.setdefault("notion", {})["api_key"] = provided_api_key
-            secret_updated = True
-
-        if notion_config.get("clear_api_key"):
-            local_secrets.setdefault("notion", {}).pop("api_key", None)
-            if not local_secrets.get("notion"):
-                local_secrets.pop("notion", None)
-            secret_updated = True
-
-        notion_config.pop("api_key", None)
-        notion_config.pop("api_key_configured", None)
-        notion_config.pop("api_key_source", None)
-        notion_config.pop("clear_api_key", None)
-
-    nextcloud_config = sanitized_config.get("nextcloud")
-    if isinstance(nextcloud_config, dict):
-        if "password" in nextcloud_config:
-            provided_password = str(nextcloud_config.get("password") or "")
-            if provided_password:
-                local_secrets.setdefault("nextcloud", {})["password"] = provided_password
-                secret_updated = True
-
-        if nextcloud_config.get("clear_password"):
-            local_secrets.setdefault("nextcloud", {}).pop("password", None)
-            if not local_secrets.get("nextcloud"):
-                local_secrets.pop("nextcloud", None)
-            secret_updated = True
-
-        nextcloud_config.pop("password", None)
-        nextcloud_config.pop("password_configured", None)
-        nextcloud_config.pop("clear_password", None)
-
+    secret_updated = bool(secret_updates)
     if secret_updated:
-        save_local_secrets(current_app.config["LOCAL_SECRETS_FILE"], local_secrets)
-        current_app.config["LOCAL_SECRETS"] = load_local_secrets(current_app.config["LOCAL_SECRETS_FILE"])
+
+        def apply_secret_updates(local_secrets):
+            for action, kind, value in secret_updates:
+                field = fields[kind]
+                if action == "set":
+                    local_secrets.setdefault(kind, {})[field] = value
+                    continue
+                section = local_secrets.get(kind)
+                if isinstance(section, dict):
+                    section.pop(field, None)
+                    if not section:
+                        local_secrets.pop(kind, None)
+
+        local_secrets, _ = update_local_secrets(
+            current_app.config["LOCAL_SECRETS_FILE"],
+            apply_secret_updates,
+        )
+        current_app.config["LOCAL_SECRETS"] = local_secrets
 
     return sanitized_config, secret_updated
 

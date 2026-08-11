@@ -42,6 +42,11 @@ from study_runner.recording.xdf import (
     validator_dependency_status,
 )
 from study_runner.shared.atomic_io import atomic_write_json
+from .recording_contract import (
+    RecordingContractError,
+    build_recording_contract,
+    load_recording_contract,
+)
 from .recording_dependencies import (
     INTERNAL_RECORDING_SOURCE_KEYS,
     get_plugin_manifests_with_internal_sources,
@@ -78,6 +83,177 @@ def recording_lsl_dependency_status() -> dict[str, Any]:
     """Probe Python and native liblsl before a study is allowed to start."""
 
     return probe_lsl_dependencies(require_pylsl, lsl_version_info)
+
+
+def _recording_inputs_from_plan(
+    plan: Mapping[str, Any],
+) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]], dict[str, Any]]:
+    """Resolve acquisition inputs, preferring the immutable session snapshot.
+
+    Plans written before the recording-contract migration have no snapshot to
+    recover.  They retain the historical catalog fallback; every new plan is
+    built with a verified contract before its first worker is launched.
+    """
+
+    try:
+        contract = load_recording_contract(plan)
+    except RecordingContractError as error:
+        raise RecordingRuntimeError(str(error)) from error
+    if contract is not None:
+        return (
+            contract["source_manifests"],
+            contract["streams_by_source"],
+            contract["backup"],
+        )
+
+    manifests = get_plugin_manifests_with_internal_sources()
+    recording_plugins = [str(key) for key in plan.get("recording_plugins") or []]
+    streams = {
+        plugin_key: list((manifests.get(plugin_key) or {}).get("streams") or [])
+        for plugin_key in recording_plugins
+    }
+    return manifests, streams, _build_backup_contract(
+        recording_plugins,
+        streams,
+        get_backup_projection_specs(set(recording_plugins)),
+    )
+
+
+def _validate_recording_contract_in_plan(plan: Mapping[str, Any]) -> None:
+    try:
+        load_recording_contract(plan)
+    except RecordingContractError as error:
+        raise RecordingRuntimeError(str(error)) from error
+
+
+def _build_backup_contract(
+    recording_plugins: list[str],
+    streams_by_source: Mapping[str, list[dict[str, Any]]],
+    projection_specs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not projection_specs:
+        raise RecordingRuntimeError(
+            "active recording sensors do not provide the mandatory backup projection"
+        )
+    projection_objects = []
+    for spec in projection_specs:
+        projection_objects.extend(projections_from_manifest(spec["plugin_key"], spec))
+    rate_hz = min(item.rate_hz for item in projection_objects)
+    channel_names = list(
+        BackupSampler(tuple(projection_objects), start_monotonic=0.0).channel_names
+    )
+    source_rates = {
+        f"{plugin_key}.{stream.get('key')}": stream.get("nominal_rate_hz")
+        for plugin_key in recording_plugins
+        for stream in streams_by_source.get(plugin_key, [])
+    }
+    return {
+        "rate_hz": rate_hz,
+        "artifact_role": "derived_backup",
+        "resampling_strategy": "latest_cached_at_slowest_projection_grid; stale_to_nan",
+        "quality_channels": ["valid", "sample_age_ms", "sequence", "status"],
+        "channel_names": channel_names,
+        "source_rates_hz": source_rates,
+        "active_plugins": list(recording_plugins),
+        "projections": projection_specs,
+    }
+
+
+def _resolved_runtime_streams(
+    recording_plugins: Iterable[str],
+    manifests: Mapping[str, Mapping[str, Any]],
+    runtime_source_status: Mapping[str, Mapping[str, Any]] | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Extract explicitly negotiated stream contracts from plugin results.
+
+    A plugin must opt into this through its v4 manifest.  Identity and
+    transport fields remain anchored to the installed manifest; only the
+    device-dependent stream list, channels, units and reported rate can be
+    supplied at runtime.  Missing data therefore fails closed instead of
+    silently falling back to a plausible but wrong channel layout.
+    """
+
+    # ``None`` is retained only for direct legacy service callers during the
+    # v3 compatibility release.  All HTTP/session entry points pass an
+    # explicit mapping and therefore enforce runtime negotiation fail-closed.
+    if runtime_source_status is None:
+        return {}
+    statuses = runtime_source_status
+    resolved: dict[str, list[dict[str, Any]]] = {}
+    for plugin_key in recording_plugins:
+        manifest = manifests.get(plugin_key)
+        if not isinstance(manifest, Mapping):
+            continue
+        runtime = manifest.get("runtime")
+        if not isinstance(runtime, Mapping) or runtime.get("stream_contract") != "status_actual_streams":
+            continue
+        status = statuses.get(plugin_key)
+        if not isinstance(status, Mapping):
+            raise RecordingRuntimeError(
+                f"recording source {plugin_key!r} did not return its runtime stream contract"
+            )
+        raw_streams: Any = None
+        candidates = [status.get("result"), status.get("status"), status]
+        for candidate in candidates:
+            if not isinstance(candidate, Mapping):
+                continue
+            raw_streams = candidate.get("actual_streams")
+            latest = candidate.get("latest")
+            if raw_streams is None and isinstance(latest, Mapping):
+                raw_streams = latest.get("actual_streams")
+            if raw_streams is not None:
+                break
+        if not isinstance(raw_streams, list) or not raw_streams or not all(
+            isinstance(item, Mapping) for item in raw_streams
+        ):
+            raise RecordingRuntimeError(
+                f"recording source {plugin_key!r} has no confirmed actual_streams"
+            )
+
+        declared_streams = manifest.get("streams")
+        declared_by_key = {
+            str(item.get("key") or ""): dict(item)
+            for item in declared_streams or []
+            if isinstance(item, Mapping)
+        }
+        actual: list[dict[str, Any]] = []
+        for raw_stream in raw_streams:
+            stream_key = str(raw_stream.get("key") or "").strip()
+            declared = declared_by_key.get(stream_key)
+            if declared is None:
+                raise RecordingRuntimeError(
+                    f"recording source {plugin_key!r} returned undeclared stream {stream_key!r}"
+                )
+            for identity_field in ("source_id", "type", "clock_domain", "channel_format"):
+                runtime_value = raw_stream.get(identity_field)
+                if runtime_value is not None and runtime_value != declared.get(identity_field):
+                    raise RecordingRuntimeError(
+                        f"recording source {plugin_key!r} changed {stream_key}.{identity_field}"
+                    )
+            merged = {**declared, **dict(raw_stream)}
+            channels = merged.get("channels")
+            if "channel_units" not in raw_stream and isinstance(channels, list):
+                declared_units = declared.get("channel_units")
+                if (
+                    isinstance(declared_units, list)
+                    and declared_units
+                    and len(set(str(unit) for unit in declared_units)) == 1
+                ):
+                    merged["channel_units"] = [str(declared_units[0])] * len(channels)
+            actual.append(merged)
+
+        recording_source = (manifest.get("capability_config") or {}).get("recording_source")
+        primary_stream = (
+            str(recording_source.get("primary_stream") or "").strip()
+            if isinstance(recording_source, Mapping)
+            else ""
+        )
+        if primary_stream and primary_stream not in {stream["key"] for stream in actual}:
+            raise RecordingRuntimeError(
+                f"recording source {plugin_key!r} omitted primary stream {primary_stream!r}"
+            )
+        resolved[plugin_key] = actual
+    return resolved
 
 
 class NativeWorkerLauncher(DetachedWorkerLauncher):
@@ -182,10 +358,14 @@ class RecordingRuntimeService:
         session: Mapping[str, Any],
         config_data: Mapping[str, Any],
         hardware_config: Mapping[str, Any],
+        runtime_source_status: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        identity = _identity_from_session(session)
+        candidate_paths = self.artifacts.paths_for(identity)
+        existing_plan = (candidate_paths.root / "recording-plan.json").is_file()
         selected = list(selected_recording_plugins(config_data))
         required = list(required_recording_plugins(config_data))
-        if not selected:
+        if not selected and not existing_plan:
             return {"recording_expected": False, "status": "skipped", "plugins": []}
 
         availability = self.locator.locate()
@@ -198,13 +378,6 @@ class RecordingRuntimeService:
         if not lsl_dependencies["ok"]:
             raise RecordingRuntimeError(str(lsl_dependencies["reason"]))
 
-        for source_key in INTERNAL_RECORDING_SOURCE_KEYS:
-            selected.append(source_key)
-            required.append(source_key)
-        selected = list(dict.fromkeys(selected))
-        required = list(dict.fromkeys(required))
-
-        identity = _identity_from_session(session)
         paths = self.artifacts.reserve(identity)
         plan_path = paths.root / "recording-plan.json"
         with self._lock:
@@ -212,6 +385,7 @@ class RecordingRuntimeService:
                 plan = _read_object(plan_path)
                 if plan.get("schema") != RECORDING_PLAN_SCHEMA:
                     raise RecordingRuntimeError("recording plan has an unsupported schema")
+                _validate_recording_contract_in_plan(plan)
                 self._active_paths[identity.session_id] = paths.root
                 if plan.get("status") == "frozen":
                     return _public_plan(plan, reused=True)
@@ -220,6 +394,47 @@ class RecordingRuntimeService:
                     plan,
                     availability,
                 )
+
+            for source_key in INTERNAL_RECORDING_SOURCE_KEYS:
+                selected.append(source_key)
+                required.append(source_key)
+            selected = list(dict.fromkeys(selected))
+            required = list(dict.fromkeys(required))
+
+            manifests = get_plugin_manifests_with_internal_sources()
+            manifest_streams_by_source = {
+                plugin_key: list((manifests.get(plugin_key) or {}).get("streams") or [])
+                for plugin_key in selected
+            }
+            resolved_streams_by_source = _resolved_runtime_streams(
+                selected,
+                manifests,
+                runtime_source_status,
+            )
+            streams_by_source = {
+                plugin_key: list(
+                    resolved_streams_by_source.get(plugin_key)
+                    or manifest_streams_by_source.get(plugin_key)
+                    or []
+                )
+                for plugin_key in selected
+            }
+            projection_specs = get_backup_projection_specs(set(selected))
+            backup_contract = _build_backup_contract(
+                selected,
+                streams_by_source,
+                projection_specs,
+            )
+            try:
+                recording_contract = build_recording_contract(
+                    selected,
+                    required,
+                    manifests,
+                    backup_contract,
+                    resolved_streams_by_source=resolved_streams_by_source,
+                )
+            except RecordingContractError as error:
+                raise RecordingRuntimeError(str(error)) from error
 
             plan: dict[str, Any] = {
                 "schema": RECORDING_PLAN_SCHEMA,
@@ -230,6 +445,7 @@ class RecordingRuntimeService:
                 "started_at_epoch": self._clock(),
                 "recording_plugins": selected,
                 "required_source_keys": required,
+                "recording_contract": recording_contract,
                 "backup": None,
                 "worker": None,
                 "last_error": None,
@@ -413,7 +629,7 @@ class RecordingRuntimeService:
         if endpoint.generation != generation:
             raise RecordingRuntimeError("recording worker generation mismatch")
 
-        manifests = get_plugin_manifests_with_internal_sources()
+        manifests, streams_by_source, backup_contract = _recording_inputs_from_plan(plan)
         recording_plugins = [str(key) for key in plan.get("recording_plugins") or []]
         required_sources = {str(key) for key in plan.get("required_source_keys") or []}
         optional_source_warnings: list[dict[str, Any]] = []
@@ -424,7 +640,7 @@ class RecordingRuntimeService:
             required_source = plugin_key in required_sources
             response = backend.start_source(
                 plugin_key,
-                manifest.get("streams") or [],
+                streams_by_source.get(plugin_key) or [],
                 command_id=(
                     f"start-source-{paths.identity.session_id}-{plugin_key}-g{generation}"
                 ),
@@ -447,18 +663,10 @@ class RecordingRuntimeService:
                             {"plugin_key": plugin_key, "unresolved_streams": unresolved}
                         )
 
-        projection_specs = get_backup_projection_specs(set(recording_plugins))
-        if not projection_specs:
-            raise RecordingRuntimeError(
-                "active recording sensors do not provide the mandatory backup projection"
-            )
-        projection_objects = []
-        for spec in projection_specs:
-            projection_objects.extend(projections_from_manifest(spec["plugin_key"], spec))
-        rate_hz = min(item.rate_hz for item in projection_objects)
-        backup_channel_names = list(
-            BackupSampler(tuple(projection_objects), start_monotonic=0.0).channel_names
-        )
+        projection_specs = list(backup_contract["projections"])
+        rate_hz = float(backup_contract["rate_hz"])
+        backup_channel_names = list(backup_contract["channel_names"])
+        source_rates = dict(backup_contract["source_rates_hz"])
         backup = plan.get("backup") if isinstance(plan.get("backup"), dict) else {}
         segments = list(backup.get("segments") or [])
         if not segments and backup.get("relative_path"):
@@ -516,23 +724,11 @@ class RecordingRuntimeService:
             }
             segments.append(generation_segment)
 
-        source_rates = {
-            f"{plugin_key}.{stream.get('key')}": stream.get("nominal_rate_hz")
-            for plugin_key in recording_plugins
-            for stream in (manifests.get(plugin_key) or {}).get("streams", [])
-        }
         plan["backup"] = {
-            "rate_hz": rate_hz,
+            **backup_contract,
             "grid_anchor_epoch": float(segments[0].get("grid_anchor_epoch") or plan["started_at_epoch"]),
             "relative_path": str(segments[0]["relative_path"]),
             "segments": segments,
-            "artifact_role": "derived_backup",
-            "resampling_strategy": "latest_cached_at_slowest_projection_grid; stale_to_nan",
-            "quality_channels": ["valid", "sample_age_ms", "sequence", "status"],
-            "channel_names": backup_channel_names,
-            "source_rates_hz": source_rates,
-            "active_plugins": recording_plugins,
-            "projections": projection_specs,
         }
         atomic_write_json(paths.root / "recording-plan.json", plan)
         response = client.send(
@@ -543,11 +739,11 @@ class RecordingRuntimeService:
                 "generation": generation,
                 "rate_hz": rate_hz,
                 "grid_anchor_epoch": grid_anchor_epoch,
-                "artifact_role": "derived_backup",
-                "resampling_strategy": "latest_cached_at_slowest_projection_grid; stale_to_nan",
-                "active_plugins": recording_plugins,
+                "artifact_role": backup_contract["artifact_role"],
+                "resampling_strategy": backup_contract["resampling_strategy"],
+                "active_plugins": backup_contract["active_plugins"],
                 "source_rates_hz": source_rates,
-                "quality_channels": ["valid", "sample_age_ms", "sequence", "status"],
+                "quality_channels": backup_contract["quality_channels"],
                 "channel_names": backup_channel_names,
                 "projections": projection_specs,
             },
@@ -924,6 +1120,7 @@ class RecordingRuntimeService:
         plan = _read_object(paths.root / "recording-plan.json")
         if plan.get("schema") != RECORDING_PLAN_SCHEMA:
             raise RecordingRuntimeError("recording plan is missing or invalid")
+        _validate_recording_contract_in_plan(plan)
         return plan
 
     def _find_paths(self, session_id: str) -> ArtifactPaths | None:
@@ -951,5 +1148,3 @@ class RecordingRuntimeService:
             self._active_paths[session_key] = paths.root
             return paths
         return None
-
-

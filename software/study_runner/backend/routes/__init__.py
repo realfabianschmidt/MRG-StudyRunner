@@ -6,7 +6,7 @@
 - admin.py    operator endpoints: health, studies, status, restart
 - sensors.py  hardware config, sensor runtime actions, camera, worker
 - update.py   in-app updater
-- notion.py   Notion upload status and offline-queue flush
+- notion.py   one-release deprecated aliases for old Notion clients
 - plugins.py  the manifest-driven plugin catalog, UI assets, and generic
               admin/participant action dispatch (a plugin's own "test
               connection" or "select device" runs through here, never a

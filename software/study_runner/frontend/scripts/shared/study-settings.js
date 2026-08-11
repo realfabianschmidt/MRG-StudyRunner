@@ -1,20 +1,17 @@
 /**
  * The one client-side definition of a study's settings.
  *
- * This shape used to be written out three times - in admin-controller.js, in
- * notion-settings-controller.js, and (authoritatively) in the backend's
- * _validate_study_settings(). The copies drifted, and the drift cost real data:
- * a save from the study-settings modal rebuilt the object without the Nextcloud
- * keys, so configuring Nextcloud and later toggling the progress bar silently
- * switched the upload off and dropped the share link.
+ * This shape used to be written out in several plugin-specific controllers and
+ * (authoritatively) in the backend's validator. The copies drifted, and a save
+ * from an unrelated panel could silently discard another plugin's settings.
  *
  * Every field below mirrors backend/services/validation.py::_validate_study_settings.
  * Keep the two in step - tests/test_study_settings_contract.py fails otherwise.
  *
- * Like the backend, normalizeStudySettings() returns a fresh object holding
- * exactly the known keys. Unknown keys are dropped rather than passed through,
- * because the backend drops them too - letting them survive here would only
- * hide a mismatch until the next save.
+ * Plugin selections are deliberately open-ended. A study may have been created
+ * on another machine with plugins that are not installed here; those opaque
+ * selections must survive load/edit/save unchanged until the operator removes
+ * them explicitly.
  */
 import { pluginsWithCapability } from './plugin-catalog.js';
 
@@ -61,12 +58,18 @@ export function normalizeStudySettings(settings) {
   const sensorsEnabled = source.sensors_enabled !== false;
   const legacySensors = normalizeStudySensors(source, sensorsEnabled);
   const plugins = syncLegacyFieldsToPlugins(source, legacySensors);
-  const sensors = Object.fromEntries(pluginsWithCapability('study_sensor').map((plugin) => [
-    plugin.plugin_key,
-    Boolean(plugins[plugin.plugin_key]?.enabled),
-  ]));
+  const sensors = {
+    ...legacySensors,
+    ...Object.fromEntries(pluginsWithCapability('study_sensor').map((plugin) => [
+      plugin.plugin_key,
+      Boolean(plugins[plugin.plugin_key]?.enabled),
+    ])),
+  };
   return {
-    sensors_enabled: Object.values(sensors).some(Boolean),
+    // The master switch is an operator choice, not an inference from whatever
+    // subset of plugins happens to be installed on this computer. Inferring it
+    // here disabled imported sensor studies when their only plugin was absent.
+    sensors_enabled: sensorsEnabled,
     sensors: sensors,
     plugins: plugins,
     progress_bar_enabled: Boolean(source.progress_bar_enabled),

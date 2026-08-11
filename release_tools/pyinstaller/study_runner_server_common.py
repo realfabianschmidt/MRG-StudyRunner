@@ -24,27 +24,33 @@ def software_root(spec_path: str) -> Path:
 
 def common_datas(root: Path) -> list[tuple[str, str]]:
     datas = [
-        (str(root / "study_runner" / "frontend"), "study_runner/web"),
+        # runtime_config.get_project_base_dir() resolves to the PyInstaller
+        # extraction root, and backend/__init__.py appends study_runner/frontend.
+        (str(root / "study_runner" / "frontend"), "study_runner/frontend"),
         (str(root / "study_content"), "study_content"),
     ]
-    model_assets = root / "study_runner" / "plugins" / "camera_emotion" / "worker" / "model_assets"
-    model_weights = model_assets / "facial_expression_model_weights.h5"
-    if not model_weights.is_file():
-        raise RuntimeError(
-            "DeepFace model weights are missing: "
-            f"{model_weights}. A packaged build without them cannot analyze emotions offline. "
-            "Run release_tools/fetch_deepface_model_assets.py first."
+    plugin_manifests = _plugin_manifests(root)
+    camera_manifest = next(
+        (manifest for manifest, payload in plugin_manifests if payload.get("plugin_key") == "camera_emotion"),
+        None,
+    )
+    if camera_manifest is not None:
+        model_assets = camera_manifest.parent / "worker" / "model_assets"
+        model_weights = model_assets / "facial_expression_model_weights.h5"
+        if not model_weights.is_file():
+            raise RuntimeError(
+                "DeepFace model weights are missing: "
+                f"{model_weights}. A packaged build without them cannot analyze emotions offline. "
+                "Run release_tools/fetch_deepface_model_assets.py first."
+            )
+        datas.append(
+            (
+                str(model_assets),
+                f"study_runner/plugins/{camera_manifest.parent.name}/worker/model_assets",
+            )
         )
-    datas.append((str(model_assets), "study_runner/plugins/camera_emotion/worker/model_assets"))
-    plugin_manifests = sorted((root / "study_runner" / "plugins").glob("*/manifest.json"))
-    if not plugin_manifests:
-        raise RuntimeError("No plugin API-v3 manifests were found for the packaged build.")
-    for manifest in plugin_manifests:
+    for manifest, payload in plugin_manifests:
         datas.append((str(manifest), f"study_runner/plugins/{manifest.parent.name}"))
-        try:
-            payload = json.loads(manifest.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as error:
-            raise RuntimeError(f"Invalid plugin manifest {manifest}: {error}") from error
         ui = payload.get("ui") if isinstance(payload.get("ui"), dict) else {}
         extensions = ui.get("extensions") if isinstance(ui.get("extensions"), dict) else {}
         extra_assets = ui.get("assets") if isinstance(ui.get("assets"), list) else []
@@ -78,9 +84,10 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
                 "study_runner", "plugins", manifest.parent.name, *relative.parts[:-1]
             ).as_posix()
             datas.append((str(source), destination))
-    # DeepFace's face detector reads cv2's haarcascade XMLs at runtime;
-    # PyInstaller's cv2 hook does not reliably collect them.
-    datas.extend(collect_data_files("cv2", includes=["**/*.xml"]))
+    if camera_manifest is not None:
+        # DeepFace's face detector reads cv2's haarcascade XMLs at runtime;
+        # PyInstaller's cv2 hook does not reliably collect them.
+        datas.extend(collect_data_files("cv2", includes=["**/*.xml"]))
     return datas
 
 
@@ -96,6 +103,9 @@ def common_binaries(root: Path | None = None) -> list[tuple[str, str]]:
     infrastructure as unavailable until the later signed-bundle work adds a
     verified platform core; it must never bundle an ad-hoc local build.
     """
+    if root is not None and "brainbit" not in _plugin_keys(root):
+        return []
+
     strict = sys.platform == "win32" or sys.platform == "darwin"
     binaries: list[tuple[str, str]] = []
     for package in BRAINBIT_SDK_PACKAGES:
@@ -114,18 +124,32 @@ def common_binaries(root: Path | None = None) -> list[tuple[str, str]]:
     return binaries
 
 
-def common_hidden_imports() -> list[str]:
-    return (
+def common_hidden_imports(root: Path) -> list[str]:
+    plugin_keys = _plugin_keys(root)
+    imports = (
         collect_submodules("study_runner.backend")
         + collect_submodules("study_runner.plugin_framework")
         + collect_submodules("study_runner.plugins")
-        + collect_submodules("neurosdk")
-        + collect_submodules("em_st_artifacts")
         + [
-            # Launched as "<own executable> --brainbit-cli" in packaged builds,
-            # because there is no separate Python interpreter to run the script.
-            "study_runner.plugins.brainbit.brainbit_realtime_cli",
-            "pythonosc",
+            "study_runner.updates.installer",
+            "study_runner.updates.trusted_keys",
+            "study_runner.version",
+        ]
+    )
+    if "brainbit" in plugin_keys:
+        imports += (
+            collect_submodules("neurosdk")
+            + collect_submodules("em_st_artifacts")
+            + [
+                # Launched as "<own executable> --brainbit-cli" in packaged builds,
+                # because there is no separate Python interpreter to run the script.
+                "study_runner.plugins.brainbit.brainbit_realtime_cli",
+            ]
+        )
+    if "osc" in plugin_keys:
+        imports.append("pythonosc")
+    if "camera_emotion" in plugin_keys:
+        imports += [
             "cv2",
             "deepface",
             "deepface.DeepFace",
@@ -144,12 +168,32 @@ def common_hidden_imports() -> list[str]:
             "mtcnn",
             "retinaface",
             "tensorflow",
-            "study_runner.updates.installer",
-            "study_runner.updates.trusted_keys",
-            "study_runner.version",
             "tf_keras",
         ]
-    )
+    return imports
+
+
+def _plugin_manifests(root: Path) -> list[tuple[Path, dict]]:
+    manifests: list[tuple[Path, dict]] = []
+    plugins_root = root / "study_runner" / "plugins"
+    if not plugins_root.is_dir():
+        return manifests
+    for manifest in sorted(plugins_root.glob("*/manifest.json")):
+        try:
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise RuntimeError(f"Invalid plugin manifest {manifest}: {error}") from error
+        if not isinstance(payload, dict) or not str(payload.get("plugin_key") or "").strip():
+            raise RuntimeError(f"Invalid plugin manifest {manifest}: plugin_key is missing")
+        manifests.append((manifest, payload))
+    return manifests
+
+
+def _plugin_keys(root: Path) -> set[str]:
+    return {
+        str(payload["plugin_key"]).strip()
+        for _manifest, payload in _plugin_manifests(root)
+    }
 
 
 def common_excludes() -> list[str]:

@@ -17,6 +17,9 @@ imported through an entry point, because there is nothing here to remove.
 from __future__ import annotations
 
 import json
+import math
+import threading
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -37,6 +40,10 @@ LSL_SOURCE_IDS = {stream["key"]: stream["source_id"] for stream in MANIFEST["str
 LSL_CHANNEL_UNITS = {stream["key"]: tuple(stream["channel_units"]) for stream in MANIFEST["streams"]}
 
 _outlet: Any = None
+_local_clock: Any = None
+_wall_to_lsl_offset: float | None = None
+_last_lsl_timestamp: float | None = None
+_lock = threading.RLock()
 
 
 def initialize(hardware_config: Mapping[str, Any] | None = None) -> None:
@@ -54,7 +61,7 @@ def initialize(hardware_config: Mapping[str, Any] | None = None) -> None:
     ):
         return
     try:
-        from pylsl import StreamInfo, StreamOutlet
+        from pylsl import StreamInfo, StreamOutlet, local_clock
 
         info = StreamInfo(
             name=stream_name,
@@ -67,7 +74,15 @@ def initialize(hardware_config: Mapping[str, Any] | None = None) -> None:
         channel = info.desc().append_child("channels").append_child("channel")
         channel.append_child_value("label", "event")
         channel.append_child_value("unit", LSL_CHANNEL_UNITS["markers"][0])
-        _outlet = StreamOutlet(info)
+        outlet = StreamOutlet(info)
+        # Capture one mapping between wall time and LSL's monotonic clock.  A
+        # stable offset avoids reintroducing wall-clock jumps for every event.
+        with _lock:
+            global _local_clock, _wall_to_lsl_offset, _last_lsl_timestamp
+            _outlet = outlet
+            _local_clock = local_clock
+            _wall_to_lsl_offset = float(local_clock()) - time.time()
+            _last_lsl_timestamp = None
         print(f"[MARKERS] Outlet ready: {stream_name} ({stream_type})")
     except ImportError:
         print("[MARKERS] pylsl import failed after dependency check.")
@@ -75,20 +90,82 @@ def initialize(hardware_config: Mapping[str, Any] | None = None) -> None:
 
 def stop() -> None:
     """Release the module-level LSL outlet."""
-    global _outlet
-    _outlet = None
+    global _outlet, _local_clock, _wall_to_lsl_offset, _last_lsl_timestamp
+    with _lock:
+        _outlet = None
+        _local_clock = None
+        _wall_to_lsl_offset = None
+        _last_lsl_timestamp = None
 
 
-def send_marker(value: str) -> None:
-    """Push a string marker to the LSL outlet. Does nothing if LSL is not active."""
-    if _outlet is not None:
-        _outlet.push_sample([value])
-        print(f"[MARKERS] Marker sent: {value}")
+def send_marker(value: str, *, server_epoch_ms: Any = None) -> dict[str, Any]:
+    """Push one marker, optionally at an explicit server-wallclock instant.
+
+    The route records its ingress/source timestamp before journal I/O and slow
+    plugin callbacks.  Mapping that instant through the offset captured during
+    initialization keeps the XDF marker on LSL's monotonic clock.  Explicit
+    timestamps are clamped to non-decreasing order for this outlet; if no safe
+    mapping is available the original ``push_sample([value])`` behavior is kept.
+    """
+
+    global _last_lsl_timestamp
+    with _lock:
+        outlet = _outlet
+        if outlet is None:
+            return {
+                "sent": False,
+                "marker_lsl_timestamp": None,
+                "marker_push_epoch_ms": None,
+            }
+        requested_lsl_timestamp = _mapped_lsl_timestamp(server_epoch_ms)
+        if requested_lsl_timestamp is None and _local_clock is not None:
+            try:
+                candidate = float(_local_clock())
+            except (TypeError, ValueError, RuntimeError):
+                candidate = math.nan
+            if math.isfinite(candidate):
+                requested_lsl_timestamp = candidate
+
+        # This is the timestamp actually handed to pylsl, after the outlet's
+        # ordering constraint has been applied. It is intentionally distinct
+        # from the source-derived request: an older retry may be clamped.
+        used_lsl_timestamp = requested_lsl_timestamp
+        if used_lsl_timestamp is None:
+            outlet.push_sample([value])
+        else:
+            if _last_lsl_timestamp is not None:
+                used_lsl_timestamp = max(used_lsl_timestamp, _last_lsl_timestamp)
+            outlet.push_sample([value], timestamp=used_lsl_timestamp)
+            _last_lsl_timestamp = used_lsl_timestamp
+        # Capture wall time only after push_sample returned. This reports the
+        # actual push completion, not the requested/source event time.
+        pushed_at_epoch_ms = round(time.time() * 1000.0, 3)
+    print(f"[MARKERS] Marker sent: {value}")
+    return {
+        "sent": True,
+        "marker_lsl_timestamp": used_lsl_timestamp,
+        "marker_push_epoch_ms": pushed_at_epoch_ms,
+    }
+
+
+def _mapped_lsl_timestamp(server_epoch_ms: Any) -> float | None:
+    if _wall_to_lsl_offset is None:
+        return None
+    try:
+        epoch_ms = float(server_epoch_ms)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(epoch_ms) or epoch_ms < 0:
+        return None
+    mapped = (epoch_ms / 1000.0) + _wall_to_lsl_offset
+    return mapped if math.isfinite(mapped) else None
 
 
 def status() -> dict[str, Any]:
-    return {
-        "status": "enabled" if _outlet is not None else "waiting",
-        "runtime_enabled": _outlet is not None,
-        "device_label": "Study markers",
-    }
+    with _lock:
+        active = _outlet is not None
+        return {
+            "status": "enabled" if active else "waiting",
+            "runtime_enabled": active,
+            "device_label": "Study markers",
+        }

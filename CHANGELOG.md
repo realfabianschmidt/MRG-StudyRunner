@@ -5,6 +5,54 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Added
+
+- Plugin API v4: every built-in plugin now runs as a supervised subprocess
+  behind a single `driver.py` entry point, talking to the core over a
+  line-oriented stdio protocol. The core no longer imports any plugin's
+  Python module directly.
+- A generic admin diagnostics console for every plugin: a guided status view
+  plus a line-oriented expert console, with bounded automatic restarts, log
+  rotation, and a read-only-during-study stdin gate that requires an
+  explicit, recorded local unlock.
+- BrainBit: startup-time validation of the pinned EmotionalMath SDK surface
+  (fails closed before any device scan instead of only on the first EEG
+  batch), queue-overflow protection with a counted drop metric, a measured
+  (not nominal) sample-rate field on the live EEG stream, and a faster
+  status refresh.
+- An explicit, confirmation-gated endpoint to erase a removed plugin's
+  leftover machine-config and secret sections, once an operator is sure the
+  plugin is gone for good.
+- A README for every built-in plugin describing its architecture and, where
+  applicable, exactly which parts of its code come from an official vendor
+  SDK (BrainBit NeuroSDK/EmotionalMath, Seeed's MR60BHA2 Arduino library,
+  DeepFace, the Notion and OSC SDKs) versus project-original code.
+
+### Changed
+
+- Trial timing and persistence hardened: durable prepare-before-stimulus
+  journaling with an armed emergency stop, fail-closed admin overrides that
+  persist before releasing a card, idempotent stop handling, and a shared
+  atomic writer with revision checks for study, hardware, and secret files.
+- Every built-in plugin folder is fully removable without breaking the app,
+  admin page, hardware save, or build. A `recording-plan.json` contract
+  snapshot pins each session's manifests, streams, and backup projections
+  for recovery and finalization.
+
+### Fixed
+
+- Hardware-config saves triggered from a plugin's background thread no
+  longer fail with a false "changed concurrently" conflict when a section
+  had simply never been persisted before.
+- Study readiness no longer reports "not ready" for a missing *optional*
+  plugin, which is informational, not a misconfiguration; it still blocks
+  correctly when the plugin is required.
+- Two admin-action tests (BrainBit device selection, Nextcloud connection
+  test) were mocking server-process state while the real work runs inside
+  each plugin's supervised child process; both now observe the actual
+  process boundary. A related test-isolation bug that could leave a stale
+  plugin-runtime singleton behind between test files is also fixed.
+
 ## 0.5.0 - 2026-08-06
 
 ### Added

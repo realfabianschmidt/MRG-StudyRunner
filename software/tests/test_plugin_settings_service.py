@@ -159,7 +159,7 @@ class ManifestContractTests(unittest.TestCase):
     def test_manifest_version_is_known(self) -> None:
         self.assertTrue(MANIFEST_FILES)
         for manifest_file in MANIFEST_FILES:
-            self.assertEqual(json.loads(manifest_file.read_text(encoding="utf-8"))["api_version"], 3)
+            self.assertEqual(json.loads(manifest_file.read_text(encoding="utf-8"))["api_version"], 4)
 
     def test_every_field_declares_what_a_form_needs(self) -> None:
         problems = []

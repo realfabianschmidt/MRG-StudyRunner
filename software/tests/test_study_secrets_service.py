@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -19,9 +21,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend.services.settings.secrets_service import (
+    LocalSecretsError,
     load_local_secrets,
     redact_hardware_config,
     save_local_secrets,
+    update_local_secrets,
 )
 from study_runner.backend.services.studies.study_secrets_service import (
     _credential_declarations,
@@ -203,6 +207,40 @@ class PersistenceTests(unittest.TestCase):
 
             self.assertEqual(leftovers, [], "atomic write must not leave temp files")
             self.assertEqual(load_local_secrets(path)["notion"]["api_key"], "machine-key")
+
+    def test_malformed_existing_store_fails_loudly_instead_of_looking_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "local_secrets.json"
+            path.write_text("{truncated", encoding="utf-8")
+
+            with self.assertRaises(LocalSecretsError):
+                load_local_secrets(path)
+
+    def test_concurrent_targeted_updates_do_not_drop_each_other(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "local_secrets.json"
+            save_local_secrets(path, {})
+            started = threading.Event()
+
+            def update_notion(secrets):
+                started.set()
+                time.sleep(0.05)
+                secrets["notion"] = {"api_key": "notion-key"}
+
+            def update_nextcloud(secrets):
+                started.wait(timeout=1)
+                secrets["nextcloud"] = {"password": "cloud-key"}
+
+            first = threading.Thread(target=lambda: update_local_secrets(path, update_notion))
+            second = threading.Thread(target=lambda: update_local_secrets(path, update_nextcloud))
+            first.start()
+            second.start()
+            first.join(timeout=2)
+            second.join(timeout=2)
+            stored = load_local_secrets(path)
+
+        self.assertEqual(stored["notion"]["api_key"], "notion-key")
+        self.assertEqual(stored["nextcloud"]["password"], "cloud-key")
 
 
 class LeakageTests(unittest.TestCase):

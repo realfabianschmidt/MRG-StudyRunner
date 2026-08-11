@@ -1,10 +1,21 @@
 {
-  "api_version": 3,
+  "api_version": 4,
   "plugin_key": "osc",
   "version": "1.0.0",
   "category": "output",
   "config_key": "osc",
   "entry_point": "plugin:PLUGIN",
+  "runtime": {
+    "entrypoint": "driver.py",
+    "protocol": "study-runner-stdio/v1",
+    "interactive_stdin": true,
+    "modes": ["runtime", "diagnostics"],
+    "sample_delivery": "none",
+    "actions": [],
+    "trial_events": ["start", "stop"],
+    "can_toggle": true,
+    "sidecar": {}
+  },
   "ui": {
     "label": "OSC / TouchDesigner",
     "description": "Forwards study events to TouchDesigner over OSC.",

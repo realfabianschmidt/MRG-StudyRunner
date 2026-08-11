@@ -18,6 +18,16 @@ Install in Arduino IDE:
 
 Use board `XIAO_ESP32C6` and enable USB CDC on boot for serial debugging.
 
+## Where the code comes from
+
+This sketch is built directly on Seeed's own **`Seeed_Arduino_mmWave`**
+library for the MR60BHA2 (`SEEED_MR60BHA2 mmWave; mmWave.begin(); .update();
+.getHeartBreathPhases(); .getBreathRate(); .getHeartRate();
+.getDistance();`), including UART wiring taken from that library's own
+examples. The 20-byte BLE packet format below, and the BPM/status LED logic
+around it, are original code for this project, not part of Seeed's library
+or examples — Seeed does not publish a BLE relay format of its own.
+
 ## BLE interface
 
 - Device name: `MR60_BLE`

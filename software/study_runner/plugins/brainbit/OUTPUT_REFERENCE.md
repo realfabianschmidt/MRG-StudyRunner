@@ -1,338 +1,155 @@
-# BrainBit Realtime CLI — Expected Output Reference
+# BrainBit CLI output contract
 
-This document shows real sample outputs from the enhanced script with different flag combinations.
+This file documents the line protocol emitted by `brainbit_realtime_cli.py`.
+Values below are schematic examples, not captured participant data.
 
----
+Every machine-readable line has a short tag, one space, and a strict JSON
+object. Non-finite SDK values such as an open-circuit resistance are encoded as
+`null`, never the non-standard JSON token `Infinity`.
 
-## Session 1: Typical Run with --pretty --debug
+## Device discovery
 
+```text
+SCAN {"index":0,"name":"BrainBit","family":"LEBrainBit","address":"...","serial":"...","pairing_required":false,"rssi":-55}
+DEVICE_SELECTED {"index":0,"name":"BrainBit","family":"LEBrainBit","address":"...","serial":"...","selection_source":"serial_number"}
+DEVICE {"family":"LEBrainBit","name":"BrainBit","address":"...","serial_number":"...","fs_hz":250,"scale":"uV","raw_processing":"unit_scale_only","supported_channels":[]}
 ```
-[SETUP] Installing python-osc ...
-[SETUP] Required libraries are installed: neurosdk, pythonosc, em_st_artifacts
-[STATUS] Pretty output=True, Debug mode=True
-# Scanning for 5 s ...
-SCAN {"index":0,"name":"BrainBit","family":"LEBrainBit2","address":"DA:AC:A1:99:7B:BA","serial":"04030072","pairing_required":false,"rssi":-72}
-# Connecting to device index 0 ...
-[STATUS] Sensor connected successfully.
-[STATUS] Connected sensor info:
-[STATUS]   family: LEBrainBit2
-[STATUS]   name: BrainBit
-[STATUS]   address: DA:AC:A1:99:7B:BA
-[STATUS]   serial: 04030072
-[STATUS]   sampling_frequency: SensorSamplingFrequency((250,))
-[STATUS]   battery: 62
-[STATUS]   features: ['Signal', 'Resist', 'FPG', 'MEMS']
-[STATUS]   commands: ['StartSignal', 'StopSignal', 'StartResist', 'StopResist', 'StartFPG', 'StopFPG', 'StartMEMS', 'StopMEMS']
-[DEBUG] Sensor support: features= [...] commands= [...]
-EMO_INIT {"fs_hz":250,"process_win_freq_hz":25,"fft_window_samples":1000,"bipolar_mode":true,"channels_number":4,"eeg_scale":"uV"}
-DEVICE {"family":"LEBrainBit2","name":"BrainBit","address":"DA:AC:A1:99:7B:BA","serial_number":"04030072","fs_hz":250,"process_win_freq_hz":25,"fft_window_samples":1000,"scale":"uV"}
-# RESIST: START (6s)
-STATE {"state":"Connected"}
-[STATUS] Sensor state: Connected
-BATTERY {"percent":62}
-[BATTERY] Battery level is 62%
-RESIST {"ts":1775134392.456,"pack":0,"O1":1523,"O2":1847,"T3":1456,"T4":1698,"units":"Ohm"}
-[QUALITY] O1=0.39, O2=0.26, T3=0.42, T4=0.32
-[STATUS] Resist packet pack=0, O1=1523, O2=1847, T3=1456, T4=1698
-RESIST {"ts":1775134392.516,"pack":1,"O1":1498,"O2":1823,"T3":1432,"T4":1675,"units":"Ohm"}
-[QUALITY] O1=0.40, O2=0.27, T3=0.43, T4=0.33
-[STATUS] Resist packet pack=1, O1=1498, O2=1823, T3=1432, T4=1675
-[... more RESIST packets ...]
-BATTERY {"percent":61}
-[BATTERY] Battery level is 61%
-# RESIST: STOP
-[DEBUG] Stopping command SensorCommand.StopResist for RESIST
-# EEG: START (Ctrl+C to stop)
-BATTERY {"percent":61}
-[BATTERY] Battery level is 61%
-EEG {"ts":1775134397.102,"O1":12.3,"O2":-5.6,"T3":8.2,"T4":-3.1,"units":"uV"}
-EEG {"ts":1775134397.104,"O1":14.5,"O2":-6.2,"T3":9.1,"T4":-2.8,"units":"uV"}
-[STATUS] Signal callback received 250 valid channel frames, 250 formatted output rows
-[DEBUG] Pushing 250 raw bipolar frames into EmotionalMath
-[STATUS] Starting emotion calibration.
+
+Configured identities are strict. If the configured band is absent, another
+band is not substituted:
+
+```text
+DEVICE_TARGET_MISSING {"message":"Configured BrainBit target not found: serial_number '...' not found","target":{"serial_number":"..."},"fallback":null}
+```
+
+The process exits with code 6.
+
+BrainBit2, Pro, and Flex additionally report their SDK array mapping. `index`
+is `EEGChannelInfo.Num`, the position used in `SignalChannelsData.Samples`:
+
+```text
+CHANNEL_MAP {"channels":[{"label":"O1","index":0,"id":"EEGChIdO1","type":"EEGChTypeDifferential"},{"label":"O2","index":1,"id":"EEGChIdO2","type":"EEGChTypeDifferential"},{"label":"T3","index":2,"id":"EEGChIdT3","type":"EEGChTypeDifferential"},{"label":"T4","index":3,"id":"EEGChIdT4","type":"EEGChTypeDifferential"}],"raw_channels":["O1","O2","T3","T4"],"raw_channel_count":4,"fs_hz":250,"derived_rate_hz":25,"units":"uV","derived_required_channels":["O1","O2","T3","T4"],"derived_enabled":true,"missing_derived_channels":[]}
+```
+
+Every valid raw channel is retained in SDK order. Missing O1/O2/T3/T4 disables
+only the derived streams; duplicate labels or indices are configuration
+failures because their identity is ambiguous.
+
+## Resistance and contact quality
+
+```text
+STREAM {"stream":"resist","event":"START"}
+RESIST {"ts":1786000000.1,"pack":12,"O1":180000.0,"O2":220000.0,"T3":null,"T4":195000.0,"units":"Ohm","packet_shape":"classic_fields","open_channels":["T3"]}
+QUALITY {"O1":0.932,"O2":0.917,"T3":0.0,"T4":0.927,"units":"ratio","resistance_upper_ohm":2666000.0,"quality_model":"linear_diagnostic_only"}
+STREAM {"stream":"resist","event":"STOP"}
+```
+
+`QUALITY` is a convenience ratio from 0 to 1, not a manufacturer-validated
+quality metric. The raw `RESIST` values and open-channel flags remain visible;
+do not use the linear ratio as a scientific contact threshold.
+
+## Raw EEG chunks
+
+```text
+STREAM {"stream":"eeg","event":"START","fs_hz":250}
+EEG_BATCH {"ts":1786000001.000,"end_ts":1786000001.012,"sample_interval_sec":0.004,"sample_count":4,"channels":["O1","O2","T3","T4"],"samples":[[12.1,-5.2,8.0,-3.0],[12.4,-5.0,8.2,-2.9],[12.7,-4.8,8.3,-2.7],[12.9,-4.7,8.5,-2.6]],"timestamps":[1786000001.000,1786000001.004,1786000001.008,1786000001.012],"packs":[101,102,103,104],"markers":[0,0,0,0],"packet_gap_frames":0,"packet_gap_frames_total":0,"packet_counter_reset_total":0,"packet_counter_events":[],"packet_shapes":["classic_fields"],"units":"uV","source_units":"V","processing":"unit_scale_only","timestamp_source":"host_callback_reconstructed","preview":{"O1":0.8,"O2":-0.2,"T3":0.5,"T4":-0.1},"measured_hz":249.87,"queue_overflow_dropped_total":0}
+```
+
+- `samples` is the canonical raw stream: only a reversible unit scale is
+  applied. It is forwarded to LSL as one chunk with explicit timestamps.
+- `preview` is detrended and optionally mains-notched for OSC/operator display.
+  It must not be used as the scientific raw recording.
+- `packs` and `markers` preserve the SDK packet metadata for dropout and
+  device-marker diagnosis.
+- Timestamps are reconstructed at the nominal sample interval from host
+  callback arrival because NeuroSDK does not provide a timestamp per sample.
+  Observable packet-counter gaps reserve the missing intervals rather than
+  compressing time silently.
+- `measured_hz` is samples emitted divided by elapsed wall time since the
+  stream started (the achieved rate, not the nominal 250 Hz); `None` until
+  at least one sample has been emitted.
+- `queue_overflow_dropped_total` counts samples ever dropped because the
+  in-process pending-EEG queue exceeded its 10-second cap (a stalled
+  consumer). Should stay `0`; a rising count means the host is not reading
+  fast enough, not that the sensor itself is misbehaving.
+
+Malformed frames, counter gaps, duplicates, or resets are visible separately:
+
+```text
+DATA_WARNING {"phase":"signal_integrity","discarded_frames":1,"packet_gap_frames":2,"packet_gap_frames_total":2,"packet_counter_reset_total":0,"packet_counter_events":[{"gap_before":2,"counter_event":"gap","previous_pack":101,"current_pack":104}]}
+```
+
+A stalled consumer that forced the queue cap to drop samples reports the
+same way, tagged `eeg_queue_overflow`:
+
+```text
+DATA_WARNING {"phase":"eeg_queue_overflow","dropped_samples":37,"dropped_samples_total":37}
+```
+
+The CLI buffers roughly 100 ms before writing an `EEG_BATCH`, avoiding 250
+flushed terminal and disk writes per second.
+
+## Calibration and derived values
+
+```text
 CALIB {"event":"START","target_sec":6}
-CALIB {"progress_percent":5}
-CALIB {"progress_percent":15}
-CALIB {"progress_percent":28}
-CALIB {"progress_percent":42}
-CALIB {"progress_percent":68}
-CALIB {"progress_percent":88}
-CALIB {"progress_percent":100}
+CALIB {"progress_percent":42.0}
 CALIB {"event":"FINISHED"}
-BANDS_COUNT {"n":1}
-BANDS {"ts":1775134403.345,"delta":0.234,"theta":0.156,"alpha":0.289,"beta":0.198,"gamma":0.123}
-MENTAL_COUNT {"n":1}
-MENTAL {"ts":1775134403.345,"Inst_Attention":0.72,"Inst_Relaxation":0.28,"Rel_Attention":0.68,"Rel_Relaxation":0.32}
-BANDS_COUNT {"n":1}
-BANDS {"ts":1775134403.845,"delta":0.231,"theta":0.159,"alpha":0.291,"beta":0.195,"gamma":0.124}
-MENTAL_COUNT {"n":1}
-MENTAL {"ts":1775134403.845,"Inst_Attention":0.71,"Inst_Relaxation":0.29,"Rel_Attention":0.69,"Rel_Relaxation":0.31}
-[... calibration continues, data shows with low stress, relaxation increasing ...]
-BATTERY {"percent":58}
-[BATTERY] Battery level is 58%
+BANDS_BATCH {"ts":1786000007.012,"end_ts":1786000007.052,"sample_count":2,"channels":["delta","theta","alpha","beta","gamma"],"samples":[[0.12,0.25,0.31,0.22,0.10],[0.11,0.26,0.32,0.21,0.10]],"timestamps":[1786000007.012,1786000007.052]}
+MENTAL_BATCH {"ts":1786000007.012,"end_ts":1786000007.052,"sample_count":2,"channels":["Inst_Attention","Inst_Relaxation","Rel_Attention","Rel_Relaxation"],"samples":[[0.64,0.36,0.61,0.39],[0.65,0.35,0.62,0.38]],"timestamps":[1786000007.012,1786000007.052]}
 ```
 
----
+The deployed `pyem_st_artifacts` API receives bipolar samples through
+`push_bipolars`. Current result fields are lowercase internally and are mapped
+to the stable output names above.
 
-## Session 2: Bad Electrode Contact — What You'll See
+Derived arrays are emitted and forwarded to LSL as timestamped batches. This
+retains a 25 Hz backlog without performing one flushed terminal write per
+result inside the native SDK callback. The dashboard keeps only the latest row;
+the full-rate rows remain in LSL/XDF and the sidecar is an explicit 1 Hz backup.
 
-```
-# RESIST: START (6s)
-RESIST {"ts":1775134392.456,"pack":0,"O1":null,"O2":null,"T3":null,"T4":null,"units":"Ohm"}
-QUALITY {"O1":0.0,"O2":0.0,"T3":0.0,"T4":0.0}
-[WARN] Missing electrode values in resist packet. Check sensor contact and electrodes.
-[STATUS] Resist packet pack=0, O1=None, O2=None, T3=None, T4=None
+EmotionalMath has no force-finish function. A stalled calibration is reported
+honestly while raw EEG continues:
 
-[... all packets show null ...]
-
-# EEG: START (Ctrl+C to stop)
-[DEBUG] Signal packet skipped because one or more channels are missing: pack=0, O1=None, O2=None, T3=1200, T4=1150
-[DEBUG] Signal packet skipped because one or more channels are missing: pack=1, O1=None, O2=1890, T3=1210, T4=1160
-[DEBUG] Signal packet skipped because one or more channels are missing: pack=2, O1=2150, O2=2100, T3=None, T4=1170
-[DEBUG] Signal callback received 0 valid channel frames, 0 formatted output rows
-[WARN] No valid EEG frames were produced from the raw signal packets.
-
-→ FIX: Tighten headband, apply conductive gel, ensure skin is clean
+```text
+CALIB {"event":"STALLED","reason":"timeout","last_progress_percent":4.0}
 ```
 
----
+No derived values are labeled valid until the native library reports that
+calibration actually finished.
 
-## Session 3: High Artifact Mode — Stress/Noise Detection
+## Failures
 
-```
-[... normal EEG streaming ...]
-ARTIFACT {"both_now":0,"sequence":0}
-ARTIFACT {"both_now":0,"sequence":0}
-ARTIFACT {"both_now":1,"sequence":1}  ← Signal corrupted!
-[DEBUG] Artifact detected: both_art=1.0 seq_art=1.0
-CALIB {"progress_percent":85,"last_progress_percent":85}
-CALIB {"progress_percent":85,"last_progress_percent":85}  ← Stalling!
-CALIB {"event":"FORCED_FINISH","reason":"artifact_streak","last_progress_percent":85}
+Before any device scan or connection begins, the CLI checks that the pinned
+`pyem-st-artifacts` wheel actually exposes `EmotionalMath.push_bipolars`.
+Exit code 2 either way, but this check fails at startup rather than only on
+the first EEG batch of an already-running session:
 
-→ FIX: Remove sources of interference (phone, WiFi router, power lines nearby)
-       Ensure BrainBit is firmly on head
-       Try running with --force-on-artifacts disabled: python3 ... (remove flag)
+```text
+SETUP_FAIL {"missing_api":"EmotionalMath.push_bipolars","message":"Pinned pyem-st-artifacts wheel does not expose EmotionalMath.push_bipolars; refusing to start."}
 ```
 
----
+Callback exceptions cannot propagate out of NeuroSDK's ctypes callback. The
+CLI catches them, reports exactly one structured failure, stops the stream, and
+exits non-zero:
 
-## Session 4: Calibration Timeout
-
-```
-CALIB {"event":"START","target_sec":6}
-CALIB {"progress_percent":2}
-[... waiting ...]
-CALIB {"progress_percent":4}  ← Taking too long!
-[... after 20 sec ...]
-CALIB {"event":"FORCED_FINISH","reason":"timeout","last_progress_percent":4}
-
-→ Signal quality too low or noise too high
-  - Improve electrode contact
-  - Move away from electrical interference
-  - Try shorter --calibration-sec 3
+```text
+CALLBACK_ERROR {"phase":"signal","error_type":"AttributeError","error":"..."}
+STREAM_ERROR {"error_type":"RuntimeError","error":"signal callback failed: ...","callback_failure":true}
 ```
 
----
+Relevant exit codes:
 
-## Session 5: JSON-Only Output (Default + OSC)
+| Code | Meaning |
+|---:|---|
+| 0 | intentional or duration-limited stop |
+| 2 | missing dependency |
+| 5 | no compatible device found |
+| 6 | configured target missing |
+| 7 | callback/data-processing failure |
+| 8 | stream or device configuration failure |
+| 103 | Bluetooth unavailable |
 
-```bash
-$ python3 brainbit_realtime_cli.py --osc-port 8000
-# (no --pretty --debug flags)
-```
-
-Output (terminal):
-```
-[SETUP] Required libraries are installed: neurosdk, pythonosc, em_st_artifacts
-# Scanning for 5 s ...
-SCAN {"index":0,"name":"BrainBit","family":"LEBrainBit2","address":"DA:AC:A1:99:7B:BA","serial":"04030072","pairing_required":false,"rssi":-70}
-# Connecting to device index 0 ...
-EMO_INIT {"fs_hz":250,"process_win_freq_hz":25,"fft_window_samples":1000,"bipolar_mode":true,"channels_number":4,"eeg_scale":"uV"}
-DEVICE {"family":"LEBrainBit2","name":"BrainBit",...}
-# RESIST: START (6s)
-BATTERY {"percent":62}
-RESIST {"ts":1775134392.456,"pack":0,"O1":1500,"O2":1800,"T3":1450,"T4":1650,"units":"Ohm"}
-QUALITY {"O1":0.4,"O2":0.28,"T3":0.42,"T4":0.34}
-[... more ...]
-# EEG: START (Ctrl+C to stop)
-...
-```
-
-OSC messages sent to 127.0.0.1:8000:
-- `/BrainBit/EEG/O1 12.3`
-- `/BrainBit/EEG/O2 -5.6`
-- `/BrainBit/BANDS/Alpha 0.289`
-- `/BrainBit/MENTAL/Inst_Attention 0.72`
-- etc.
-
----
-
-## Session 6: Different EEG Scales
-
-### Scale: uV (microvolts) — Most Common
-```
-EEG {"ts":1234.567,"O1":12.3,"O2":-5.6,"T3":8.2,"T4":-3.1,"units":"uV"}
-→ Typical EEG amplitude range: ±50–100 μV
-```
-
-### Scale: mV (millivolts) — Less Common
-```
-EEG {"ts":1234.567,"O1":0.0123,"O2":-0.0056,"T3":0.0082,"T4":-0.0031,"units":"mV"}
-```
-
-### Scale: V (volts) — Rare
-```
-EEG {"ts":1234.567,"O1":0.0000123,"O2":-0.0000056,"T3":0.0000082,"T4":-0.0000031,"units":"V"}
-```
-
-Run with:
-```bash
-python3 brainbit_realtime_cli.py --eeg-scale uV --eeg-precision 3   # Default
-python3 brainbit_realtime_cli.py --eeg-scale mV --eeg-precision 6
-python3 brainbit_realtime_cli.py --eeg-scale V --eeg-precision 9
-```
-
----
-
-## Session 7: Extended Measurements (No EEG Signal)
-
-```bash
-$ python3 brainbit_realtime_cli.py \
-    --resist-seconds 10 \
-    --fpg-seconds 5 \
-    --mems-seconds 5 \
-    --signal-seconds 0 \
-    --pretty
-```
-
-```
-# RESIST: START (10s)
-[STATUS] Sensor state: Connected
-RESIST {"ts":..., "pack":0, "O1":1500, "O2":1800, "T3":1450, "T4":1650, "units":"Ohm"}
-[QUALITY] O1=0.4, O2=0.28, T3=0.42, T4=0.34
-[... 10 seconds of resistance data, monitoring electrode contact quality ...]
-# RESIST: STOP
-
-# FPG: START (5s)
-FPG {"ts":..., "pack":0, "IrAmplitude":12345, "RedAmplitude":11234}
-FPG {"ts":..., "pack":1, "IrAmplitude":12340, "RedAmplitude":11230}
-[... 5 seconds of photoplethysmography (heart rate), IR & red LED detection ...]
-# FPG: STOP
-
-# MEMS: START (5s)
-MEMS {"ts":..., "pack":0, "accel":{"x":0.1, "y":0.05, "z":9.81}, "gyro":{"x":0.02, "y":-0.01, "z":0.03}}
-MEMS {"ts":..., "pack":1, "accel":{"x":0.12, "y":0.04, "z":9.80}, "gyro":{"x":0.01, "y":0.00, "z":0.02}}
-[... 5 seconds of accelerometer/gyroscope (head motion), gravity on Z ...]
-# MEMS: STOP
-
-# EEG: START (Ctrl+C to stop)
-[... streaming EEG ...]
-```
-
----
-
-## Session 8: Debug Mode Analysis — Frame-by-Frame
-
-```bash
-$ python3 brainbit_realtime_cli.py --debug
-```
-
-```
-[DEBUG] Sensor support: features= [<SensorFeature.Signal: 1>, <SensorFeature.Resist: 2>, <SensorFeature.FPG: 8>, <SensorFeature.MEMS: 16>] commands= [<SensorCommand.StartSignal: 1>, <SensorCommand.StopSignal: 2>, ...]
-[DEBUG] Executing command SensorCommand.StartSignal for RESIST
-
-# Signal stream @ 250 Hz = 4 ms/frame
-[DEBUG] Signal callback received 250 valid channel frames, 250 formatted output rows
-[DEBUG] Pushing 250 raw bipolar frames into EmotionalMath
-[DEBUG] Signal packet skipped because one or more channels are missing: pack=5, O1=None, O2=None, T3=1230, T4=1180
-[DEBUG] Signal callback received 249 valid channel frames, 249 formatted output rows  ← 1 frame dropped
-[DEBUG] Pushing 249 raw bipolar frames into EmotionalMath
-
-[DEBUG] Executing command SensorCommand.StopSignal for RESISTANCE
-```
-
-**Analysis:**
-- Dropped frames indicate signal corruption or sensor disconnect
-- Typical: 0-2 drops per 1000 frames (good connection)
-- If >50/1000: check Bluetooth distance, power interference, electrode contact
-
----
-
-## Emotional State Reference
-
-### Attention vs Relaxation
-
-```
-High Attention (0.8-1.0):       Low Attention (0.0-0.2):
-- Beta/Gamma dominant           - Delta/Theta dominant
-- Eyes open, alert              - Drowsy, daydreaming
-- Problem-solving               - Mind wandering
-- Reading, coding               - Resting
-
-High Relaxation (0.8-1.0):      Low Relaxation (0.0-0.2):
-- Alpha dominant                - Beta dominant
-- Eyes closed, calm             - Stressed, tense
-- Meditation, breathing         - Anxious, focused task
-- Just woke up                  - Emergency response
-```
-
-### Typical Band Distribution (%)
-
-```
-Relaxed person:      Stressed person:      During coding:
-Delta:    5-10%      Delta:   10-15%       Delta:   3-8%
-Theta:   10-15%      Theta:   15-20%       Theta:   5-12%
-Alpha:   30-40%      Alpha:   10-20%       Alpha:  10-20%
-Beta:    25-35%      Beta:    40-50%       Beta:   40-55%
-Gamma:    5-10%      Gamma:    5-10%       Gamma:   5-12%
-```
-
----
-
-## OSC in TouchDesigner
-
-### Simple OSC Monitor (TD Python)
-
-```python
-import socket
-from pythonosc import osc_server
-from pythonosc.dispatcher import Dispatcher
-
-dispatcher = Dispatcher()
-
-def osc_handler(unused_addr, args, value):
-    print(f"{unused_addr}: {value}")
-
-dispatcher.map("/BrainBit/*", osc_handler)
-server = osc_server.ThreadingOSCUDPServer(("127.0.0.1", 8000), dispatcher)
-print("Listening on 8000...")
-server.serve_forever()
-```
-
-### TD DAT Operator to Parse OSC
-
-```
-op('OSC1').start('127.0.0.1', 8000)  # Listen on 8000
-dat = op('OSC1').callbacks['/BrainBit/MENTAL/Inst_Attention']
-attention_value = dat[-1]  # Last received value
-```
-
----
-
-## Performance Metrics Example
-
-```
-Session Duration: 120 seconds
-Total Packets: 30,000 (250 Hz × 120 s)
-Dropped Frames: 3 (0.01%)
-CPU Usage: 3.2%
-Memory: 72 MB
-OSC Messages Sent: 15,000
-Calibration Time: 7.2 sec
-Average Attention: 0.62
-Peak Relaxation: 0.84
-```
-
----
-
-**Last Updated:** 2026-04-02
+The adapter health model reports log output, raw EEG, derived metrics, data
+integrity, contact, and successful LSL publication separately. Battery lines,
+warnings, outlet existence, and tracebacks do not count as fresh recorded EEG.

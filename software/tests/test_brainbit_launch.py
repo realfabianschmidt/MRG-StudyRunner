@@ -97,6 +97,9 @@ class ExitReasonTests(unittest.TestCase):
     def test_known_codes_map_to_operator_messages(self) -> None:
         cases = {
             brainbit_realtime_cli.EXIT_NO_DEVICE_FOUND: ("brainbit.error.deviceNotFound", True),
+            brainbit_realtime_cli.EXIT_DEVICE_TARGET_MISSING: ("brainbit.error.targetMissing", True),
+            brainbit_realtime_cli.EXIT_CALLBACK_FAILURE: ("brainbit.error.callbackFailed", True),
+            brainbit_realtime_cli.EXIT_STREAM_FAILURE: ("brainbit.error.streamFailed", True),
             brainbit_realtime_cli.EXIT_BLE_UNAVAILABLE: ("brainbit.error.bluetoothUnavailable", False),
             brainbit_realtime_cli.EXIT_MISSING_DEPENDENCY: ("brainbit.error.missingDependency", False),
         }

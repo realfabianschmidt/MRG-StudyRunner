@@ -1,17 +1,28 @@
 {
-  "api_version": 3,
+  "api_version": 4,
   "plugin_key": "nextcloud",
   "version": "1.0.0",
   "category": "storage",
   "config_key": "nextcloud",
   "entry_point": "plugin:PLUGIN",
+  "runtime": {
+    "entrypoint": "driver.py",
+    "protocol": "study-runner-stdio/v1",
+    "interactive_stdin": true,
+    "modes": ["runtime", "diagnostics"],
+    "sample_delivery": "none",
+    "actions": [],
+    "trial_events": [],
+    "can_toggle": false,
+    "sidecar": {}
+  },
   "ui": {
     "label": "Nextcloud upload",
     "description": "Mirrors immutable session artifacts to a Nextcloud share.",
     "order": 610,
     "visibility": {
       "dashboard": false,
-      "settings_hub": false,
+      "settings_hub": true,
       "study_settings": true,
       "destination_settings": true
     }

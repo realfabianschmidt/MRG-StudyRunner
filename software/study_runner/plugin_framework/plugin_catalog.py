@@ -2,7 +2,8 @@
 
 Only plugin folders shipped inside :mod:`study_runner.plugins` are
 considered.  The catalog never installs packages and never imports a plugin
-until its manifest has passed the API-v3 checks.  A broken folder therefore
+until its manifest has passed validation.  API-v4 plugins are represented by
+process proxies and are never imported into the server.  A broken folder therefore
 becomes a visible catalog entry instead of preventing the application from
 starting.
 """
@@ -17,9 +18,9 @@ import math
 from pathlib import Path
 from pathlib import PurePosixPath
 import re
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
-from .plugin_api import Plugin, PLUGIN_API_VERSION
+from .plugin_api import Plugin, PLUGIN_API_VERSION, SUPPORTED_PLUGIN_API_VERSIONS
 
 
 MANIFEST_FILENAME = "manifest.json"
@@ -199,7 +200,12 @@ def discover_plugin_catalog(
             continue
 
         try:
-            plugin = _import_plugin(candidate, package_name, module_importer)
+            if int((candidate.manifest or {}).get("api_version") or 0) >= 4:
+                from .process_host import build_process_plugin
+
+                plugin = build_process_plugin(candidate.manifest or {}, candidate.directory)
+            else:
+                plugin = _import_plugin(candidate, package_name, module_importer)
             _validate_plugin_object(plugin, candidate.manifest or {})
         except Exception as error:
             candidate.add_error(str(error))
@@ -225,8 +231,10 @@ def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dic
 
     if not isinstance(payload, dict):
         raise PluginManifestError("manifest root must be a JSON object")
-    if payload.get("api_version") != PLUGIN_API_VERSION:
-        raise PluginManifestError(f"api_version must be {PLUGIN_API_VERSION}")
+    api_version = payload.get("api_version")
+    if api_version not in SUPPORTED_PLUGIN_API_VERSIONS:
+        supported = ", ".join(str(value) for value in SUPPORTED_PLUGIN_API_VERSIONS)
+        raise PluginManifestError(f"api_version must be one of: {supported}")
 
     plugin_key = _required_key(payload, "plugin_key")
     config_key = _required_key(payload, "config_key")
@@ -266,6 +274,7 @@ def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dic
     streams = _normalize_streams(payload.get("streams"))
     _validate_capability_contracts(capability_config, streams, settings)
     lifecycle = _normalize_lifecycle(payload.get("lifecycle"))
+    runtime = _normalize_process_runtime(payload.get("runtime"), api_version=int(api_version))
 
     poll_interval_ms = _positive_int(
         payload.get("poll_interval_ms", DEFAULT_POLL_INTERVAL_MS),
@@ -282,7 +291,7 @@ def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dic
         raise PluginManifestError("expected_data_rate must be a JSON object")
 
     return {
-        "api_version": PLUGIN_API_VERSION,
+        "api_version": int(api_version),
         "plugin_key": plugin_key,
         "config_key": config_key,
         "version": version,
@@ -313,6 +322,7 @@ def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dic
         "expected_data_rate": deepcopy(expected_data_rate),
         "backpressure": backpressure,
         "lifecycle": lifecycle,
+        "runtime": runtime,
     }
 
 
@@ -381,6 +391,168 @@ def validate_admin_action_payload(
     return normalized
 
 
+def _normalize_process_runtime(value: Any, *, api_version: int) -> dict[str, Any]:
+    """Validate the deliberately small API-v4 subprocess contract."""
+
+    if api_version < 4:
+        if value not in (None, {}):
+            raise PluginManifestError("runtime is only supported by plugin API v4")
+        return {}
+    if not isinstance(value, dict):
+        raise PluginManifestError("runtime must be a JSON object for plugin API v4")
+    unexpected = sorted(
+        set(value)
+        - {
+            "entrypoint",
+            "protocol",
+            "interactive_stdin",
+            "modes",
+            "sample_delivery",
+            "stream_contract",
+            "operation_timeouts_ms",
+            "actions",
+            "trial_events",
+            "can_toggle",
+            "sidecar",
+        }
+    )
+    if unexpected:
+        raise PluginManifestError("runtime contains unsupported fields: " + ", ".join(unexpected))
+    entrypoint = _required_text(value, "entrypoint", prefix="runtime.")
+    relative = PurePosixPath(entrypoint)
+    if relative.as_posix() != "driver.py":
+        raise PluginManifestError("runtime.entrypoint must be the fixed driver.py")
+    protocol = _required_text(value, "protocol", prefix="runtime.")
+    if protocol != "study-runner-stdio/v1":
+        raise PluginManifestError("runtime.protocol must be study-runner-stdio/v1")
+    interactive_stdin = value.get("interactive_stdin", False)
+    if not isinstance(interactive_stdin, bool):
+        raise PluginManifestError("runtime.interactive_stdin must be boolean")
+    raw_modes = value.get("modes", ["runtime", "diagnostics"])
+    if not isinstance(raw_modes, list) or not raw_modes:
+        raise PluginManifestError("runtime.modes must be a non-empty list")
+    modes = []
+    for item in raw_modes:
+        mode = str(item or "").strip()
+        if mode not in {"runtime", "diagnostics"} or mode in modes:
+            raise PluginManifestError("runtime.modes supports unique runtime/diagnostics values")
+        modes.append(mode)
+    sample_delivery = str(value.get("sample_delivery") or "none").strip()
+    if sample_delivery not in {"none", "native_lsl", "declared_transport"}:
+        raise PluginManifestError(
+            "runtime.sample_delivery must be none, native_lsl, or declared_transport"
+        )
+    stream_contract = str(value.get("stream_contract") or "manifest").strip()
+    if stream_contract not in {"manifest", "status_actual_streams"}:
+        raise PluginManifestError(
+            "runtime.stream_contract must be manifest or status_actual_streams"
+        )
+    if stream_contract == "status_actual_streams" and sample_delivery == "none":
+        raise PluginManifestError(
+            "runtime.stream_contract=status_actual_streams requires sample delivery"
+        )
+    raw_operation_timeouts = value.get("operation_timeouts_ms", {})
+    if not isinstance(raw_operation_timeouts, dict):
+        raise PluginManifestError("runtime.operation_timeouts_ms must be a JSON object")
+    operation_timeouts: dict[str, int] = {}
+    supported_timeout_operations = {
+        "initialize",
+        "status",
+        "start",
+        "stop",
+        "restart",
+        "admin_action",
+        "participant_action",
+        "participant_ingest",
+        "trial_start",
+        "trial_stop",
+        "trial_marker",
+        "interval_summary",
+        "interval_export",
+        "publish",
+        "shutdown",
+        "validate_study_setting",
+    }
+    for operation, raw_timeout in raw_operation_timeouts.items():
+        if operation not in supported_timeout_operations:
+            raise PluginManifestError(
+                f"runtime.operation_timeouts_ms contains unsupported operation {operation!r}"
+            )
+        if isinstance(raw_timeout, bool):
+            raise PluginManifestError(
+                f"runtime.operation_timeouts_ms.{operation} must be an integer"
+            )
+        try:
+            timeout_value = int(raw_timeout)
+        except (TypeError, ValueError) as error:
+            raise PluginManifestError(
+                f"runtime.operation_timeouts_ms.{operation} must be an integer"
+            ) from error
+        if timeout_value < 50 or timeout_value > 120_000:
+            raise PluginManifestError(
+                f"runtime.operation_timeouts_ms.{operation} must be 50..120000"
+            )
+        operation_timeouts[operation] = timeout_value
+    raw_actions = value.get("actions", [])
+    if not isinstance(raw_actions, list):
+        raise PluginManifestError("runtime.actions must be a list")
+    actions: list[str] = []
+    for item in raw_actions:
+        action = str(item or "").strip()
+        if action not in {"start", "stop", "restart"} or action in actions:
+            raise PluginManifestError("runtime.actions supports unique start/stop/restart values")
+        actions.append(action)
+    raw_trial_events = value.get("trial_events", [])
+    if not isinstance(raw_trial_events, list):
+        raise PluginManifestError("runtime.trial_events must be a list")
+    trial_events: list[str] = []
+    for item in raw_trial_events:
+        event = str(item or "").strip()
+        if event not in {"start", "stop", "marker"} or event in trial_events:
+            raise PluginManifestError(
+                "runtime.trial_events supports unique start/stop/marker values"
+            )
+        trial_events.append(event)
+    can_toggle = value.get("can_toggle", True)
+    if not isinstance(can_toggle, bool):
+        raise PluginManifestError("runtime.can_toggle must be boolean")
+    sidecar = value.get("sidecar", {})
+    if not isinstance(sidecar, dict):
+        raise PluginManifestError("runtime.sidecar must be a JSON object")
+    unexpected_sidecar = sorted(set(sidecar) - {"sensor", "filename_suffix", "output_key"})
+    if unexpected_sidecar:
+        raise PluginManifestError(
+            "runtime.sidecar contains unsupported fields: " + ", ".join(unexpected_sidecar)
+        )
+    normalized_sidecar = {
+        name: _optional_text(sidecar.get(name))
+        for name in ("sensor", "filename_suffix", "output_key")
+        if _optional_text(sidecar.get(name))
+    }
+    return {
+        "entrypoint": relative.as_posix(),
+        "protocol": protocol,
+        "interactive_stdin": interactive_stdin,
+        "modes": modes,
+        "sample_delivery": sample_delivery,
+        "stream_contract": stream_contract,
+        "operation_timeouts_ms": operation_timeouts,
+        "actions": actions,
+        "trial_events": trial_events,
+        "can_toggle": can_toggle,
+        "sidecar": normalized_sidecar,
+    }
+
+
+def _validate_declared_driver(directory: Path, manifest: Mapping[str, Any]) -> None:
+    if int(manifest.get("api_version") or 0) < 4:
+        return
+    entrypoint = str((manifest.get("runtime") or {}).get("entrypoint") or "")
+    driver = (directory / entrypoint).resolve()
+    if not driver.is_relative_to(directory.resolve()) or not driver.is_file():
+        raise PluginManifestError(f"runtime.entrypoint does not exist: {entrypoint}")
+
+
 def _plugin_directories(root: Path) -> list[Path]:
     if not root.is_dir():
         return []
@@ -409,6 +581,7 @@ def _read_candidate(directory: Path) -> _Candidate:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest = validate_and_normalize_manifest(payload, directory_name=directory.name)
         _validate_declared_ui_assets(directory, manifest)
+        _validate_declared_driver(directory, manifest)
     except (OSError, json.JSONDecodeError, PluginManifestError) as error:
         candidate.add_error(f"invalid {MANIFEST_FILENAME}: {error}")
         return candidate

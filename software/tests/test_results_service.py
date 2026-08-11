@@ -320,7 +320,7 @@ class ResultsServicePathTests(unittest.TestCase):
         )
 
         self.assertEqual(len(warnings), 3)
-        self.assertIn("BrainBit EEG: no data arrived", warnings[0])
+        self.assertIn("BrainBit: no data arrived", warnings[0])
         self.assertIn("data gap of 12.0 s", warnings[1])
         self.assertIn("50 radio packets were lost", warnings[2])
 

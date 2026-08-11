@@ -1,5 +1,8 @@
-"""Sensor and hardware endpoints: hardware config, integration toggles,
-BrainBit/radar/camera runtime actions, camera frames, Emotion Worker repair."""
+"""Hardware settings and generic plugin runtime endpoints.
+
+Fixed-key routes at the bottom are one-release compatibility shims only. They
+never import a plugin module and return HTTP 410 when that bundle is absent.
+"""
 import json
 
 from flask import Blueprint, current_app, jsonify, request
@@ -7,6 +10,7 @@ from werkzeug.exceptions import BadRequest, Forbidden, UnsupportedMediaType
 
 from study_runner.plugin_framework.registry import (
     apply_enabled_runtime,
+    get_plugin,
     get_plugin_status,
     ingest_participant_payload,
     initialize_plugin,
@@ -14,8 +18,13 @@ from study_runner.plugin_framework.registry import (
     run_participant_action,
     run_runtime_action,
 )
-from ..services.settings.hardware_settings_service import save_hardware_config
-from ..services.settings.secrets_service import redact_hardware_config
+from ..services.settings.hardware_settings_service import (
+    HardwareRevisionConflict,
+    hardware_config_revision,
+    load_hardware_config,
+    update_hardware_config as update_hardware_config_transaction,
+)
+from ..services.settings.secrets_service import redact_hardware_config, update_local_secrets
 from ..services.settings.plugin_settings_service import (
     PluginSettingsError,
     apply_plugin_settings,
@@ -54,9 +63,30 @@ def _mark_deprecated(response, successor: str):
     return response
 
 
+def _removed_compatibility_plugin(plugin_key: str, successor: str):
+    if get_plugin(plugin_key) is not None:
+        return None
+    return _mark_deprecated(
+        (
+            jsonify({
+                "ok": False,
+                "error": f"Plugin '{plugin_key}' is not installed; this compatibility route is unavailable.",
+            }),
+            410,
+        ),
+        successor,
+    )
+
+
 @bp.route("/api/hardware-config")
 def get_hardware_config():
-    return jsonify(redact_hardware_config(current_app.config.get("HARDWARE_CONFIG", {}), current_app.config.get("LOCAL_SECRETS", {})))
+    hardware_config = current_app.config.get("HARDWARE_CONFIG", {})
+    payload = redact_hardware_config(
+        hardware_config,
+        current_app.config.get("LOCAL_SECRETS", {}),
+    )
+    payload["_revision"] = hardware_config_revision(hardware_config)
+    return jsonify(payload)
 
 
 @bp.route("/api/admin/plugin-settings", methods=["GET"])
@@ -69,6 +99,7 @@ def get_plugin_settings():
     return jsonify({
         "ok": True,
         "plugins": build_plugin_settings_schema(current_app.config.get("HARDWARE_CONFIG", {})),
+        "revision": hardware_config_revision(current_app.config.get("HARDWARE_CONFIG", {})),
     })
 
 
@@ -85,15 +116,30 @@ def update_plugin_settings(plugin_key):
         return jsonify({"ok": False, "error": "settings must be a non-empty object."}), 400
 
     try:
-        updated_config, restart_required = apply_plugin_settings(
-            current_app.config.get("HARDWARE_CONFIG", {}),
-            plugin_key,
-            updates,
+        def apply_settings(current_config):
+            updated, restart = apply_plugin_settings(
+                current_config,
+                plugin_key,
+                updates,
+            )
+            current_config.clear()
+            current_config.update(updated)
+            return restart
+
+        updated_config, restart_required, revision = update_hardware_config_transaction(
+            current_app.config["HARDWARE_CONFIG_FILE"],
+            apply_settings,
+            expected_revision=(
+                str(payload.get("revision"))
+                if payload.get("revision") is not None
+                else None
+            ),
         )
     except PluginSettingsError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
+    except HardwareRevisionConflict as error:
+        return jsonify({"ok": False, "error": str(error), "code": "hardware_revision_conflict"}), 409
 
-    save_hardware_config(current_app.config["HARDWARE_CONFIG_FILE"], updated_config)
     current_app.config["HARDWARE_CONFIG"] = updated_config
     _refresh_trial_runtime()
 
@@ -108,6 +154,7 @@ def update_plugin_settings(plugin_key):
     return jsonify({
         "ok": True,
         "restart_required": restart_required,
+        "revision": revision,
         "plugins": build_plugin_settings_schema(updated_config),
     })
 
@@ -118,18 +165,130 @@ def update_hardware_config():
     if not isinstance(config_data, dict):
         return jsonify({"ok": False, "error": "hardware_config payload must be a JSON object."}), 400
 
-    sanitized_config, _secret_updated = _save_hardware_secret_payload(config_data)
-    save_hardware_config(current_app.config["HARDWARE_CONFIG_FILE"], sanitized_config)
+    incoming = _copy_config(config_data)
+    expected_revision = incoming.pop("_revision", None)
+    try:
+        def merge_update(current_config):
+            sanitized, secret_updated = _save_hardware_secret_payload(incoming)
+            merged = _merge_hardware_config_preserving_unknown(current_config, sanitized)
+            current_config.clear()
+            current_config.update(merged)
+            return secret_updated
+
+        sanitized_config, _secret_updated, revision = update_hardware_config_transaction(
+            current_app.config["HARDWARE_CONFIG_FILE"],
+            merge_update,
+            expected_revision=(
+                str(expected_revision) if expected_revision is not None else None
+            ),
+        )
+    except HardwareRevisionConflict as error:
+        current = load_hardware_config(current_app.config["HARDWARE_CONFIG_FILE"])
+        return jsonify(
+            {
+                "ok": False,
+                "error": str(error),
+                "code": "hardware_revision_conflict",
+                "current_revision": hardware_config_revision(current),
+            }
+        ), 409
     current_app.config["HARDWARE_CONFIG"] = sanitized_config
     _refresh_trial_runtime()
-    initialize_plugin("notion", _plugin_context())
 
     return jsonify(
         {
             "ok": True,
+            "revision": revision,
             "restart_required": True,
-            "message": "Hardware config saved. Secrets stay backend-local. Notion was refreshed immediately; restart is recommended for plugins that start with the server.",
-            "notion_runtime": get_plugin_status("notion", _plugin_context()),
+            "message": (
+                "Hardware config saved. Secrets stay backend-local. "
+                "Restart Study Runner to load the new plugin configuration."
+            ),
+        }
+    )
+
+
+def _merge_hardware_config_preserving_unknown(previous: dict, incoming: dict) -> dict:
+    """Deep-merge browser edits so absent/opaque plugin sections survive.
+
+    The public hardware payload intentionally replaces a removed plugin's
+    section with a ``settings_hidden`` placeholder.  Treating that placeholder
+    as data would destroy the real settings on the next save.
+    """
+
+    merged = json.loads(json.dumps(previous if isinstance(previous, dict) else {}))
+
+    def merge_mapping(target: dict, updates: dict) -> None:
+        for key, value in updates.items():
+            if isinstance(value, dict) and value.get("settings_hidden") is True:
+                continue
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                merge_mapping(target[key], value)
+            else:
+                target[key] = json.loads(json.dumps(value))
+
+    merge_mapping(merged, incoming)
+    return merged
+
+
+@bp.route("/api/admin/plugins/<plugin_key>/config", methods=["DELETE"])
+def remove_stored_plugin_config(plugin_key: str):
+    """Erase a removed plugin's leftover ``settings_hidden`` placeholder.
+
+    _merge_hardware_config_preserving_unknown() (above) is what keeps that
+    placeholder alive across every other save -- by design, so re-installing
+    the plugin does not lose its settings. This is the one explicit,
+    confirmed action that actually discards it, for an operator who is sure
+    the plugin is gone for good. Only applies to plugins that are not
+    currently installed; toggling or clearing a live plugin's settings goes
+    through the normal save/enabled routes instead.
+    """
+
+    if get_plugin(plugin_key) is not None:
+        return jsonify(
+            {
+                "ok": False,
+                "error": f"'{plugin_key}' is currently installed; this action is only for a removed plugin's leftover configuration.",
+            }
+        ), 400
+
+    payload = request.get_json(silent=True) or {}
+    if payload.get("confirm") is not True:
+        return jsonify({"ok": False, "error": "Explicit confirmation is required."}), 400
+
+    def remove_section(hardware_config: dict) -> bool:
+        return hardware_config.pop(plugin_key, None) is not None
+
+    try:
+        hardware_config, removed, revision = update_hardware_config_transaction(
+            current_app.config["HARDWARE_CONFIG_FILE"],
+            remove_section,
+        )
+    except HardwareRevisionConflict as error:
+        return jsonify({"ok": False, "error": str(error), "code": "hardware_revision_conflict"}), 409
+
+    current_app.config["HARDWARE_CONFIG"] = hardware_config
+
+    # secret_fields() only knows currently installed plugins, so it cannot
+    # name this plugin's secret field once it is removed -- local_secrets.json
+    # is keyed by plugin_key regardless of field name, so drop the whole
+    # section rather than trying to look one up.
+    def remove_secret(local_secrets: dict) -> bool:
+        return local_secrets.pop(plugin_key, None) is not None
+
+    local_secrets, secret_removed = update_local_secrets(
+        current_app.config["LOCAL_SECRETS_FILE"],
+        remove_secret,
+    )
+    current_app.config["LOCAL_SECRETS"] = local_secrets
+
+    return jsonify(
+        {
+            "ok": True,
+            "plugin": plugin_key,
+            "removed": bool(removed),
+            "secret_removed": secret_removed,
+            "revision": revision,
         }
     )
 
@@ -164,13 +323,24 @@ def update_plugin_enabled(plugin_key: str):
         )
 
     active_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
-    hardware_config = _copy_config(current_app.config.get("HARDWARE_CONFIG", {}))
     try:
-        _set_runtime_enabled(hardware_config, plugin_key, enabled)
+        def apply_toggle(hardware_config):
+            _set_runtime_enabled(hardware_config, plugin_key, enabled)
+
+        hardware_config, _, revision = update_hardware_config_transaction(
+            current_app.config["HARDWARE_CONFIG_FILE"],
+            apply_toggle,
+            expected_revision=(
+                str(payload.get("revision"))
+                if payload.get("revision") is not None
+                else None
+            ),
+        )
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
+    except HardwareRevisionConflict as error:
+        return jsonify({"ok": False, "error": str(error), "code": "hardware_revision_conflict"}), 409
 
-    save_hardware_config(current_app.config["HARDWARE_CONFIG_FILE"], hardware_config)
     current_app.config["HARDWARE_CONFIG"] = hardware_config
     active_runtime_updated = _apply_plugin_toggle_to_active_runtime(plugin_key, enabled)
     study_controlled = bool(active_config) and plugin_key in STUDY_SENSOR_KEYS and not active_runtime_updated
@@ -188,6 +358,7 @@ def update_plugin_enabled(plugin_key: str):
             "ok": True,
             "plugin": plugin_key,
             "enabled": enabled,
+            "revision": revision,
             "restart_required": False,
             "active_runtime_updated": active_runtime_updated,
             "study_controlled": study_controlled,
@@ -197,6 +368,8 @@ def update_plugin_enabled(plugin_key: str):
 
 
 def _run_plugin_action_json(plugin_key: str, action: str):
+    if get_plugin(plugin_key) is None:
+        return jsonify({"ok": False, "error": f"Plugin '{plugin_key}' is not installed."}), 404
     try:
         normalized_action = str(action or "").strip().lower()
         if plugin_key in STUDY_SENSOR_KEYS and normalized_action in {"start", "stop", "restart"}:
@@ -223,31 +396,44 @@ def run_plugin_runtime_action(plugin_key: str, action: str):
 
 @bp.route("/api/admin/brainbit/start", methods=["POST"])
 def start_brainbit():
-    return _run_plugin_action_json("brainbit", "start")
+    successor = "/api/admin/plugins/brainbit/start"
+    return _removed_compatibility_plugin("brainbit", successor) or _mark_deprecated(
+        _run_plugin_action_json("brainbit", "start"), successor
+    )
 
 
 @bp.route("/api/admin/brainbit/stop", methods=["POST"])
 def stop_brainbit():
-    return _run_plugin_action_json("brainbit", "stop")
+    successor = "/api/admin/plugins/brainbit/stop"
+    return _removed_compatibility_plugin("brainbit", successor) or _mark_deprecated(
+        _run_plugin_action_json("brainbit", "stop"), successor
+    )
 
 
 @bp.route("/api/admin/brainbit/restart", methods=["POST"])
 def restart_brainbit():
-    return _run_plugin_action_json("brainbit", "restart")
+    successor = "/api/admin/plugins/brainbit/restart"
+    return _removed_compatibility_plugin("brainbit", successor) or _mark_deprecated(
+        _run_plugin_action_json("brainbit", "restart"), successor
+    )
 
 
 @bp.route("/api/admin/brainbit/select-device", methods=["POST"])
 def select_brainbit_device():
+    successor = "/api/admin/plugins/brainbit/actions/select_device"
+    missing = _removed_compatibility_plugin("brainbit", successor)
+    if missing is not None:
+        return missing
     try:
         payload = _request_json_object()
-        return jsonify(
+        return _mark_deprecated(jsonify(
             run_admin_action(
                 "brainbit",
                 "select_device",
                 _plugin_context(machine_admin=True),
                 payload,
             )
-        )
+        ), successor)
     except UnsupportedMediaType as error:
         return jsonify({"ok": False, "error": error.description}), 415
     except BadRequest as error:
@@ -260,17 +446,26 @@ def select_brainbit_device():
 
 @bp.route("/api/admin/radar/start", methods=["POST"])
 def start_mini_radar():
-    return _run_plugin_action_json("mini_radar", "start")
+    successor = "/api/admin/plugins/mini_radar/start"
+    return _removed_compatibility_plugin("mini_radar", successor) or _mark_deprecated(
+        _run_plugin_action_json("mini_radar", "start"), successor
+    )
 
 
 @bp.route("/api/admin/radar/stop", methods=["POST"])
 def stop_mini_radar():
-    return _run_plugin_action_json("mini_radar", "stop")
+    successor = "/api/admin/plugins/mini_radar/stop"
+    return _removed_compatibility_plugin("mini_radar", successor) or _mark_deprecated(
+        _run_plugin_action_json("mini_radar", "stop"), successor
+    )
 
 
 @bp.route("/api/admin/radar/restart", methods=["POST"])
 def restart_mini_radar():
-    return _run_plugin_action_json("mini_radar", "restart")
+    successor = "/api/admin/plugins/mini_radar/restart"
+    return _removed_compatibility_plugin("mini_radar", successor) or _mark_deprecated(
+        _run_plugin_action_json("mini_radar", "restart"), successor
+    )
 
 
 @bp.route("/api/camera/frame", methods=["POST"])
@@ -278,6 +473,9 @@ def process_camera_frame():
     """Deprecated fixed-key shim for pre-v3 participant clients."""
 
     successor = "/api/plugins/camera_emotion/participant/ingest/frame"
+    missing = _removed_compatibility_plugin("camera_emotion", successor)
+    if missing is not None:
+        return missing
     try:
         _require_secure_participant_ingest("camera_emotion")
         dispatched = ingest_participant_payload(
@@ -314,9 +512,10 @@ def process_camera_frame():
 def start_camera_affect():
     """Deprecated fixed-key shim for the generic runtime action route."""
 
-    return _mark_deprecated(
+    successor = "/api/admin/plugins/camera_emotion/start"
+    return _removed_compatibility_plugin("camera_emotion", successor) or _mark_deprecated(
         _run_plugin_action_json("camera_emotion", "start"),
-        "/api/admin/plugins/camera_emotion/start",
+        successor,
     )
 
 
@@ -324,9 +523,10 @@ def start_camera_affect():
 def stop_camera_affect():
     """Deprecated fixed-key shim for the generic runtime action route."""
 
-    return _mark_deprecated(
+    successor = "/api/admin/plugins/camera_emotion/stop"
+    return _removed_compatibility_plugin("camera_emotion", successor) or _mark_deprecated(
         _run_plugin_action_json("camera_emotion", "stop"),
-        "/api/admin/plugins/camera_emotion/stop",
+        successor,
     )
 
 
@@ -335,10 +535,29 @@ def camera_live_status():
     """Deprecated fixed-key shim; status is now owned by the plugin."""
 
     successor = "/api/admin/status"
+    missing = _removed_compatibility_plugin("camera_emotion", successor)
+    if missing is not None:
+        return missing
     status = get_plugin_status("camera_emotion", _plugin_context())
-    preview = status.get("preview") or {}
+    preview = status.get("preview")
+    if not isinstance(preview, dict):
+        # Preserve the deprecated endpoint's response shape even if the
+        # isolated process is unavailable. Older clients distinguish an
+        # unavailable preview from an idle one through this explicit flag.
+        preview = {
+            "available": False,
+            "active": False,
+            "last_message": status.get("last_message") or "Camera preview is unavailable.",
+        }
     return _mark_deprecated(
-        jsonify({"ok": True, "active": bool(preview.get("active", False)), **preview}),
+        jsonify(
+            {
+                "ok": True,
+                "available": bool(preview.get("available", False)),
+                "active": bool(preview.get("active", False)),
+                **preview,
+            }
+        ),
         successor,
     )
 
@@ -348,6 +567,9 @@ def start_study_camera_monitor():
     """Deprecated fixed-key shim for pre-v3 participant extensions."""
 
     successor = "/api/plugins/camera_emotion/participant/actions/start_monitor"
+    missing = _removed_compatibility_plugin("camera_emotion", successor)
+    if missing is not None:
+        return missing
     try:
         dispatched = run_participant_action(
             "camera_emotion",
@@ -374,21 +596,39 @@ def start_study_camera_monitor():
 
 @bp.route("/api/admin/emotion-worker/repair-runtime", methods=["POST"])
 def repair_emotion_worker_runtime():
+    successor = "/api/admin/plugins/camera_emotion/actions/repair_runtime"
+    missing = _removed_compatibility_plugin("camera_emotion", successor)
+    if missing is not None:
+        return missing
     try:
-        from study_runner.plugins.camera_emotion.worker import plugin as emotion_worker_plugin
-
-        result = emotion_worker_plugin.repair_runtime(_plugin_context())
-        return jsonify({"ok": True, **result})
+        result = run_admin_action(
+            "camera_emotion",
+            "repair_runtime",
+            _plugin_context(machine_admin=True),
+            {},
+        )
+        return _mark_deprecated(jsonify(result), successor)
     except Exception as error:
-        return jsonify({"ok": False, "error": str(error)}), 500
+        return _mark_deprecated(
+            (jsonify({"ok": False, "error": str(error)}), 500), successor
+        )
 
 
 @bp.route("/api/admin/emotion-worker/install-dependencies", methods=["POST"])
 def install_emotion_worker_dependencies():
+    successor = "/api/admin/plugins/camera_emotion/actions/install_dependencies"
+    missing = _removed_compatibility_plugin("camera_emotion", successor)
+    if missing is not None:
+        return missing
     try:
-        from study_runner.plugins.camera_emotion.worker import plugin as emotion_worker_plugin
-
-        result = emotion_worker_plugin.install_dependencies(_plugin_context())
-        return jsonify({"ok": True, **result})
+        result = run_admin_action(
+            "camera_emotion",
+            "install_dependencies",
+            _plugin_context(machine_admin=True),
+            {},
+        )
+        return _mark_deprecated(jsonify(result), successor)
     except Exception as error:
-        return jsonify({"ok": False, "error": str(error)}), 500
+        return _mark_deprecated(
+            (jsonify({"ok": False, "error": str(error)}), 500), successor
+        )

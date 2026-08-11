@@ -19,8 +19,10 @@ from study_runner.plugin_framework.plugin_catalog import (
     validate_and_normalize_manifest,
 )
 from study_runner.plugin_framework.plugin_api import PluginContext
+from study_runner.plugin_framework.process_host import get_process_runtime
 from study_runner.plugin_framework.registry import run_admin_action
 from study_runner.plugin_framework.registry import get_plugin_catalog_payload
+from study_runner.backend.routes.helpers import _plugin_context
 from study_runner.backend.routes.plugins import bp as plugins_blueprint
 
 
@@ -541,10 +543,10 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
 
 
 class PublicCatalogTests(unittest.TestCase):
-    def test_public_catalog_has_only_v3_valid_plugins_and_is_keyed_for_ui_use(self) -> None:
+    def test_public_catalog_has_only_v4_valid_plugins_and_is_keyed_for_ui_use(self) -> None:
         payload = get_plugin_catalog_payload()
 
-        self.assertEqual(payload["api_version"], 3)
+        self.assertEqual(payload["api_version"], 4)
         self.assertEqual(payload["invalid_plugins"], [])
         self.assertEqual(
             set(payload["plugins_by_key"]),
@@ -561,7 +563,7 @@ class PublicCatalogTests(unittest.TestCase):
         response = app.test_client().get("/api/plugins/catalog")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["api_version"], 3)
+        self.assertEqual(response.get_json()["api_version"], 4)
 
     def test_admin_action_endpoint_enforces_the_manifest_allow_list(self) -> None:
         from flask import Flask
@@ -587,6 +589,10 @@ class PublicCatalogTests(unittest.TestCase):
         app.register_blueprint(plugins_blueprint)
         client = app.test_client()
         with (
+            patch(
+                "study_runner.backend.routes.plugins.get_plugin",
+                return_value=object(),
+            ),
             patch(
                 "study_runner.backend.routes.plugins._plugin_context",
                 return_value=object(),
@@ -633,22 +639,22 @@ class PublicCatalogTests(unittest.TestCase):
         app = Flask(__name__)
         app.register_blueprint(plugins_blueprint)
         client = app.test_client()
+        runtime = get_process_runtime("camera_emotion")
+        self.assertIsNotNone(runtime)
         with (
+            patch.object(runtime, "_context", object()),
             patch(
                 "study_runner.backend.routes.plugins._plugin_context",
                 return_value=object(),
             ),
-            patch(
-                "study_runner.plugins.camera_emotion.adapter.is_configured",
-                return_value=True,
-            ),
-            patch(
-                "study_runner.plugins.camera_emotion.adapter.process_frame",
-                side_effect=lambda payload: {
+            patch.object(
+                runtime,
+                "request",
+                side_effect=lambda operation, payload: {
                     "accepted": True,
-                    "sequence_number": payload["sequence_number"],
+                    "sequence_number": payload["payload"]["sequence_number"],
                 },
-            ) as process_frame,
+            ) as process_rpc,
         ):
             missing_sequence = client.post(
                 "/api/plugins/camera_emotion/participant/ingest/frame",
@@ -682,7 +688,13 @@ class PublicCatalogTests(unittest.TestCase):
         self.assertIn("HTTPS", insecure_remote.get_json()["error"])
         self.assertEqual(valid.status_code, 200)
         self.assertTrue(valid.get_json()["result"]["accepted"])
-        process_frame.assert_called_once()
+        process_rpc.assert_called_once_with(
+            "participant_ingest",
+            {
+                "ingest": "frame",
+                "payload": {"sequence_number": 0, "source_epoch_ms": 1000.0},
+            },
+        )
 
     def test_plugin_asset_endpoint_serves_only_declared_javascript(self) -> None:
         from flask import Flask
@@ -738,6 +750,15 @@ class PublicCatalogTests(unittest.TestCase):
         self.assertEqual(wrong_media_type.status_code, 415)
 
     def test_brainbit_selection_uses_generic_route_and_machine_context(self) -> None:
+        """BrainBit is an API-v4 plugin: its admin actions run inside the
+        driver.py child process, not the server process. Patching
+        study_runner.plugins.brainbit.plugin._restart here would be a no-op --
+        that module only runs inside the isolated driver. This test instead
+        observes the process RPC boundary (like the equivalent Nextcloud
+        test), so the HTTP-route -> validated-payload -> process-request
+        wiring is exercised without starting a real child. The actual
+        persist_hardware_config business logic run inside the driver is
+        already covered directly by BrainBitManifestActionTests below."""
         from flask import Flask
 
         app = Flask(__name__)
@@ -750,22 +771,44 @@ class PublicCatalogTests(unittest.TestCase):
             LOCAL_SECRETS_FILE=PROJECT_ROOT / ".tmp" / "secrets.json",
         )
         app.register_blueprint(plugins_blueprint)
-        with (
-            patch("study_runner.backend.routes.helpers.save_hardware_config") as save_config,
-            patch("study_runner.backend.routes.helpers._refresh_trial_runtime"),
-            patch("study_runner.plugins.brainbit.plugin._restart", return_value={"status": "waiting"}),
-            patch("study_runner.plugin_framework.registry.get_plugin_status", return_value={"status": "waiting"}),
-        ):
+
+        runtime = get_process_runtime("brainbit")
+        self.assertIsNotNone(runtime)
+        with app.app_context():
+            runtime._context = _plugin_context(machine_admin=True)
+
+        def driver_response(operation, payload=None, **_kwargs):
+            if operation == "admin_action":
+                return {
+                    "last_message": "BrainBit band saved and restart requested",
+                    "target_device": {"index": 1, "name": "Band", "address": "AA", "serial_number": "BB"},
+                    "restart": {"status": "waiting"},
+                    "restart_error": "",
+                }
+            if operation == "status":
+                return {"status": "waiting"}
+            raise AssertionError(f"Unexpected process operation: {operation}")
+
+        with patch.object(runtime, "request", side_effect=driver_response) as request_rpc:
             response = app.test_client().post(
                 "/api/admin/plugins/brainbit/actions/select_device",
                 json={"index": 1, "name": "Band", "address": "AA", "serial_number": "BB"},
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.get_json()["ok"])
-        self.assertEqual(app.config["HARDWARE_CONFIG"]["brainbit"]["device_index"], 1)
-        self.assertEqual(app.config["HARDWARE_CONFIG"]["brainbit"]["keep"], "value")
-        save_config.assert_called_once()
+        body = response.get_json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["result"]["target_device"]["index"], 1)
+        admin_request = next(
+            call for call in request_rpc.call_args_list if call.args[0] == "admin_action"
+        )
+        self.assertEqual(
+            admin_request.args[1],
+            {
+                "action": "select_device",
+                "payload": {"index": 1, "name": "Band", "address": "AA", "serial_number": "BB"},
+            },
+        )
 
 
 class BrainBitManifestActionTests(unittest.TestCase):

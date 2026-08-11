@@ -105,7 +105,7 @@ class SensorCoordinatorTests(unittest.TestCase):
             brainbit = status["plugins"]["brainbit"]
             self.assertEqual(brainbit["status"], "ok")
             self.assertEqual(brainbit["manifest"]["clock_domain"], "lsl")
-            self.assertEqual(brainbit["coordinator"]["poll_interval_ms"], 1000)
+            self.assertEqual(brainbit["coordinator"]["poll_interval_ms"], 150)
             self.assertEqual(brainbit["coordinator"]["cache_state"], "fresh")
             self.assertEqual(brainbit["coordinator"]["poll_count"], 1)
             self.assertIn("brainbit", status["plugins"])

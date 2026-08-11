@@ -1,5 +1,5 @@
 /**
- * The shared skeleton behind every settings page (Notion, Nextcloud, Certificate).
+ * The shared skeleton behind core and manifest-driven settings pages.
  *
  * All three pages are the same thing: a view you open from the hub, a status
  * block you refresh, numbered setup steps that show what is still missing, and

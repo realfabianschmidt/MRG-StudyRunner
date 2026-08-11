@@ -20,6 +20,7 @@ import time
 from typing import Any, Callable, Mapping, Protocol
 
 from study_runner.recording.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
+from study_runner.backend.services.studies.session_journal_service import SessionJournalStore
 
 from .artifact_manifest_service import ArtifactManifestError, ArtifactManifestStore
 from study_runner.shared.atomic_io import atomic_write_json
@@ -45,7 +46,7 @@ CORE_STEPS = (
     "build_card_summary",
     "write_result_manifest",
 )
-FINAL_STEPS = ("purge_local_sources",)
+FINAL_STEPS = ("purge_local_sources", "archive_session_journals")
 STEP_KEYS = ("commit_submission",) + CORE_STEPS + FINAL_STEPS
 STEP_LABELS = {
     "commit_submission": "Submission lokal sichern",
@@ -56,6 +57,7 @@ STEP_LABELS = {
     "build_card_summary": "Card-Statistiken berechnen",
     "write_result_manifest": "Ergebnis und Manifest schreiben",
     "purge_local_sources": "Lokale Quelldateien freigeben",
+    "archive_session_journals": "Session- und Trial-Journale archivieren",
 }
 
 
@@ -271,6 +273,7 @@ class FinalizationService:
         destination_definitions: tuple[DestinationPluginDefinition, ...] | None = None,
         card_summary_builder: CardSummaryBuilder | None = None,
         manifest_store: ArtifactManifestStore | None = None,
+        session_journal_store: SessionJournalStore | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.data_dir = Path(data_dir).resolve()
@@ -285,6 +288,10 @@ class FinalizationService:
         self.card_summary_builder = card_summary_builder or CardSummaryBuilder()
         self.manifest_store = manifest_store or ArtifactManifestStore()
         self._clock = clock
+        self.session_journals = session_journal_store or SessionJournalStore(
+            self.data_dir,
+            clock=clock,
+        )
         self._lock = threading.RLock()
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -529,6 +536,17 @@ class FinalizationService:
                 )
             context = self._context(state)
             self._ensure_degraded_result(context, explanation)
+            _step(state, "purge_local_sources").update(
+                status="skipped",
+                details={"reason": "local_sources_are_retained_for_degraded_sessions"},
+            )
+            if not self._run_journal_archive(
+                state,
+                finalization_status="completed_degraded",
+            ):
+                raise FinalizationError(
+                    "Session journals could not be archived; degraded finalization remains blocked."
+                )
             state["degraded_confirmation"] = {
                 "reason": explanation,
                 "confirmed_by": str(confirmed_by or "admin"),
@@ -536,10 +554,6 @@ class FinalizationService:
             }
             state["quality_status"] = "degraded"
             state["status"] = "completed_degraded"
-            _step(state, "purge_local_sources").update(
-                status="skipped",
-                details={"reason": "local_sources_are_retained_for_degraded_sessions"},
-            )
             for definition in self._destinations(state):
                 destination_step = _step(state, definition.step_key)
                 if destination_step["status"] == "pending":
@@ -723,6 +737,8 @@ class FinalizationService:
             if not self._advance_destinations(state, degraded=False):
                 return
             if not self._run_purge(state):
+                return
+            if not self._run_journal_archive(state, finalization_status="completed"):
                 return
             state["status"] = "completed"
             state["quality_status"] = "valid"
@@ -964,10 +980,13 @@ class FinalizationService:
             )
             self._persist_state(state, event={"event": "step_skipped", "step": step["key"]})
             return True
-        remote_hashes = next(
+        verified_destination = next(
             (
-                (_step(state, definition.step_key).get("details") or {}).get(
-                    "remote_sha256"
+                (
+                    definition,
+                    (_step(state, definition.step_key).get("details") or {}).get(
+                        "remote_sha256"
+                    ),
                 )
                 for definition in purge_destinations
                 if isinstance(
@@ -979,10 +998,11 @@ class FinalizationService:
             ),
             None,
         )
-        if not isinstance(remote_hashes, dict):
+        if verified_destination is None:
             step.update(status="skipped", details={"reason": "remote_source_checksums_not_available; local_sources_retained"})
             self._persist_state(state, event={"event": "step_skipped", "step": step["key"]})
             return True
+        destination_definition, remote_hashes = verified_destination
         step.update(
             status="running",
             attempts=int(step.get("attempts") or 0) + 1,
@@ -994,6 +1014,7 @@ class FinalizationService:
             result = self.manifest_store.purge_plugin_xdfs(
                 self._context(state).paths,
                 remote_sha256=remote_hashes,
+                remote_name=destination_definition.destination,
                 session_status="completed",
                 merge_parity=bool(state["runtime"].get("merge_parity")),
             )
@@ -1029,6 +1050,53 @@ class FinalizationService:
         else:
             step.update(status="done", details=result, completed_at=_iso_time(self._clock()))
         self._persist_state(state, event={"event": "step_completed", "step": step["key"], "status": step["status"]})
+        return True
+
+    def _run_journal_archive(
+        self,
+        state: dict[str, Any],
+        *,
+        finalization_status: str,
+    ) -> bool:
+        """Archive audit journals only at the terminal finalization boundary."""
+
+        step = _step(state, "archive_session_journals")
+        if step["status"] in {"done", "skipped"}:
+            return True
+        step.update(
+            status="running",
+            attempts=int(step.get("attempts") or 0) + 1,
+            started_at=_iso_time(self._clock()),
+            last_error="",
+        )
+        self._persist_state(
+            state,
+            event={"event": "step_started", "step": step["key"]},
+        )
+        try:
+            context = self._context(state)
+            result = self.session_journals.archive_session(
+                state["session_id"],
+                context.paths.root,
+                finalization_status=finalization_status,
+            )
+        except Exception as error:
+            step.update(
+                status="failed",
+                last_error=str(error),
+                failed_at=_iso_time(self._clock()),
+            )
+            self._enter_attention(state, step["key"], str(error))
+            return False
+        step.update(
+            status="done",
+            details=deepcopy(result),
+            completed_at=_iso_time(self._clock()),
+        )
+        self._persist_state(
+            state,
+            event={"event": "step_completed", "step": step["key"], "status": "done"},
+        )
         return True
 
     def _enter_attention(self, state: dict[str, Any], step_key: str, error: str) -> None:
@@ -1192,9 +1260,10 @@ class FinalizationService:
                 state = _read_json_object(state_path) if state_path.is_file() else deepcopy(commit["state"])
                 if state.get("schema") != FINALIZATION_SCHEMA or state.get("job_id") in self._jobs:
                     continue
+                state_migrated = self._ensure_journal_archive_step(state)
                 if not submission_path.is_file():
                     atomic_write_json(submission_path, commit["submission"])
-                if not state_path.is_file():
+                if not state_path.is_file() or state_migrated:
                     atomic_write_json(state_path, state)
                 self._jobs[state["job_id"]] = state
                 self._submission_index[
@@ -1202,6 +1271,36 @@ class FinalizationService:
                 ] = state["job_id"]
             except (OSError, ValueError, KeyError, TypeError) as error:
                 print(f"[FINALIZATION] Ignoring unreadable commit {commit_path}: {error}")
+
+    @staticmethod
+    def _ensure_journal_archive_step(state: dict[str, Any]) -> bool:
+        """Migrate in-flight v1 finalizations without replaying completed jobs."""
+
+        if any(
+            isinstance(step, dict) and step.get("key") == "archive_session_journals"
+            for step in state.get("steps", [])
+        ):
+            return False
+        terminal = state.get("status") in {"completed", "completed_degraded"}
+        archive_step = _ordinary_step("archive_session_journals", enabled=True)
+        if terminal:
+            archive_step.update(
+                status="skipped",
+                details={
+                    "reason": "legacy finalization completed before session-journal archival was introduced"
+                },
+            )
+        steps = state.setdefault("steps", [])
+        purge_index = next(
+            (
+                index
+                for index, step in enumerate(steps)
+                if isinstance(step, dict) and step.get("key") == "purge_local_sources"
+            ),
+            len(steps) - 1,
+        )
+        steps.insert(purge_index + 1, archive_step)
+        return True
 
     def _recover_interrupted_steps(self) -> None:
         for state in self._jobs.values():
@@ -1279,11 +1378,17 @@ class FinalizationService:
         if not destinations_terminal:
             return False
 
-        purge = _step(state, "purge_local_sources")
-        return purge["status"] == "pending" or (
-            purge["status"] == "retrying"
-            and float(purge.get("next_attempt_epoch") or 0) <= now
-        )
+        for key in FINAL_STEPS:
+            step = _step(state, key)
+            step_status = step["status"]
+            if step_status in {"done", "skipped"}:
+                continue
+            if step_status == "pending":
+                return True
+            if step_status == "retrying":
+                return float(step.get("next_attempt_epoch") or 0) <= now
+            return False
+        return False
 
     def _require_state(self, job_id: str) -> dict[str, Any]:
         state = self._jobs.get(str(job_id or "").strip())

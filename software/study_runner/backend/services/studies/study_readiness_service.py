@@ -93,14 +93,16 @@ def check_study_readiness(
     for plugin_key, selection in selected_plugins.items():
         if not isinstance(selection, dict):
             continue
-        if not selection.get("enabled") or not selection.get("required"):
+        if not selection.get("enabled"):
             continue
         if get_plugin(plugin_key) is not None:
             continue
+        required = bool(selection.get("required"))
         add(
             "plugin_unavailable",
-            blocking=True,
+            blocking=required,
             plugin=plugin_key,
+            required=required,
             details=invalid_by_key.get(plugin_key, ["Plugin is not installed or valid."]),
         )
 
@@ -198,9 +200,18 @@ def check_study_readiness(
             details=[str(recording_preflight.get("reason") or "Native XDF worker is unavailable.")],
         )
 
+    start_blocked = any(blocker.get("blocking") for blocker in blockers)
+    # A missing OPTIONAL plugin is informational (the feature is simply not
+    # available in this build) rather than a misconfiguration, so it does not
+    # count against "ready" the way every other blocker code does.
+    not_ready = any(
+        blocker
+        for blocker in blockers
+        if not (blocker.get("code") == "plugin_unavailable" and not blocker.get("blocking"))
+    )
     return {
-        "ready": not blockers,
-        "start_blocked": any(blocker.get("blocking") for blocker in blockers),
+        "ready": not not_ready,
+        "start_blocked": start_blocked,
         "study_id": study_id,
         "blockers": blockers,
         # Which panels carry a problem, so the shell can mark its nav entries.

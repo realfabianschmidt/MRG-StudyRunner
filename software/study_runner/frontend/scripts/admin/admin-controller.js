@@ -1,7 +1,5 @@
 ﻿import { getJson, postJson } from '../shared/api-client.js';
 import { initializeAdminDashboard } from './admin-dashboard-controller.js';
-import { initializeNotionSettings } from '../settings/study/notion-settings-controller.js';
-import { initializeNextcloudSettings } from '../settings/study/nextcloud-settings-controller.js';
 import { initializeCertificateSettings } from '../settings/machine/certificate-settings-controller.js';
 import { initializeBrandingSettings } from '../settings/machine/branding-settings-controller.js';
 import { loadBranding, renderGroupLogo } from '../shared/branding.js';
@@ -30,7 +28,7 @@ import {
 import { initI18n, setLanguage, getLanguage, t } from '../shared/i18n.js';
 import { createQrSvg } from '../shared/qr-code.js';
 import { escapeHtml, setText } from '../shared/dom-utils.js';
-import { loadPluginCatalog } from '../shared/plugin-catalog.js';
+import { loadPluginCatalog, pluginByKey } from '../shared/plugin-catalog.js';
 
 const STUDY_RUN_POLL_INTERVAL_MS = 1500;
 
@@ -98,29 +96,6 @@ async function init() {
     getAccessUrl,
     loadUpdateStatus,
     createDesktopShortcut,
-  });
-  initializeNotionSettings({
-    showToast,
-    switchView,
-    getStudyConfig: () => state.config,
-    setStudySettings: (settings) => {
-      state.config.study_settings = normalizeStudySettings(settings);
-      markUnsaved();
-    },
-    getCurrentStudyName,
-    saveStudyConfig: saveConfig,
-  });
-  initializeNextcloudSettings({
-    showToast,
-    switchView,
-    openStudySettingsPanel,
-    getStudyConfig: () => state.config,
-    setStudySettings: (settings) => {
-      state.config.study_settings = normalizeStudySettings(settings);
-      markUnsaved();
-    },
-    getCurrentStudyName,
-    saveStudyConfig: saveConfig,
   });
   initializeCertificateSettings({ showToast, switchView });
   initializeBrandingSettings({
@@ -257,15 +232,14 @@ function readinessSummary(blockers) {
 }
 
 function readinessMessage(blocker) {
-  const sensorLabel = blocker.sensor ? t(`dashboard.${blocker.sensor}`, blocker.sensor) : '';
+  const pluginKey = blocker.plugin || blocker.sensor || blocker.destination || '';
+  const pluginLabel = pluginByKey(pluginKey)?.ui?.label || pluginKey;
+  const sensorLabel = blocker.sensor ? pluginLabel : '';
   const supportedModes = Array.isArray(blocker.supported_modes) ? blocker.supported_modes.join(', ') : '';
   const messages = {
-    'notion.credential_missing': t('readiness.notionKeyMissing', 'Notion upload is on, but no API key is available for this study.'),
-    'notion.setting_missing': t('readiness.notionTargetMissing', 'Notion upload is on, but no parent page or database is set.'),
-    'notion.machine_disabled': t('readiness.notionMachineDisabled', 'Notion upload is on for this study, but switched off on this computer.'),
-    'nextcloud.setting_missing': t('readiness.nextcloudLinkMissing', 'Nextcloud upload is on, but no share link is set.'),
+    plugin_unavailable: t('readiness.pluginUnavailable', '{plugin} is referenced by this study but is not installed.')
+      .replace('{plugin}', pluginLabel),
     sensor_machine_disabled: t('readiness.sensorMachineDisabled', '{sensor} is used by this study but switched off on this computer.').replace('{sensor}', sensorLabel),
-    camera_requires_https: t('readiness.cameraRequiresHttps', 'The tablet camera needs a secure connection, which is currently off.'),
     browser_source_requires_https: t('readiness.browserSourceRequiresHttps', 'A selected browser sensor needs a secure HTTPS connection, which is currently off.'),
     plugin_mode_unsupported: t(
       'readiness.pluginModeUnsupported',
@@ -276,6 +250,18 @@ function readinessMessage(blocker) {
       .replace('{platform}', blocker.platform || '')
       .replace('{supported}', supportedModes),
   };
+  if (String(blocker.code || '').endsWith('.credential_missing')) {
+    return t('readiness.pluginCredentialMissing', '{plugin} is enabled, but no credential is available for this study.')
+      .replace('{plugin}', pluginLabel);
+  }
+  if (String(blocker.code || '').endsWith('.setting_missing')) {
+    return t('readiness.pluginSettingMissing', '{plugin} is enabled, but a required destination setting is missing.')
+      .replace('{plugin}', pluginLabel);
+  }
+  if (String(blocker.code || '').endsWith('.machine_disabled')) {
+    return t('readiness.pluginMachineDisabled', '{plugin} is enabled for this study, but switched off on this computer.')
+      .replace('{plugin}', pluginLabel);
+  }
   return messages[blocker.code] || blocker.code;
 }
 

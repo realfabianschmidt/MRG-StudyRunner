@@ -95,6 +95,7 @@ class ArtifactManifestStore:
         paths: ArtifactPaths,
         *,
         remote_sha256: dict[str, str],
+        remote_name: str = "remote destination",
         session_status: str,
         merge_parity: bool,
     ) -> dict[str, Any]:
@@ -150,7 +151,9 @@ class ArtifactManifestStore:
                     )
                 remote_hash = str(remote_sha256.get(relative) or "").lower()
                 if not remote_hash or remote_hash != local_hash:
-                    raise ArtifactManifestError(f"Nextcloud checksum is not verified for {relative}.")
+                    raise ArtifactManifestError(
+                        f"{remote_name} checksum is not verified for {relative}."
+                    )
                 planned.append({"path": relative, "sha256": local_hash})
 
             # Persist the complete, remotely verified deletion intent before
@@ -162,7 +165,7 @@ class ArtifactManifestStore:
                 "prepared_at": _utc_now(),
                 "planned": planned,
                 "removed": [],
-                "remote": "nextcloud",
+                "remote": str(remote_name or "remote destination"),
             }
             manifest["source_purge"] = purge_state
             atomic_write_json(manifest_path, manifest)
@@ -201,7 +204,9 @@ class ArtifactManifestStore:
                 )
             remote_hash = str(remote_sha256.get(relative) or "").lower()
             if remote_hash != digest:
-                raise ArtifactManifestError(f"Nextcloud checksum is not verified for {relative}.")
+                raise ArtifactManifestError(
+                    f"{remote_name} checksum is not verified for {relative}."
+                )
             if path.exists():
                 if path.is_symlink() or not path.is_file() or sha256_file(path).lower() != digest:
                     raise ArtifactManifestError(f"Local source changed before purge: {relative}.")

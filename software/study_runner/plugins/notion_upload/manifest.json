@@ -1,10 +1,21 @@
 {
-  "api_version": 3,
+  "api_version": 4,
   "plugin_key": "notion",
   "version": "1.0.0",
   "category": "storage",
   "config_key": "notion",
   "entry_point": "plugin:PLUGIN",
+  "runtime": {
+    "entrypoint": "driver.py",
+    "protocol": "study-runner-stdio/v1",
+    "interactive_stdin": true,
+    "modes": ["runtime", "diagnostics"],
+    "sample_delivery": "none",
+    "actions": [],
+    "trial_events": [],
+    "can_toggle": true,
+    "sidecar": {}
+  },
   "lifecycle": {"reinitialize_on_disable": true},
   "ui": {
     "label": "Notion upload",
@@ -12,7 +23,7 @@
     "order": 600,
     "visibility": {
       "dashboard": false,
-      "settings_hub": false,
+      "settings_hub": true,
       "study_settings": true,
       "destination_settings": true
     }

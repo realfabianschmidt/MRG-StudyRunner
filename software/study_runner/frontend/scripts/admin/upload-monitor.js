@@ -17,11 +17,6 @@ import { createModal } from '../shared/modal.js';
 import { renderFinalizationJob } from './finalization-monitor-view.js';
 
 const POLL_INTERVAL_MS = 3000;
-const DESTINATION_LABELS = {
-  notion: () => t('uploads.destinationNotion', 'Notion'),
-  nextcloud: () => t('uploads.destinationNextcloud', 'Nextcloud'),
-};
-
 let callbacks = {};
 let initialized = false;
 let modal = null;
@@ -355,7 +350,9 @@ function sessionIdentityKey(session) {
 }
 
 function renderLegacyJobRow(job) {
-  const label = DESTINATION_LABELS[job.kind]?.() || job.label || job.kind;
+  // The destination plugin supplies its display label when it creates the
+  // durable job. Unknown/new destinations therefore render without a core map.
+  const label = job.label || job.kind;
   const { icon, text } = legacyJobStatusDisplay(job);
   const retryButton = job.status === 'failed'
     ? `<button class="btn-icon-only" type="button" data-retry-job="${escapeHtml(job.job_id)}" title="${escapeHtml(t('uploads.retry', 'Retry'))}" aria-label="${escapeHtml(t('uploads.retry', 'Retry'))}"><i class="iconoir-refresh"></i></button>`

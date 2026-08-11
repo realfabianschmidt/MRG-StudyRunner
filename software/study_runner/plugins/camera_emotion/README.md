@@ -23,6 +23,36 @@ stimulus cleanup, submit retry, and participant heartbeat details. The generic
 study controller only invokes the common participant-extension lifecycle and
 does not contain a `camera_emotion` branch.
 
+## Architecture (API v4)
+
+Like every Study Runner plugin, the core process never imports this folder's
+Python modules directly — it only ever starts `driver.py` as a subprocess
+(see `docs/file-guide.md`). Inside that subprocess:
+
+- `driver.py` — the only executable entry point (`run_plugin_driver("camera_emotion")`).
+- `plugin.py` — the single public plugin: config, lifecycle, participant
+  actions, and admin actions (`repair_runtime`, `install_dependencies`).
+- `adapter.py` — accepts tablet camera frames and publishes the stable LSL
+  streams.
+- `worker/` — the internal DeepFace analysis process (`server.py`), its
+  supervisor (`worker/plugin.py`), the per-frame analyzer
+  (`worker/analyzer.py`), and shared error classification
+  (`worker/model_errors.py`). This is an implementation detail the plugin
+  supervises, not a second catalog plugin (see above).
+
+## Where the code comes from
+
+`worker/analyzer.py` calls `DeepFace.analyze(frame, actions=["emotion"],
+enforce_detection=False, detector_backend="opencv", silent=True)` — standard,
+documented usage of the official `deepface` PyPI package (pinned in
+`software/requirements.txt`), not adapted or copied vendor example code.
+
+The emotion model weight file itself is a separate, VGG-Face-derived
+artifact under non-commercial research terms; `worker/model_errors.py` pins
+its exact upstream URL and SHA-256, matching the authoritative attribution
+in the repository's `THIRD_PARTY_NOTICES.md`. It must be provisioned
+explicitly (see below) — it is never bundled or auto-downloaded silently.
+
 ## Local worker diagnostics
 
 Source checkout on Windows x64 or macOS Apple Silicon:

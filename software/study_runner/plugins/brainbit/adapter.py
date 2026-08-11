@@ -20,6 +20,7 @@ from __future__ import annotations
 import atexit
 from collections import deque
 import json
+import math
 import os
 import signal
 import subprocess
@@ -34,8 +35,11 @@ from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap
 from study_runner.plugin_framework.dependency_utils import ensure_requirements
 from .brainbit_realtime_cli import (
     EXIT_BLE_UNAVAILABLE,
+    EXIT_CALLBACK_FAILURE,
+    EXIT_DEVICE_TARGET_MISSING,
     EXIT_MISSING_DEPENDENCY,
     EXIT_NO_DEVICE_FOUND,
+    EXIT_STREAM_FAILURE,
 )
 
 
@@ -50,7 +54,7 @@ LSL_CHANNEL_UNITS = {
     "eeg": ("microvolt",) * 4,
     "bands": ("relative_power",) * 5,
     "mental": ("ratio",) * 4,
-    "quality": ("ohm",) * 4,
+    "quality": ("ratio",) * 4,
     "battery": ("percent",),
 }
 
@@ -69,6 +73,21 @@ _EXIT_REASONS: dict[int, dict[str, Any]] = {
         "message": "No BrainBit headset was found. Switch it on, keep it close, then start BrainBit again.",
         "retry": True,
     },
+    EXIT_DEVICE_TARGET_MISSING: {
+        "detail_key": "brainbit.error.targetMissing",
+        "message": "The configured BrainBit headset was not found; no other headset was substituted.",
+        "retry": True,
+    },
+    EXIT_CALLBACK_FAILURE: {
+        "detail_key": "brainbit.error.callbackFailed",
+        "message": "BrainBit data decoding or processing failed inside the SDK callback.",
+        "retry": True,
+    },
+    EXIT_STREAM_FAILURE: {
+        "detail_key": "brainbit.error.streamFailed",
+        "message": "The BrainBit stream could not be started or stopped safely.",
+        "retry": True,
+    },
     EXIT_BLE_UNAVAILABLE: {
         "detail_key": "brainbit.error.bluetoothUnavailable",
         "message": "Bluetooth is switched off or unavailable on this computer.",
@@ -85,6 +104,7 @@ _lock = threading.Lock()
 _state_lock = threading.Lock()
 _routing_lock = threading.Lock()
 _process: subprocess.Popen[str] | None = None
+_process_generation = 0
 _reader_thread: threading.Thread | None = None
 _watchdog_thread: threading.Thread | None = None
 _registered_shutdown = False
@@ -100,7 +120,16 @@ _last_sensor_activity_at = 0.0
 _last_eeg_at = 0.0
 _last_quality_at = 0.0
 _last_derived_at = 0.0
+_signal_started_at = 0.0
+_process_started_at = 0.0
 _log_handle: Any = None
+_log_write_error = ""
+_last_log_flush_at = 0.0
+_lsl_local_clock: Any = None
+_lsl_create_outlet: Any = None
+_eeg_lsl_channels: tuple[str, ...] = ()
+_lsl_stream_health: dict[str, dict[str, Any]] = {}
+_stream_contract_ready = threading.Event()
 _routing_state = {
     "forward_to_lsl": False,
     "forward_to_touchdesigner": False,
@@ -112,22 +141,20 @@ _last_auto_restart_at = 0.0
 _desired_running = False
 _last_exit_code: int | None = None
 _last_exit_at = 0.0
-# The CLI emits a handful of JSON lines per second; sized for a full session.
+# Full-rate derived metrics remain canonical in LSL/XDF. The JSON sidecar is an
+# explicit 1 Hz-per-tag backup projection, matching manifest.backup_projection.
 _history: deque[dict[str, Any]] = deque(maxlen=history_maxlen(10.0))
-_SENSOR_ACTIVITY_TAGS = {
-    "RESIST",
-    "QUALITY",
-    "CALIB",
-    "ARTIFACT",
-    "BATTERY",
-    "EEG",
-    "BANDS",
-    "MENTAL",
-    "STATE",
-}
+_history_last_epoch_by_tag: dict[str, float] = {}
+_HISTORY_INTERVAL_SECONDS = 1.0
+# Scientific data freshness is deliberately stricter than process/log activity.
+# Battery, state, resistance, quality and diagnostic lines can continue while the
+# EEG callback is dead, so none of them may refresh the acquisition watchdog.
+_RAW_EEG_TAGS = {"EEG", "EEG_BATCH"}
 _IDENTITY_TAGS = {"DEVICE", "DEVICE_SELECTED"}
 _HISTORY_TAGS = {"BANDS", "MENTAL", "QUALITY", "BATTERY"}
-_DERIVED_TAGS = {"BANDS", "MENTAL"}
+_DERIVED_TAGS = {"BANDS", "MENTAL", "BANDS_BATCH", "MENTAL_BATCH"}
+_BANDS_FIELDS = ("delta", "theta", "alpha", "beta", "gamma")
+_MENTAL_FIELDS = ("Inst_Attention", "Inst_Relaxation", "Rel_Attention", "Rel_Relaxation")
 
 
 def _default_python_executable(python_executable: str | None) -> str:
@@ -219,6 +246,8 @@ def initialize(
     monitor_refresh_ms: int = 1000,
     disconnect_timeout_ms: int = 20000,
     log_dir: str | None = None,
+    log_max_bytes: int = 10 * 1024 * 1024,
+    log_backup_count: int = 3,
 ) -> None:
     """Store BrainBit settings, prepare optional LSL mirrors, and start the external CLI."""
     global _registered_shutdown, _config
@@ -282,6 +311,8 @@ def initialize(
         "log_dir": str(resolved_log_dir),
         "raw_log_path": str(resolved_log_dir / "brainbit_runtime.log"),
         "state_path": str(resolved_log_dir / "brainbit_state.json"),
+        "log_max_bytes": max(256 * 1024, int(log_max_bytes)),
+        "log_backup_count": max(1, int(log_backup_count)),
     }
     with _routing_lock:
         _routing_state["forward_to_lsl"] = bool(lsl_enabled)
@@ -315,9 +346,11 @@ def initialize(
 
 def start() -> None:
     """Start the repo-local BrainBit process if it is not already running."""
-    global _process, _reader_thread, _log_handle, _watchdog_thread, _desired_running
+    global _process, _process_generation, _reader_thread, _log_handle, _watchdog_thread, _desired_running
     global _last_activity_at, _last_any_line_at, _last_sensor_activity_at
-    global _last_eeg_at, _last_quality_at, _last_derived_at
+    global _last_eeg_at, _last_quality_at, _last_derived_at, _signal_started_at, _process_started_at
+    global _log_write_error, _last_log_flush_at
+    global _eeg_lsl_channels, _lsl_stream_health
 
     if not _config:
         print("[BrainBit] Adapter not configured.")
@@ -344,13 +377,17 @@ def start() -> None:
             )
             return
         _desired_running = True
+        _stream_contract_ready.clear()
+        _eeg_lsl_channels = ()
+        _lsl_outlets.pop("EEG", None)
+        _lsl_stream_health = {}
 
         creationflags = 0
         if os.name == "nt":
             creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
         try:
-            _log_handle = Path(_config["raw_log_path"]).open("a", encoding="utf-8")
+            _log_handle = _open_log_handle()
             _process = subprocess.Popen(
                 command,
                 cwd=_config["working_dir"],
@@ -362,6 +399,8 @@ def start() -> None:
                 bufsize=1,
                 creationflags=creationflags,
             )
+            _process_generation += 1
+            generation = _process_generation
         except OSError as error:
             print(f"[BrainBit] Could not start external process: {error}")
             _process = None
@@ -380,19 +419,56 @@ def start() -> None:
                 "device": None,
                 "selected_device": None,
                 "scan_candidates": [],
+                "eeg": None,
+                "eeg_batch": None,
+                "bands": None,
+                "mental": None,
+                "quality": None,
+                "resist": None,
+                "calibration": None,
+                "last_eeg_at": None,
+                "last_eeg_epoch": None,
+                "last_quality_at": None,
+                "last_quality_epoch": None,
+                "last_derived_at": None,
+                "last_derived_epoch": None,
+                "last_sensor_activity_at": None,
+                "last_sensor_activity_epoch": None,
+                "signal_started_at": None,
+                "signal_started_epoch": None,
+                "signal_stopped_at": None,
+                "callback_error": None,
+                "stream_error": None,
+                "log_error": None,
+                "lsl_error": None,
+                "lsl_failure_count": 0,
+                "data_warning": None,
+                "data_warning_count": 0,
+                "last_data_warning_at": None,
+                "last_data_warning_epoch": None,
+                "supported_channels": None,
+                "actual_streams": None,
                 "target_device": _target_device_from_config(),
                 "last_message": f"Scanning for BrainBit for {_config.get('scan_seconds', 5)} seconds.",
             },
             force=True,
         )
         now = time.time()
-        _last_activity_at = now
+        _process_started_at = now
+        _last_activity_at = 0.0
         _last_any_line_at = now
         _last_sensor_activity_at = 0.0
         _last_eeg_at = 0.0
         _last_quality_at = 0.0
         _last_derived_at = 0.0
-        _reader_thread = threading.Thread(target=_read_output, args=(_process,), daemon=True)
+        _signal_started_at = 0.0
+        _log_write_error = ""
+        _last_log_flush_at = 0.0
+        _reader_thread = threading.Thread(
+            target=_read_output,
+            args=(_process, generation),
+            daemon=True,
+        )
         _reader_thread.start()
         if _watchdog_thread is None or not _watchdog_thread.is_alive():
             _watchdog_thread = threading.Thread(target=_watch_connection_health, daemon=True)
@@ -408,11 +484,12 @@ def start() -> None:
 
 def stop() -> None:
     """Stop the repo-local BrainBit process if it is running."""
-    global _process, _desired_running
+    global _process, _reader_thread, _desired_running
 
     _desired_running = False
     with _lock:
         process = _process
+        reader_thread = _reader_thread
         if process is None or process.poll() is not None:
             _process = None
             _set_state({"status": "stopped", "last_message": "BrainBit CLI already stopped."}, force=True)
@@ -435,9 +512,21 @@ def stop() -> None:
             except Exception:
                 pass
     finally:
+        if (
+            reader_thread is not None
+            and reader_thread is not threading.current_thread()
+            and reader_thread.is_alive()
+        ):
+            reader_thread.join(timeout=5.0)
         with _lock:
             if _process is process:
                 _process = None
+            if (
+                reader_thread is not None
+                and _reader_thread is reader_thread
+                and not reader_thread.is_alive()
+            ):
+                _reader_thread = None
         _set_state({"status": "stopped", "last_message": "BrainBit CLI stopped."}, force=True)
         _close_log_handle()
         print("[BrainBit] External CLI stopped.")
@@ -482,7 +571,7 @@ def get_status() -> dict[str, Any]:
         "status": status_value,
         "pid": pid,
         "lsl_enabled": bool(_config.get("lsl_enabled", False)),
-        "recording_enabled": bool(_config.get("lsl_enabled", False) and _lsl_outlets),
+        "recording_enabled": bool(_config.get("lsl_enabled", False) and _has_recent_raw_lsl(latest)),
         "touchdesigner_forwarding_enabled": bool(_routing_state.get("forward_to_touchdesigner", False)),
         "scan_timeout_seconds": int(_config.get("scan_seconds", 5)) if _config else None,
         "last_scan_started_at": latest.get("last_scan_started_at"),
@@ -502,18 +591,54 @@ def get_status() -> dict[str, Any]:
     }
 
 
+def wait_for_stream_contract(timeout_seconds: float | None = None) -> dict[str, Any]:
+    """Wait boundedly for discovery to publish the real device stream schema."""
+    timeout = (
+        float(timeout_seconds)
+        if timeout_seconds is not None
+        else float(_config.get("scan_seconds", 5)) + 10.0
+    )
+    status = get_status()
+    if status.get("actual_streams"):
+        return status
+    _stream_contract_ready.wait(max(0.1, timeout))
+    status = get_status()
+    if status.get("actual_streams"):
+        if _config.get("lsl_enabled", False) and "EEG" not in _lsl_outlets:
+            _set_state(
+                {
+                    "status": "failed",
+                    "last_message": "BrainBit channel discovery succeeded, but its EEG LSL outlet is unavailable.",
+                },
+                force=True,
+            )
+            return get_status()
+        return status
+    if status.get("status") not in {"failed", "exited", "stopped"}:
+        _set_state(
+            {
+                "status": "failed",
+                "last_message": f"BrainBit did not publish a channel contract within {timeout:.1f}s.",
+            },
+            force=True,
+        )
+    return get_status()
+
+
 # ============================================================
 #  3. CLI OUTPUT - read and parse the JSON line stream
 # ============================================================
-def _read_output(process: subprocess.Popen[str]) -> None:
+def _read_output(process: subprocess.Popen[str], generation: int | None = None) -> None:
     try:
         if process.stdout is None:
             return
         for raw_line in process.stdout:
+            if generation is not None and generation != _process_generation:
+                break
             line = raw_line.rstrip()
             if not line:
                 continue
-            _append_raw_log(line)
+            _append_raw_log(line, generation=generation)
             important = _update_state_from_line(line)
             _forward_line_to_touchdesigner(line)
             _mirror_line_to_lsl(line)
@@ -521,18 +646,34 @@ def _read_output(process: subprocess.Popen[str]) -> None:
                 print(f"[BrainBit] {line}")
     finally:
         exit_code = process.poll()
+        if exit_code is None:
+            try:
+                exit_code = process.wait(timeout=1.0)
+            except (AttributeError, subprocess.TimeoutExpired):
+                exit_code = process.poll()
         with _lock:
-            global _process, _last_exit_code, _last_exit_at
-            if _process is process:
+            global _process, _reader_thread, _last_exit_code, _last_exit_at
+            is_current = _process is process and (
+                generation is None or generation == _process_generation
+            )
+            if is_current:
                 _process = None
-            _last_exit_code = exit_code
-            _last_exit_at = time.time()
+                _last_exit_code = exit_code
+                _last_exit_at = time.time()
+            if _reader_thread is threading.current_thread():
+                _reader_thread = None
+        if not is_current:
+            return
         with _state_lock:
             previous_status = _latest_state.get("status")
             previous_message = _latest_state.get("last_message")
 
         reason = _exit_reason(exit_code)
-        if reason is not None:
+        if not _desired_running and previous_status == "stopped":
+            final_status = "stopped"
+            final_message = previous_message or "BrainBit CLI stopped."
+            detail_key = None
+        elif reason is not None:
             final_status = "failed"
             final_message = reason["message"]
             detail_key = reason["detail_key"]
@@ -554,6 +695,7 @@ def _read_output(process: subprocess.Popen[str]) -> None:
         if detail_key:
             update["status_detail_key"] = detail_key
         _set_state(update, force=True)
+        _stream_contract_ready.set()
         _close_log_handle()
         print(f"[BrainBit] External CLI exited with code {exit_code}. {final_message or ''}".rstrip())
 
@@ -565,9 +707,220 @@ def _exit_reason(exit_code: int | None) -> dict[str, Any] | None:
     return _EXIT_REASONS.get(exit_code, _CRASH_REASON)
 
 
+def _channel_contract_from_payload(payload: dict[str, Any]) -> tuple[tuple[str, ...], float, float, bool]:
+    raw_channels = payload.get("raw_channels")
+    if not isinstance(raw_channels, list):
+        rows = payload.get("channels")
+        if isinstance(rows, list):
+            ordered_rows = sorted(
+                (row for row in rows if isinstance(row, dict)),
+                key=lambda row: int(row.get("index", 0)),
+            )
+            raw_channels = [row.get("label") for row in ordered_rows]
+    if not isinstance(raw_channels, list) or not raw_channels:
+        raise ValueError("CHANNEL_MAP has no raw channels")
+    labels = tuple(str(label or "").strip() for label in raw_channels)
+    if any(not label for label in labels) or len(set(labels)) != len(labels):
+        raise ValueError("CHANNEL_MAP channel labels must be non-empty and unique")
+    try:
+        nominal_rate_hz = float(payload.get("fs_hz") or 250.0)
+    except (TypeError, ValueError) as error:
+        raise ValueError("CHANNEL_MAP has an invalid sampling rate") from error
+    if not math.isfinite(nominal_rate_hz) or nominal_rate_hz <= 0:
+        raise ValueError("CHANNEL_MAP sampling rate must be positive")
+    try:
+        derived_rate_hz = float(payload.get("derived_rate_hz") or 25.0)
+    except (TypeError, ValueError) as error:
+        raise ValueError("CHANNEL_MAP has an invalid derived sampling rate") from error
+    if not math.isfinite(derived_rate_hz) or derived_rate_hz <= 0:
+        raise ValueError("CHANNEL_MAP derived sampling rate must be positive")
+    derived_enabled = bool(payload.get("derived_enabled", all(ch in labels for ch in ("O1", "O2", "T3", "T4"))))
+    return labels, nominal_rate_hz, derived_rate_hz, derived_enabled
+
+
+def _actual_stream_contracts(
+    channel_labels: tuple[str, ...],
+    *,
+    nominal_rate_hz: float,
+    derived_rate_hz: float,
+    derived_enabled: bool,
+) -> list[dict[str, Any]]:
+    streams = [
+        {
+            "key": "eeg",
+            "source_id": LSL_SOURCE_IDS["eeg"],
+            "type": "EEG",
+            "nominal_rate_hz": nominal_rate_hz,
+            "clock_domain": "lsl",
+            "channel_format": "float32",
+            "channels": list(channel_labels),
+            "channel_units": ["microvolt"] * len(channel_labels),
+            "timestamp_source": "host_callback_reconstructed",
+            "processing": "unit_scale_only",
+        },
+        {
+            "key": "quality",
+            "source_id": LSL_SOURCE_IDS["quality"],
+            "type": "QUALITY",
+            "nominal_rate_hz": 0.0,
+            "clock_domain": "lsl",
+            "channel_format": "float32",
+            "channels": list(channel_labels),
+            "channel_units": ["ratio"] * len(channel_labels),
+        },
+        {
+            "key": "battery",
+            "source_id": LSL_SOURCE_IDS["battery"],
+            "type": "BATTERY",
+            "nominal_rate_hz": 0.0,
+            "clock_domain": "lsl",
+            "channel_format": "float32",
+            "channels": ["percent"],
+            "channel_units": ["percent"],
+        },
+    ]
+    if derived_enabled:
+        streams.extend(
+            [
+                {
+                    "key": "bands",
+                    "source_id": LSL_SOURCE_IDS["bands"],
+                    "type": "BANDS",
+                    "nominal_rate_hz": derived_rate_hz,
+                    "clock_domain": "lsl",
+                    "channel_format": "float32",
+                    "channels": ["delta", "theta", "alpha", "beta", "gamma"],
+                    "channel_units": ["relative_power"] * 5,
+                },
+                {
+                    "key": "mental",
+                    "source_id": LSL_SOURCE_IDS["mental"],
+                    "type": "MENTAL",
+                    "nominal_rate_hz": derived_rate_hz,
+                    "clock_domain": "lsl",
+                    "channel_format": "float32",
+                    "channels": [
+                        "Inst_Attention",
+                        "Inst_Relaxation",
+                        "Rel_Attention",
+                        "Rel_Relaxation",
+                    ],
+                    "channel_units": ["ratio"] * 4,
+                },
+            ]
+        )
+    return streams
+
+
+def _validated_eeg_batch(
+    payload: dict[str, Any],
+) -> tuple[list[list[float]], list[float] | None, dict[str, Any]]:
+    """Validate the complete raw batch before it can refresh health or reach LSL."""
+    channels = payload.get("channels")
+    samples = payload.get("samples")
+    timestamps = payload.get("timestamps")
+    if not isinstance(channels, list) or not isinstance(samples, list) or not samples:
+        raise ValueError("channels and a non-empty samples array are required")
+    channel_names = [str(channel) for channel in channels]
+    if len(set(channel_names)) != len(channel_names):
+        raise ValueError("channel labels must be unique")
+    declared_count = payload.get("sample_count")
+    if declared_count is not None:
+        try:
+            if int(declared_count) != len(samples):
+                raise ValueError("sample_count does not match samples length")
+        except (TypeError, ValueError) as error:
+            raise ValueError("sample_count is invalid") from error
+
+    values: list[list[float]] = []
+    for row_index, sample in enumerate(samples):
+        if not isinstance(sample, list) or len(sample) != len(channel_names):
+            raise ValueError(f"sample {row_index} does not match channel count")
+        try:
+            decoded_row = [float(value) for value in sample]
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"sample {row_index} contains invalid values") from error
+        if not all(math.isfinite(value) for value in decoded_row):
+            raise ValueError(f"sample {row_index} contains non-finite values")
+        values.append(decoded_row)
+
+    parsed_timestamps: list[float] | None = None
+    if timestamps is not None:
+        if not isinstance(timestamps, list) or len(timestamps) != len(values):
+            raise ValueError("timestamps length does not match samples length")
+        try:
+            parsed_timestamps = [float(value) for value in timestamps]
+        except (TypeError, ValueError) as error:
+            raise ValueError("timestamps contain invalid values") from error
+        if not all(math.isfinite(value) for value in parsed_timestamps):
+            raise ValueError("timestamps contain non-finite values")
+        if any(later <= earlier for earlier, later in zip(parsed_timestamps, parsed_timestamps[1:])):
+            raise ValueError("timestamps are not strictly increasing")
+
+    for metadata_key in ("packs", "markers"):
+        metadata = payload.get(metadata_key)
+        if metadata is not None and (not isinstance(metadata, list) or len(metadata) != len(values)):
+            raise ValueError(f"{metadata_key} length does not match samples length")
+
+    eeg = dict(zip(channel_names, values[-1], strict=True))
+    eeg["ts"] = parsed_timestamps[-1] if parsed_timestamps else payload.get("end_ts")
+    eeg["units"] = payload.get("units")
+    eeg["processing"] = payload.get("processing")
+    return values, parsed_timestamps, eeg
+
+
+def _latest_eeg_from_batch(payload: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        return _validated_eeg_batch(payload)[2]
+    except ValueError:
+        return None
+
+
+def _validated_metric_batch(
+    payload: dict[str, Any],
+    fields: tuple[str, ...],
+) -> tuple[list[list[float]], list[float], dict[str, Any]]:
+    channels = payload.get("channels")
+    samples = payload.get("samples")
+    timestamps = payload.get("timestamps")
+    if channels != list(fields):
+        raise ValueError(f"metric batch channels must be {list(fields)!r}")
+    if not isinstance(samples, list) or not samples:
+        raise ValueError("metric batch requires non-empty samples")
+    if not isinstance(timestamps, list) or len(timestamps) != len(samples):
+        raise ValueError("metric timestamps length does not match samples length")
+    try:
+        if int(payload.get("sample_count")) != len(samples):
+            raise ValueError("metric sample_count does not match samples length")
+    except (TypeError, ValueError) as error:
+        raise ValueError("metric sample_count is invalid") from error
+    values: list[list[float]] = []
+    for row_index, sample in enumerate(samples):
+        if not isinstance(sample, list) or len(sample) != len(fields):
+            raise ValueError(f"metric sample {row_index} does not match channel count")
+        try:
+            row = [float(value) for value in sample]
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"metric sample {row_index} contains invalid values") from error
+        if not all(math.isfinite(value) for value in row):
+            raise ValueError(f"metric sample {row_index} contains non-finite values")
+        values.append(row)
+    try:
+        parsed_timestamps = [float(value) for value in timestamps]
+    except (TypeError, ValueError) as error:
+        raise ValueError("metric timestamps contain invalid values") from error
+    if not all(math.isfinite(value) for value in parsed_timestamps):
+        raise ValueError("metric timestamps contain non-finite values")
+    if any(later <= earlier for earlier, later in zip(parsed_timestamps, parsed_timestamps[1:])):
+        raise ValueError("metric timestamps are not strictly increasing")
+    latest = dict(zip(fields, values[-1], strict=True))
+    latest["ts"] = parsed_timestamps[-1]
+    return values, parsed_timestamps, latest
+
+
 def _update_state_from_line(line: str) -> bool:
     global _last_activity_at, _last_any_line_at, _last_sensor_activity_at
-    global _last_eeg_at, _last_quality_at, _last_derived_at
+    global _last_eeg_at, _last_quality_at, _last_derived_at, _signal_started_at
 
     important = False
     now = time.time()
@@ -588,15 +941,8 @@ def _update_state_from_line(line: str) -> bool:
         except json.JSONDecodeError:
             payload = None
         if isinstance(payload, dict):
-            if tag in _SENSOR_ACTIVITY_TAGS:
-                _last_activity_at = now
-                _last_sensor_activity_at = now
-                state_update["last_activity_at"] = now_text
-                state_update["last_sensor_activity_at"] = now_text
-                state_update["last_sensor_activity_epoch"] = now
-                state_update["status"] = "connected"
             if tag in _HISTORY_TAGS:
-                _history.append({"tag": tag, "payload": dict(payload), "server_received_at": now_text, "_epoch": now})
+                _append_history_projection(tag, payload, received_epoch=now, received_at=now_text)
             if tag == "SCAN":
                 state_update["scan_candidates"] = _merge_scan_candidate(payload)
                 state_update["last_scan"] = payload
@@ -606,14 +952,43 @@ def _update_state_from_line(line: str) -> bool:
                 state_update["selected_device"] = payload
                 state_update["last_message"] = "BrainBit device selected. Waiting for live sensor data."
                 important = True
+            elif tag == "CHANNEL_MAP":
+                try:
+                    channel_labels, nominal_rate_hz, derived_rate_hz, derived_enabled = _channel_contract_from_payload(payload)
+                    _configure_device_lsl_outlets(
+                        channel_labels,
+                        nominal_rate_hz=nominal_rate_hz,
+                        derived_rate_hz=derived_rate_hz,
+                        derived_enabled=derived_enabled,
+                    )
+                    actual_streams = _actual_stream_contracts(
+                        channel_labels,
+                        nominal_rate_hz=nominal_rate_hz,
+                        derived_rate_hz=derived_rate_hz,
+                        derived_enabled=derived_enabled,
+                    )
+                except Exception as error:
+                    state_update["status"] = "failed"
+                    state_update["stream_error"] = {
+                        "phase": "channel_contract",
+                        "error": str(error),
+                    }
+                    state_update["last_message"] = f"BrainBit channel contract failed: {error}"
+                else:
+                    state_update["supported_channels"] = list(channel_labels)
+                    state_update["derived_enabled"] = derived_enabled
+                    state_update["channel_map"] = payload
+                    state_update["actual_streams"] = actual_streams
+                    state_update["last_message"] = (
+                        f"BrainBit stream contract ready: {len(channel_labels)} raw EEG channels."
+                    )
+                important = True
+                _stream_contract_ready.set()
             elif tag == "DEVICE_TARGET_MISSING":
-                # Not a failure: the CLI falls back to the headset that is
-                # actually in range. Say which one, so the operator can tell.
                 state_update["selection_error"] = payload
-                state_update["status_detail_key"] = "brainbit.error.targetMissingFallback"
-                state_update["last_message"] = (
-                    "The BrainBit saved in the settings was not found. Using the headset that is in range instead."
-                )
+                state_update["status"] = "failed"
+                state_update["status_detail_key"] = "brainbit.error.targetMissing"
+                state_update["last_message"] = "The configured BrainBit was not found; no other headset was substituted."
                 important = True
             elif tag in {"NO_DEVICE_FOUND", "SETUP_FAIL", "BLE_UNAVAILABLE"}:
                 # The CLI exits right after these; the exit-code handler in
@@ -624,7 +999,13 @@ def _update_state_from_line(line: str) -> bool:
                 state_update["battery"] = payload
             elif tag == "RESIST":
                 state_update["resist"] = payload
-                if any(payload.get(channel) is None for channel in ("O1", "O2", "T3", "T4")):
+                open_channels = payload.get("open_channels")
+                if not isinstance(open_channels, list):
+                    labels = _eeg_lsl_channels or ("O1", "O2", "T3", "T4")
+                    open_channels = [
+                        channel for channel in labels if channel in payload and payload.get(channel) is None
+                    ]
+                if isinstance(open_channels, list) and open_channels:
                     state_update["status"] = "poor_contact"
                     state_update["last_message"] = "BrainBit electrode values are missing. Adjust band and electrodes."
                     important = True
@@ -642,24 +1023,100 @@ def _update_state_from_line(line: str) -> bool:
                     important = True
                 elif contact_state == "mixed":
                     state_update["last_message"] = "BrainBit electrode contact is mixed. Adjust the band before recording."
-            elif tag == "EEG":
-                _last_eeg_at = now
-                state_update["eeg"] = payload
-                state_update["last_eeg_at"] = now_text
-                state_update["last_eeg_epoch"] = now
-                if _last_derived_at <= 0:
-                    state_update["status"] = "warming_up"
-                    state_update["last_message"] = "BrainBit EEG is arriving; waiting for calibration and derived metrics."
-            elif tag in _DERIVED_TAGS:
-                _last_derived_at = now
-                state_update["last_derived_at"] = now_text
-                state_update["last_derived_epoch"] = now
-                state_update["status"] = "connected"
-                state_update["last_message"] = "BrainBit derived metrics are available."
-                if tag == "BANDS":
-                    state_update["bands"] = payload
+            elif tag in _RAW_EEG_TAGS:
+                raw_is_valid = True
+                if tag == "EEG_BATCH":
+                    try:
+                        _, _, latest_eeg = _validated_eeg_batch(payload)
+                    except ValueError as error:
+                        raw_is_valid = False
+                        state_update["status"] = "failed"
+                        state_update["last_message"] = f"BrainBit emitted an invalid EEG batch: {error}"
+                        important = True
+                    if raw_is_valid:
+                        state_update["eeg"] = latest_eeg
+                        state_update["eeg_batch"] = {
+                            "sample_count": payload.get("sample_count"),
+                            "channels": payload.get("channels"),
+                            "units": payload.get("units"),
+                            "ts": payload.get("ts"),
+                            "end_ts": payload.get("end_ts"),
+                            "sample_interval_sec": payload.get("sample_interval_sec"),
+                            "last_pack": (payload.get("packs") or [None])[-1],
+                            "packet_gap_frames": payload.get("packet_gap_frames", 0),
+                            "packet_gap_frames_total": payload.get("packet_gap_frames_total", 0),
+                            "packet_counter_reset_total": payload.get("packet_counter_reset_total", 0),
+                            "packet_counter_events": payload.get("packet_counter_events") or [],
+                            "timestamp_source": payload.get("timestamp_source"),
+                            "processing": payload.get("processing"),
+                            "measured_hz": payload.get("measured_hz"),
+                            "queue_overflow_dropped_total": payload.get("queue_overflow_dropped_total", 0),
+                        }
                 else:
-                    state_update["mental"] = payload
+                    try:
+                        values = [float(payload[channel]) for channel in ("O1", "O2", "T3", "T4")]
+                        if not all(math.isfinite(value) for value in values):
+                            raise ValueError("non-finite value")
+                    except (KeyError, TypeError, ValueError):
+                        raw_is_valid = False
+                        state_update["status"] = "failed"
+                        state_update["last_message"] = "BrainBit emitted an invalid legacy EEG sample."
+                        important = True
+                    if raw_is_valid:
+                        state_update["eeg"] = payload
+                if raw_is_valid:
+                    _last_activity_at = now
+                    _last_sensor_activity_at = now
+                    _last_eeg_at = now
+                    state_update["last_activity_at"] = now_text
+                    state_update["last_sensor_activity_at"] = now_text
+                    state_update["last_sensor_activity_epoch"] = now
+                    state_update["last_eeg_at"] = now_text
+                    state_update["last_eeg_epoch"] = now
+                    if state_update.get("derived_enabled", _latest_state.get("derived_enabled", True)) is False:
+                        state_update["status"] = "connected"
+                        state_update["last_message"] = "BrainBit raw EEG is arriving; derived metrics are not applicable to this channel map."
+                    elif _last_derived_at <= 0:
+                        state_update["status"] = "warming_up"
+                        state_update["last_message"] = "BrainBit EEG is arriving; waiting for calibration and derived metrics."
+            elif tag in _DERIVED_TAGS:
+                base_tag = "BANDS" if tag.startswith("BANDS") else "MENTAL"
+                derived_payload = payload
+                derived_valid = True
+                if tag.endswith("_BATCH"):
+                    fields = _BANDS_FIELDS if base_tag == "BANDS" else _MENTAL_FIELDS
+                    try:
+                        values, timestamps, derived_payload = _validated_metric_batch(payload, fields)
+                    except ValueError as error:
+                        derived_valid = False
+                        state_update["status"] = "failed"
+                        state_update["stream_error"] = {
+                            "phase": "derived_batch",
+                            "stream": base_tag,
+                            "error": str(error),
+                        }
+                        state_update["last_message"] = f"BrainBit emitted an invalid {base_tag} batch: {error}"
+                        important = True
+                    else:
+                        for row, timestamp in zip(values, timestamps, strict=True):
+                            projection = dict(zip(fields, row, strict=True))
+                            projection["ts"] = timestamp
+                            _append_history_projection(
+                                base_tag,
+                                projection,
+                                received_epoch=now,
+                                received_at=now_text,
+                            )
+                if derived_valid:
+                    _last_derived_at = now
+                    state_update["last_derived_at"] = now_text
+                    state_update["last_derived_epoch"] = now
+                    state_update["status"] = "connected"
+                    state_update["last_message"] = "BrainBit derived metrics are available."
+                    if base_tag == "BANDS":
+                        state_update["bands"] = derived_payload
+                    else:
+                        state_update["mental"] = derived_payload
             elif tag == "STATE":
                 state_update["sensor_state"] = payload
                 important = True
@@ -672,14 +1129,53 @@ def _update_state_from_line(line: str) -> bool:
                     state_update["status"] = "calibrating"
                 elif payload.get("event") in {"FINISHED", "FORCED_FINISH"}:
                     state_update["status"] = "warming_up"
+                elif payload.get("event") == "STALLED":
+                    state_update["status"] = "warming_up"
+                    state_update["last_message"] = "BrainBit raw EEG is available, but derived calibration stalled."
+                    important = True
             elif tag == "ARTIFACT":
                 state_update["artifact"] = payload
                 if payload.get("both_now") or payload.get("sequence"):
                     state_update["last_message"] = "BrainBit artifact detected. Reduce movement and check contact."
                     important = True
+            elif tag == "DATA_WARNING":
+                state_update["data_warning"] = payload
+                state_update["last_data_warning_at"] = now_text
+                state_update["last_data_warning_epoch"] = now
+                state_update["data_warning_count"] = int(_latest_state.get("data_warning_count") or 0) + 1
+                discarded = int(payload.get("discarded_frames") or payload.get("discarded") or 0)
+                gaps = int(payload.get("packet_gap_frames") or 0)
+                state_update["last_message"] = (
+                    "BrainBit data-integrity warning: "
+                    f"{discarded} undecodable frame(s), {gaps} packet-counter gap frame(s)."
+                )
+                important = True
             elif tag == "EMO_INIT_FAIL":
                 state_update["status"] = "failed"
                 state_update["last_message"] = payload.get("error", "EmotionalMath init failed.")
+                important = True
+            elif tag == "STREAM":
+                stream_name = str(payload.get("stream") or "")
+                event = str(payload.get("event") or "")
+                state_update["stream"] = payload
+                if stream_name == "eeg" and event == "START":
+                    _signal_started_at = now
+                    state_update["signal_started_at"] = now_text
+                    state_update["signal_started_epoch"] = now
+                    state_update["status"] = "warming_up"
+                elif stream_name == "eeg" and event == "STOP":
+                    state_update["signal_stopped_at"] = now_text
+            elif tag in {"CALLBACK_ERROR", "STREAM_ERROR", "CONFIG_ERROR"}:
+                key = "callback_error" if tag == "CALLBACK_ERROR" else "stream_error"
+                state_update[key] = payload
+                state_update["status"] = "failed"
+                state_update["last_message"] = payload.get("error", f"BrainBit {tag.lower()}.")
+                important = True
+                _stream_contract_ready.set()
+            elif tag == "DERIVED_DISABLED":
+                state_update["derived_enabled"] = False
+                state_update["derived_disabled"] = payload
+                state_update["last_message"] = "Raw BrainBit EEG is available; derived metrics are disabled for this channel map."
                 important = True
     elif line.startswith("[WARN]") or line.startswith("# ERROR") or line.startswith("# FATAL"):
         state_update["last_message"] = line
@@ -691,6 +1187,36 @@ def _update_state_from_line(line: str) -> bool:
 
     _set_state(state_update, force=important)
     return important
+
+
+def _append_history_projection(
+    tag: str,
+    payload: dict[str, Any],
+    *,
+    received_epoch: float,
+    received_at: str,
+) -> None:
+    """Keep the declared 1 Hz JSON backup while full-rate values stay in LSL."""
+    source_epoch = float(received_epoch)
+    if tag in _DERIVED_TAGS:
+        try:
+            candidate = float(payload.get("ts"))
+        except (TypeError, ValueError):
+            candidate = source_epoch
+        if math.isfinite(candidate) and candidate > 0:
+            source_epoch = candidate
+    last_epoch = _history_last_epoch_by_tag.get(tag)
+    if last_epoch is not None and source_epoch - last_epoch < _HISTORY_INTERVAL_SECONDS:
+        return
+    _history_last_epoch_by_tag[tag] = source_epoch
+    _history.append(
+        {
+            "tag": tag,
+            "payload": dict(payload),
+            "server_received_at": received_at,
+            "_epoch": source_epoch,
+        }
+    )
 
 
 def _set_state(values: dict[str, Any], *, force: bool = False) -> None:
@@ -728,14 +1254,70 @@ def _set_state(values: dict[str, Any], *, force: bool = False) -> None:
                 print(f"[BrainBit] State file write skipped because the file is locked: {error}")
 
 
-def _append_raw_log(line: str) -> None:
+def _open_log_handle() -> Any:
+    path = Path(_config["raw_log_path"])
+    _rotate_log_file(
+        path,
+        max_bytes=int(_config.get("log_max_bytes", 10 * 1024 * 1024)),
+        backup_count=int(_config.get("log_backup_count", 3)),
+    )
+    return path.open("a", encoding="utf-8")
+
+
+def _rotate_log_file(path: Path, *, max_bytes: int, backup_count: int, force: bool = False) -> bool:
+    """Rotate one bounded plugin log, retaining numbered local backups."""
+    if not path.exists():
+        return False
+    if not force and path.stat().st_size < max(1, int(max_bytes)):
+        return False
+    backup_count = max(1, int(backup_count))
+    oldest = path.with_name(f"{path.name}.{backup_count}")
+    if oldest.exists():
+        oldest.unlink()
+    for index in range(backup_count - 1, 0, -1):
+        source = path.with_name(f"{path.name}.{index}")
+        if source.exists():
+            source.replace(path.with_name(f"{path.name}.{index + 1}"))
+    path.replace(path.with_name(f"{path.name}.1"))
+    return True
+
+
+def _append_raw_log(line: str, *, generation: int | None = None) -> None:
+    global _log_handle, _log_write_error, _last_log_flush_at
+    if generation is not None and generation != _process_generation:
+        return
     if _log_handle is None:
         return
     try:
+        max_bytes = int(_config.get("log_max_bytes", 10 * 1024 * 1024))
+        if _log_handle.tell() >= max_bytes:
+            _log_handle.close()
+            path = Path(_config["raw_log_path"])
+            _rotate_log_file(
+                path,
+                max_bytes=max_bytes,
+                backup_count=int(_config.get("log_backup_count", 3)),
+                force=True,
+            )
+            _log_handle = path.open("a", encoding="utf-8")
         _log_handle.write(line + "\n")
-        _log_handle.flush()
-    except Exception:
-        pass
+        now = time.monotonic()
+        if now - _last_log_flush_at >= 1.0:
+            _log_handle.flush()
+            _last_log_flush_at = now
+        if _log_write_error:
+            _log_write_error = ""
+            _set_state({"log_error": None}, force=True)
+    except Exception as error:
+        try:
+            _log_handle.close()
+        except Exception:
+            pass
+        _log_handle = None
+        _log_write_error = str(error)
+        message = f"Could not write BrainBit runtime log: {error}"
+        print(f"[BrainBit] {message}")
+        _set_state({"log_error": message, "last_message": message}, force=True)
 
 
 def _close_log_handle() -> None:
@@ -753,7 +1335,7 @@ def _close_log_handle() -> None:
 #  4. FORWARDING - LSL / TouchDesigner mirrors
 # ============================================================
 def _mirror_line_to_lsl(line: str) -> None:
-    if not _lsl_outlets:
+    if not _config.get("lsl_enabled", False) and not _lsl_outlets:
         return
 
     parsed = _parse_json_line(line)
@@ -762,18 +1344,20 @@ def _mirror_line_to_lsl(line: str) -> None:
 
     tag, payload = parsed
 
-    if tag == "EEG":
+    if tag == "EEG_BATCH":
+        _push_eeg_chunk(payload)
+    elif tag == "EEG":
         _push_sample("EEG", payload, ("O1", "O2", "T3", "T4"))
     elif tag == "BANDS":
-        _push_sample("BANDS", payload, ("delta", "theta", "alpha", "beta", "gamma"))
+        _push_sample("BANDS", payload, _BANDS_FIELDS)
+    elif tag == "BANDS_BATCH":
+        _push_metric_chunk("BANDS", payload, _BANDS_FIELDS)
     elif tag == "MENTAL":
-        _push_sample(
-            "MENTAL",
-            payload,
-            ("Inst_Attention", "Inst_Relaxation", "Rel_Attention", "Rel_Relaxation"),
-        )
+        _push_sample("MENTAL", payload, _MENTAL_FIELDS)
+    elif tag == "MENTAL_BATCH":
+        _push_metric_chunk("MENTAL", payload, _MENTAL_FIELDS)
     elif tag == "QUALITY":
-        _push_sample("QUALITY", payload, ("O1", "O2", "T3", "T4"))
+        _push_sample("QUALITY", payload, _eeg_lsl_channels or ("O1", "O2", "T3", "T4"))
     elif tag == "BATTERY":
         _push_sample("BATTERY", payload, ("percent",))
 
@@ -781,17 +1365,172 @@ def _mirror_line_to_lsl(line: str) -> None:
 def _push_sample(stream_key: str, payload: dict[str, Any], fields: tuple[str, ...]) -> None:
     outlet = _lsl_outlets.get(stream_key)
     if outlet is None:
+        if _config.get("lsl_enabled", False):
+            _record_lsl_failure(stream_key, "declared outlet is unavailable")
         return
 
     try:
         values = [float(payload[field]) for field in fields]
     except (KeyError, TypeError, ValueError):
+        _record_lsl_failure(stream_key, "sample payload is missing valid numeric channels")
         return
 
     try:
-        outlet.push_sample(values)
+        timestamp = _payload_timestamp_to_lsl(payload.get("ts"))
+        if timestamp is None:
+            outlet.push_sample(values)
+        else:
+            outlet.push_sample(values, timestamp)
+        _record_lsl_success(stream_key)
     except Exception as error:
+        _record_lsl_failure(stream_key, str(error))
         print(f"[BrainBit] Could not push {stream_key} sample to LSL: {error}")
+
+
+def _push_eeg_chunk(payload: dict[str, Any]) -> None:
+    outlet = _lsl_outlets.get("EEG")
+    if outlet is None:
+        if _config.get("lsl_enabled", False):
+            _record_lsl_failure("EEG", "device EEG outlet is unavailable")
+        return
+    try:
+        values, timestamps, _ = _validated_eeg_batch(payload)
+    except ValueError as error:
+        _record_lsl_failure("EEG", f"invalid batch: {error}")
+        print(f"[BrainBit] Could not push invalid EEG batch to LSL: {error}")
+        return
+    payload_channels = tuple(str(channel) for channel in payload.get("channels") or ())
+    if payload_channels != _eeg_lsl_channels:
+        message = (
+            f"batch channels {payload_channels!r} do not match outlet contract "
+            f"{_eeg_lsl_channels!r}"
+        )
+        _record_lsl_failure("EEG", message)
+        print(f"[BrainBit] Could not push EEG chunk to LSL: {message}")
+        return
+
+    lsl_timestamps: list[float] | None = None
+    if timestamps is not None:
+        lsl_timestamps = _epoch_timestamps_to_lsl(timestamps)
+        if lsl_timestamps is None:
+            _record_lsl_failure("EEG", "source timestamps could not be converted to the LSL clock")
+            return
+    try:
+        push_chunk = getattr(outlet, "push_chunk", None)
+        if callable(push_chunk):
+            if lsl_timestamps is None:
+                push_chunk(values)
+            else:
+                push_chunk(values, lsl_timestamps)
+            _record_lsl_success("EEG")
+            return
+        for index, sample in enumerate(values):
+            if lsl_timestamps is None:
+                outlet.push_sample(sample)
+            else:
+                outlet.push_sample(sample, lsl_timestamps[index])
+        _record_lsl_success("EEG")
+    except Exception as error:
+        _record_lsl_failure("EEG", str(error))
+        print(f"[BrainBit] Could not push EEG chunk to LSL: {error}")
+
+
+def _push_metric_chunk(
+    stream_key: str,
+    payload: dict[str, Any],
+    fields: tuple[str, ...],
+) -> None:
+    outlet = _lsl_outlets.get(stream_key)
+    if outlet is None:
+        if _config.get("lsl_enabled", False):
+            _record_lsl_failure(stream_key, "declared outlet is unavailable")
+        return
+    try:
+        values, timestamps, _ = _validated_metric_batch(payload, fields)
+    except ValueError as error:
+        _record_lsl_failure(stream_key, f"invalid batch: {error}")
+        return
+    lsl_timestamps = _epoch_timestamps_to_lsl(timestamps)
+    if lsl_timestamps is None:
+        _record_lsl_failure(stream_key, "source timestamps could not be converted to the LSL clock")
+        return
+    try:
+        push_chunk = getattr(outlet, "push_chunk", None)
+        if callable(push_chunk):
+            push_chunk(values, lsl_timestamps)
+        else:
+            for sample, timestamp in zip(values, lsl_timestamps, strict=True):
+                outlet.push_sample(sample, timestamp)
+        _record_lsl_success(stream_key)
+    except Exception as error:
+        _record_lsl_failure(stream_key, str(error))
+        print(f"[BrainBit] Could not push {stream_key} chunk to LSL: {error}")
+
+
+def _record_lsl_success(stream_key: str) -> None:
+    now = time.time()
+    key = str(stream_key).upper()
+    health = _lsl_stream_health.setdefault(key, {"failure_count": 0})
+    health["last_success_epoch"] = now
+    health["last_success_at"] = _timestamp(now)
+    health["last_error"] = None
+    active_errors = [
+        f"{name}: {values.get('last_error')}"
+        for name, values in sorted(_lsl_stream_health.items())
+        if values.get("last_error")
+    ]
+    update: dict[str, Any] = {
+        "lsl_stream_health": {name: dict(values) for name, values in _lsl_stream_health.items()},
+        "last_lsl_success_epoch": now,
+        "last_lsl_success_at": _timestamp(now),
+        "lsl_error": "; ".join(active_errors) if active_errors else None,
+    }
+    if key == "EEG":
+        update["last_raw_lsl_success_epoch"] = now
+        update["last_raw_lsl_success_at"] = _timestamp(now)
+    _set_state(update)
+
+
+def _record_lsl_failure(stream_key: str, error: str) -> None:
+    now = time.time()
+    key = str(stream_key).upper()
+    health = _lsl_stream_health.setdefault(key, {"failure_count": 0})
+    health["failure_count"] = int(health.get("failure_count") or 0) + 1
+    health["last_failure_epoch"] = now
+    health["last_failure_at"] = _timestamp(now)
+    health["last_error"] = str(error)
+    total_failures = sum(int(values.get("failure_count") or 0) for values in _lsl_stream_health.values())
+    message = f"{key}: {error}"
+    _set_state(
+        {
+            "lsl_stream_health": {name: dict(values) for name, values in _lsl_stream_health.items()},
+            "lsl_error": message,
+            "lsl_failure_count": total_failures,
+            "last_message": f"BrainBit LSL publication failed: {message}",
+        }
+    )
+
+
+def _payload_timestamp_to_lsl(value: Any) -> float | None:
+    converted = _epoch_timestamps_to_lsl([value])
+    return converted[0] if converted else None
+
+
+def _epoch_timestamps_to_lsl(values: list[Any]) -> list[float] | None:
+    try:
+        timestamps = [float(value) for value in values]
+    except (TypeError, ValueError):
+        return None
+    if not timestamps:
+        return []
+    # Unix epoch timestamps are converted into pylsl.local_clock's domain on
+    # the host. Already-local timestamps are passed through unchanged.
+    if max(timestamps) < 100_000_000:
+        return timestamps
+    if not callable(_lsl_local_clock):
+        return None
+    offset = float(_lsl_local_clock()) - time.time()
+    return [timestamp + offset for timestamp in timestamps]
 
 
 def set_routing(
@@ -854,10 +1593,21 @@ def _forward_line_to_touchdesigner(line: str) -> None:
 
     tag, payload = parsed
 
-    if tag == "EEG":
+    if tag == "EEG_BATCH":
+        preview = payload.get("preview")
+        if not isinstance(preview, dict):
+            preview = _latest_eeg_from_batch(payload) or {}
+        for name in (_eeg_lsl_channels or tuple(str(key) for key in preview)):
+            _send_td_num("EEG", name, preview.get(name), root_name=name)
+    elif tag == "EEG":
         for name in ("O1", "O2", "T3", "T4"):
             _send_td_num("EEG", name, payload.get(name), root_name=name)
-    elif tag == "BANDS":
+    elif tag in {"BANDS", "BANDS_BATCH"}:
+        if tag.endswith("_BATCH"):
+            try:
+                _, _, payload = _validated_metric_batch(payload, _BANDS_FIELDS)
+            except ValueError:
+                return
         for source_name, osc_name in (
             ("delta", "Delta"),
             ("theta", "Theta"),
@@ -866,16 +1616,16 @@ def _forward_line_to_touchdesigner(line: str) -> None:
             ("gamma", "Gamma"),
         ):
             _send_td_num("BANDS", osc_name, payload.get(source_name), root_name=osc_name)
-    elif tag == "MENTAL":
-        for name in (
-            "Inst_Attention",
-            "Inst_Relaxation",
-            "Rel_Attention",
-            "Rel_Relaxation",
-        ):
+    elif tag in {"MENTAL", "MENTAL_BATCH"}:
+        if tag.endswith("_BATCH"):
+            try:
+                _, _, payload = _validated_metric_batch(payload, _MENTAL_FIELDS)
+            except ValueError:
+                return
+        for name in _MENTAL_FIELDS:
             _send_td_num("MENTAL", name, payload.get(name), root_name=name)
     elif tag == "QUALITY":
-        for name in ("O1", "O2", "T3", "T4"):
+        for name in (_eeg_lsl_channels or ("O1", "O2", "T3", "T4")):
             _send_td_num("QUALITY", name, payload.get(name))
     elif tag == "BATTERY":
         _send_td_num("BATTERY", "percent", payload.get("percent"))
@@ -932,7 +1682,7 @@ def _parse_json_line(line: str) -> tuple[str, dict[str, Any]] | None:
 
 
 def _initialize_lsl_outlets() -> None:
-    global _lsl_outlets
+    global _lsl_outlets, _lsl_local_clock, _lsl_create_outlet, _eeg_lsl_channels
 
     if not ensure_requirements(
         [("pylsl", "pylsl")],
@@ -941,40 +1691,94 @@ def _initialize_lsl_outlets() -> None:
     ):
         print("[BrainBit] LSL mirror disabled because pylsl is unavailable.")
         _lsl_outlets = {}
+        _lsl_create_outlet = None
         return
 
-    from pylsl import StreamInfo, StreamOutlet
+    from pylsl import StreamInfo, StreamOutlet, local_clock
 
-    def create_outlet(stream_suffix: str, channel_labels: tuple[str, ...]) -> Any:
+    _lsl_local_clock = local_clock
+
+    def create_outlet(
+        stream_suffix: str,
+        channel_labels: tuple[str, ...],
+        *,
+        nominal_rate_hz: float = 0.0,
+    ) -> Any:
         stream_prefix = _config.get("lsl_stream_prefix", "BrainBit")
-        nominal_rates = {"EEG": 250.0}
         info = StreamInfo(
             name=f"{stream_prefix}_{stream_suffix}",
             type=stream_suffix,
             channel_count=len(channel_labels),
-            nominal_srate=nominal_rates.get(stream_suffix, 0.0),
+            nominal_srate=float(nominal_rate_hz),
             channel_format="float32",
             source_id=LSL_SOURCE_IDS[stream_suffix.lower()],
         )
         channels = info.desc().append_child("channels")
-        units = LSL_CHANNEL_UNITS[stream_suffix.lower()]
+        if stream_suffix == "EEG":
+            units = ("microvolt",) * len(channel_labels)
+        elif stream_suffix == "QUALITY":
+            units = ("ratio",) * len(channel_labels)
+        else:
+            units = LSL_CHANNEL_UNITS[stream_suffix.lower()]
         for label, unit in zip(channel_labels, units, strict=True):
             channel = channels.append_child("channel")
             channel.append_child_value("label", label)
             channel.append_child_value("unit", unit)
+        acquisition = info.desc().append_child("acquisition")
+        acquisition.append_child_value("timestamp_source", "host_callback_reconstructed")
+        acquisition.append_child_value("raw_processing", "unit_scale_only")
         return StreamOutlet(info)
 
-    _lsl_outlets = {
-        "EEG": create_outlet("EEG", ("O1", "O2", "T3", "T4")),
-        "BANDS": create_outlet("BANDS", ("delta", "theta", "alpha", "beta", "gamma")),
-        "MENTAL": create_outlet(
-            "MENTAL",
-            ("Inst_Attention", "Inst_Relaxation", "Rel_Attention", "Rel_Relaxation"),
-        ),
-        "QUALITY": create_outlet("QUALITY", ("O1", "O2", "T3", "T4")),
-        "BATTERY": create_outlet("BATTERY", ("percent",)),
-    }
-    print("[BrainBit] LSL mirror outlets ready.")
+    _lsl_create_outlet = create_outlet
+    _eeg_lsl_channels = ()
+    # Device-dependent outlets are created only after CHANNEL_MAP. Publishing a
+    # guessed four-channel EEG outlet would freeze the wrong XDF contract for
+    # Pro/Flex devices before discovery has completed.
+    _lsl_outlets = {"BATTERY": create_outlet("BATTERY", ("percent",))}
+    print("[BrainBit] Base LSL outlet ready; waiting for the device channel map.")
+
+
+def _configure_device_lsl_outlets(
+    channel_labels: tuple[str, ...],
+    *,
+    nominal_rate_hz: float,
+    derived_rate_hz: float,
+    derived_enabled: bool,
+) -> None:
+    global _eeg_lsl_channels
+    if not _config.get("lsl_enabled", False):
+        _eeg_lsl_channels = channel_labels
+        return
+    if not callable(_lsl_create_outlet):
+        raise RuntimeError("pylsl is unavailable; the mandatory EEG outlet cannot be created")
+    if not channel_labels:
+        raise ValueError("the device channel map is empty")
+
+    if _eeg_lsl_channels != channel_labels or "EEG" not in _lsl_outlets:
+        _lsl_outlets["EEG"] = _lsl_create_outlet(
+            "EEG",
+            channel_labels,
+            nominal_rate_hz=nominal_rate_hz,
+        )
+        _lsl_outlets["QUALITY"] = _lsl_create_outlet("QUALITY", channel_labels)
+        _eeg_lsl_channels = channel_labels
+
+    if derived_enabled:
+        if "BANDS" not in _lsl_outlets:
+            _lsl_outlets["BANDS"] = _lsl_create_outlet(
+                "BANDS",
+                ("delta", "theta", "alpha", "beta", "gamma"),
+                nominal_rate_hz=derived_rate_hz,
+            )
+        if "MENTAL" not in _lsl_outlets:
+            _lsl_outlets["MENTAL"] = _lsl_create_outlet(
+                "MENTAL",
+                ("Inst_Attention", "Inst_Relaxation", "Rel_Attention", "Rel_Relaxation"),
+                nominal_rate_hz=derived_rate_hz,
+            )
+    else:
+        _lsl_outlets.pop("BANDS", None)
+        _lsl_outlets.pop("MENTAL", None)
 
 
 def _derive_status(latest: dict[str, Any], running: bool) -> str:
@@ -983,10 +1787,14 @@ def _derive_status(latest: dict[str, Any], running: bool) -> str:
         if status in {"failed", "exited", "stopped", "not_configured", "disabled"}:
             return str(status)
         return "stopped"
-    if not _has_recent_any_output(latest):
-        return "stale"
     if status in {"failed", "exited", "stopped", "not_configured", "disabled", "stale", "scanning"}:
         return str(status)
+    if not _has_recent_any_output(latest):
+        return "stale"
+    if _signal_started_at > 0 and not _has_recent_eeg(latest):
+        return "warming_up" if (time.time() - _signal_started_at) < 5.0 else "stale"
+    if status == "poor_contact":
+        return "poor_contact"
     contact_state = latest.get("contact_quality_state")
     if contact_state == "poor":
         return "poor_contact"
@@ -995,7 +1803,9 @@ def _derive_status(latest: dict[str, Any], running: bool) -> str:
         return "calibrating"
     if calibration and "progress_percent" in calibration and not latest.get("last_derived_at"):
         return "calibrating"
-    if latest.get("last_eeg_at") and not latest.get("last_derived_at"):
+    if _has_recent_eeg(latest) and latest.get("derived_enabled") is False:
+        return "connected"
+    if _has_recent_eeg(latest) and not _has_recent_derived(latest):
         return "warming_up"
     if not _has_recent_sensor_activity(latest):
         return "warming_up" if latest.get("selected_device") or latest.get("device") else "waiting"
@@ -1008,7 +1818,12 @@ def _derive_contact_quality(quality: Any) -> tuple[str, dict[str, str]]:
 
     channels: dict[str, str] = {}
     values: list[float] = []
-    for channel in ("O1", "O2", "T3", "T4"):
+    channel_labels = _eeg_lsl_channels or tuple(
+        str(key)
+        for key in quality
+        if key not in {"units", "resistance_upper_ohm", "quality_model", "ts"}
+    )
+    for channel in channel_labels:
         raw_value = quality.get(channel)
         try:
             value = float(raw_value)
@@ -1039,6 +1854,12 @@ def _seconds_since_values(latest: dict[str, Any]) -> dict[str, float | None]:
         "seconds_since_last_eeg": _seconds_since(_epoch_from_latest(latest, "last_eeg_epoch", _last_eeg_at)),
         "seconds_since_last_quality": _seconds_since(_epoch_from_latest(latest, "last_quality_epoch", _last_quality_at)),
         "seconds_since_last_derived": _seconds_since(_epoch_from_latest(latest, "last_derived_epoch", _last_derived_at)),
+        "seconds_since_last_raw_lsl": _seconds_since(
+            _epoch_from_latest(latest, "last_raw_lsl_success_epoch", 0.0)
+        ),
+        "seconds_since_signal_started": _seconds_since(
+            _epoch_from_latest(latest, "signal_started_epoch", _signal_started_at)
+        ),
     }
 
 
@@ -1049,6 +1870,8 @@ def _build_health(latest: dict[str, Any], running: bool, contact_state: str) -> 
         calibration_state = "ready"
     elif calibration.get("event") == "FORCED_FINISH":
         calibration_state = "forced"
+    elif calibration.get("event") == "STALLED":
+        calibration_state = "stalled"
     elif calibration.get("event") == "START" or "progress_percent" in calibration:
         calibration_state = "calibrating"
 
@@ -1061,14 +1884,50 @@ def _build_health(latest: dict[str, Any], running: bool, contact_state: str) -> 
     else:
         connection_state = "stale"
 
+    if not running:
+        raw_state = "stopped"
+        derived_state = "stopped"
+        log_state = "failed" if latest.get("log_error") else "stopped"
+    else:
+        raw_state = "receiving" if _has_recent_eeg(latest) else ("stale" if latest.get("last_eeg_at") else "waiting")
+        if latest.get("derived_enabled") is False:
+            derived_state = "not_applicable"
+        else:
+            derived_state = "ready" if _has_recent_derived(latest) else (
+                "stale" if latest.get("last_derived_at") else "waiting"
+            )
+        log_state = "failed" if latest.get("log_error") else (
+            "receiving" if _has_recent_any_output(latest) else "stale"
+        )
+
+    if not _config.get("lsl_enabled", False):
+        recording_state = "disabled"
+    elif latest.get("lsl_error"):
+        recording_state = "failed"
+    elif _has_recent_raw_lsl(latest):
+        recording_state = "recording"
+    elif "EEG" in _lsl_outlets:
+        recording_state = "waiting" if not latest.get("last_raw_lsl_success_epoch") else "stale"
+    else:
+        recording_state = "waiting"
+
     return {
         "process": "running" if running else "stopped",
         "connection": connection_state,
         "contact": contact_state,
         "calibration": calibration_state,
-        "eeg": "receiving" if latest.get("last_eeg_at") else "waiting",
-        "derived_metrics": "ready" if latest.get("last_derived_at") else "waiting",
-        "recording": "recording" if bool(_config.get("lsl_enabled", False) and _lsl_outlets) else "disabled",
+        "eeg": raw_state,
+        "raw_eeg": raw_state,
+        "derived_metrics": derived_state,
+        "log_output": log_state,
+        "recording": recording_state,
+        "data_integrity": (
+            "stopped"
+            if not running
+            else "degraded"
+            if _is_recent(_epoch_from_latest(latest, "last_data_warning_epoch", 0.0))
+            else "okay"
+        ),
     }
 
 
@@ -1093,7 +1952,21 @@ def _has_recent_any_output(latest: dict[str, Any]) -> bool:
 
 
 def _has_recent_sensor_activity(latest: dict[str, Any]) -> bool:
-    return _is_recent(_epoch_from_latest(latest, "last_sensor_activity_epoch", _last_sensor_activity_at or _last_activity_at))
+    # Kept as a compatibility helper for callers that still use the former
+    # name. Sensor data activity now means fresh raw EEG, never log/status noise.
+    return _has_recent_eeg(latest)
+
+
+def _has_recent_eeg(latest: dict[str, Any]) -> bool:
+    return _is_recent(_epoch_from_latest(latest, "last_eeg_epoch", _last_eeg_at))
+
+
+def _has_recent_derived(latest: dict[str, Any]) -> bool:
+    return _is_recent(_epoch_from_latest(latest, "last_derived_epoch", _last_derived_at))
+
+
+def _has_recent_raw_lsl(latest: dict[str, Any]) -> bool:
+    return _is_recent(_epoch_from_latest(latest, "last_raw_lsl_success_epoch", 0.0))
 
 
 def _is_recent(epoch: float | None) -> bool:
@@ -1234,19 +2107,32 @@ def _watch_connection_health() -> None:
 
 def _check_connection_health_once(now: float | None = None) -> bool:
     """Run one health check. Returns False when the watchdog should stop."""
-    global _auto_restart_count
+    global _auto_restart_count, _last_exit_code, _last_exit_at
 
     stale_timeout = max(1.0, _config.get("disconnect_timeout_ms", 20000) / 1000.0)
     process = _process
-    if process is None or process.poll() is not None:
+    observed_exit_code = process.poll() if process is not None else None
+    if process is None or observed_exit_code is not None:
         # The CLI is gone. Before 0.5 the watchdog ended here, which meant a CLI
         # that exited within seconds (no headset, Bluetooth off) was never
         # retried and left no visible trace in packaged builds.
         if not _desired_running:
             return False
+        if process is not None and observed_exit_code is not None:
+            # Do not race the reader thread: use the process's observed code
+            # immediately instead of interpreting a stale previous/None code.
+            _last_exit_code = int(observed_exit_code)
+            _last_exit_at = now or time.time()
         return _maybe_restart_after_exit(now or time.time())
 
-    last_epoch = max(_last_any_line_at, _last_sensor_activity_at, _last_activity_at)
+    if _signal_started_at > 0:
+        # Once EEG streaming starts, only fresh raw samples prove acquisition
+        # health. Battery/status/log noise must not mask a dead data callback.
+        last_epoch = _last_eeg_at or _signal_started_at
+    else:
+        # Before StartSignal, bound startup from the process launch time. Output
+        # chatter must not postpone a stuck-startup restart indefinitely.
+        last_epoch = _process_started_at
     if last_epoch <= 0:
         return True
 
@@ -1254,7 +2140,7 @@ def _check_connection_health_once(now: float | None = None) -> bool:
     age = now_value - last_epoch
     if age < stale_timeout:
         # Real device data after an automatic restart proves recovery.
-        if _auto_restart_count and _last_sensor_activity_at > _last_auto_restart_at:
+        if _auto_restart_count and _last_eeg_at > _last_auto_restart_at:
             _auto_restart_count = 0
         return True
 
@@ -1265,7 +2151,7 @@ def _check_connection_health_once(now: float | None = None) -> bool:
             {
                 "status": "stale",
                 "last_message": (
-                    f"No BrainBit output for {age:.1f}s - the CLI may be stuck or the device may be out of range."
+                    f"No BrainBit raw EEG for {age:.1f}s - the CLI may be stuck or the device may be out of range."
                 ),
                 "seconds_since_last_activity": round(age, 1),
             },

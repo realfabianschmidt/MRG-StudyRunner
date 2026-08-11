@@ -21,8 +21,8 @@ notion-client>=2.2.1
 # BrainBit SDKs. The native libraries live inside these wheels and are bundled
 # into packaged builds (release_tools/pyinstaller/study_runner_server_common.py),
 # so keep a lower bound here rather than leaving the version open.
-pyneurosdk2>=1.0.15
-pyem-st-artifacts>=1.0.8
+pyneurosdk2==1.0.15
+pyem-st-artifacts==1.0.8
 
 # Everything except TouchDesigner itself can now be installed with:
 #   pip install -r requirements.txt

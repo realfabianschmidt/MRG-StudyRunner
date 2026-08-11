@@ -12,6 +12,10 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
+from study_runner.plugin_framework.registry import (
+    get_plugin_manifest,
+    get_plugins_with_capability,
+)
 from study_runner.shared.atomic_io import atomic_write_json
 from ..services.delivery.finalization_service import SubmissionConflictError
 from ..services.studies.results_service import (
@@ -287,11 +291,13 @@ def _enqueue_upload_jobs(
         "config_data": config_data,
     }
     metadata = build_job_metadata(validated_results, saved_output)
-    destinations = [
-        (plugin_key, label)
-        for plugin_key, label in (("notion", "Notion"), ("nextcloud", "Nextcloud"))
-        if _destination_selected(study_settings, plugin_key)
-    ]
+    destinations = []
+    for plugin in get_plugins_with_capability("upload_destination"):
+        if not _destination_selected(study_settings, plugin.key):
+            continue
+        manifest = get_plugin_manifest(plugin.key)
+        label = str((manifest.get("ui") or {}).get("label") or plugin.label or plugin.key)
+        destinations.append((plugin.key, label))
 
     jobs: list[dict] = []
     errors: list[str] = []

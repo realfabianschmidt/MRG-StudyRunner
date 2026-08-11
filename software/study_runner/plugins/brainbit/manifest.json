@@ -1,10 +1,39 @@
 {
-  "api_version": 3,
+  "api_version": 4,
   "plugin_key": "brainbit",
   "version": "1.0.0",
   "category": "biosignal",
   "config_key": "brainbit",
   "entry_point": "plugin:PLUGIN",
+  "runtime": {
+    "entrypoint": "driver.py",
+    "protocol": "study-runner-stdio/v1",
+    "interactive_stdin": true,
+    "modes": ["runtime", "diagnostics"],
+    "sample_delivery": "declared_transport",
+    "stream_contract": "status_actual_streams",
+    "operation_timeouts_ms": {
+      "initialize": 75000,
+      "status": 2000,
+      "start": 75000,
+      "stop": 15000,
+      "restart": 90000,
+      "admin_action": 90000,
+      "trial_start": 2000,
+      "trial_stop": 2000,
+      "interval_summary": 5000,
+      "interval_export": 15000,
+      "shutdown": 15000
+    },
+    "actions": ["start", "stop", "restart"],
+    "trial_events": ["start", "stop"],
+    "can_toggle": true,
+    "sidecar": {
+      "sensor": "brainbit",
+      "filename_suffix": "brainbit_signals",
+      "output_key": "brainbit_file"
+    }
+  },
   "ui": {
     "label": "BrainBit",
     "description": "BrainBit EEG acquisition and derived metrics.",
@@ -83,13 +112,13 @@
     },
     {
       "key": "bands", "source_id": "study_runner.brainbit.bands", "type": "BANDS",
-      "nominal_rate_hz": 0, "clock_domain": "lsl", "channel_format": "float32",
+      "nominal_rate_hz": 25, "clock_domain": "lsl", "channel_format": "float32",
       "channels": ["delta", "theta", "alpha", "beta", "gamma"],
       "channel_units": ["relative_power", "relative_power", "relative_power", "relative_power", "relative_power"]
     },
     {
       "key": "mental", "source_id": "study_runner.brainbit.mental", "type": "MENTAL",
-      "nominal_rate_hz": 0, "clock_domain": "lsl", "channel_format": "float32",
+      "nominal_rate_hz": 25, "clock_domain": "lsl", "channel_format": "float32",
       "channels": ["Inst_Attention", "Inst_Relaxation", "Rel_Attention", "Rel_Relaxation"],
       "channel_units": ["ratio", "ratio", "ratio", "ratio"]
     },
@@ -97,7 +126,7 @@
       "key": "quality", "source_id": "study_runner.brainbit.quality", "type": "QUALITY",
       "nominal_rate_hz": 0, "clock_domain": "lsl", "channel_format": "float32",
       "channels": ["O1", "O2", "T3", "T4"],
-      "channel_units": ["ohm", "ohm", "ohm", "ohm"]
+      "channel_units": ["ratio", "ratio", "ratio", "ratio"]
     },
     {
       "key": "battery", "source_id": "study_runner.brainbit.battery", "type": "BATTERY",
@@ -124,9 +153,9 @@
       "to_touchdesigner": {"type": "boolean", "default": true}
     }
   },
-  "poll_interval_ms": 1000,
-  "request_timeout_ms": 500,
+  "poll_interval_ms": 150,
+  "request_timeout_ms": 2000,
   "clock_domain": "lsl",
-  "expected_data_rate": {"eeg_hz": 250, "metrics_hz": 1},
+  "expected_data_rate": {"eeg_hz": 250, "metrics_hz": 25, "backup_projection_hz": 1},
   "backpressure": {"max_in_flight": 1, "drop_policy": "latest_status_wins"}
 }

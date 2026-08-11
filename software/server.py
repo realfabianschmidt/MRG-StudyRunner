@@ -30,6 +30,10 @@ if __name__ == "__main__":
         from study_runner.plugins.brainbit.brainbit_realtime_cli import main as run_brainbit_cli
 
         raise SystemExit(run_brainbit_cli(sys.argv[2:]))
+    if len(sys.argv) > 2 and sys.argv[1] == "--plugin-driver":
+        from study_runner.plugin_framework.driver_runtime import run_plugin_driver
+
+        raise SystemExit(run_plugin_driver(sys.argv[2]))
     if len(sys.argv) > 1 and sys.argv[1] == "--recording-worker":
         from study_runner.recording_worker.application import main as run_recording_worker
 

@@ -20,6 +20,9 @@ from ..studies.study_plugin_config import (
     normalize_card_plugin_actions,
     normalize_study_settings_plugins,
 )
+# STUDY_SENSOR_KEYS remains imported as a compatibility/patch seam for fixture
+# tests and external validators. Unknown legacy keys are migrated instead of
+# being rejected against this tuple.
 from ..recording.study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
 
 
@@ -241,6 +244,20 @@ def validate_and_normalize_trial_options(payload: Any) -> dict[str, Any]:
             maximum=10_000_000_000_000.0,
             allow_none=True,
         ),
+        "visual_onset_epoch_ms": _normalize_float(
+            payload.get("visual_onset_epoch_ms"),
+            field_name="visual_onset_epoch_ms",
+            minimum=0.0,
+            maximum=10_000_000_000_000.0,
+            allow_none=True,
+        ),
+        "onset_uncertainty_ms": _normalize_float(
+            payload.get("onset_uncertainty_ms"),
+            field_name="onset_uncertainty_ms",
+            minimum=0.0,
+            maximum=86_400_000.0,
+            allow_none=True,
+        ),
         "planned_start_epoch_ms": _normalize_float(
             payload.get("planned_start_epoch_ms"),
             field_name="planned_start_epoch_ms",
@@ -257,6 +274,8 @@ def validate_and_normalize_trial_options(payload: Any) -> dict[str, Any]:
         ),
         "study_id": _normalize_text(payload.get("study_id")),
         "participant_id": _normalize_text(payload.get("participant_id")),
+        "session_id": _normalize_text(payload.get("session_id")),
+        "client_id": _normalize_text(payload.get("client_id")),
         "question_index": _normalize_optional_integer(
             payload.get("question_index"),
             field_name="question_index",
@@ -573,6 +592,20 @@ def _validate_card_events(
                     field_name="card_event client_start_trigger_epoch_ms",
                     minimum=0.0,
                     maximum=10_000_000_000_000.0,
+                    allow_none=True,
+                ),
+                "visual_onset_epoch_ms": _normalize_float(
+                    raw_event.get("visual_onset_epoch_ms"),
+                    field_name="card_event visual_onset_epoch_ms",
+                    minimum=0.0,
+                    maximum=10_000_000_000_000.0,
+                    allow_none=True,
+                ),
+                "onset_uncertainty_ms": _normalize_float(
+                    raw_event.get("onset_uncertainty_ms"),
+                    field_name="card_event onset_uncertainty_ms",
+                    minimum=0.0,
+                    maximum=86_400_000.0,
                     allow_none=True,
                 ),
                 "client_stop_trigger_epoch_ms": _normalize_float(
@@ -977,14 +1010,6 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
     raw_sensors = value.get("sensors")
     if raw_sensors is not None and not isinstance(raw_sensors, dict):
         raise ValidationError("study_settings.sensors must be a JSON object.")
-    if isinstance(raw_sensors, dict):
-        extra_sensor_keys = sorted(set(raw_sensors) - set(STUDY_SENSOR_KEYS))
-        if extra_sensor_keys:
-            raise ValidationError(
-                "study_settings.sensors contains unsupported entries: "
-                + ", ".join(extra_sensor_keys)
-                + "."
-            )
 
     try:
         migrated = normalize_study_settings_plugins(value)

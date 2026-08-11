@@ -4,7 +4,7 @@ import importlib
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +22,10 @@ from study_runner.plugin_framework.registry import (
     ingest_participant_payload,
     run_admin_action,
     run_participant_action,
+    run_trial_start,
 )
+from study_runner.plugin_framework.plugin_api import Plugin, PluginContext
+from study_runner.plugin_framework.process_host import get_process_runtime
 
 
 EXPECTED_PLUGIN_MAPPING = {
@@ -35,6 +38,16 @@ EXPECTED_PLUGIN_MAPPING = {
 }
 
 
+def _context() -> PluginContext:
+    return PluginContext(
+        base_dir=PROJECT_ROOT,
+        data_dir=PROJECT_ROOT,
+        hardware_config={},
+        local_secrets={},
+        local_secrets_file=PROJECT_ROOT / "local-secrets.test.json",
+    )
+
+
 class PluginRegistryContractTests(unittest.TestCase):
     def test_folder_plugin_key_and_config_key_mapping_is_explicit(self) -> None:
         actual = {}
@@ -44,10 +57,13 @@ class PluginRegistryContractTests(unittest.TestCase):
             )
             plugin = module.PLUGIN
             actual[folder] = (plugin.key, plugin.config_key)
-            self.assertIs(
-                PLUGINS_BY_KEY[plugin.key],
+            registered = PLUGINS_BY_KEY[plugin.key]
+            self.assertEqual(registered.key, plugin.key)
+            self.assertEqual(registered.config_key, plugin.config_key)
+            self.assertIsNot(
+                registered,
                 plugin,
-                f"{folder} plugin is not the object registered under {plugin.key}",
+                f"{folder} must be represented by its isolated v4 process proxy",
             )
 
         self.assertEqual(actual, EXPECTED_PLUGIN_MAPPING)
@@ -88,9 +104,14 @@ class PluginRegistryContractTests(unittest.TestCase):
                 self.assertGreater(manifest["request_timeout_ms"], 0)
                 self.assertGreaterEqual(manifest["backpressure"]["max_in_flight"], 1)
                 self.assertIsInstance(manifest["capabilities"], list)
-                self.assertEqual(manifest["api_version"], 3)
+                self.assertEqual(manifest["api_version"], 4)
                 self.assertIn("health", manifest["capabilities"])
                 self.assertEqual(manifest["entry_point"], "plugin:PLUGIN")
+                self.assertEqual(manifest["runtime"]["entrypoint"], "driver.py")
+                self.assertEqual(
+                    manifest["runtime"]["protocol"],
+                    "study-runner-stdio/v1",
+                )
                 self.assertEqual(
                     set(manifest["ui"]["visibility"]),
                     {
@@ -152,7 +173,7 @@ class PluginRegistryContractTests(unittest.TestCase):
     def test_internal_and_destination_visibility_is_explicit(self) -> None:
         destination = {
             "dashboard": False,
-            "settings_hub": False,
+            "settings_hub": True,
             "study_settings": True,
             "destination_settings": True,
         }
@@ -174,45 +195,72 @@ class PluginRegistryContractTests(unittest.TestCase):
         self.assertIn('lifecycle.get("reinitialize_on_disable")', registry_source)
         self.assertNotIn('key in {"mini_radar"', registry_source)
 
-    def test_generic_admin_action_allows_only_manifest_declared_keys(self) -> None:
+    def test_trial_dispatch_reports_failure_and_skips_prior_success_on_retry(self) -> None:
+        calls: list[str] = []
+
+        def succeeds(_context, _options):
+            calls.append("success")
+
+        def fails(_context, _options):
+            calls.append("failure")
+            raise RuntimeError("offline")
+
+        plugins = (
+            Plugin("success", "Success", "sensor", "success", on_trial_start=succeeds),
+            Plugin("failure", "Failure", "sensor", "failure", on_trial_start=fails),
+        )
         with (
-            patch(
-                "study_runner.plugins.camera_emotion.worker.plugin.repair_runtime",
-                return_value={"queued": True},
-            ),
+            patch("study_runner.plugin_framework.registry.PLUGINS", plugins),
+            patch("study_runner.plugin_framework.registry._is_config_enabled", return_value=True),
+        ):
+            first = run_trial_start({}, object())
+            second = run_trial_start({}, object(), first)
+
+        self.assertTrue(first["plugin.success"]["ok"])
+        self.assertFalse(first["plugin.failure"]["ok"])
+        self.assertEqual(calls, ["success", "failure", "failure"])
+        self.assertFalse(second["plugin.failure"]["ok"])
+
+    def test_generic_admin_action_allows_only_manifest_declared_keys(self) -> None:
+        context = _context()
+        runtime = get_process_runtime("camera_emotion")
+        self.assertIsNotNone(runtime)
+        # The process boundary is mocked below; seed its valid serialized
+        # context so this focused contract test does not start a real driver.
+        runtime._context = context
+        with (
+            patch.object(runtime, "request", return_value={"queued": True}) as rpc,
             patch(
                 "study_runner.plugin_framework.registry.get_plugin_status",
                 return_value={"status": "running"},
             ),
         ):
-            result = run_admin_action("camera_emotion", "repair_runtime", object())
+            result = run_admin_action("camera_emotion", "repair_runtime", context)
 
         self.assertEqual(result["result"], {"queued": True})
         self.assertEqual(result["plugin_key"], "camera_emotion")
         self.assertEqual(result["action_key"], "repair_runtime")
+        rpc.assert_called_once_with(
+            "admin_action",
+            {"action": "repair_runtime", "payload": {}},
+        )
         with self.assertRaisesRegex(ValueError, "does not declare admin action"):
-            run_admin_action("camera_emotion", "format_disk", object())
+            run_admin_action("camera_emotion", "format_disk", _context())
 
     def test_participant_dispatch_uses_only_manifest_declared_operations(self) -> None:
-        context = object()
+        context = _context()
+        runtime = get_process_runtime("camera_emotion")
+        self.assertIsNotNone(runtime)
+        runtime._context = context
         with (
-            patch("study_runner.plugins.camera_emotion.plugin._initialize"),
-            patch(
-                "study_runner.plugins.camera_emotion.plugin._start",
-                return_value={"enabled": True},
-            ),
-            patch(
-                "study_runner.plugins.camera_emotion.adapter.set_preview_active",
-                return_value={"active": True},
-            ) as preview_active,
-            patch(
-                "study_runner.plugins.camera_emotion.adapter.is_configured",
-                return_value=True,
-            ),
-            patch(
-                "study_runner.plugins.camera_emotion.adapter.process_frame",
-                return_value={"accepted": True, "sequence_number": 7},
-            ) as process_frame,
+            patch.object(
+                runtime,
+                "request",
+                side_effect=(
+                    {"monitor_active": True},
+                    {"accepted": True, "sequence_number": 7},
+                ),
+            ) as rpc,
             patch(
                 "study_runner.plugin_framework.registry.get_plugin_status",
                 return_value={"status": "ready"},
@@ -234,9 +282,21 @@ class PluginRegistryContractTests(unittest.TestCase):
         self.assertTrue(action["result"]["monitor_active"])
         self.assertTrue(ingest["ok"])
         self.assertEqual(ingest["result"]["sequence_number"], 7)
-        preview_active.assert_called_once_with(True)
-        process_frame.assert_called_once_with(
-            {"sequence_number": 7, "source_epoch_ms": 1000.0}
+        self.assertEqual(
+            rpc.call_args_list,
+            [
+                call(
+                    "participant_action",
+                    {"action": "start_monitor", "payload": {"study_id": "study-a"}},
+                ),
+                call(
+                    "participant_ingest",
+                    {
+                        "ingest": "frame",
+                        "payload": {"sequence_number": 7, "source_epoch_ms": 1000.0},
+                    },
+                ),
+            ],
         )
 
         with self.assertRaisesRegex(ValueError, "does not declare participant action"):
