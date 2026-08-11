@@ -12,6 +12,8 @@ import threading
 import time
 import webbrowser
 
+from werkzeug.serving import WSGIRequestHandler
+
 from study_runner.backend import create_app
 from study_runner.backend.services.delivery.certificate_download_service import (
     CertificateDownloadError,
@@ -186,6 +188,28 @@ def _ensure_port_is_free(host: str, port: int) -> None:
         probe.close()
 
 
+class QuietWSGIRequestHandler(WSGIRequestHandler):
+    """Log only requests that actually failed.
+
+    Werkzeug's default access log prints one line per request at INFO level,
+    success and failure alike. The admin dashboard polls several status
+    endpoints every 1-2 seconds, so that log quickly buries the one-time
+    startup banner (admin URL, data folder, certificate paths) and the rare,
+    meaningful lines the app itself prints (``[CONFIG] Saved.``, plugin
+    restarts/failures) under a constant stream of ``200`` lines. Errors still
+    print with Werkzeug's normal formatting. Set STUDY_RUNNER_DEBUG=1 for the
+    full per-request access log.
+    """
+
+    def log_request(self, code: object = "-", size: object = "-") -> None:
+        try:
+            status = int(code)
+        except (TypeError, ValueError):
+            status = 200
+        if status >= 400:
+            super().log_request(code, size)
+
+
 def run_app() -> None:
     host = read_server_host()
     port = read_server_port()
@@ -231,8 +255,16 @@ def run_app() -> None:
     if should_open_admin_browser():
         open_admin_browser_later(admin_url)
 
+    debug_enabled = is_debug_enabled()
+    request_handler = None if debug_enabled else QuietWSGIRequestHandler
     try:
-        app.run(host=host, port=port, debug=is_debug_enabled(), ssl_context=ssl_context)
+        app.run(
+            host=host,
+            port=port,
+            debug=debug_enabled,
+            ssl_context=ssl_context,
+            request_handler=request_handler,
+        )
     except OSError as error:
         # Second line of defense for a race between the probe and app.run.
         if error.errno in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", 10048)):

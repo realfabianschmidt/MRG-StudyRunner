@@ -5,6 +5,16 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Changed
+
+- The dev server's terminal output is quiet by default: only failed requests
+  (4xx/5xx) print an access-log line, instead of every single request. This
+  keeps the startup banner (admin URL, data folder, certificate paths) and
+  the app's own rare status lines (`[CONFIG] Saved.`, plugin
+  restarts/failures) readable instead of buried under the admin dashboard's
+  routine status polling. Set `STUDY_RUNNER_DEBUG=1` for the full per-request
+  access log.
+
 ## 0.6.0 - 2026-08-11
 
 ### Added
