@@ -1,0 +1,198 @@
+{
+  "study_id": "Example Basic Study",
+  "questions": [
+    {
+      "type": "participant-id",
+      "prompt": "Bitte gib deine Daten zur anonymen Identifikation ein.",
+      "fields": {
+        "first_name": {
+          "enabled": true,
+          "use_for_key": true,
+          "store": false,
+          "required": true
+        },
+        "last_name": {
+          "enabled": true,
+          "use_for_key": true,
+          "store": false,
+          "required": true
+        },
+        "age_group": {
+          "enabled": true,
+          "use_for_key": true,
+          "store": true,
+          "required": true,
+          "options": [
+            "18-25",
+            "26-35",
+            "36-45",
+            "46-60",
+            "60+"
+          ]
+        },
+        "gender": {
+          "enabled": false,
+          "use_for_key": false,
+          "store": false,
+          "required": false,
+          "options": [
+            "Female",
+            "Male",
+            "Non-binary",
+            "Prefer not to say"
+          ]
+        },
+        "childhood_area": {
+          "enabled": true,
+          "use_for_key": true,
+          "store": true,
+          "required": true
+        },
+        "childhood_nearest_city": {
+          "enabled": true,
+          "use_for_key": true,
+          "store": true,
+          "required": true
+        },
+        "birth_place": {
+          "enabled": false,
+          "use_for_key": false,
+          "store": false,
+          "required": false
+        },
+        "birth_date": {
+          "enabled": false,
+          "use_for_key": false,
+          "store": false,
+          "required": false
+        }
+      }
+    },
+    {
+      "type": "mood-meter",
+      "prompt": "How do you feel right now?",
+      "allow_multiple": true,
+      "word_lists": null,
+      "required": true
+    },
+    {
+      "type": "word-cloud",
+      "prompt": "Which words describe how you feel right now?",
+      "words": [
+        "Happy!",
+        "Sad",
+        "Excited",
+        "Calm",
+        "Anxious",
+        "Tired",
+        "Focused",
+        "Restless"
+      ],
+      "allow_multiple": true,
+      "required": true
+    },
+    {
+      "type": "multi-slider",
+      "prompt": "Rate how you feel on each dimension:",
+      "dimensions": [
+        {
+          "label": "Valence",
+          "min_label": "Very negative",
+          "max_label": "Very positive"
+        },
+        {
+          "label": "Arousal",
+          "min_label": "Very calm",
+          "max_label": "Very excited"
+        }
+      ],
+      "required": true
+    },
+    {
+      "type": "slider",
+      "prompt": "",
+      "label_min": "not at all",
+      "label_max": "very strongly",
+      "required": true
+    },
+    {
+      "type": "multi-slider",
+      "prompt": "Rate how you feel on each dimension:",
+      "dimensions": [
+        {
+          "label": "Valence",
+          "min_label": "Very negative",
+          "max_label": "Very positive"
+        },
+        {
+          "label": "Arousal",
+          "min_label": "Very calm",
+          "max_label": "Very excited"
+        }
+      ],
+      "required": true
+    },
+    {
+      "type": "semantic",
+      "prompt": "",
+      "pairs": [
+        [
+          "alive",
+          "mechanical"
+        ],
+        [
+          "familiar",
+          "unfamiliar"
+        ]
+      ],
+      "required": true
+    },
+    {
+      "type": "finish",
+      "title": "Vielen Dank!!!",
+      "prompt": "Deine Antworten wurden gespeichert.\nDu kannst das Gerät jetzt ablegen."
+    }
+  ],
+  "study_settings": {
+    "sensors_enabled": false,
+    "sensors": {
+      "brainbit": false,
+      "mini_radar": false,
+      "camera_emotion": false
+    },
+    "plugins": {
+      "brainbit": {
+        "enabled": false,
+        "required": false,
+        "settings": {}
+      },
+      "mini_radar": {
+        "enabled": false,
+        "required": false,
+        "settings": {}
+      },
+      "camera_emotion": {
+        "enabled": false,
+        "required": false,
+        "settings": {}
+      },
+      "notion": {
+        "enabled": false,
+        "required": false,
+        "settings": {
+          "data_source_id": "",
+          "database_id": "",
+          "parent_page_id": ""
+        }
+      },
+      "nextcloud": {
+        "enabled": false,
+        "required": false,
+        "settings": {
+          "share_link": ""
+        }
+      }
+    },
+    "progress_bar_enabled": false
+  }
+}

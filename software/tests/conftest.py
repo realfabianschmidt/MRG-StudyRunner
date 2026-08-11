@@ -11,9 +11,19 @@ race (`rmtree` fails with "directory not empty"), not a real product bug.
 Stopping any live subprocess after every test removes the lingering thread
 without touching the registry identity that `PLUGINS_BY_KEY`'s dispatch
 closures rely on.
+
+A second, related leak: `PluginHealthPollService` (created fresh per
+`create_app()` call, one per test) only stops its `ThreadPoolExecutor` via a
+`weakref.finalize` callback that fires when the service itself is garbage
+collected. A Flask `app` is not reference-cycle-free, so CPython's
+refcounting alone will not always collect it the instant a test function
+returns -- it can wait for the next scheduled cyclic-GC pass, leaving that
+executor's worker threads alive in the meantime. Forcing a collection pass
+after every test makes that cleanup deterministic instead of "usually".
 """
 from __future__ import annotations
 
+import gc
 from pathlib import Path
 import sys
 
@@ -30,3 +40,4 @@ from study_runner.plugin_framework.process_host import shutdown_process_plugins
 def _stop_plugin_subprocesses_between_tests():
     yield
     shutdown_process_plugins()
+    gc.collect()

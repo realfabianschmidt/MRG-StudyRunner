@@ -3,6 +3,10 @@
 Study Runner itself is proprietary and all rights are reserved as described in
 `LICENSE`. The following components are not relicensed by that notice.
 
+The full text of every license named below is collected in one place under
+[`licenses/`](licenses/README.md), in addition to living next to the vendored
+code it covers.
+
 ## App-LabRecorder / XDFWriter
 
 The source tree includes the Lab Streaming Layer App-LabRecorder XDFWriter
@@ -36,6 +40,14 @@ drawn in Materiability, which is first-party and covered by `LICENSE` rather tha
 by this file; Geist also stands behind it in the stack as the fallback for a
 checkout whose font files have not been fetched. See
 `software/study_runner/frontend/fonts/README.md`.
+
+## BrainBit TouchDesigner reference project
+
+`software/study_runner/plugins/brainbit/HelloEEG_HelloMYO_01.3.toe` is a
+project-original TouchDesigner reference project used to sanity-check the
+OSC forwarding described in that plugin's `README.md`. It is not third-party
+content and carries no separate license; it is covered by the root
+`LICENSE` like the rest of the source tree.
 
 ## DeepFace and optional VGG-Face-derived model weights
 

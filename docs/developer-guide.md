@@ -19,26 +19,35 @@ the smallest safe plugin workflow.
 
 ## Important Files
 
-- `software/study_runner/plugins/plugin_api.py`: shared context and plugin
-  callback type.
-- `software/study_runner/plugins/plugin_catalog.py`: trusted directory
-  discovery, manifest-v3 validation, duplicate isolation, and public catalog.
-- `software/study_runner/plugins/registry.py`: compatibility facade over
-  the discovered, validated plugins.
-- `software/study_runner/backend/services/sensor_coordinator_service.py`:
+- `software/study_runner/plugin_framework/plugin_api.py`: shared context and
+  plugin callback type.
+- `software/study_runner/plugin_framework/plugin_catalog.py`: trusted
+  directory discovery, manifest validation (v4 primary, v3 compatibility
+  path), duplicate isolation, and public catalog.
+- `software/study_runner/plugin_framework/registry.py`: lookup and generic
+  dispatch facade over the discovered, validated plugins.
+- `software/study_runner/plugin_framework/process_host.py`: supervises every
+  v4 plugin's `driver.py` subprocess (start/stop/restart, line-oriented
+  console, reserved-prefix RPC).
+- `software/study_runner/plugin_framework/driver_runtime.py`: runs inside
+  that subprocess; imports the plugin's own `plugin.py` and dispatches to it.
+- `software/study_runner/backend/services/recording/sensor_coordinator_service.py`:
   lifecycle and status orchestration.
-- `software/study_runner/backend/services/recording_runtime.py`: Flask-side
-  worker orchestration; it contains no XDF encoding.
+- `software/study_runner/backend/services/recording/recording_runtime.py`:
+  Flask-side worker orchestration; it contains no XDF encoding.
 - `software/study_runner/recording/`: worker protocol, session paths,
   segment allocation, recovery, and XDF validation contracts.
 - `software/study_runner/recording_worker/`: detached Python worker.
 - `software/recording_worker/native/`: native XDF-core source and CTest.
-- `software/study_runner/backend/services/finalization_service.py`: persistent
-  finalization transitions only.
-- `software/study_runner/backend/services/card_summary_service.py`: pure merged
-  XDF-to-JSON derivation.
-- `software/study_runner/backend/services/artifact_manifest_service.py`:
+- `software/study_runner/backend/services/delivery/finalization_service.py`:
+  persistent finalization transitions only.
+- `software/study_runner/backend/services/studies/card_summary_service.py`:
+  pure merged XDF-to-JSON derivation.
+- `software/study_runner/backend/services/delivery/artifact_manifest_service.py`:
   checksums, provenance, markers, and guarded purge.
+
+See `file-guide.md` for the complete, one-line-per-file map; the list above
+is only the files worth knowing before touching plugin code.
 
 ## Required Plugin Shape
 
@@ -46,20 +55,32 @@ the smallest safe plugin workflow.
 software/study_runner/plugins/my_new_sensor/
   __init__.py
   manifest.json
-  plugin.py
+  driver.py           # the only process entry point; a one-line wrapper
+  plugin.py            # runs inside the driver.py subprocess, not the host
   adapter.py          # optional
   worker/             # optional internal process
   tools/              # optional diagnostics
   firmware/           # optional device firmware
+  README.md           # what it does, its architecture, and where any
+                       # vendored/SDK-derived code in it comes from
 ```
 
 The server discovers the folder automatically. Do not add a central import
-entry. Discovery validates `manifest.json` before it imports `plugin.py`.
+entry. Discovery validates `manifest.json`, but never imports `plugin.py`
+into the host process — only `driver.py`, as a supervised subprocess, does
+that (see "Manifest API v4" below). `driver.py` is a one-line wrapper:
+
+```python
+from study_runner.plugin_framework.driver_runtime import run_plugin_driver
+
+if __name__ == "__main__":
+    raise SystemExit(run_plugin_driver("my_new_sensor"))
+```
 
 `plugin.py` exports one object:
 
 ```python
-from study_runner.plugins.plugin_api import Plugin
+from study_runner.plugin_framework.plugin_api import Plugin
 
 PLUGIN = Plugin(
     key="my_new_sensor",
@@ -75,12 +96,15 @@ The exported key must match `manifest.json`. Add defaults to
 `software/study_content/settings/hardware_settings.json` only for genuine
 machine state; per-study choices belong in the manifest's study schema.
 
-## Manifest API v3
+## Manifest API v4
 
-Every manifest includes identity, version, category, entry point, UI metadata,
-settings schemas, capabilities, polling/timeout policy, clock domain, and
-backpressure policy. A stream provider also declares stable source IDs,
-channels, types, units, nominal rates, and timestamp origin.
+See `plugin-recording-architecture.md` for the full manifest contract and the
+`driver.py`/subprocess dispatch model. Every manifest includes identity,
+version, category, entry point, a `runtime` block (`entrypoint`, `protocol`,
+`interactive_stdin`, `modes`), UI metadata, settings schemas, capabilities,
+polling/timeout policy, clock domain, and backpressure policy. A stream
+provider also declares stable source IDs, channels, types, units, nominal
+rates, and timestamp origin.
 
 Use exactly these UI visibility flags:
 

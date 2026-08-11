@@ -16,16 +16,28 @@ target/
 
 # Local study results and secrets (never commit these)
 software/saved_results/
+!software/saved_results/Demo_Completed_Study/
+!software/saved_results/Demo_Completed_Study/**
 software/runtime/
 saved_results/
 software/study_content/settings/local_secrets.json
 software/study_content/settings/*.local.json
 software/study_content/settings/ssl/
 software/study_content/settings/branding/
+software/study_content/settings/.*.transaction.json
 # Locally authored studies are user data. Curated repository templates must be
-# added intentionally with `git add -f` after review.
+# added intentionally (see the two example exceptions below) after review.
 software/study_content/studies/*.study-runner
+!software/study_content/studies/Example Basic Study.study-runner
+!software/study_content/studies/Example Sensors Study.study-runner
 software/study_runner/plugins/brainbit_assets_to_copy/
+# Certificates and private keys: no rule above should ever need to be
+# overridden for one of these, so keep this last as a hard backstop.
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
 software/study_runner/plugins/brainbit/logs/
 software/study_runner/plugins/brainbit/recordings/
 software/study_runner/plugins/**/logs/

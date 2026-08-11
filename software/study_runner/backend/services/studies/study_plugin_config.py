@@ -1,4 +1,5 @@
-"""Compatibility migration from legacy study fields to plugin API v3.
+"""Compatibility migration from legacy study fields to the manifest-driven
+plugin settings shape.
 
 Legacy fields are accepted as input, but the returned configuration uses the
 manifest-driven ``study_settings.plugins`` and ``card.plugin_actions`` shapes.

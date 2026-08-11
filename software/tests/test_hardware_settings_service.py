@@ -102,6 +102,21 @@ class MovedPluginPathTests(unittest.TestCase):
 
         self.assertEqual(changed, 0)
 
+    def test_the_shipped_defaults_carry_no_real_device_identity(self) -> None:
+        """A real BrainBit MAC/serial has been committed here by accident twice.
+
+        device_address and serial_number identify one specific physical
+        headset. The shipped template must stay empty so a fresh checkout
+        never fingerprints whoever's lab happened to save it last.
+        """
+        shipped = json.loads(
+            (PROJECT_ROOT / "study_content" / "settings" / "hardware_settings.json").read_text(encoding="utf-8")
+        )
+
+        brainbit = shipped.get("brainbit", {})
+        self.assertEqual(brainbit.get("device_address"), "")
+        self.assertEqual(brainbit.get("serial_number"), "")
+
     def test_a_migrated_config_survives_a_save_and_reload(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "hardware_settings.json"

@@ -9,8 +9,9 @@ installation, start it with `tools/start-windows.ps1` or
 
 - `software/server.py`: starts the local server.
 - `software/study_runner/backend/`: routes and focused backend services.
-- `software/study_runner/plugins/`: manifest-v3 plugins such as BrainBit,
-  MR60, camera/emotion, Notion, and Nextcloud.
+- `software/study_runner/plugins/`: manifest-driven (API v4) plugins —
+  BrainBit, MR60 mini-radar, camera/emotion, Notion, Nextcloud, and
+  OSC/TouchDesigner.
 - `software/study_runner/recording_worker/`: detached Python recording worker.
 - `software/recording_worker/native/`: small native XDF-core source.
 - `software/study_runner/frontend/`: browser pages, styles, scripts, cards, and

@@ -8,17 +8,20 @@
         "first_name": {
           "enabled": true,
           "use_for_key": true,
-          "store": false
+          "store": false,
+          "required": true
         },
         "last_name": {
           "enabled": true,
           "use_for_key": true,
-          "store": false
+          "store": false,
+          "required": true
         },
         "age_group": {
           "enabled": true,
           "use_for_key": true,
           "store": true,
+          "required": true,
           "options": [
             "18-25",
             "26-35",
@@ -31,6 +34,7 @@
           "enabled": true,
           "use_for_key": false,
           "store": false,
+          "required": true,
           "options": [
             "Female",
             "Male",
@@ -41,22 +45,26 @@
         "childhood_area": {
           "enabled": true,
           "use_for_key": true,
-          "store": true
+          "store": true,
+          "required": true
         },
         "childhood_nearest_city": {
           "enabled": true,
           "use_for_key": true,
-          "store": true
+          "store": true,
+          "required": true
         },
         "birth_place": {
           "enabled": false,
           "use_for_key": false,
-          "store": false
+          "store": false,
+          "required": false
         },
         "birth_date": {
           "enabled": false,
           "use_for_key": false,
-          "store": false
+          "store": false,
+          "required": false
         }
       },
       "code_label": "Your anonymous code",
@@ -67,7 +75,8 @@
       "type": "mood-meter",
       "prompt": "How do you feel right now?",
       "allow_multiple": true,
-      "word_lists": null
+      "word_lists": null,
+      "required": true
     },
     {
       "type": "single",
@@ -77,6 +86,7 @@
         "Option B",
         "Option C"
       ],
+      "required": true,
       "info_top": "Info",
       "info_bottom": "Note"
     },
@@ -88,10 +98,44 @@
   ],
   "study_settings": {
     "sensors_enabled": true,
-    "progress_bar_enabled": true,
-    "notion_enabled": false,
-    "notion_parent_page_id": "",
-    "notion_database_id": "",
-    "notion_data_source_id": ""
+    "sensors": {
+      "brainbit": true,
+      "mini_radar": true,
+      "camera_emotion": true
+    },
+    "plugins": {
+      "brainbit": {
+        "enabled": true,
+        "required": true,
+        "settings": {}
+      },
+      "mini_radar": {
+        "enabled": true,
+        "required": true,
+        "settings": {}
+      },
+      "camera_emotion": {
+        "enabled": true,
+        "required": true,
+        "settings": {}
+      },
+      "notion": {
+        "enabled": false,
+        "required": false,
+        "settings": {
+          "data_source_id": "",
+          "database_id": "",
+          "parent_page_id": ""
+        }
+      },
+      "nextcloud": {
+        "enabled": false,
+        "required": false,
+        "settings": {
+          "share_link": ""
+        }
+      }
+    },
+    "progress_bar_enabled": true
   }
 }

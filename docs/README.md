@@ -10,26 +10,39 @@ Recommended starting points:
 - `start-here.de.md`: German non-coder setup, HTTPS/iPad, sensors and updates.
 - `operator-guide.md`: daily lab operation and project overview.
 - `sensors-and-data.md`: sensor sources, runtime integrations, timing, XDF/LSL and result files.
-- `plugin-recording-architecture.md`: API-v3 plugin contract, transport matrix,
-  Python worker, native XDF core, finalization, and recovery.
+- `plugin-recording-architecture.md`: API-v4 plugin contract (the `driver.py`
+  subprocess model), transport matrix, Python worker, native XDF core,
+  finalization, and recovery.
 - `developer-guide.md`: code structure, naming rules and integration plugin pattern.
 - `file-guide.md`: one line per source file - what it does and how safely it can be edited.
 - `release-and-update.md`: source archives, manual updates, release tags, and platform acceptance gates.
 - `roadmap-0.5.md`: planned work for 0.5, with decisions, phases and open questions.
 - `../CONTRIBUTING.md`: project rules for clear, maintainable changes.
 
-Per-sensor troubleshooting lives next to each integration:
+Per-plugin architecture and troubleshooting live next to each plugin:
 
-- `../software/study_runner/plugins/brainbit/README.md`: BrainBit status
-  values, exit codes, log files and the manual CLI check.
+- `../software/study_runner/plugins/brainbit/README.md` (plus
+  `README_ENHANCED.md` and `OUTPUT_REFERENCE.md` for its full CLI/output
+  contract — BrainBit is the most hardware-detailed plugin): status values,
+  exit codes, log files, and the manual CLI check.
 - `../software/study_runner/plugins/camera_emotion/README.md`: camera capture,
   DeepFace worker modes, setup, and repair.
+- `../software/study_runner/plugins/mr60_mini_radar/README.md` (plus
+  `firmware/README.md`): BLE setup and the firmware/packet layout.
+- `../software/study_runner/plugins/nextcloud_upload/README.md`: the
+  hand-written WebDAV client and its share-link settings.
+- `../software/study_runner/plugins/notion_upload/README.md`: the
+  `notion-client` integration and its settings.
+- `../software/study_runner/plugins/osc_touchdesigner/README.md`: OSC
+  forwarding to TouchDesigner.
 
 Naming rules:
 
 - Python files use `snake_case.py`.
 - Browser and doc asset files use `kebab-case`.
-- Docs use descriptive names, not numbered prefixes.
+- Docs use descriptive names, not numbered prefixes — except `archive/`,
+  whose files keep their original filenames (including any numbering) as a
+  historical record of when they were written.
 - `MRG-StudyRunner/` is the repository root in a normal GitHub checkout.
 - `software/` is the Python app folder and stays lowercase because imports,
   CI and release tooling rely on it.

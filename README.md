@@ -22,6 +22,10 @@ inside `software/study_runner/plugins/`.
 Software/
 |-- README.md              This file.
 |-- CONTRIBUTING.md        How we keep the code readable.
+|-- CHANGELOG.md           Version history.
+|-- LICENSE                Study Runner's own proprietary license.
+|-- THIRD_PARTY_NOTICES.md What third-party components are used and how.
+|-- licenses/              Full text of every third-party license, collected.
 |-- release.ps1            One-command release from the repo root.
 |-- docs/
 |   |-- start-here.de.md        German guide for non-coders.
@@ -214,17 +218,32 @@ Signing and notarization are unnecessary for this source-server workflow. Old
 PyInstaller/Manager/updater code is retained only as legacy or possible future
 work and is not published by the current release workflow.
 
-## Sensor And Camera Runtime
+## Plugin API v4
 
-Current built-in lab integrations:
+Every built-in plugin — sensor or upload destination alike — is a manifest
+declared, API v4 subprocess: the core supervises one `driver.py` per plugin
+and never imports a plugin's Python module directly (see
+`docs/plugin-recording-architecture.md`). The admin page's diagnostics modal
+gives every plugin a guided status view (device/channel/health at a glance)
+plus a line-oriented expert console — no OS shell, read-only during a running
+study unless explicitly unlocked with a recorded reason.
 
-- BrainBit EEG through the repo-local NeuroSDK CLI.
-- MR60 radar through ESP32-C6 BLE firmware in
+Current built-in plugins:
+
+- **BrainBit** EEG through the repo-local NeuroSDK CLI.
+- **MR60 mini-radar** through ESP32-C6 BLE firmware in
   `software/study_runner/plugins/mr60_mini_radar/firmware/`.
-- Camera and emotion through the single `camera_emotion` plugin, using browser
-  `getUserMedia` plus a local or remote analysis worker.
+- **Camera and emotion** through the single `camera_emotion` plugin, using
+  browser `getUserMedia` plus a local or remote analysis worker.
+- **Notion** and **Nextcloud** as manifest-declared upload destinations
+  (hidden from the sensor dashboard, visible in the settings hub).
+- **OSC/TouchDesigner** for live trial-marker forwarding.
 - Per-plugin LSL acquisition and the detached Python recording worker for
   synchronized native and merged XDF data.
+
+Each plugin folder has its own `README.md` with its architecture and, where
+applicable, exactly which parts of its code come from a third-party SDK
+versus project-original code — see `docs/README.md` for the full list.
 
 On Windows x64 and macOS Apple Silicon, the source installer installs DeepFace,
 TensorFlow/tf-keras, OpenCV and the local Emotion Worker from
@@ -324,10 +343,18 @@ git diff --check
 - Source release and update details: `docs/release-and-update.md`
 - Docs index: `docs/README.md`
 - Historical plans and audits: `docs/archive/`
+- Version history: `CHANGELOG.md`
+- Third-party license texts, collected in one place: `licenses/`
 
 Never commit local study results, generated build output, private keys,
 certificates, passwords, `.env`, `local_secrets.json`, `settings/ssl/`,
-`.crt`, `.cer`, `.pfx`, `.p12`, `.key`, `.pem`, or `.p8`.
+`.crt`, `.cer`, `.pfx`, `.p12`, `.key`, `.pem`, or `.p8`. The tracked
+`hardware_settings.json` is a shipped template — a test enforces that its
+BrainBit `device_address`/`serial_number` stay empty placeholders, never one
+lab's real headset identity. Locally authored studies stay untracked except
+the two curated examples under `software/study_content/studies/`; local
+results stay untracked except the one curated demo under
+`software/saved_results/` (see `.gitignore`).
 
 ## License
 

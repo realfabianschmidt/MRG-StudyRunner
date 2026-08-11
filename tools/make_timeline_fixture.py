@@ -14,7 +14,12 @@ real plugin takes.
     python tools/make_timeline_fixture.py
     python tools/make_timeline_fixture.py --minutes 12 --study "Radar Pilot"
 
-Delete the folder it prints when you are done; nothing else references it.
+The default study name ("Demo Completed Study") is the one repository-tracked
+example under `software/saved_results/` (see `.gitignore`); re-running with
+the default will produce a second, differently-named session folder inside
+it rather than overwriting the tracked one. A fixture created under any
+other --study name is scratch output: delete it when you are done, nothing
+else references it.
 """
 from __future__ import annotations
 
@@ -210,7 +215,7 @@ def write_result(path: Path, *, study_id: str, participant_id: str, session_id: 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--study", default="Timeline Fixture")
+    parser.add_argument("--study", default="Demo Completed Study")
     parser.add_argument("--minutes", type=float, default=6.0)
     parser.add_argument("--questions", type=int, default=5)
     parser.add_argument("--seed", type=int, default=7)

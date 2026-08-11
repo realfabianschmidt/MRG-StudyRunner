@@ -53,6 +53,17 @@ All notable Study Runner changes are documented here. Release tags use
   process boundary. A related test-isolation bug that could leave a stale
   plugin-runtime singleton behind between test files is also fixed.
 
+### Security
+
+- The shipped `hardware_settings.json` template had accidentally picked up
+  one real BrainBit headset's MAC address and serial number; reset to empty
+  placeholders, and a test now guards against that happening a third time.
+  Curated example studies and one demo result are tracked deliberately;
+  everything else under `study_content/studies/` and `saved_results/` stays
+  gitignored.
+- Third-party license texts are now collected in one place (`licenses/`) in
+  addition to living next to the vendored code each one covers.
+
 ## 0.5.0 - 2026-08-06
 
 ### Added

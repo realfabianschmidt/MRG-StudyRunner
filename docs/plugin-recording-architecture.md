@@ -116,17 +116,35 @@ explicit `.pluginignore` marker.
 The public catalog is `GET /api/plugins/catalog`. Generic UI surfaces consume
 that response and must not maintain sensor-key lists.
 
-## Manifest API v3
+## Manifest API v4
 
-Every manifest provides:
+Every built-in manifest provides:
 
-- `api_version: 3`
+- `api_version: 4`
 - stable `plugin_key`, semantic `version`, `category`, and `entry_point`
+  (the `entry_point` field is vestigial for `api_version: 4`; a v4 plugin's
+  real process entry point is `runtime.entrypoint`, see below)
+- a `runtime` block: `entrypoint` (always `driver.py`), `protocol`
+  (`study-runner-stdio/v1`), `interactive_stdin`, and its supported `modes`
 - `ui` metadata, including label, description, order, and visibility
 - `settings.machine`, `settings.study`, and `settings.card_actions` schemas
 - declarative `capabilities`
 - stable stream metadata for every LSL stream
 - poll, timeout, clock, data-rate, and backpressure metadata
+
+The core process never imports a plugin's Python module directly. It only
+ever starts that plugin's `driver.py` as a supervised subprocess
+(`study_runner/plugin_framework/process_host.py`), which talks to the child
+over a line-oriented stdio protocol: reserved `@study-runner {json}` lines
+carry lifecycle/status/health RPC, everything else on stdout/stderr is plain
+terminal output surfaced through the admin diagnostics console. Inside that
+subprocess, `driver.py` calls `run_plugin_driver(plugin_key)`
+(`plugin_framework/driver_runtime.py`), which imports the plugin's own
+`plugin.py` and dispatches to it — so `plugin.py` is real, running business
+logic, just relocated into the child process rather than the host. A
+manifest with `api_version` below 4 still works through a compatibility path
+(`plugin_catalog.py`'s `_import_plugin`) that imports `entry_point` directly
+into the host process instead; no shipped plugin uses it today.
 
 The UI visibility contract is:
 
@@ -144,7 +162,8 @@ The UI visibility contract is:
 ```
 
 Omitted flags default to `true` for old v3 manifests. Notion and Nextcloud use
-`dashboard: false`, `settings_hub: false`, `study_settings: true`, and
+`dashboard: false`, `settings_hub: true` (their `test_connection` admin
+action is a declared settings-hub action), `study_settings: true`, and
 `destination_settings: true`. Their job progress is still part of finalization.
 Internal marker and clock providers are hidden. XDF is infrastructure and is
 never represented as a selectable plugin or settings menu.

@@ -6,7 +6,9 @@ The active study is stored in
 `software/study_content/settings/study_config.json`. Saved presets live in
 `software/study_content/studies/` as `.study-runner` files.
 
-Plugin choices use the manifest-v3 schema:
+Plugin choices use this manifest-driven schema (unchanged since it was
+introduced in API v3; see `plugin-recording-architecture.md` for the current
+API v4 manifest/process contract):
 
 ```json
 {
@@ -217,7 +219,7 @@ Known boundaries include:
 - **XDF**: the canonical multi-stream recording container.
 - **Native XDF**: a plugin's source-rate, non-resampled raw recording.
 - **Derived backup**: the reduced slowest-grid recovery/QC recording.
-- **Plugin catalog**: the validated API-v3 description returned to core/UI.
+- **Plugin catalog**: the validated API-v4 manifest description returned to core/UI.
 - **Recording worker**: the detached Python process that owns LSL inlets and
   recording orchestration.
 - **XDF core**: the small C-compatible library wrapping the official XDFWriter.

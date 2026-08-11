@@ -1,0 +1,84 @@
+{
+  "session_id": "02ec4b00debe496680afb8cffed52dea",
+  "participant_id": "ac89c1703e034cfb",
+  "study_id": "Demo Completed Study",
+  "timestamp_start": "2026-08-11T16:27:56.637835Z",
+  "timestamp_end": "2026-08-11T16:33:56.637835Z",
+  "answers": {
+    "q1": 2,
+    "q2": 3,
+    "q3": 4,
+    "q4": 5,
+    "q5": 6
+  },
+  "answer_details": [
+    {
+      "question_index": 0,
+      "question_number": 1,
+      "question_key": "q1",
+      "question_type": "likert",
+      "question_prompt": "Fixture question 1",
+      "answer": 2,
+      "shown_at": "2026-08-11T16:28:56.637835Z",
+      "answered_at": "2026-08-11T16:29:02.637835Z",
+      "server_start_received_epoch_ms": 1786465736637.835,
+      "server_stop_received_epoch_ms": 1786465742637.835,
+      "skipped": false
+    },
+    {
+      "question_index": 1,
+      "question_number": 2,
+      "question_key": "q2",
+      "question_type": "likert",
+      "question_prompt": "Fixture question 2",
+      "answer": 3,
+      "shown_at": "2026-08-11T16:29:56.637835Z",
+      "answered_at": "2026-08-11T16:30:02.637835Z",
+      "server_start_received_epoch_ms": 1786465796637.835,
+      "server_stop_received_epoch_ms": 1786465802637.835,
+      "skipped": false
+    },
+    {
+      "question_index": 2,
+      "question_number": 3,
+      "question_key": "q3",
+      "question_type": "likert",
+      "question_prompt": "Fixture question 3",
+      "answer": 4,
+      "shown_at": "2026-08-11T16:30:56.637835Z",
+      "answered_at": "2026-08-11T16:31:02.637835Z",
+      "server_start_received_epoch_ms": 1786465856637.835,
+      "server_stop_received_epoch_ms": 1786465862637.835,
+      "skipped": false
+    },
+    {
+      "question_index": 3,
+      "question_number": 4,
+      "question_key": "q4",
+      "question_type": "likert",
+      "question_prompt": "Fixture question 4",
+      "answer": 5,
+      "shown_at": "2026-08-11T16:31:56.637835Z",
+      "answered_at": "2026-08-11T16:32:02.637835Z",
+      "server_start_received_epoch_ms": 1786465916637.835,
+      "server_stop_received_epoch_ms": 1786465922637.835,
+      "skipped": false
+    },
+    {
+      "question_index": 4,
+      "question_number": 5,
+      "question_key": "q5",
+      "question_type": "likert",
+      "question_prompt": "Fixture question 5",
+      "answer": 6,
+      "shown_at": "2026-08-11T16:32:56.637835Z",
+      "answered_at": "2026-08-11T16:33:02.637835Z",
+      "server_start_received_epoch_ms": 1786465976637.835,
+      "server_stop_received_epoch_ms": 1786465982637.835,
+      "skipped": false
+    }
+  ],
+  "card_events": [],
+  "recovered": false,
+  "skipped_questions": []
+}
