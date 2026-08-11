@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 0.6.0 - 2026-08-11
+
 ### Added
 
 - Plugin API v4: every built-in plugin now runs as a supervised subprocess
