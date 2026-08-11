@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 0.7.0 - 2026-08-11
+
 ### Changed
 
 - The dev server's terminal output is quiet by default: only failed requests
