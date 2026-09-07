@@ -19,7 +19,7 @@ import time
 from typing import Any, Callable, Iterable, Mapping
 
 from study_runner.plugin_framework.registry import get_backup_projection_specs
-from study_runner.recording_worker.lsl_recording import lsl_version_info, require_pylsl
+from study_runner.shared.lsl_dependency import lsl_version_info, require_pylsl
 
 from study_runner.recording.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
 from study_runner.recording.backup import BackupSampler, projections_from_manifest

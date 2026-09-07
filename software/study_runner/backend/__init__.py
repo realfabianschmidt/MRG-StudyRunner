@@ -28,6 +28,7 @@ from .services.recording.recording_runtime import (
     RuntimeRecordingFinalizationAdapter,
 )
 from .services.settings.secrets_service import load_local_secrets
+from study_runner.plugin_framework.plugin_secrets import resolve_plugin_secret
 from .services.recording.sensor_coordinator_service import SensorCoordinator
 from .services.recording.sensor_flush_service import SensorFlushService
 from .services.studies.study_client_service import reset_client_status
@@ -81,6 +82,7 @@ def _plugin_context(app: Flask):
         hardware_config=app.config.get("HARDWARE_CONFIG", {}),
         local_secrets=app.config.get("LOCAL_SECRETS", {}),
         local_secrets_file=app.config["LOCAL_SECRETS_FILE"],
+        secret_resolver=resolve_plugin_secret,
     )
 
 

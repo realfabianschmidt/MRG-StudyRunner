@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from study_runner.plugin_framework.dependency_utils import ensure_requirements
-from study_runner.backend.services.studies.validation import PARTICIPANT_FIELD_ORDER
+from study_runner.shared.participant_fields import PARTICIPANT_FIELD_ORDER
 
 
 # Clients are cached by a hash of their API key, not by study id: two studies
@@ -121,14 +121,24 @@ def upload_study_result(
     hardware_config: dict[str, Any],
     saved_output: dict[str, Any],
     config_data: dict[str, Any] = None,
-    is_retry: bool = False,
 ) -> dict[str, Any]:
-    """Upload one completed study session; retry persistence lives elsewhere."""
+    """Upload one completed study session.
+
+    Retries are the persistent upload-job queue's responsibility
+    (`upload_jobs_service.py`), not this function's: it re-invokes
+    `publish_destination` with the same queued payload rather than asking
+    this adapter to refresh anything itself.
+
+    This runs inside the plugin's own `driver.py` subprocess
+    (`study-runner-stdio/v1`), which may not import `backend` -- so it
+    cannot save the auto-created `database_id`/`data_source_id` back to the
+    study config file itself the way it used to. Instead it reports what
+    changed via `study_config_updates` in the result; the host
+    (`upload_runtime.py`, which owns that dependency) persists it after this
+    call returns. See docs/architecture-1.0-umbau.md, Phase 2.3.
+    """
     if config_data is None:
         config_data = {}
-
-    if is_retry:
-        config_data = _refresh_config_for_retry(result_payload, config_data)
 
     study_settings = config_data.get("study_settings", {})
     if not study_settings.get("notion_enabled"):
@@ -143,8 +153,9 @@ def upload_study_result(
         error_message = "Notion client is not ready on the server."
         return {"ok": False, "error": error_message}
 
+    study_config_updates: dict[str, str] = {}
     try:
-        db_id = _ensure_database(client, study_settings, config_data)
+        db_id = _ensure_database(client, study_settings, config_data, study_config_updates)
         page_id = _find_or_create_participant(client, db_id, result_payload, study_settings, config_data)
         session_id = str(result_payload.get("session_id") or "").strip()
         if not session_id:
@@ -174,9 +185,12 @@ def upload_study_result(
         )
         pid_short = str(result_payload.get("participant_id") or "?")[:8]
         print(f"[NOTION] Uploaded session {session_num} for participant {pid_short}…")
-        return {"ok": True, "session_id": session_id, "upsert": upsert}
+        result = {"ok": True, "session_id": session_id, "upsert": upsert}
+        if study_config_updates:
+            result["study_config_updates"] = study_config_updates
+        return result
     except Exception as error:
-        print(f"[NOTION] Upload failed{' (retry)' if is_retry else ''}: {error}")
+        print(f"[NOTION] Upload failed: {error}")
         return {"ok": False, "error": str(error)}
 
 
@@ -297,11 +311,16 @@ def _build_participant_metadata_properties(
     return properties
 
 
-def _ensure_database(client: Any, study_settings: dict[str, Any], config_data: dict[str, Any]) -> str:
+def _ensure_database(
+    client: Any,
+    study_settings: dict[str, Any],
+    config_data: dict[str, Any],
+    updates: dict[str, str],
+) -> str:
     db_id = study_settings.get("notion_database_id", "")
     if db_id:
         normalized_db_id = _strip_dashes(db_id)
-        _ensure_participant_metadata_properties(client, normalized_db_id, study_settings, config_data)
+        _ensure_participant_metadata_properties(client, normalized_db_id, study_settings, config_data, updates)
         return normalized_db_id
 
     parent_page_id = _strip_dashes(study_settings.get("notion_parent_page_id", ""))
@@ -330,13 +349,14 @@ def _ensure_database(client: Any, study_settings: dict[str, Any], config_data: d
 
     new_id = _strip_dashes(db["id"])
     study_settings["notion_database_id"] = new_id
-    
+    updates["notion_database_id"] = new_id
+
     if hasattr(client, "data_sources"):
         data_sources = db.get("data_sources", [])
         if data_sources:
             study_settings["notion_data_source_id"] = data_sources[0]["id"]
-            
-    _persist_study_database_id(config_data)
+            updates["notion_data_source_id"] = data_sources[0]["id"]
+
     print(f"[NOTION] Auto-created database: {new_id}")
     return new_id
 
@@ -346,13 +366,14 @@ def _ensure_participant_metadata_properties(
     db_id: str,
     study_settings: dict[str, Any],
     config_data: dict[str, Any],
+    updates: dict[str, str],
 ) -> None:
     desired_schema = _build_participant_metadata_schema(config_data)
     if not desired_schema:
         return
 
     if hasattr(client, "data_sources"):
-        target_id = _get_data_source_id(client, db_id, study_settings, config_data)
+        target_id = _get_data_source_id(client, db_id, study_settings, config_data, updates)
         existing_properties = _retrieve_data_source_properties(client, target_id, db_id)
         missing_schema = {
             name: schema
@@ -389,25 +410,31 @@ def _retrieve_data_source_properties(client: Any, data_source_id: str, db_id: st
             return {}
 
 
-def _get_data_source_id(client: Any, db_id: str, study_settings: dict[str, Any], config_data: dict[str, Any]) -> str:
+def _get_data_source_id(
+    client: Any,
+    db_id: str,
+    study_settings: dict[str, Any],
+    config_data: dict[str, Any],
+    updates: dict[str, str],
+) -> str:
     if not hasattr(client, "data_sources"):
         return db_id
-    
+
     cached_ds = study_settings.get("notion_data_source_id")
     if cached_ds:
         return cached_ds
-        
+
     try:
         db = client.databases.retrieve(database_id=db_id)
         data_sources = db.get("data_sources", [])
         if data_sources:
             ds_id = data_sources[0]["id"]
             study_settings["notion_data_source_id"] = ds_id
-            _persist_study_database_id(config_data)
+            updates["notion_data_source_id"] = ds_id
             return ds_id
     except Exception as e:
         print(f"[NOTION] Could not retrieve data source: {e}")
-        
+
     return db_id
 
 def _find_or_create_participant(client: Any, db_id: str, result_payload: dict[str, Any], study_settings: dict[str, Any], config_data: dict[str, Any]) -> str:
@@ -837,70 +864,25 @@ def _fmt_metric(value: Any) -> str:
     return str(value)
 
 
-def _refresh_config_for_retry(
-    result_payload: dict[str, Any],
-    queued_config_data: dict[str, Any],
-) -> dict[str, Any]:
-    study_id = str(
-        result_payload.get("study_id")
-        or queued_config_data.get("study_id")
-        or ""
-    ).strip()
-    if not study_id:
-        return queued_config_data
-
-    try:
-        from flask import current_app
-        from study_runner.backend.services.studies.study_config_service import load_config, load_study
-
-        if current_app:
-            config_file = current_app.config["CONFIG_FILE"]
-            studies_dir = current_app.config["SAVED_STUDIES_DIR"]
-        else:
-            raise RuntimeError("No active app context.")
-
-        current_config = load_config(config_file)
-        if str(current_config.get("study_id") or "").strip() == study_id:
-            return current_config
-
-        return load_study(studies_dir, study_id)
-    except Exception:
-        return queued_config_data
-
-
-def _persist_study_database_id(config_data: dict[str, Any]) -> None:
-    try:
-        from flask import current_app
-        from study_runner.backend.services.studies.study_config_service import save_config, save_study
-        from study_runner.backend.services.studies.study_plugin_config import (
-            normalize_study_settings_plugins,
-        )
-
-        canonical_config = deepcopy(config_data)
-        study_settings = canonical_config.setdefault("study_settings", {})
-        plugins = study_settings.setdefault("plugins", {})
-        notion = plugins.setdefault(
-            "notion",
-            {"enabled": bool(study_settings.get("notion_enabled")), "required": False, "settings": {}},
-        )
-        notion_settings = notion.setdefault("settings", {})
-        for setting_name, legacy_name in (
-            ("parent_page_id", "notion_parent_page_id"),
-            ("database_id", "notion_database_id"),
-            ("data_source_id", "notion_data_source_id"),
-        ):
-            if legacy_name in study_settings:
-                notion_settings[setting_name] = study_settings.get(legacy_name)
-        canonical_config["study_settings"] = normalize_study_settings_plugins(
-            study_settings
-        )
-
-        save_config(current_app.config["CONFIG_FILE"], canonical_config)
-        studies_dir = current_app.config["SAVED_STUDIES_DIR"]
-        save_study(studies_dir, canonical_config)
-        print(f"[NOTION] Persisted database_id to study config.")
-    except Exception as error:
-        print(f"[NOTION] Could not persist database_id to study config: {error}")
+# _refresh_config_for_retry and _persist_study_database_id were removed in
+# the 1.0 rebuild (docs/architecture-1.0-umbau.md, Phase 2.3):
+#
+# - _refresh_config_for_retry was dead code. It only ran when
+#   upload_study_result's now-removed `is_retry` flag was True, and nothing
+#   ever passed True -- retries are the persistent upload-job queue's
+#   responsibility (see this module's top docstring), which simply re-calls
+#   publish_destination with the original queued payload.
+# - _persist_study_database_id imported Flask and backend.study_config_service
+#   directly, which this file (running inside the plugin's own subprocess)
+#   may not do. It also could not have worked as written: `flask.current_app`
+#   raises outside an active Flask application context, and a subprocess has
+#   none -- every call was silently swallowed by its own broad `except
+#   Exception`. In practice this meant a newly auto-created Notion database's
+#   id was never actually saved back to the study config, so the *next*
+#   upload would find no `notion_database_id` and create ANOTHER database.
+#   upload_study_result now reports what changed via `study_config_updates`
+#   in its result instead; `upload_runtime.py` (the host, which is allowed to
+#   import backend) persists it after this call returns.
 
 
 def _strip_dashes(value: str) -> str:

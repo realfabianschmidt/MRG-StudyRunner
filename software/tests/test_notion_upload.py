@@ -4,9 +4,6 @@ import json
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
-
-from flask import Flask
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -134,52 +131,36 @@ class NotionParticipantMetadataTests(unittest.TestCase):
         self.assertIn("gamma=5.00", lines[0])
         self.assertIn("dist=150.00", lines[0])
 
-    def test_auto_created_target_persists_only_canonical_plugin_settings(self) -> None:
-        app = Flask(__name__)
-        app.config["CONFIG_FILE"] = Path("active.study-runner")
-        app.config["SAVED_STUDIES_DIR"] = Path("studies")
-        projected = {
-            "study_id": "Notion Metadata",
-            "study_settings": {
-                "notion_enabled": True,
-                "notion_parent_page_id": "parent-1",
-                "notion_database_id": "created-db",
-                "notion_data_source_id": "created-source",
-                "plugins": {
-                    "notion": {
-                        "enabled": True,
-                        "required": False,
-                        "settings": {"parent_page_id": "parent-1"},
-                    }
-                },
-            },
-        }
-        with (
-            app.app_context(),
-            patch(
-                "study_runner.backend.services.studies.study_config_service.save_config"
-            ) as save_config,
-            patch(
-                "study_runner.backend.services.studies.study_config_service.save_study"
-            ) as save_study,
-        ):
-            adapter._persist_study_database_id(projected)
+    def test_auto_created_database_is_reported_as_a_study_config_update(self) -> None:
+        """`_ensure_database` cannot save its own discovery anymore.
 
-        persisted = save_config.call_args.args[1]
-        settings = persisted["study_settings"]
-        self.assertNotIn("notion_enabled", settings)
-        self.assertNotIn("notion_parent_page_id", settings)
-        self.assertNotIn("notion_database_id", settings)
-        self.assertNotIn("notion_data_source_id", settings)
-        self.assertEqual(
-            settings["plugins"]["notion"]["settings"],
-            {
-                "parent_page_id": "parent-1",
-                "database_id": "created-db",
-                "data_source_id": "created-source",
-            },
-        )
-        self.assertEqual(save_study.call_args.args[1], persisted)
+        docs/architecture-1.0-umbau.md Phase 2.3: this file runs inside the
+        plugin's own subprocess and may not import backend, so it can no
+        longer save the auto-created database id itself (that used to be
+        `_persist_study_database_id`, which silently never worked once
+        plugins moved into a subprocess -- `flask.current_app` has no app
+        context there). It now reports what it discovered in an `updates`
+        dict, which `upload_runtime.py` (the host) persists after the call
+        returns -- see test_upload_runtime.py for that half.
+        """
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.databases = type(
+                    "Databases",
+                    (),
+                    {"create": lambda self_, **kwargs: {"id": "created-db-id"}},
+                )()
+
+        study_settings: dict = {"notion_parent_page_id": "parent-1"}
+        updates: dict[str, str] = {}
+
+        db_id = adapter._ensure_database(FakeClient(), study_settings, {}, updates)
+
+        # _ensure_database strips dashes from the id Notion returns.
+        self.assertEqual(db_id, "createddbid")
+        self.assertEqual(study_settings["notion_database_id"], "createddbid")
+        self.assertEqual(updates, {"notion_database_id": "createddbid"})
 
     def test_canonical_answer_format_ignores_embedded_ram_biomarkers(self) -> None:
         lines = adapter._format_answer_details(

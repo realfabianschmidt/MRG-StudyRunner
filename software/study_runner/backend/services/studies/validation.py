@@ -24,6 +24,7 @@ from ..studies.study_plugin_config import (
 # tests and external validators. Unknown legacy keys are migrated instead of
 # being rejected against this tuple.
 from ..recording.study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
+from study_runner.shared.participant_fields import PARTICIPANT_FIELD_ORDER
 
 
 ALLOWED_QUESTION_TYPES = {
@@ -46,16 +47,9 @@ NON_ANSWER_QUESTION_TYPES = {"stimulus", "participant-id", "finish"}
 
 ALLOWED_TRIGGER_TYPES = {"timer", "image", "video", "audio", "html", "js"}
 
-PARTICIPANT_FIELD_ORDER = [
-    "first_name",
-    "last_name",
-    "age_group",
-    "gender",
-    "childhood_area",
-    "childhood_nearest_city",
-    "birth_place",
-    "birth_date",
-]
+# PARTICIPANT_FIELD_ORDER moved to shared/participant_fields.py (Phase 2.3):
+# the Notion plugin needs it too and may not import from backend. Imported
+# above and re-exported here so existing callers keep working unchanged.
 
 PARTICIPANT_FIELD_DEFAULTS = {
     "first_name": {"enabled": True, "use_for_key": True, "store": False, "required": True},

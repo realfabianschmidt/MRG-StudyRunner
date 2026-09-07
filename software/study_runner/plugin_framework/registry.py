@@ -11,7 +11,7 @@ from .plugin_catalog import (
     discover_plugin_catalog,
     validate_admin_action_payload,
 )
-from .plugin_api import PluginContext, Plugin
+from .plugin_api import PluginContext, Plugin, SecretResolver
 
 
 def build_context(
@@ -23,7 +23,16 @@ def build_context(
     local_secrets_file: Path,
     runtime_locked: bool = False,
     persist_hardware_config=None,
+    secret_resolver: SecretResolver | None = None,
 ) -> PluginContext:
+    """Build the context every plugin runs with.
+
+    `secret_resolver` is accepted, not looked up here: `study_secrets_service`
+    lives in `backend`, which `plugin_framework` may not import
+    (docs/architecture-1.0-umbau.md invariant #2). The caller that owns that
+    dependency supplies the callable; production's is
+    `backend/__init__.py::_plugin_context`.
+    """
     return PluginContext(
         base_dir=Path(base_dir),
         data_dir=Path(data_dir),
@@ -32,6 +41,7 @@ def build_context(
         local_secrets_file=Path(local_secrets_file),
         runtime_locked=runtime_locked,
         persist_hardware_config=persist_hardware_config,
+        secret_resolver=secret_resolver,
     )
 
 

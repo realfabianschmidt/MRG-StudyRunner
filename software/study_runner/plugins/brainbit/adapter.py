@@ -166,7 +166,7 @@ def _default_python_executable(python_executable: str | None) -> str:
     if python_executable:
         return python_executable
 
-    from study_runner.backend.services.settings.runtime_config import get_app_mode, is_frozen
+    from study_runner.shared.runtime_mode import get_app_mode, is_frozen
 
     if is_frozen() and get_app_mode() in {"desktop", "packaged"}:
         return ""
@@ -176,7 +176,7 @@ def _default_python_executable(python_executable: str | None) -> str:
 
 def _uses_frozen_self_dispatch() -> bool:
     """True when the CLI must be started as `<own exe> --brainbit-cli ...`."""
-    from study_runner.backend.services.settings.runtime_config import is_frozen
+    from study_runner.shared.runtime_mode import is_frozen
 
     return not _config.get("python_executable") and is_frozen()
 
@@ -259,7 +259,7 @@ def initialize(
         if renamed.exists():
             script_file = renamed
 
-    from study_runner.backend.services.settings.runtime_config import is_frozen
+    from study_runner.shared.runtime_mode import is_frozen
 
     resolved_python = _default_python_executable(python_executable)
     # Packaged builds run the CLI through their own executable, so the script

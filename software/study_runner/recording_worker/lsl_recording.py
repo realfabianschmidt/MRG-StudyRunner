@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from importlib import metadata as importlib_metadata
 import json
 import math
 from pathlib import Path
@@ -13,7 +12,12 @@ from typing import Any, Callable, Mapping, Sequence
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
 
-from study_runner.recording.backup import BackupProjection, BackupSampler, projections_from_manifest
+from study_runner.shared.backup_projection import BackupProjection, BackupSampler, projections_from_manifest
+# require_pylsl/lsl_version_info moved to shared.lsl_dependency during the
+# 1.0 rebuild (docs/architecture-1.0-umbau.md, Phase 2.5): the host's
+# preflight needs them too and may not import this module. Re-exported here
+# so existing worker-side callers keep working unchanged.
+from study_runner.shared.lsl_dependency import lsl_version_info, require_pylsl
 
 from .core import NativeXdfCore, NativeXdfWriter
 
@@ -30,52 +34,6 @@ ABORT_JOIN_TIMEOUT_SECONDS = 0.25
 SUPPORTED_FORMATS = frozenset(
     {"int8", "int16", "int32", "int64", "float32", "double64", "float64", "string"}
 )
-
-
-def require_pylsl() -> Any:
-    try:
-        import pylsl
-    except Exception as error:
-        raise RuntimeError(f"pylsl/liblsl is unavailable: {error}") from error
-    required = (
-        "resolve_byprop",
-        "StreamInlet",
-        "local_clock",
-        "cf_float32",
-        "cf_double64",
-        "cf_string",
-        "cf_int8",
-        "cf_int16",
-        "cf_int32",
-        "cf_int64",
-    )
-    missing = [name for name in required if not hasattr(pylsl, name)]
-    if missing:
-        raise RuntimeError(f"pylsl is missing required APIs: {', '.join(missing)}")
-    return pylsl
-
-
-def lsl_version_info(pylsl_module: Any) -> dict[str, Any]:
-    """Best-effort package/native version evidence; probing never blocks recording."""
-
-    package_version = str(getattr(pylsl_module, "__version__", "") or "")
-    if not package_version:
-        try:
-            package_version = importlib_metadata.version("pylsl")
-        except Exception:
-            package_version = "unknown"
-    native_version: int | str | None = None
-    probe_error: str | None = None
-    try:
-        probe = getattr(pylsl_module, "library_version", None)
-        native_version = probe() if callable(probe) else None
-    except Exception as error:
-        probe_error = f"{type(error).__name__}: {error}"
-    return {
-        "pylsl_package_version": package_version,
-        "liblsl_library_version": native_version,
-        "version_probe_error": probe_error,
-    }
 
 
 @dataclass(frozen=True)

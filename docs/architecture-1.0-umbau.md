@@ -22,9 +22,9 @@ The target architecture is described in `../MRG_Recorder_Core_Architektur_1.0.md
    verified way this rebuild breaks silently — meaning CI stays green and the
    damage shows up weeks later on a field machine.
 
-Status: **Phase 0 complete, merged to `main` (a1f39d9).** Phase 1 complete on
-`feature/architecture-1.0` (worktree at `C:\SR-1.0`), not yet merged. Phase 2
-not yet started. Version stays `0.7.0` until Phase 4.
+Status: **Phase 0 complete, merged to `main` (a1f39d9).** Phases 1 and 2
+complete on `feature/architecture-1.0` (worktree at `C:\SR-1.0`), not yet
+merged. Phase 3 not yet started. Version stays `0.7.0` until Phase 4.
 
 ---
 
@@ -449,25 +449,160 @@ isolation.) One doc-drift catch along the way: `test_file_guide.py` correctly
 went red for the new `tools/measure_structure.py` having no guide entry —
 exactly the mechanism it exists for, not a bug.
 
-### Phase 2 — Break the import edges in place (branch, zero moves)
+### Phase 2 — Break the import edges in place (branch, zero moves) — **complete**
 
 Best value-to-risk ratio in the programme. Afterwards every import invariant is
 true with no path changes and no packaging changes.
 
-- [ ] **2.1** `is_frozen` / `get_app_mode` / `get_project_base_dir` → `shared/`,
-      `runtime_config` re-exports. Kills 5 edges. Safe only after 0.3
-- [ ] **2.2** `PluginContext.secret` takes an injected `secret_resolver`, wired
-      in `registry.build_context()`. Kills the last `plugin_framework → backend` edge
-- [ ] **2.3** `notion_upload`: `PARTICIPANT_FIELD_ORDER` → `contracts`; then
-      design a `request_study_config` / `write_study_plugin_config` capability
-      for `:854-877`. **Real design work — budget for it**
-- [ ] **2.4** `validate_and_normalize_manifest` → `contracts`,
-      `ensure_requirements` → `shared`. Side benefit: core recording stops
-      importing 1709 lines of `plugin_catalog.py` at startup
-- [ ] **2.5** Break the host↔worker cycle: create `recording/contract/` with the
-      wire types, lease schema, backup projection model, and `CoreProbe` split
-      out of `core.py` (the ctypes binding stays). `worker_binary.py:60` already
-      has the injection seam (`core_probe: Callable[...]`)
+All 19 known violations resolved except 2 (`recording/{markers,clock_diagnostics}.py`
+→ `plugin_framework.plugin_catalog`), deliberately deferred to Phase 4 (see
+2.4). Cycle count: **6 → 0**. Zero directory moves — everything under
+`study_runner/{backend,plugin_framework,plugins,recording,recording_worker}/`
+is exactly where it was; only `shared/` grew.
+
+- [x] **2.1** `is_frozen` / `get_app_mode` / `get_project_base_dir` moved to
+      new `shared/runtime_mode.py`; `runtime_config.py` re-exports them for
+      its own internal use and for every existing backend-internal caller.
+      The four out-of-area callers (`plugin_framework/dependency_utils.py`,
+      `plugins/brainbit/{adapter.py,plugin.py}`,
+      `plugins/camera_emotion/worker/plugin.py`) now import from
+      `shared.runtime_mode` directly. Killed exactly the 4 edges predicted.
+      Safe because 0.3 had already removed the depth assumption these
+      functions relied on
+- [x] **2.2** `PluginContext.secret_resolver` is now an injected field, not a
+      lazy import. But the fix goes further than "wire it in
+      `registry.build_context()`": `.secret()` runs in **two** processes, not
+      one — the host (`backend/__init__.py`) and each plugin's own
+      `driver.py` subprocess (`process_host.py` → `driver_runtime.py`). A
+      subprocess cannot receive an injected host-side callable, and it may
+      not import `backend` either, so the resolver itself had to move
+      somewhere both sides can reach: `study_secrets_service.py` was 100%
+      pure (no Flask, no app context — confirmed by reading the whole file)
+      despite living under `backend/`, so it moved wholesale to new
+      `plugin_framework/plugin_secrets.py` (`resolve_plugin_secret` and its
+      full dependency chain: `get_study_secret`, `study_key`,
+      `secret_fields`, `_credential_declarations`, `describe_secret_state`,
+      `describe_secret_storage_location`, `list_study_credential_state`,
+      `set_study_secret`, `copy_study_secrets`, `forget_study_secrets`).
+      `normalize_study_id` (its one real dependency) moved to new
+      `shared/study_identifiers.py` for the same reason.
+      `backend/services/studies/study_secrets_service.py` is now a thin
+      re-export shim so its 7 existing backend callers (routes,
+      `study_readiness_service.py`, ...) keep working unchanged.
+      `driver_runtime.py::_context_from_payload` and
+      `backend/__init__.py::_plugin_context` both now pass
+      `secret_resolver=resolve_plugin_secret` from the new location.
+      Verified all three paths directly: no-resolver raises a clear
+      `RuntimeError`, the host path resolves a secret, the **subprocess**
+      path (`_context_from_payload` → `.secret()`) resolves one too — this
+      last one is the one that actually matters, since it's the one that
+      silently wasn't being exercised by any existing test
+- [x] **2.3** Two real, independent-of-the-rebuild bugs found while doing
+      this, not just an import move:
+      - `PARTICIPANT_FIELD_ORDER` → new `shared/participant_fields.py`
+        (pure data, no dependency), re-exported from `validation.py`.
+      - `notion_upload/adapter.py`'s `_refresh_config_for_retry` turned out
+        to be **dead code**: it only ran when `upload_study_result`'s
+        `is_retry` flag was `True`, and grepping the whole plugin confirmed
+        nothing ever passes `True` — retries are entirely the persistent
+        upload-job queue's responsibility now, which just re-invokes
+        `publish_destination` with the original payload. Deleted outright,
+        no capability needed for this half.
+      - `_persist_study_database_id` **could never have worked** since the
+        v4 subprocess migration: it called `flask.current_app`, which raises
+        outside an active Flask app context, and a `driver.py` subprocess
+        has none. Every call was silently swallowed by its own broad
+        `except Exception`. Practical effect: every time Notion
+        auto-created a database, the id was never actually saved back to
+        the study config, so `_ensure_database`'s only lookup
+        (`study_settings.get("notion_database_id")`) would find nothing
+        next time and **create another database** — confirmed by reading
+        `_ensure_database`, which has no other dedup path. Fixed by
+        rejecting the "or the configuration in the payload" half of this
+        step's original two options: `_ensure_database` /
+        `_get_data_source_id` now write into a plain `updates: dict[str,
+        str]` passed down instead of calling back into Flask;
+        `upload_study_result` attaches it to its result as
+        `study_config_updates` when non-empty; new
+        `upload_runtime.py::_persist_study_config_updates` (host-side,
+        backend-legal) does the canonicalization + `save_config` +
+        `save_study` that `_persist_study_database_id` used to do in-process,
+        after the RPC call returns. No new bidirectional protocol needed —
+        it rides the existing payload-in/result-out shape.
+        `test_upload_runtime.py` covers the host half,
+        `test_notion_upload.py`'s replacement test covers the plugin half.
+        The `request_study_config` capability this step's plan text
+        mentioned was **not needed**: it would only have served the now-
+        deleted dead code path
+- [x] **2.4** Split into a cheap half and an expensive half; only did the
+      cheap one here.
+      - **`ensure_requirements` → `shared/dependency_utils.py`.** Fully
+        self-contained (stdlib + `shared.runtime_mode`), so the whole file
+        moved rather than splitting it. `plugin_framework/dependency_utils.py`
+        re-exports for its 6 existing plugin callers.
+        `recording/{markers,clock_diagnostics}.py` now import it from
+        `shared` directly. Killed 2 of the 4 remaining `plugin_framework`
+        edges.
+      - **`validate_and_normalize_manifest` → `contracts`: deliberately NOT
+        done here.** Traced its dependency closure: ~15 helper functions
+        (`_normalize_capabilities`, `_normalize_streams`,
+        `_normalize_process_runtime`, `_normalize_ui_*`, `_required_*`, ...)
+        spanning roughly lines 84–1695 of `plugin_catalog.py` — the large
+        majority of its 1709 lines, not a clean single-function extraction.
+        Moving the function without its closure would just recreate the same
+        edge one level down (`contracts` importing `plugin_framework` for the
+        15 helpers), which invariant #3 forbids just as much. Correctly
+        splitting a file this size, this central to plugin discovery, needs
+        the kind of test coverage and time Phase 4 (the actual directory
+        move) budgets for — not a Phase 2 in-place edge break. Left as 2
+        `KNOWN_VIOLATIONS` entries with this reasoning inline, explicitly
+        deferred to Phase 4
+- [x] **2.5** Broke the host↔worker cycle. Landed in `shared/`, not
+      `recording/contract/`: a subpackage nested under `recording/` would
+      still match `study_runner.recording` as a dotted prefix and violate the
+      very invariant being fixed — the real `data_core/contract/` package
+      only becomes possible once Phase 4 moves `recording/` out from under
+      that name entirely. `shared/` is architecturally equivalent for now
+      (depends on nothing, importable from anywhere) and is a mechanical
+      rename into `data_core/contract/` later.
+
+      Five wholesale moves, each with the old location kept as a re-export
+      shim (same pattern as 2.1–2.4): `worker_protocol.py` (473 lines — the
+      entire wire contract: `WorkerCommand`, `WorkerResponse`,
+      `WorkerEndpointState`, `PersistentCommandLedger`,
+      `LoopbackWorkerClient`, `WorkerCommandRouter`, `WorkerStateStore`),
+      `errors.py` (worker_protocol's own dependency — had to move first),
+      `backup.py` (316 lines, fully self-contained already), `recovery.py`
+      (`RecordingLeaseStore`). Two split extractions:
+      `CoreProbe`/`NativeXdfError`/`probe_core_library` out of
+      `recording_worker/core.py` (confirmed `NativeXdfCore`/`NativeXdfWriter`
+      — the actual byte-writing classes invariant #5 restricts to the worker
+      — depend on the probe but not vice versa, so the split is clean), and
+      `require_pylsl`/`lsl_version_info` out of
+      `recording_worker/lsl_recording.py` into `shared/lsl_dependency.py`
+      (also fixes the 19th edge 1.2 found:
+      `backend/services/recording/recording_runtime.py`'s host-side
+      preflight needed the exact same two functions).
+
+      `worker_binary.py:60`'s existing injection seam
+      (`core_probe: Callable[...]`) turned out not to need touching — the fix
+      was one level down, in what `core.py` itself imports.
+
+      **Verification went beyond the allowlist test.** Added two new
+      subprocess-blocker tests to `test_area_boundaries.py`, symmetric with
+      the existing Flask-blocking one but blocking `study_runner.recording`
+      and `study_runner.recording_worker` respectively — these are the tests
+      that would have caught this exact violation before it was fixed, and
+      now prove both directions of invariant #1 directly rather than just
+      pinning today's known exceptions.
+
+      **Structure metrics after Phase 2** (`tools/measure_structure.py`,
+      baseline rewritten as a deliberate checkpoint): **cycle count 6 → 0.**
+      Cross-package edges rose slightly (143 → 147) and `shared/` grew from
+      154 to 1536 lines — both expected and correct: the shim files add a
+      few re-export edges, and moving real logic into `shared/` is the whole
+      point of this phase. The cycle count dropping to zero is the number
+      that actually mattered.
 
 ### Phase 3 — Legacy removal (branch)
 
@@ -590,6 +725,7 @@ Add a row before starting. Remove it when the package is merged.
 |---|---|---|---|
 | Phase 0 (complete, merged) | Claude Code | `main` | 2026-09-07 |
 | Phase 1 (import invariant harness, complete) | Claude Code | `feature/architecture-1.0` | 2026-09-07 |
+| Phase 2 (break import edges in place, complete) | Claude Code | `feature/architecture-1.0` | 2026-09-07 |
 
 Rules:
 - **Phases 0–4 are serial, one agent.** Moves and import rewrites are

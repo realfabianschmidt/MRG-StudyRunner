@@ -54,6 +54,16 @@ Edit-safety legend:
 | `services/studies/__init__.py` | Empty package marker | yes |
 | `../shared/atomic_io.py` | Crash-safe JSON writes (temp file + replace) for all study data | no |
 | `../shared/software_root.py` | Locates `software/` by marker (`server.py` + `study_runner/`) instead of counting parent levels | no |
+| `../shared/runtime_mode.py` | `is_frozen`/`get_app_mode`/`get_project_base_dir` -- moved here so plugins and plugin_framework don't have to depend on backend for them; re-exported from `backend/services/settings/runtime_config.py` | no |
+| `../shared/study_identifiers.py` | `normalize_study_id` -- the one place a study's stable filename/credential key gets computed; re-exported from `study_config_service.py` | no |
+| `../shared/dependency_utils.py` | `ensure_requirements` -- moved here so `recording/markers.py`/`clock_diagnostics.py` can use it without depending on plugin_framework; re-exported from `plugin_framework/dependency_utils.py` | no |
+| `../shared/participant_fields.py` | `PARTICIPANT_FIELD_ORDER` -- moved here so the Notion destination plugin can use it without depending on backend; re-exported from `validation.py` | no |
+| `../shared/recording_errors.py` | Typed recording/worker errors -- both sides of the host/worker boundary use these and may not import each other; re-exported from `recording/errors.py` | no |
+| `../shared/worker_protocol.py` | The authenticated, idempotent loopback wire protocol between host and worker; re-exported from `recording/worker_protocol.py` | careful |
+| `../shared/backup_projection.py` | Slowest-grid backup projection model (`BackupProjection`/`BackupSampler`) -- the worker needs it too; re-exported from `recording/backup.py` | careful |
+| `../shared/recording_lease.py` | The persistent 15-minute recording lease -- the worker needs it too; re-exported from `recording/recovery.py` | careful |
+| `../shared/native_core_probe.py` | `CoreProbe`/`probe_core_library` split out of `recording_worker/core.py` so the host-side locator can validate a build without depending on the worker | careful |
+| `../shared/lsl_dependency.py` | `require_pylsl`/`lsl_version_info` -- both the host preflight and the worker need this pylsl/liblsl check; moved out of `recording_worker/lsl_recording.py` | no |
 | `services/studies/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
 | `services/studies/results_service.py` | Builds answer details, slices biosignals per card, writes result files | no |
 | `services/studies/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |
@@ -160,6 +170,7 @@ recording code now, not plugins: `recording/markers.py` and
 | File | Purpose | Edit? |
 |---|---|---|
 | `plugin_api.py` | The PluginContext/plugin interface every sensor implements | careful |
+| `plugin_secrets.py` | Per-study credential storage and env/study/machine/legacy resolution -- runs in both the host and each plugin's own subprocess, so it must not depend on backend | careful |
 | `adapter_utils.py` | Shared timestamps, locked state updates, and config-section lookup | careful |
 | `registry.py` | Manifest-driven plugin lookup, generic actions, interval summaries, and sidecar exports | careful |
 | `plugin_catalog.py` | Discovers plugin folders and validates manifests (v4 primary, v3 compatibility path) before dispatch | no |

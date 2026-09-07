@@ -72,27 +72,14 @@ RULES: tuple[tuple[tuple[str, ...], str], ...] = (
 # must not couple to that module more than once".
 KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset(
     {
-        (
-            "backend/services/recording/recording_runtime.py",
-            "study_runner.recording_worker.lsl_recording",
-        ),
-        ("plugin_framework/dependency_utils.py", "study_runner.backend.services.settings.runtime_config"),
-        ("plugin_framework/plugin_api.py", "study_runner.backend.services.studies.study_secrets_service"),
-        ("plugins/brainbit/adapter.py", "study_runner.backend.services.settings.runtime_config"),
-        ("plugins/brainbit/plugin.py", "study_runner.backend.services.settings.runtime_config"),
-        ("plugins/camera_emotion/worker/plugin.py", "study_runner.backend.services.settings.runtime_config"),
-        ("plugins/notion_upload/adapter.py", "study_runner.backend.services.studies.validation"),
-        ("plugins/notion_upload/adapter.py", "study_runner.backend.services.studies.study_config_service"),
-        ("plugins/notion_upload/adapter.py", "study_runner.backend.services.studies.study_plugin_config"),
-        ("recording/clock_diagnostics.py", "study_runner.plugin_framework.dependency_utils"),
+        # validate_and_normalize_manifest has ~15 helper-function dependencies
+        # spanning most of plugin_catalog.py (1709 lines) -- extracting it
+        # correctly means moving nearly the whole file to contracts/, which
+        # is real Phase 4 (directory move) work with time to test it, not a
+        # Phase 2 in-place edge break. Deliberately left for Phase 4; see
+        # docs/architecture-1.0-umbau.md Phase 2.4.
         ("recording/clock_diagnostics.py", "study_runner.plugin_framework.plugin_catalog"),
-        ("recording/markers.py", "study_runner.plugin_framework.dependency_utils"),
         ("recording/markers.py", "study_runner.plugin_framework.plugin_catalog"),
-        ("recording/worker_binary.py", "study_runner.recording_worker.core"),
-        ("recording_worker/application.py", "study_runner.recording.worker_protocol"),
-        ("recording_worker/lsl_recording.py", "study_runner.recording.backup"),
-        ("recording_worker/runtime.py", "study_runner.recording.worker_protocol"),
-        ("recording_worker/runtime.py", "study_runner.recording.recovery"),
     }
 )
 

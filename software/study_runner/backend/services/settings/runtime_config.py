@@ -6,10 +6,15 @@ import os
 from pathlib import Path
 import shutil
 import socket
-import sys
 from typing import Any
 
-from study_runner.shared.software_root import find_software_root
+# Moved to shared/runtime_mode.py so plugins and plugin_framework can depend
+# on them without depending on backend (docs/architecture-1.0-umbau.md, Phase
+# 2.1). Imported here both for this module's own internal use below and as a
+# re-export for every existing backend-internal caller (app_server.py,
+# backend/__init__.py, results_service.py, trial_service.py, ...). Keep this
+# import; do not reintroduce the definitions here.
+from study_runner.shared.runtime_mode import get_app_mode, get_project_base_dir, is_frozen  # noqa: F401
 
 
 DEFAULT_HOST = "0.0.0.0"
@@ -30,29 +35,6 @@ class RuntimePaths:
     local_secrets_file: Path
     branding_dir: Path
     uses_external_storage: bool
-
-
-def is_frozen() -> bool:
-    """Return True when running from a packaged (PyInstaller) build.
-
-    Single source of truth: helpers that need to behave differently in packaged
-    builds must call this instead of checking sys.frozen themselves.
-    """
-    return bool(getattr(sys, "frozen", False))
-
-
-def get_project_base_dir() -> Path:
-    """Return the folder that contains bundled project resources."""
-    if is_frozen():
-        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent)).resolve()
-    return find_software_root(Path(__file__))
-
-
-def get_app_mode() -> str:
-    configured_mode = os.getenv("STUDY_RUNNER_APP_MODE", "").strip().lower()
-    if configured_mode:
-        return configured_mode
-    return "packaged" if is_frozen() else "python"
 
 
 def read_server_host() -> str:

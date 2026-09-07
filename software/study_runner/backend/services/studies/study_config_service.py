@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from study_runner.shared.atomic_io import atomic_write_json
+from study_runner.shared.study_identifiers import normalize_study_id
 
 from .study_plugin_config import migrate_study_plugin_config
 
@@ -67,14 +68,10 @@ def save_config(config_file: Path, config_data: dict[str, Any]) -> None:
     atomic_write_json(config_file, config_data, ensure_ascii=False)
 
 
-def normalize_study_id(study_id: str) -> str:
-    """The study's stable key: its filename stem, and its credential key.
-
-    Public because per-study credentials are stored under the same normalized
-    id; if the two ever disagreed, renaming a study would strand its secrets.
-    """
-    return "".join(c for c in study_id if c.isalnum() or c in " _-") or "unnamed"
-
+# normalize_study_id moved to shared/study_identifiers.py (Phase 2.2): plugin
+# credential resolution needs it too and may not import from backend.
+# Imported above and re-exported here so existing callers of
+# study_config_service.normalize_study_id keep working unchanged.
 
 # Kept so existing internal callers and any out-of-tree use keep working.
 _normalize_study_id = normalize_study_id

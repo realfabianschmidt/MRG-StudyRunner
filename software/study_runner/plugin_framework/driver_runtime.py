@@ -10,6 +10,7 @@ import threading
 from typing import Any, Mapping
 
 from .plugin_api import Plugin, PluginContext
+from .plugin_secrets import resolve_plugin_secret
 from .process_host import PROTOCOL_PREFIX
 
 
@@ -233,6 +234,7 @@ def _context_from_payload(value: Any) -> PluginContext:
         local_secrets_file=Path(str(value.get("local_secrets_file") or ".")).resolve(),
         runtime_locked=bool(value.get("runtime_locked", False)),
         persist_hardware_config=persist,
+        secret_resolver=resolve_plugin_secret,
     )
 
 

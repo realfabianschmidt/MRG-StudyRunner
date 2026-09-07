@@ -11,6 +11,8 @@ PLUGIN_API_VERSION = 4
 SUPPORTED_PLUGIN_API_VERSIONS = (3, 4)
 
 
+SecretResolver = Callable[[str, dict[str, Any], dict[str, Any], str], str]
+
 StatusPayload = dict[str, Any]
 InitializeHandler = Callable[["PluginContext"], None]
 RuntimeActionHandler = Callable[["PluginContext"], Any]
@@ -43,6 +45,7 @@ class PluginContext:
     local_secrets_file: Path
     runtime_locked: bool = False
     persist_hardware_config: Callable[[dict[str, Any]], None] | None = None
+    secret_resolver: SecretResolver | None = None
 
     def resolve_platform_value(self, value: Any) -> Any:
         if not isinstance(value, dict):
@@ -73,12 +76,25 @@ class PluginContext:
         """This plugin's declared secret, resolved env > study > machine > legacy.
 
         `plugin_key` is also the `kind` its `credentials` capability is filed
-        under - see `study_secrets_service.py`, the single home for how a
-        secret is stored and found regardless of which plugin owns it.
-        """
-        from study_runner.backend.services.studies.study_secrets_service import resolve_plugin_secret
+        under - see `plugin_secrets.py`, the single home for how a secret is
+        stored and found regardless of which plugin owns it, and regardless
+        of which of the two processes (host or the plugin's own `driver.py`
+        subprocess) asks.
 
-        return resolve_plugin_secret(plugin_key, self.hardware_config, self.local_secrets, study_id)
+        The lookup is injected as `secret_resolver` rather than imported
+        directly here so this file stays a plain data/type module with no
+        behaviour of its own to keep in sync across two call sites:
+        `registry.build_context()` wires it for the host
+        (`backend/__init__.py`), `driver_runtime.py` wires the same function
+        for the subprocess.
+        """
+        if self.secret_resolver is None:
+            raise RuntimeError(
+                "PluginContext has no secret_resolver; build it through "
+                "registry.build_context(secret_resolver=...) rather than "
+                "constructing PluginContext directly if a plugin needs secrets"
+            )
+        return self.secret_resolver(plugin_key, self.hardware_config, self.local_secrets, study_id)
 
     @staticmethod
     def platform_keys() -> tuple[str, ...]:

@@ -1,44 +1,19 @@
 {
-  "cross_package_import_edges": 143,
-  "cycle_count": 6,
-  "cycle_pairs": [
-    [
-      "backend",
-      "plugin_framework"
-    ],
-    [
-      "backend",
-      "recording"
-    ],
-    [
-      "backend",
-      "recording_worker"
-    ],
-    [
-      "plugin_framework",
-      "recording"
-    ],
-    [
-      "plugin_framework",
-      "recording_worker"
-    ],
-    [
-      "recording",
-      "recording_worker"
-    ]
-  ],
+  "cross_package_import_edges": 147,
+  "cycle_count": 0,
+  "cycle_pairs": [],
   "largest_file": {
     "lines": 2283,
     "path": "software/study_runner/plugins/brainbit/adapter.py"
   },
   "lines_per_package": {
-    "backend": 19710,
+    "backend": 19510,
     "frontend": 0,
-    "plugin_framework": 3678,
-    "plugins": 9872,
-    "recording": 3298,
-    "recording_worker": 2163,
-    "shared": 154,
+    "plugin_framework": 3924,
+    "plugins": 9854,
+    "recording": 2430,
+    "recording_worker": 2037,
+    "shared": 1536,
     "updates": 247
   }
 }

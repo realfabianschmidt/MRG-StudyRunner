@@ -75,6 +75,48 @@ class AreaBoundaryTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_the_detached_worker_does_not_import_the_host_side_recording_package(self) -> None:
+        """host and worker may not import each other (invariant #1).
+
+        Stronger than blocking `flask`: this blocks `study_runner.recording`
+        itself. Before Phase 2.5 (docs/architecture-1.0-umbau.md), the worker
+        genuinely could not have loaded here -- `worker_protocol`, `backup`
+        and `recovery` lived under `recording/` and the worker imported them
+        directly. They moved to `shared/`; this is the test that would have
+        caught it if they hadn't.
+        """
+        result = _imports_cleanly_without(
+            (
+                "study_runner.recording_worker.application",
+                "study_runner.recording_worker.runtime",
+                "study_runner.recording_worker.core",
+                "study_runner.recording_worker.lsl_recording",
+            ),
+            "study_runner.recording",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_the_host_side_recording_package_does_not_import_the_worker(self) -> None:
+        """The other half of invariant #1: `recording/` may not import
+        `recording_worker` either -- it only probes a built binary
+        (`worker_binary.py`) and talks to a running one over loopback HTTP
+        (`worker_protocol.py`), never imports the worker's own process code.
+        """
+        result = _imports_cleanly_without(
+            (
+                "study_runner.recording.artifacts",
+                "study_runner.recording.coordinator",
+                "study_runner.recording.recovery",
+                "study_runner.recording.worker_binary",
+                "study_runner.recording.worker_protocol",
+                "study_runner.recording.xdf",
+            ),
+            "study_runner.recording_worker",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_shared_depends_on_no_area(self) -> None:
         """That is the only thing that makes it safe for every area to use."""
         shared = PROJECT_ROOT / "study_runner" / "shared"
