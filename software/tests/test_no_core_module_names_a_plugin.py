@@ -1,4 +1,4 @@
-"""The four mechanisms this round made generic must stay generic.
+"""The generic mechanisms plugins are dispatched through must stay generic.
 
 Before Part C, "does this plugin have a secret", "can it test its connection",
 "is its share-link shape valid", and "is this study ready to run" were each
@@ -20,6 +20,21 @@ blanket sweep of the whole backend, which still has legitimate, unrelated
 plugin-specific code (Notion's own status route and its one-time legacy
 queue migration, sensor admin routes) that this round did not touch and does
 not claim to be generic.
+
+Widened for the 1.0 rebuild (docs/architecture-1.0-umbau.md, invariant #4 --
+"no core module names a plugin key") to also cover destination-policy
+resolution and plugin discovery itself: `destination_definitions_from_manifests`
+and `discover_plugin_catalog` are the same shape of generic mechanism as the
+five functions above, just not yet pinned.
+
+A whole-file literal scan across every core module was considered and
+rejected: it cannot tell a real branch on a plugin key from a plugin name
+used as a worked example in a docstring (confirmed by hand against
+`recording_contract.py` and `study_readiness_service.py`, both of which only
+mention a plugin in prose), so it would need its own allowlist
+infrastructure to stay honest. If that is ever needed, it belongs in its own
+test built on `tests/support/import_graph.py`'s AST tooling rather than
+grown ad hoc here.
 """
 from __future__ import annotations
 
@@ -88,6 +103,16 @@ class GenericMechanismsNameNoPluginTests(unittest.TestCase):
         from study_runner.backend.services.studies import validation
 
         self._assert_no_plugin_literal(validation._validate_manifest_url)
+
+    def test_destination_policy_resolution_names_no_plugin(self) -> None:
+        from study_runner.backend.services.delivery import destination_plugin_service as svc
+
+        self._assert_no_plugin_literal(svc.destination_definitions_from_manifests)
+
+    def test_plugin_discovery_names_no_plugin(self) -> None:
+        from study_runner.plugin_framework.plugin_catalog import discover_plugin_catalog
+
+        self._assert_no_plugin_literal(discover_plugin_catalog)
 
 
 if __name__ == "__main__":

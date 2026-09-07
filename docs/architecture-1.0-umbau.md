@@ -22,8 +22,9 @@ The target architecture is described in `../MRG_Recorder_Core_Architektur_1.0.md
    verified way this rebuild breaks silently — meaning CI stays green and the
    damage shows up weeks later on a field machine.
 
-Status: **Phase 0 complete, on `main`.** Phase 1 (branch) not yet started.
-Version stays `0.7.0` until Phase 4.
+Status: **Phase 0 complete, merged to `main` (a1f39d9).** Phase 1 complete on
+`feature/architecture-1.0` (worktree at `C:\SR-1.0`), not yet merged. Phase 2
+not yet started. Version stays `0.7.0` until Phase 4.
 
 ---
 
@@ -345,26 +346,108 @@ fixtures plus `tools/make_timeline_fixture.py` in the same commit.
       - No 0.7.x fix is needed before the rebuild — the assumptions above
         are already stable across the versions checked.
 
-### Phase 1 — Invariant harness (branch)
+### Phase 1 — Invariant harness (branch) — **complete**
 
-- [ ] **1.1** AST-based import walker at `software/tests/support/import_graph.py`
-      (must catch function-local imports; keep the subprocess-blocker technique
-      from `test_area_boundaries.py` — it catches transitive edges static
-      analysis misses)
-- [ ] **1.2** `test_import_boundaries.py` with a `KNOWN_VIOLATIONS` allowlist of
-      exactly the 11 edges. Fails when an edge is **added**, and when a listed
-      edge is fixed but not removed from the list. **Not a permanently red
-      test** — that trains everyone to ignore red and cannot merge to `main`
-- [ ] **1.3** Invariants already true, as green regression locks: #5 (only
-      `xdf.py` and `lsl_recording.py` write XDF bytes), #4 (widen the existing
-      `test_no_core_module_names_a_plugin.py`), #3
-- [ ] **1.4** Invariant #6 in a mechanically checkable form (field-name denylist
-      over persisted JSON; "no computed global time" is not testable as written)
-- [ ] **1.5** `tools/measure_structure.py` — cross-package import edges, cycles,
-      lines per package, largest file. **Ratchet against a committed baseline,
-      not an absolute threshold.** Current outliers: `plugin_catalog.py` 1709,
-      `finalization_service.py` 1516, `validation.py` 1351, `recording_runtime.py` 1150
-- [ ] Invariants #7 and the lifecycle-dependent parts defer to Phase 5a
+- [x] **1.1** AST-based import walker at `software/tests/support/import_graph.py`
+      (`ImportEdge`, `iter_imports`, `iter_python_files`, `module_area`,
+      `file_area`). Catches function-local imports (8 of the violations below
+      are function-local) and resolves relative imports (`from .x import y`)
+      against the importing file's own package, matching Python's own
+      resolution. Kept `test_area_boundaries.py`'s subprocess-blocker
+      technique unchanged — it catches transitive edges no static AST walk
+      can see.
+
+      **Two real bugs found while actually running this, not just reading
+      it:** (a) `ast.parse` raised on a BOM in
+      `plugins/camera_emotion/adapter.py` — fixed by reading with
+      `utf-8-sig`. (b) `file_area()` treated a file sitting directly in
+      `study_runner/` (`__init__.py`, `version.py`, `app_server.py`,
+      `self_check.py`) as belonging to a fictitious area named after itself
+      — crashed `measure_structure.py` the first time something iterated
+      *files* rather than checking one already-known path. Fixed by requiring
+      3 path segments, not 2, for a file to have an area. `module_area` has
+      the same shape of ambiguity for dotted module strings but no
+      filesystem access to resolve it; documented rather than silently
+      "fixed" with a guess, since every current caller already intersects
+      the result against a real directory listing before treating it as a
+      real area — verified this precisely to avoid re-introducing (b) by a
+      different door.
+- [x] **1.2** `test_import_boundaries.py` — a `KNOWN_VIOLATIONS` allowlist,
+      not a red test. **Discovered mechanically, not hand-transcribed** —
+      the hand-written list in my own planning notes had 17 pairs and missed
+      one real edge (`notion_upload/adapter.py` also imports
+      `study_plugin_config`, not just `study_config_service`). The
+      mechanical scan found **18** distinct `(file, module)` pairs, plus a
+      19th edge invariant #1's own wording doesn't mention:
+      `backend/services/recording/recording_runtime.py` imports
+      `recording_worker.lsl_recording` directly — the future data_core
+      *host* importing the future data_core *worker*, from the host side.
+      `RULES` therefore uses path-prefix matching
+      (`backend/services/recording/` specifically, not all of `backend`),
+      not just top-level area matching, so this edge could be expressed
+      before Phase 4 physically separates the two. Verified both failure
+      modes actually fire (new violation added / known violation silently
+      fixed-but-not-removed) with a scripted before/after check, not just by
+      reading the assertions.
+- [x] **1.3** Invariants already true, now green regression locks:
+      - #5: `test_architecture_invariants.py::OnlyDataCoreWritesXdfBytesTests`
+        — only `recording_worker/` may import `NativeXdfWriter` (not just
+        "the recording area", since `recording/worker_binary.py` legitimately
+        imports `probe_core_library`/`CoreProbe` from the same module to
+        validate the library without writing to it — the check is precise
+        about which *names* are imported, not just which module).
+      - #4: widened `test_no_core_module_names_a_plugin.py` from 5 to 7
+        functions (added `destination_definitions_from_manifests`,
+        `discover_plugin_catalog`). Considered and rejected a whole-file
+        literal scan across all core modules: it cannot tell a real branch on
+        a plugin key from a plugin name used as a docstring example —
+        confirmed by hand against `recording_contract.py` ("a BrainBit-2
+        family device", prose) and `study_readiness_service.py`
+        (`notion_enabled` as a worked example) — so it would need its own
+        allowlist infrastructure to stay honest, and every module-level hit
+        surveyed this way turned out to be an already-legitimate, previously
+        undocumented exception (deprecated route aliases in
+        `routes/sensors.py` / `routes/notion.py`, Notion's one-time legacy
+        queue migration). Left as a possible future test, not invented here
+        under time pressure.
+      - #3: `ContractsDependsOnNothingTests` — `study_runner/contracts/`
+        doesn't exist yet, so this currently **skips** (not passes
+        vacuously-and-silently) with an explicit reason. Activates itself
+        the moment Phase 2/3 creates the first file there.
+- [x] **1.4** Invariant #6 as a field-name denylist
+      (`NoPersistedGlobalTimeFieldTests`), scoped to string literals used as
+      an actual dict/JSON key (`ast.Dict` keys, subscripts,
+      `.get`/`.setdefault`/`.pop` first arguments) — deliberately **not** a
+      whole-string-literal scan, for the same docstring-false-positive reason
+      found in 1.3. Patterns: `global_time`, `unified_time(stamp)`,
+      `synced_time`, `synchronized_time`, `absolute_time`, `canonical_time`,
+      `merged_time`. Verified it does not flag legitimate fields
+      (`client_clock_offset_ms`, `timestamp_start`) and does flag a
+      synthetic bad one (`unified_global_time_ms`). Today's codebase has zero
+      matches — correct, since `timing.jsonl` (Phase 5c) doesn't exist yet;
+      this is the tripwire for when it's built carelessly.
+- [x] **1.5** `tools/measure_structure.py` — cross-package import edges,
+      cycle count (transitive closure over the area graph, not just direct
+      mutual edges — a cycle can route through a third area), lines per
+      package, largest file. `--write-baseline` / `--check` (fails only on
+      regression) / no-flag (prints current metrics). Baseline committed at
+      `tools/structure_baseline.json`: **143 cross-package edges, 6 cycles**
+      (`backend`×{`plugin_framework`,`recording`,`recording_worker`},
+      `plugin_framework`×{`recording`,`recording_worker`},
+      `recording`×`recording_worker` — all expected, all traceable to the 19
+      known violations plus `backend`'s legitimate heavy use of those areas),
+      largest file `plugins/brainbit/adapter.py` at 2283 lines. Verified
+      `--check` both passes against its own baseline and fails when the
+      baseline is stricter than reality, in all four metrics at once.
+- Invariants #7 and the lifecycle-dependent parts defer to Phase 5a, per plan.
+
+All of Phase 1 verified against a real run of the full suite in the worktree,
+not just the new tests in isolation: 729 passed, 5 skipped. (One
+`test_runtime_routes.py` failure is a pre-existing Windows temp-directory
+cleanup race, already seen and confirmed unrelated in Phase 0 — passes in
+isolation.) One doc-drift catch along the way: `test_file_guide.py` correctly
+went red for the new `tools/measure_structure.py` having no guide entry —
+exactly the mechanism it exists for, not a bug.
 
 ### Phase 2 — Break the import edges in place (branch, zero moves)
 
@@ -505,7 +588,8 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 0 (complete) | Claude Code | `main` | 2026-09-07 |
+| Phase 0 (complete, merged) | Claude Code | `main` | 2026-09-07 |
+| Phase 1 (import invariant harness, complete) | Claude Code | `feature/architecture-1.0` | 2026-09-07 |
 
 Rules:
 - **Phases 0–4 are serial, one agent.** Moves and import rewrites are
