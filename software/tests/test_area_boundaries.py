@@ -78,6 +78,14 @@ class AreaBoundaryTests(unittest.TestCase):
     def test_shared_depends_on_no_area(self) -> None:
         """That is the only thing that makes it safe for every area to use."""
         shared = PROJECT_ROOT / "study_runner" / "shared"
+        # rglob over a missing directory yields nothing, so a renamed `shared/`
+        # would turn this into a test that passes by finding no files to check.
+        # The 1.0 restructure moves this path; fail loudly when it does.
+        self.assertTrue(
+            shared.is_dir(),
+            f"{shared} does not exist -- update this path in the same commit "
+            "that moved it (see docs/architecture-1.0-umbau.md)",
+        )
         offenders = []
         for path in shared.rglob("*.py"):
             text = path.read_text(encoding="utf-8")

@@ -9,6 +9,8 @@ import socket
 import sys
 from typing import Any
 
+from study_runner.shared.software_root import find_software_root
+
 
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 3000
@@ -43,8 +45,7 @@ def get_project_base_dir() -> Path:
     """Return the folder that contains bundled project resources."""
     if is_frozen():
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent)).resolve()
-    # …/software/study_runner/backend/services/settings/runtime_config.py -> …/software
-    return Path(__file__).resolve().parents[4]
+    return find_software_root(Path(__file__))
 
 
 def get_app_mode() -> str:

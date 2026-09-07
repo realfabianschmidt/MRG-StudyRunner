@@ -3,6 +3,15 @@
 The owner wants every source file explained. This test walks the source
 tree and fails when a .py/.js file is not mentioned in the guide, so the
 guide cannot silently go stale.
+
+`_source_files` skips a root that does not exist, because `tools/` and
+`release_tools/` are absent from a packaged tree. That skip also means a
+renamed source root makes this test pass while checking nothing at all --
+it would scan two small script folders and call the application documented.
+`test_source_roots_exist` closes that hole: rename a root and this file
+fails loudly instead of going quiet. It matters most during the 1.0
+package restructure (see docs/architecture-1.0-umbau.md), which moves
+every path in SOURCE_DIRS.
 """
 from __future__ import annotations
 
@@ -43,6 +52,22 @@ def _source_files() -> list[Path]:
 
 
 class FileGuideTests(unittest.TestCase):
+    def test_source_roots_exist(self) -> None:
+        """A moved root must fail here, not silently shrink the scan."""
+        missing = [
+            str(path.relative_to(REPO_ROOT))
+            for path in SOURCE_DIRS + EXTRA_FILES
+            if not path.exists()
+        ]
+
+        self.assertEqual(
+            missing,
+            [],
+            "SOURCE_DIRS/EXTRA_FILES point at paths that no longer exist; "
+            "update them in the same commit that moved the code: "
+            + ", ".join(missing),
+        )
+
     def test_every_source_file_is_documented(self) -> None:
         guide_text = GUIDE.read_text(encoding="utf-8")
         missing = []

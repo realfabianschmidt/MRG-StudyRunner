@@ -20,6 +20,8 @@ import time
 import uuid
 from typing import Any, Mapping
 
+from study_runner.shared.software_root import find_software_root
+
 from .plugin_api import Plugin, PluginContext
 
 
@@ -200,7 +202,11 @@ class PluginProcessRuntime:
             command = self._command()
             env = os.environ.copy()
             env["PYTHONUNBUFFERED"] = "1"
-            software_root = str(self.directory.parents[2])
+            # Resolve from this module, not from the plugin directory: the entry
+            # a driver needs on PYTHONPATH is the root that makes `study_runner`
+            # importable, which is the root above this file. A plugin folder may
+            # sit at any depth (and moves in 1.0), so it is the wrong anchor.
+            software_root = str(find_software_root(Path(__file__)))
             existing_pythonpath = env.get("PYTHONPATH", "")
             env["PYTHONPATH"] = os.pathsep.join(
                 item for item in (software_root, existing_pythonpath) if item

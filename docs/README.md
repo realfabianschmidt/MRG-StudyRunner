@@ -16,6 +16,9 @@ Recommended starting points:
 - `developer-guide.md`: code structure, naming rules and integration plugin pattern.
 - `file-guide.md`: one line per source file - what it does and how safely it can be edited.
 - `release-and-update.md`: source archives, manual updates, release tags, and platform acceptance gates.
+- `architecture-1.0-umbau.md`: the shared working state for the 1.0 architecture
+  rebuild - phase checklist, file ownership, decision log, and the verified traps
+  that break silently. Read it before touching package structure.
 - `roadmap-0.5.md`: planned work for 0.5, with decisions, phases and open questions.
 - `../CONTRIBUTING.md`: project rules for clear, maintainable changes.
 

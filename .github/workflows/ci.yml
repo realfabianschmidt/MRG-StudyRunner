@@ -9,6 +9,7 @@ on:
       - main
       - "release/**"
       - "feature/study-runner-manager"
+      - "feature/architecture-**"
 
 permissions:
   contents: read
@@ -67,6 +68,9 @@ jobs:
       - name: Run source-release contract tests
         run: python -m unittest -v release_tools.tests.test_build_source_release
 
+      - name: Run PyInstaller packaging contract tests
+        run: python -m unittest -v release_tools.tests.test_pyinstaller_common
+
       - name: Run JavaScript unit tests
         run: node --test software/tests/js/*.test.mjs
 
@@ -113,3 +117,50 @@ jobs:
         env:
           STUDY_RUNNER_XDF_CORE_TEST: ${{ github.workspace }}/${{ matrix.core_path }}
         run: python -m unittest -v tests.test_hybrid_recording_worker.NativeCoreSmokeTests
+
+  packaging-smoke:
+    name: Packaging smoke test (plugin-free bundle)
+    runs-on: ubuntu-24.04
+    # PyInstaller is not built by the release workflow either (see
+    # docs/architecture-1.0-umbau.md, trap T5) -- this is the only place a
+    # packaging break (a bad `datas` mapping, a missing hidden import, a moved
+    # frontend path) gets caught before it reaches an operator's machine.
+    # A plugin-free tree needs no BrainBit SDKs or DeepFace weights
+    # (release_tools/pyinstaller/study_runner_server_common.py:
+    # common_binaries/common_datas both short-circuit without a matching
+    # manifest), so this runs on a plain Linux runner with no extra setup.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade --constraint software/constraints/py312-bootstrap.txt pip
+          python -m pip install \
+            --constraint software/constraints/py312-common.txt \
+            --constraint software/constraints/py312-local-emotion.txt \
+            -r software/requirements.txt \
+            -r release_tools/pyinstaller/requirements-build.txt
+
+      - name: Empty the plugins directory
+        # Keeps the bundle to what every checkout can build: no hardware SDKs,
+        # no DeepFace weights. common_datas()/common_binaries() both handle an
+        # empty plugin tree explicitly (see test_pyinstaller_common.py).
+        run: |
+          mv software/study_runner/plugins software/study_runner/plugins.disabled
+          mkdir software/study_runner/plugins
+          cp software/study_runner/plugins.disabled/__init__.py software/study_runner/plugins/
+
+      - name: Build the PyInstaller onedir bundle
+        run: python release_tools/build_python_onedir.py
+
+      - name: Run the bundled self-check
+        run: ./software/dist/study-runner-server/study-runner-server --self-check

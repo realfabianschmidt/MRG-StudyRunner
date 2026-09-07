@@ -1,0 +1,17 @@
+{
+  "session_id": "session-fixture-01",
+  "participant_id": "participant-fixture-01",
+  "study_id": "Fixture Legacy Study",
+  "client_clock_offset_ms": 0,
+  "timestamp_start": "2025-01-01T10:00:00.000Z",
+  "timestamp_end": "2025-01-01T10:05:00.000Z",
+  "answers": {
+    "q1": "synthetic-answer"
+  },
+  "participant_metadata": {},
+  "answer_events": [],
+  "card_events": [],
+  "recovered": true,
+  "skipped_questions": [],
+  "answer_details": []
+}

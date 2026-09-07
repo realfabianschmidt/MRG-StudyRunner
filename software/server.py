@@ -51,6 +51,10 @@ if __name__ == "__main__":
         from study_runner.updates.installer import main as run_installer
 
         raise SystemExit(run_installer(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "--self-check":
+        from study_runner.self_check import main as run_self_check
+
+        raise SystemExit(run_self_check())
     from study_runner.app_server import run_app
 
     run_app()

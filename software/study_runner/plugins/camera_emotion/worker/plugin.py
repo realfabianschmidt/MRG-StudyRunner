@@ -18,6 +18,7 @@ from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import config_section, timestamp
 from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
+from study_runner.shared.software_root import find_software_root
 from .model_errors import (
     DEEPFACE_EMOTION_MODEL_MIN_BYTES,
     DEEPFACE_EMOTION_MODEL_NAME,
@@ -60,7 +61,7 @@ _model_job: dict[str, Any] = {
     "running": False,
     "last_message": "Model asset repair has not been run.",
 }
-_SOFTWARE_ROOT = Path(__file__).resolve().parents[4]
+_SOFTWARE_ROOT = find_software_root(Path(__file__))
 _DEPENDENCY_CONSTRAINT_FILES = (
     _SOFTWARE_ROOT / "constraints" / "py312-common.txt",
     _SOFTWARE_ROOT / "constraints" / "py312-local-emotion.txt",

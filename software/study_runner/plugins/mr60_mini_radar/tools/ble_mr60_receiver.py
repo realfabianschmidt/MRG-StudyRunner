@@ -18,11 +18,24 @@ from pathlib import Path
 from typing import Any
 
 
+def _find_software_root() -> Path:
+    """Locate `software/` by marker, not by counting levels.
+
+    This duplicates `study_runner.shared.software_root` on purpose: the whole
+    point of this block is to make `study_runner` importable, so it cannot
+    import from it yet. Counting parents would silently return a wrong folder
+    when this script moves; the marker search fails loudly instead.
+    """
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "server.py").exists() and (candidate / "study_runner").is_dir():
+            return candidate
+    raise RuntimeError("Could not locate the software/ folder above this script.")
+
+
 try:
     from study_runner.plugins.mr60_mini_radar import adapter
 except ModuleNotFoundError:
-    software_root = Path(__file__).resolve().parents[4]
-    sys.path.insert(0, str(software_root))
+    sys.path.insert(0, str(_find_software_root()))
     from study_runner.plugins.mr60_mini_radar import adapter
 
 

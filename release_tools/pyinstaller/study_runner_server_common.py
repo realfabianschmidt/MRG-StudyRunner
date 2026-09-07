@@ -29,6 +29,17 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
         (str(root / "study_runner" / "frontend"), "study_runner/frontend"),
         (str(root / "study_content"), "study_content"),
     ]
+    # markers.py and clock_diagnostics.py load these next to themselves at
+    # runtime (Path(__file__).parent / "*.manifest.json"), not through an
+    # import, so PyInstaller's static analysis cannot find them on its own.
+    # Missing either one crashes create_app() at startup -- caught by the
+    # packaging-smoke CI job, which is the only place that actually runs a
+    # built bundle (see docs/architecture-1.0-umbau.md, trap T5).
+    for manifest_name in ("markers.manifest.json", "clock_diagnostics.manifest.json"):
+        manifest_path = root / "study_runner" / "recording" / manifest_name
+        if not manifest_path.is_file():
+            raise RuntimeError(f"Internal recording manifest is missing: {manifest_path}")
+        datas.append((str(manifest_path), "study_runner/recording"))
     plugin_manifests = _plugin_manifests(root)
     camera_manifest = next(
         (manifest for manifest, payload in plugin_manifests if payload.get("plugin_key") == "camera_emotion"),
@@ -134,6 +145,9 @@ def common_hidden_imports(root: Path) -> list[str]:
             "study_runner.updates.installer",
             "study_runner.updates.trusted_keys",
             "study_runner.version",
+            # Launched as "<own executable> --self-check"; see
+            # docs/architecture-1.0-umbau.md trap T5 for why this exists.
+            "study_runner.self_check",
         ]
     )
     if "brainbit" in plugin_keys:

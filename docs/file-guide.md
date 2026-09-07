@@ -17,6 +17,7 @@ Edit-safety legend:
 | `software/server.py` | Start Study Runner from source (`python server.py`); also dispatches the detached `--recording-worker`, emotion-worker, BrainBit CLI, and updater modes | careful |
 | `software/study_runner/app_server.py` | Wires up the Flask server: port check, HTTPS, startup banner, browser open | careful |
 | `software/study_runner/version.py` | The single version number of the app | yes |
+| `software/study_runner/self_check.py` | `server.py --self-check`: builds the app with hardware disabled and asserts static folder, study page, plugin discovery, and `/` all resolve, without starting the HTTP server | careful |
 | `tools/study_runner_manager.py` | Standalone Install & Repair Wizard (downloads, verifies, installs releases) | no |
 | `tools/setup_recording_worker.py` | One-time source setup: verifies the toolchain, builds only the current native XDF core, runs CTest and the Python/PyXDF smoke test | no |
 | `tools/make_timeline_fixture.py` | Writes a synthetic completed session with a real multi-stream XDF, so the timeline can be seen without recording hardware | no |
@@ -51,6 +52,7 @@ Edit-safety legend:
 |---|---|---|
 | `services/studies/__init__.py` | Empty package marker | yes |
 | `../shared/atomic_io.py` | Crash-safe JSON writes (temp file + replace) for all study data | no |
+| `../shared/software_root.py` | Locates `software/` by marker (`server.py` + `study_runner/`) instead of counting parent levels | no |
 | `services/studies/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
 | `services/studies/results_service.py` | Builds answer details, slices biosignals per card, writes result files | no |
 | `services/studies/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |
