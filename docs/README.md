@@ -13,6 +13,10 @@ Recommended starting points:
 - `plugin-recording-architecture.md`: API-v4 plugin contract (the `driver.py`
   subprocess model), transport matrix, Python worker, native XDF core,
   finalization, and recovery.
+- `how-recording-quality-works.md`: plain-language explanation, written for
+  readers without a coding background - how recording quality is measured
+  live, what gaps, jitter, effective rate and capture-delay provenance mean,
+  why durations use the monotonic clock, and what the lifecycle states say.
 - `developer-guide.md`: code structure, naming rules and integration plugin pattern.
 - `file-guide.md`: one line per source file - what it does and how safely it can be edited.
 - `release-and-update.md`: source archives, manual updates, release tags, and platform acceptance gates.
