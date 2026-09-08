@@ -15,7 +15,8 @@ Edit-safety legend:
 | File | Purpose | Edit? |
 |---|---|---|
 | `software/server.py` | Start Study Runner from source (`python server.py`); also dispatches the detached `--recording-worker`, emotion-worker, BrainBit CLI, and updater modes | careful |
-| `software/study_runner/app_server.py` | Wires up the Flask server: port check, HTTPS, startup banner, browser open | careful |
+| `software/study_runner/app_server.py` | Stable server import/module entrypoint delegating to `apps/server/application.py` | careful |
+| `software/study_runner/apps/server/application.py` | Wires up the Flask server: port check, HTTPS, startup banner, browser open | careful |
 | `software/study_runner/version.py` | The single version number of the app | yes |
 | `software/study_runner/self_check.py` | `server.py --self-check`: builds the app with hardware disabled and asserts static folder, study page, plugin discovery, and `/` all resolve, without starting the HTTP server | careful |
 | `tools/study_runner_manager.py` | Standalone Install & Repair Wizard (downloads, verifies, installs releases) | no |
@@ -31,8 +32,9 @@ Edit-safety legend:
 | File | Purpose | Edit? |
 |---|---|---|
 | `software/study_runner/contracts/manifest.py` | Pure manifest/command-payload validation and API versions; imports only the standard library, shared by recorder and plugin framework | no |
+| `software/study_runner/contracts/plugin_api.py` | Dependency-light runtime context and plugin protocol shared by server, framework, and extension subprocesses | no |
 
-## Backend - HTTP routes (`software/study_runner/apps/server/routes/`)
+## Apps server - HTTP routes (`software/study_runner/apps/server/routes/`)
 
 | File | Purpose | Edit? |
 |---|---|---|
@@ -53,73 +55,73 @@ Edit-safety legend:
 | `routes/plugins.py` | Serves the manifest-derived plugin catalog used by generic admin UI | careful |
 | `routes/helpers.py` | Shared request helpers: runtime config, sessions, sensor runtime | careful |
 
-## Backend - services (`software/study_runner/apps/server/services/`)
+## Runtime and shared services (`software/study_runner/runtime_core/`, `software/study_runner/shared/`)
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `services/studies/__init__.py` | Empty package marker | yes |
-| `../shared/atomic_io.py` | Crash-safe JSON writes (temp file + replace) for all study data | no |
-| `../shared/software_root.py` | Locates `software/` by marker (`server.py` + `study_runner/`) instead of counting parent levels | no |
-| `../shared/runtime_mode.py` | `is_frozen`/`get_app_mode`/`get_project_base_dir` -- moved here so plugins and plugin_framework don't have to depend on backend for them; re-exported from `backend/services/settings/runtime_config.py` | no |
-| `../shared/study_identifiers.py` | `normalize_study_id` -- the one place a study's stable filename/credential key gets computed; re-exported from `study_config_service.py` | no |
-| `../shared/dependency_utils.py` | `ensure_requirements` -- moved here so `recording/markers.py`/`clock_diagnostics.py` can use it without depending on plugin_framework; re-exported from `plugin_framework/dependency_utils.py` | no |
-| `../shared/participant_fields.py` | `PARTICIPANT_FIELD_ORDER` -- moved here so the Notion destination plugin can use it without depending on backend; re-exported from `validation.py` | no |
-| `../shared/filename_sanitizer.py` | `sanitize_identifier_for_filename` -- needed by both `backend/services/studies` (results/recovery) and `data_core/host` (sensor flush), so it belongs to neither | no |
-| `../shared/recording_errors.py` | Typed recording/worker errors -- both sides of the host/worker boundary use these and may not import each other; re-exported from `recording/errors.py` | no |
-| `../shared/worker_protocol.py` | The authenticated, idempotent loopback wire protocol between host and worker; re-exported from `recording/worker_protocol.py` | careful |
-| `../shared/backup_projection.py` | Slowest-grid backup projection model (`BackupProjection`/`BackupSampler`) -- the worker needs it too; re-exported from `recording/backup.py` | careful |
-| `../shared/recording_lease.py` | The persistent 15-minute recording lease -- the worker needs it too; re-exported from `recording/recovery.py` | careful |
-| `../shared/native_core_probe.py` | `CoreProbe`/`probe_core_library` split out of `recording_worker/core.py` so the host-side locator can validate a build without depending on the worker | careful |
-| `../shared/lsl_dependency.py` | `require_pylsl`/`lsl_version_info` -- both the host preflight and the worker need this pylsl/liblsl check; moved out of `recording_worker/lsl_recording.py` | no |
-| `../shared/system_clock_probe.py` | Package 5b preflight: system-clock plausibility bounds plus a per-platform time-sync-service check; no network access | careful |
-| `services/recording/recording_capacity.py` | Package 5b preflight: predicts required storage from the negotiated recording contract's declared stream rates (never disk throughput) against the study's planned duration | careful |
-| `services/studies/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
-| `services/studies/results_service.py` | Builds answer details, slices biosignals per card, writes result files | no |
-| `services/studies/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |
-| `services/studies/session_store.py` | Persistent, rehydrating registry of active tablet study sessions | no |
-| `services/recording/sensor_flush_service.py` | Periodic background export of live sensor history for crash recovery | no |
-| `services/recording/sensor_coordinator_service.py` | Central plugin lifecycle/status wrapper with manifest, backpressure, and timing diagnostics | careful |
-| `services/recording/clock_sync_service.py` | Bounded tablet/worker offset and RTT histories for timing diagnostics | careful |
-| `services/studies/recovery_service.py` | Finds crash-orphaned sessions and finalizes or discards them | no |
-| `services/settings/update_service.py` | In-app updater: manifest fetch, signature check, download, staging | no |
-| `services/settings/ssl_service.py` | Local HTTPS certificate authority for tablet camera access | no |
-| `services/delivery/certificate_download_service.py` | Plain-HTTP, one-file bootstrap download for the local root CA | careful |
-| `services/delivery/certificate_transfer_service.py` | Validates, exports, and transactionally imports the reusable local root CA | no |
-| `services/settings/branding_service.py` | Validates logo uploads and resolves a slot to a stored file, never to a caller's path | no |
-| `services/delivery/upload_jobs_service.py` | Persistent upload journal, crash replay, backoff worker, and retry state | no |
-| `services/delivery/upload_runtime.py` | Registers manifest-declared destination plugin handlers with persistent upload jobs | no |
-| `services/settings/folder_open_service.py` | Validates and opens result folders on Windows or macOS | no |
-| `services/settings/runtime_config.py` | Paths, ports, app mode, data-folder resolution | careful |
-| `services/studies/study_config_service.py` | Load/save the active study and the saved-studies folder | careful |
-| `services/studies/study_run_state_service.py` | Persists the operator-controlled loaded/running/completed run state | careful |
-| `services/recording/study_sensor_runtime.py` | Which sensors are effectively on (study settings + overrides) | careful |
-| `services/studies/trial_service.py` | Sends stimulus start/stop markers to plugins and the two built-in recording sources | careful |
-| `services/studies/study_client_service.py` | Tablet heartbeat bookkeeping | careful |
-| `services/settings/secrets_service.py` | Local-secrets file I/O plus manifest-driven hardware-config redaction | no |
-| `services/studies/study_secrets_service.py` | Per-study credential overrides, never written into the exported study | no |
-| `services/studies/study_readiness_service.py` | Pre-run check: what would stop the loaded study from delivering results | careful |
-| `services/settings/plugin_settings_service.py` | Manifest-driven machine settings: schema, validation, targeted deep-merge writes | no |
-| `services/settings/hardware_settings_service.py` | Saves hardware_settings.json | careful |
-| `services/settings/shortcut_service.py` | Creates the desktop shortcut | careful |
-| `services/settings/admin_status_service.py` | Aggregates plugin status for the dashboard | careful |
-| `services/delivery/artifact_manifest_service.py` | Owns artifact provenance, checksums, completion markers, and guarded source purge | no |
-| `services/studies/card_summary_service.py` | Pure merged-XDF-to-card-statistics derivation | no |
-| `services/delivery/finalization_runtime.py` | Wires the persistent finalizer to recording and upload adapters | no |
-| `services/delivery/finalization_service.py` | Durable, idempotent session-finalization state machine and journal replay | no |
-| `services/delivery/destination_plugin_service.py` | Converts upload-destination manifests into persisted finalization steps and recovery/purge policies | no |
-| `services/recording/plugin_health_poll_service.py` | Manifest-paced, non-blocking per-plugin health cache and bounded poll executor | careful |
-| `services/recording/recording_runtime.py` | Public compatibility facade plus session-level recording orchestration; contains no process-launch or scientific-validation implementation | no |
-| `services/recording/recording_dependencies.py` | liblsl dependency probe and capability-based selection of study/internal recording providers | no |
-| `services/recording/recording_worker_launcher.py` | Detached Python/self worker process command, isolation flags, and startup health handshake | no |
-| `services/recording/recording_runtime_support.py` | Shared recording error, constants, safe session-path/JSON helpers, recovery grid, and required-source readiness gate | no |
-| `services/recording/recording_quality.py` | Scientific source, backup, gap/drop, lease-expiry, and finalization quality checks | no |
-| `services/recording/recording_finalization_adapter.py` | Thin bridge from persistent finalization steps to recording freeze, validation, merge, and shutdown | no |
-| `services/studies/study_plugin_config.py` | Migrates legacy sensor/upload/card fields into the manifest-driven plugin settings shape | careful |
-| `services/studies/trial_event_service.py` | Persists idempotent trial events and backend-enforced deadlines | no |
-| `services/studies/session_journal_service.py` | Append-only, fsynced per-session audit journals plus terminal-finalization archive | no |
-| `services/recording/recording_contract.py` | Builds and persists the immutable, hash-checked `recording-plan.json` snapshot each session starts with | no |
+| `software/study_runner/runtime_core/studies/__init__.py` | Empty package marker | yes |
+| `software/study_runner/shared/atomic_io.py` | Crash-safe JSON writes (temp file + replace) for all study data | no |
+| `software/study_runner/shared/software_root.py` | Locates `software/` by marker (`server.py` + `study_runner/`) instead of counting parent levels | no |
+| `software/study_runner/shared/runtime_mode.py` | `is_frozen`/`get_app_mode`/`get_project_base_dir` shared by extensions, plugin framework, and runtime settings | no |
+| `software/study_runner/shared/study_identifiers.py` | `normalize_study_id` -- the one place a study's stable filename/credential key gets computed; re-exported from `study_config_service.py` | no |
+| `software/study_runner/shared/dependency_utils.py` | `ensure_requirements` -- shared by `data_core/host` and plugin framework without creating an area dependency | no |
+| `software/study_runner/shared/participant_fields.py` | `PARTICIPANT_FIELD_ORDER` -- shared by study validation and the Notion destination extension | no |
+| `software/study_runner/shared/filename_sanitizer.py` | `sanitize_identifier_for_filename` -- needed by both `runtime_core/studies` (results/recovery) and `data_core/host` (sensor flush), so it belongs to neither | no |
+| `software/study_runner/data_core/contract/recording_errors.py` | Typed recording/worker errors shared across the host/worker boundary | no |
+| `software/study_runner/data_core/contract/worker_protocol.py` | The authenticated, idempotent loopback wire protocol between host and worker | careful |
+| `software/study_runner/data_core/contract/backup_projection.py` | Slowest-grid backup projection model (`BackupProjection`/`BackupSampler`) shared by host and worker | careful |
+| `software/study_runner/data_core/contract/recording_lease.py` | The persistent 15-minute recording lease shared by host and worker | careful |
+| `software/study_runner/data_core/contract/native_core_probe.py` | `CoreProbe`/`probe_core_library` lets the host validate a build without depending on the worker | careful |
+| `software/study_runner/data_core/contract/lsl_dependency.py` | `require_pylsl`/`lsl_version_info` shared by host preflight and worker inlet setup | no |
+| `software/study_runner/shared/system_clock_probe.py` | Package 5b preflight: system-clock plausibility bounds plus a per-platform time-sync-service check; no network access | careful |
+| `software/study_runner/data_core/host/recording_capacity.py` | Package 5b preflight: predicts required storage from the negotiated recording contract's declared stream rates (never disk throughput) against the study's planned duration | careful |
+| `software/study_runner/runtime_core/studies/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
+| `software/study_runner/runtime_core/studies/results_service.py` | Builds answer details, slices biosignals per card, writes result files | no |
+| `software/study_runner/runtime_core/studies/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |
+| `software/study_runner/runtime_core/studies/session_store.py` | Persistent, rehydrating registry of active tablet study sessions | no |
+| `software/study_runner/data_core/host/sensor_flush_service.py` | Periodic background export of live sensor history for crash recovery | no |
+| `software/study_runner/data_core/host/sensor_coordinator_service.py` | Central plugin lifecycle/status wrapper with manifest, backpressure, and timing diagnostics | careful |
+| `software/study_runner/data_core/host/clock_sync_service.py` | Bounded tablet/worker offset and RTT histories for timing diagnostics | careful |
+| `software/study_runner/runtime_core/studies/recovery_service.py` | Finds crash-orphaned sessions and finalizes or discards them | no |
+| `software/study_runner/runtime_core/settings/update_service.py` | In-app updater: manifest fetch, signature check, download, staging | no |
+| `software/study_runner/runtime_core/settings/ssl_service.py` | Local HTTPS certificate authority for tablet camera access | no |
+| `software/study_runner/runtime_core/delivery/certificate_download_service.py` | Plain-HTTP, one-file bootstrap download for the local root CA | careful |
+| `software/study_runner/runtime_core/delivery/certificate_transfer_service.py` | Validates, exports, and transactionally imports the reusable local root CA | no |
+| `software/study_runner/runtime_core/settings/branding_service.py` | Validates logo uploads and resolves a slot to a stored file, never to a caller's path | no |
+| `software/study_runner/runtime_core/delivery/upload_jobs_service.py` | Persistent upload journal, crash replay, backoff worker, and retry state | no |
+| `software/study_runner/runtime_core/delivery/upload_runtime.py` | Registers manifest-declared destination plugin handlers with persistent upload jobs | no |
+| `software/study_runner/runtime_core/settings/folder_open_service.py` | Validates and opens result folders on Windows or macOS | no |
+| `software/study_runner/runtime_core/settings/runtime_config.py` | Paths, ports, app mode, data-folder resolution | careful |
+| `software/study_runner/runtime_core/studies/study_config_service.py` | Load/save the active study and the saved-studies folder | careful |
+| `software/study_runner/runtime_core/studies/study_run_state_service.py` | Persists the operator-controlled loaded/running/completed run state | careful |
+| `software/study_runner/data_core/host/study_sensor_runtime.py` | Which sensors are effectively on (study settings + overrides) | careful |
+| `software/study_runner/runtime_core/studies/trial_service.py` | Sends stimulus start/stop markers to plugins and the two built-in recording sources | careful |
+| `software/study_runner/runtime_core/studies/study_client_service.py` | Tablet heartbeat bookkeeping | careful |
+| `software/study_runner/runtime_core/settings/secrets_service.py` | Local-secrets file I/O plus manifest-driven hardware-config redaction | no |
+| `software/study_runner/plugin_framework/plugin_secrets.py` | Per-study credential overrides and secret resolution, never written into the exported study | no |
+| `software/study_runner/runtime_core/studies/study_readiness_service.py` | Pre-run check: what would stop the loaded study from delivering results | careful |
+| `software/study_runner/runtime_core/settings/plugin_settings_service.py` | Manifest-driven machine settings: schema, validation, targeted deep-merge writes | no |
+| `software/study_runner/runtime_core/settings/hardware_settings_service.py` | Saves hardware_settings.json | careful |
+| `software/study_runner/runtime_core/settings/shortcut_service.py` | Creates the desktop shortcut | careful |
+| `software/study_runner/runtime_core/settings/admin_status_service.py` | Aggregates plugin status for the dashboard | careful |
+| `software/study_runner/runtime_core/delivery/artifact_manifest_service.py` | Owns artifact provenance, checksums, completion markers, and guarded source purge | no |
+| `software/study_runner/runtime_core/studies/card_summary_service.py` | Pure merged-XDF-to-card-statistics derivation | no |
+| `software/study_runner/runtime_core/delivery/finalization_runtime.py` | Wires the persistent finalizer to recording and upload adapters | no |
+| `software/study_runner/runtime_core/delivery/finalization_service.py` | Durable, idempotent session-finalization state machine and journal replay | no |
+| `software/study_runner/runtime_core/delivery/destination_plugin_service.py` | Converts upload-destination manifests into persisted finalization steps and recovery/purge policies | no |
+| `software/study_runner/data_core/host/plugin_health_poll_service.py` | Manifest-paced, non-blocking per-plugin health cache and bounded poll executor | careful |
+| `software/study_runner/data_core/host/recording_runtime.py` | Public compatibility facade plus session-level recording orchestration; contains no process-launch or scientific-validation implementation | no |
+| `software/study_runner/data_core/host/recording_dependencies.py` | liblsl dependency probe and capability-based selection of study/internal recording providers | no |
+| `software/study_runner/data_core/host/recording_worker_launcher.py` | Detached Python/self worker process command, isolation flags, and startup health handshake | no |
+| `software/study_runner/data_core/host/recording_runtime_support.py` | Shared recording error, constants, safe session-path/JSON helpers, recovery grid, and required-source readiness gate | no |
+| `software/study_runner/data_core/host/recording_quality.py` | Scientific source, backup, gap/drop, lease-expiry, and finalization quality checks | no |
+| `software/study_runner/runtime_core/delivery/recording_finalization_adapter.py` | Thin bridge from persistent finalization steps to recording freeze, validation, merge, and shutdown | no |
+| `software/study_runner/runtime_core/studies/study_plugin_config.py` | Migrates legacy sensor/upload/card fields into the manifest-driven plugin settings shape | careful |
+| `software/study_runner/runtime_core/studies/trial_event_service.py` | Persists idempotent trial events and backend-enforced deadlines | no |
+| `software/study_runner/runtime_core/studies/session_journal_service.py` | Append-only, fsynced per-session audit journals plus terminal-finalization archive | no |
+| `software/study_runner/data_core/host/recording_contract.py` | Builds and persists the immutable, hash-checked `recording-plan.json` snapshot each session starts with | no |
 
-## Recording, host side (`software/study_runner/recording/`)
+## Recording, host side (`software/study_runner/data_core/host/`)
 
 | File | Purpose | Edit? |
 |---|---|---|
@@ -135,7 +137,7 @@ Edit-safety legend:
 | `clock_diagnostics.py` | Wall/LSL/client clock observations at event boundaries; every session carries it, not a plugin | careful |
 | `markers.manifest.json`, `clock_diagnostics.manifest.json` | Declare each built-in source's streams the same way a plugin manifest does, loaded through the same validator, never discovered from a directory | no |
 
-## Detached recording worker (`software/study_runner/recording_worker/`)
+## Detached recording worker (`software/study_runner/data_core/worker/`)
 
 | File | Purpose | Edit? |
 |---|---|---|
@@ -156,7 +158,7 @@ it deliberately contains no HTTP, LSL, plugin, or study logic.
 | `software/study_runner/updates/trusted_keys.py` | Trusted public keys (filled in by CI at release build) | no |
 | `software/study_runner/updates/installer.py` | Applies a staged update on restart (`--apply-update`) | no |
 
-## Plugins (`software/study_runner/plugins/`)
+## Plugins (`software/study_runner/extensions/`)
 
 The folder name, public plugin key, and hardware-config key are deliberately
 not assumed to be identical. `test_plugin_registry.py` freezes this compatibility
@@ -173,23 +175,23 @@ mapping:
 
 `lsl_markers` and `clock_diagnostics` used to be here. Removing either broke
 recording -- see `tests/test_plugin_removability.py` -- so they are core
-recording code now, not plugins: `recording/markers.py` and
-`recording/clock_diagnostics.py`.
+recording code now, not extensions: `data_core/host/markers.py` and
+`data_core/host/clock_diagnostics.py`.
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `plugin_api.py` | The PluginContext/plugin interface every sensor implements | careful |
-| `plugin_secrets.py` | Per-study credential storage and env/study/machine/legacy resolution -- runs in both the host and each plugin's own subprocess, so it must not depend on backend | careful |
+| `plugin_secrets.py` | Per-study credential storage and env/study/machine/legacy resolution used by the host and each extension subprocess | careful |
 | `adapter_utils.py` | Shared timestamps, locked state updates, and config-section lookup | careful |
 | `registry.py` | Manifest-driven plugin lookup, generic actions, interval summaries, and sidecar exports | careful |
 | `plugin_catalog.py` | Discovers plugin folders and validates manifests (v4 primary, v3 compatibility path) before dispatch | no |
+| `extension_layout.py` | Defines trusted extension category roots shared by discovery, drivers, UI assets, and self-check | no |
 | `driver_runtime.py` | Runtime used by the single `driver.py` entry point every API-v4 plugin process runs | careful |
 | `process_host.py` | Host-side supervisor for API-v4 drivers: start/stop/restart, line-oriented console, reserved-prefix RPC | careful |
 | `history_buffer.py` | Session-sized ring buffers + gap/truncation detection for all sensors | careful |
 | `dependency_utils.py` | Optional auto-install of Python packages sensors need | careful |
 | `__init__.py` (all) | Empty package markers | yes |
 | `brainbit/adapter.py` | Supervises the BrainBit CLI process (has a TOC docstring) | careful |
-| `brainbit/brainbit_realtime_cli.py` | The external BrainBit EEG CLI itself (SOURCE OF TRUTH; in a lab-workspace checkout, `../../Sensorik/` is the separate external hardware/sensor reference folder this mirrors into — see `docs/README.md` — not generated by the app and not part of this repo); also runs inside packaged builds via `--brainbit-cli`. See `plugins/brainbit/README.md` for NeuroSDK/BrainFlow provenance. | careful |
+| `brainbit/brainbit_realtime_cli.py` | The external BrainBit EEG CLI itself (SOURCE OF TRUTH; in a lab-workspace checkout, `../../Sensorik/` is the separate external hardware/sensor reference folder this mirrors into — see `docs/README.md` — not generated by the app and not part of this repo); also runs inside packaged builds via `--brainbit-cli`. See `extensions/sensors/brainbit/README.md` for NeuroSDK/BrainFlow provenance. | careful |
 | `brainbit/plugin.py` | Plugin wrapper: config defaults + lifecycle for BrainBit | careful |
 | `brainbit/driver.py` | API-v4 process entry point (`run_plugin_driver("brainbit")`) | no |
 | `brainbit/diagnose_backends.py` | Standalone 30-second NeuroSDK vs. BrainFlow A/B diagnostic, outside the acquisition path | careful |
@@ -247,11 +249,11 @@ recording code now, not plugins: `recording/markers.py` and
 | `shared/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
 | `shared/api-client.js` | Tiny fetch helpers (getJson/postJson) | careful |
 | `shared/i18n.js` | Translation loading and the `t()` helper | careful |
-| `integrations/camera_emotion/ui/participant.js` | Camera/emotion participant lifecycle extension for preview, stimuli, submit, and heartbeat status | careful |
-| `integrations/camera_emotion/ui/camera-capture.js` | Plugin-owned tablet camera capture and frame upload adapter | careful |
-| `integrations/brainbit/ui/dashboard.js` | Optional BrainBit rich-status renderer loaded through the manifest extension hook | careful |
-| `integrations/mr60_mini_radar/ui/dashboard.js` | Optional MR60 rich-status renderer loaded through the manifest extension hook | careful |
-| `integrations/camera_emotion/ui/dashboard.js` | Optional camera/emotion rich-status renderer loaded through the manifest extension hook | careful |
+| `extensions/sensors/camera_emotion/ui/participant.js` | Camera/emotion participant lifecycle extension for preview, stimuli, submit, and heartbeat status | careful |
+| `extensions/sensors/camera_emotion/ui/camera-capture.js` | Plugin-owned tablet camera capture and frame upload adapter | careful |
+| `extensions/sensors/brainbit/ui/dashboard.js` | Optional BrainBit rich-status renderer loaded through the manifest extension hook | careful |
+| `extensions/sensors/mr60_mini_radar/ui/dashboard.js` | Optional MR60 rich-status renderer loaded through the manifest extension hook | careful |
+| `extensions/sensors/camera_emotion/ui/dashboard.js` | Optional camera/emotion rich-status renderer loaded through the manifest extension hook | careful |
 | `participant/study-client-heartbeat.js` | Keeps the tablet visible on the dashboard | careful |
 | `shared/qr-code.js` | QR code rendering for the access card | no |
 | `cards/index.js` | Registers all card modules | careful |
@@ -269,7 +271,7 @@ recording code now, not plugins: `recording/markers.py` and
 | `cards/card-info.js` | The shared editor frame: question text, instruction, note, toggle group | careful |
 | `cards/card-finish.js` | The final thank-you card | careful |
 
-Locales (`web/locales/en.json`, `de.json`) hold every UI string; both
+Locales (`apps/ui/locales/en.json`, `de.json`) hold every UI string; both
 files must have identical keys (a test checks this). `web/vendor/`
 holds offline copies of third-party assets (icons).
 

@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import subprocess
@@ -525,15 +526,17 @@ def _write_state(path: Path, payload: dict[str, Any]) -> None:
         file_handle.write("\n")
 
 
-def _version_tuple(value: str) -> tuple[int, int, int]:
-    if not _is_semver(value):
-        return (0, 0, 0)
-    return tuple(int(part) for part in value.split("."))  # type: ignore[return-value]
+def _version_tuple(value: str) -> tuple[int, int, int, int, str]:
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?", str(value))
+    if match is None:
+        return (0, 0, 0, 0, "")
+    major, minor, patch = (int(match.group(index)) for index in range(1, 4))
+    prerelease = match.group(4)
+    return major, minor, patch, int(prerelease is None), prerelease or ""
 
 
 def _is_semver(value: str) -> bool:
-    parts = str(value).split(".")
-    return len(parts) == 3 and all(part.isdigit() for part in parts)
+    return re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", str(value)) is not None
 
 
 def _utc_now() -> str:

@@ -4,12 +4,40 @@ Updated: 2026-09-08. Read this file and [the working plan](architecture-1.0-umba
 before continuing. Both are tracked repository files, accessible to either
 assistant through the local checkout; no private assistant memory is required.
 
+## Current authoritative state
+
+Phase 4 is complete. Built-ins live in categorized `extensions`, the UI lives
+in `apps/ui`, and the Flask factory, routes, and runtime live in `apps/server`.
+The old `plugins`, `frontend`, and `backend` packages are gone; both promised
+server entrypoints remain. Stored known hardware paths migrate idempotently,
+while unknown custom paths are preserved. Planned session duration is editable,
+and invalid capacity inputs or an unreadable storage status fail closed with a
+useful blocker.
+
+The final structure checkpoint records **235 visible package edges and 0
+cycles**. The earlier 152-edge baseline treated large `backend` and plugin
+packages as single areas; nested measurement now exposes the intended
+`apps.server` to `runtime_core` and host/worker/contract boundaries. No
+forbidden dependency was allowlisted. Version is `1.0.0-dev`.
+
+Final evidence: **814 Python passed, 4 skipped; 27 JavaScript passed; 25
+release/packaging passed; structure and version checks passed.** A fresh real
+Windows onedir bundle containing only `extensions/outputs/packaging_probe`
+passed catalog discovery, UI/root routing, and child-process
+initialize/status/shutdown RPC. Disposable logs are under
+`.tmp/bundle-final/` in the main workspace.
+
+**Next task:** resume the deferred Phase 3 compatibility and plugin-contract
+work, then Phase 5c lifecycle and checkpoint recovery. Claim the package in the
+working plan before editing. The historical checkpoints below explain how this
+state was reached; their old “next” lines are superseded by this section.
+
 ## Shared location and coordination
 
 - Canonical development branch: `feature/architecture-1.0`, `C:\SR-1.0`.
-- Repairs prepared on `fix/architecture-review` in the main workspace's
-  `.tmp/v1-review`, based on `c557cd2`; documentation approval commit `ce4adcd`.
-- The commit containing this handoff completes R1-R5. Find its exact ID with
+- Phase 4 completion was prepared on `fix/architecture-review` in the main
+  workspace's `.tmp/v1-review`, based on `8635aee`.
+- Find the exact commit containing this handoff with
   `git log -1 --format=%H -- docs/architecture-1.0-handoff.md`.
 - No package is currently owned. Claim the next package in the working plan
   before editing. Check `git status` and branch history first. Concurrent work
@@ -91,7 +119,7 @@ test path). Moving fast was honored by keeping each package large and
 shim-free instead, never by skipping the one check that kept catching
 something.
 
-## Phase 4 progress — 6 of 10 packages done, 2026-09-08
+## Phase 4 historical progress, 2026-09-08
 
 Commits `dec0908`..`2d40c4a` on `feature/architecture-1.0` (in order:
 `4.0`-`4.1` shim removal, `4.2` contracts/plugin_api, `4.3` data_core/contract,
@@ -135,9 +163,9 @@ bundle/upgrade, licences and platform release gates remain open. Version is
 still 0.7.0; this checkpoint does not declare v1.0 complete.
 
 
-## Approved completion package - active 2026-09-08
+## Approved completion package - completed 2026-09-08
 
-Owner: Codex, `fix/architecture-review`, based on `8635aee`; integrate verified
+Owner: none. Codex completed `fix/architecture-review`, based on `8635aee`; integrate verified
 commits into `feature/architecture-1.0` at `C:\SR-1.0`. No concurrent file owner.
 Implement extensions by category, then apps/ui and apps/server; keep server.py
 and app_server.py entrypoints. Separate preflight UI/validation changes from moves.
@@ -181,4 +209,6 @@ blocks start. Invalid user values are rejected locally. Capacity evaluation now
 fails closed for non-finite/invalid rates and unreadable storage instead of
 raising. Localized capacity/clock explanations added. Evidence: 109 targeted
 Python tests and the focused JavaScript contract passed; locale JSON parses.
-Next: Phase 4 path sweep, file-guide validation, version and final gates.
+Final checkpoint: path and file-guide validation, version `1.0.0-dev`, all test
+suites, structure check, and the real Windows fixture bundle pass. Next: the
+deferred Phase 3 compatibility/plugin-contract package.

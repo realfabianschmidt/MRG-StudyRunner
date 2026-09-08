@@ -1,12 +1,11 @@
 # Recording — the host side
 
-Three folders in this repository have "recording" in the name. They are three
-different things and this is the one that runs inside the server:
+The recording implementation is split across three areas with separate jobs:
 
 | Folder | What it is |
 |---|---|
-| `study_runner/recording/` | **This one.** The host side: it decides where a session's files live, starts and supervises the worker, sends it commands, and reads the XDF back afterwards. |
-| `study_runner/recording_worker/` | The separate Python process that actually writes XDF. It is launched by this folder and outlives a browser reload. |
+| `study_runner/data_core/host/` | **This one.** The host side: it decides where a session's files live, starts and supervises the worker, sends it commands, and reads the XDF back afterwards. |
+| `study_runner/data_core/worker/` | The separate Python process that actually writes XDF. It is launched by this folder and outlives a browser reload. |
 | `software/recording_worker/native/` | The C++ XDF core that worker is built on, vendored from App-LabRecorder and pinned by `UPSTREAM_LOCK.json`. |
 
 ## What is in here
@@ -27,9 +26,8 @@ different things and this is the one that runs inside the server:
 - `xdf.py` — reading a finished file back for validation and the session viewer.
 - `errors.py` — the failure types the rest of the app matches on.
 
-## Why it sits beside `backend/` rather than inside it
+## Why it is separate from the HTTP server
 
 Nothing here imports Flask, and the worker keeps running when no request is in
-flight. It was under `backend/` only because that is where it was first written.
-The services that drive it live in `backend/services/recording/`; those are the
-request-facing half, this is the machinery.
+flight. `apps/server/` translates HTTP requests; `runtime_core/` coordinates a
+study; this package owns recording state, artifacts, and worker control.

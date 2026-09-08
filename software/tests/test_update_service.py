@@ -42,6 +42,8 @@ class UpdateServiceTests(unittest.TestCase):
         self.assertEqual(update_service.compare_versions("0.3.0", "0.2.9"), 1)
         self.assertEqual(update_service.compare_versions("0.2.2", "0.2.2"), 0)
         self.assertEqual(update_service.compare_versions("0.2.1", "0.2.2"), -1)
+        self.assertEqual(update_service.compare_versions("1.0.0", "1.0.0-dev"), 1)
+        self.assertEqual(update_service.compare_versions("1.0.0-dev", "0.7.0"), 1)
 
     def test_asset_signature_verification_accepts_generated_key(self) -> None:
         private_key, public_key = _make_keypair()

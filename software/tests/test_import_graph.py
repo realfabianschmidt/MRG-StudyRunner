@@ -21,7 +21,7 @@ class ImportGraphTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.software = Path(self.temporary.name)
         self.root = self.software / "study_runner"
-        for package in ("", "backend", "plugins", "plugins/sample"):
+        for package in ("", "apps", "apps/server", "extensions", "extensions/sample"):
             directory = self.root / package
             directory.mkdir(parents=True, exist_ok=True)
             (directory / "__init__.py").touch()
@@ -29,12 +29,12 @@ class ImportGraphTests(unittest.TestCase):
     def test_boundary_rules_catch_absolute_relative_and_local_submodule_imports(self) -> None:
         statements = (
             "import study_runner.apps.server as web",
-            "from study_runner import backend as web",
-            "from ... import backend as web",
-            "from ...backend import create_app",
-            "def delayed():\n    from study_runner import backend",
+            "from study_runner.apps import server as web",
+            "from ...apps import server as web",
+            "from ...apps.server import create_app",
+            "def delayed():\n    from study_runner.apps import server",
         )
-        source = self.root / "plugins" / "sample" / "plugin.py"
+        source = self.root / "extensions" / "sample" / "plugin.py"
         for statement in statements:
             with self.subTest(statement=statement):
                 source.write_text(statement + "\n", encoding="utf-8-sig")
@@ -42,17 +42,17 @@ class ImportGraphTests(unittest.TestCase):
                     boundaries, "STUDY_RUNNER_ROOT", self.root
                 ):
                     actual = boundaries._find_violations()
-                self.assertIn(("plugins/sample/plugin.py", "study_runner.apps.server"), actual)
+                self.assertIn(("extensions/sample/plugin.py", "study_runner.apps.server"), actual)
 
     def test_package_init_relative_import_uses_the_package_itself(self) -> None:
-        source = self.root / "plugins" / "sample" / "__init__.py"
-        source.write_text("from ... import backend\n", encoding="utf-8")
+        source = self.root / "extensions" / "sample" / "__init__.py"
+        source.write_text("from ...apps import server\n", encoding="utf-8")
         modules = {edge.imported_module for edge in iter_imports(source, package_root=self.software)}
         self.assertIn("study_runner.apps.server", modules)
         self.assertNotIn("backend", modules)
 
     def test_from_import_preserves_attributes_without_inventing_modules(self) -> None:
-        source = self.root / "plugins" / "sample" / "plugin.py"
+        source = self.root / "extensions" / "sample" / "plugin.py"
         source.write_text("from study_runner.apps.server import create_app\n", encoding="utf-8")
         edges = list(iter_imports(source, package_root=self.software))
         self.assertEqual([(edge.imported_module, edge.names) for edge in edges], [
@@ -60,9 +60,9 @@ class ImportGraphTests(unittest.TestCase):
         ])
 
     def test_from_import_finds_a_module_file_without_importing_its_code(self) -> None:
-        backend_module = self.root / "backend" / "dangerous.py"
+        backend_module = self.root / "apps" / "server" / "dangerous.py"
         backend_module.write_text("raise RuntimeError('must never execute')\n", encoding="utf-8")
-        source = self.root / "plugins" / "sample" / "plugin.py"
+        source = self.root / "extensions" / "sample" / "plugin.py"
         source.write_text("from study_runner.apps.server import dangerous\n", encoding="utf-8")
         modules = {edge.imported_module for edge in iter_imports(source, package_root=self.software)}
         self.assertEqual(modules, {"study_runner.apps.server", "study_runner.apps.server.dangerous"})

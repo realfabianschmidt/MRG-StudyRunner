@@ -5,7 +5,7 @@
  * (authoritatively) in the backend's validator. The copies drifted, and a save
  * from an unrelated panel could silently discard another plugin's settings.
  *
- * Every field below mirrors backend/services/validation.py::_validate_study_settings.
+ * Every field below mirrors runtime_core/studies/validation.py::_validate_study_settings.
  * Keep the two in step - tests/test_study_settings_contract.py fails otherwise.
  *
  * Plugin selections are deliberately open-ended. A study may have been created

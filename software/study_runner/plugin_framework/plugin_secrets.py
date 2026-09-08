@@ -5,16 +5,15 @@ Moved here from `backend.services.studies.study_secrets_service` during the
 location, nothing here ever depended on Flask or an app context -- every
 function takes plain dicts and returns a value. The real reason it needed to
 move: `PluginContext.secret()` calls `resolve_plugin_secret`, and that call
-happens in *two* processes -- the host (`backend/__init__.py`) and each
+happens in *two* processes -- the host (`apps/server/__init__.py`) and each
 plugin's own `driver.py` subprocess (`driver_runtime.py`). Both are
 `plugin_framework`-adjacent or `plugin_framework` itself; neither may import
-`backend` (invariant #2). A resolver a plugin's own subprocess can call
+the server package (invariant #2). A resolver a plugin's own subprocess can call
 directly, with no RPC round-trip back to the host, only works if the
 resolution logic lives somewhere both sides can already reach.
 
-`backend.services.studies.study_secrets_service` re-exports everything below
-so its existing callers (routes, `study_readiness_service.py`, the admin
-credential routes) keep working unchanged.
+Server routes and `study_readiness_service.py` import this shared resolver
+directly.
 
 A study carries its upload *targets* (Nextcloud share link, Notion page and
 database) so it runs on another computer. It must never carry the

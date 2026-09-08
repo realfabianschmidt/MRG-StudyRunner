@@ -27,7 +27,7 @@ frontend/
 ## Rules that are tested, not just intended
 
 - **The URL prefix is `/static/`, not the folder name.** `static_folder` is set
-  once in `backend/__init__.py`; renaming this folder does not move a single
+  once in `apps/server/__init__.py`; renaming this folder does not move a single
   `href`.
 - **Nothing loads from a CDN.** `test_pages_do_not_load_from_cdns` fails the
   build if it does.

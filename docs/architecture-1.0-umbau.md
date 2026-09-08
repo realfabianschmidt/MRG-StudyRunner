@@ -27,10 +27,10 @@ approved deviations, implementation progress and acceptance evidence.
 
 Status, 2026-09-08: **Phase 0 merged to `main` (`a1f39d9`); Phase 1, Phase 2
 and 5b (preflight) implemented, including approved repairs R1-R5. Phase 4
-(directory move) in progress: 6 of 10 packages done** (`shared`, `contracts`,
-`data_core/{contract,worker,host}`, `runtime_core` — see the Phase 4 section
-below for exactly what happened in each). Remaining: `extensions/*`,
-`apps/ui`, `apps/server`, then the tail items 4.11-4.16.
+(directory move) is complete.** The final packages are `extensions/*`,
+`apps/ui`, and `apps/server`; the old `plugins`, `frontend`, and `backend`
+packages are gone. Tail items 4.11-4.16 are complete and version is
+`1.0.0-dev`.
 The shared rebuild is `feature/architecture-1.0`, worktree `C:\SR-1.0`.
 Corrections were prepared on `fix/architecture-review`; see the tracked handoff
 for integration and verification evidence. **User-directed course change,
@@ -42,9 +42,10 @@ changed and why) because the operator judged incremental, fully-tested small
 steps too slow relative to the goal. Temporary breakage between package
 moves is accepted; `main` still only receives the result once Phase 4's
 suite is green again, in one merge — every package landed so far has in
-fact kept the full suite green in the same commit as the move (807
-passed/4 skipped throughout), not just at a final checkpoint.
-Version stays `0.7.0` until Phase 4 completes (item 4.15). The copy on `main`
+fact kept focused or full suites green. Final Phase 4 evidence is 814 Python
+tests passed/4 skipped, 27 JavaScript tests, 25 release tests, a green
+structure check, and a real Windows fixture-bundle self-check.
+The copy on `main`
 is a foundation snapshot with a pointer here, not a second independently
 maintained progress checklist.
 
@@ -702,7 +703,7 @@ Zero directory moves: existing runtime packages remain in place; `shared/` and
 - [ ] **3.5** Fix doc drift: `plugins/README.md` still claims "Every manifest
       uses api_version: 3"
 
-### Phase 4 — Directory move (branch) — **in progress, 6 of 10 packages done**
+### Phase 4 — Directory move (branch) — **complete**
 
 > **2026-09-08 course change (operator-directed):** Phase 3 (legacy removal,
 > above) is deliberately **skipped for now** and Phase 4 was pulled forward
@@ -809,75 +810,49 @@ commit per category, derived from each manifest's `category`) → `apps/ui` →
       these three. `backend/services/` (now empty) removed. 53 files
       rewritten (absolute + two different relative-dot forms: `backend/__init__.py`'s
       single-dot `.services.X`, `backend/routes/*.py`'s two-dot `..services.X`).
-- [ ] **4.7 `extensions/{sensors,cards,destinations,outputs}`** — NOT
-      STARTED. `plugins/*` split by each manifest's `category` field
-      (`biosignal`→`sensors`, `storage`→`destinations`, `output`→`outputs`;
-      `cards/` stays empty, it is new in 5g). Check each of the six plugin
-      manifests' `category` value first — do not guess from the plugin's
-      name. Expect `plugins/README.md` and `_MOVED_PLUGIN_PATHS` in
-      `hardware_settings_service.py` (now `runtime_core/settings/`) to need
-      touching in the same or a fast-follow commit — see 4.12 and T7.
-- [ ] **4.8 `apps/ui`** — NOT STARTED. `frontend/` → `apps/ui/`. Watch for
-      hardcoded `study_runner/apps/ui/...` path literals in
-      `backend/__init__.py`'s static-folder wiring, the PyInstaller specs,
-      and JS test runner config (`node --test software/tests/js/*.test.mjs`
-      itself doesn't reference the path, but check `WEB_INTERFACE_DIR` in
-      `backend/__init__.py`).
-- [ ] **4.9 `apps/server`** — NOT STARTED. `backend/routes/` +
-      `app_server.py` → `apps/server/`. `backend/services/` no longer exists as of 4.6; the Flask app factory
-      still exists in `backend/__init__.py` — decide at
-      that point whether the remaining bare `backend/` (just `__init__.py`
-      and `routes/`) folds entirely into `apps/server/` or whether
-      `create_app()` itself is the one thing that stays as
-      `study_runner/apps/server/__init__.py` alongside `apps/server/routes/`.
-      Not yet decided — flagging for whoever does this package rather than
-      guessing. `software/server.py` itself is unaffected either way (D5).
+- [x] **4.7 `extensions/{sensors,cards,destinations,outputs}`** — all six
+      built-ins moved according to their manifests; `cards/` is an empty
+      package. Discovery, child-process launch, UI assets, self-check, and
+      packaging share one trusted-root resolver. Conflicts are checked across
+      categories and the old `plugins/` package is removed.
+- [x] **4.8 `apps/ui`** — `frontend/` moved to `apps/ui/`; static HTTP URLs
+      stayed unchanged. Runtime lookup, JS tests, release licences, and
+      PyInstaller data targets use the new directory.
+- [x] **4.9 `apps/server`** — Flask factory, routes, and server runtime moved
+      completely to `apps/server/`; the old `backend/` package is removed.
+      `software/server.py` and `study_runner/app_server.py` remain stable
+      entrypoints, with the latter delegating to `apps/server/application.py`.
 - [ ] **4.10** *(reserved — the plan above only names 8 real packages plus
       4.0; renumber if a package above turns out to need splitting)*
-- [ ] **4.11** Hand-edit the two dynamic import sites: `driver_runtime.py:28`
-      (`f"study_runner.plugins.{…}.plugin"`) and `plugin_catalog.py:28`/`:31`.
-      `discover_plugin_catalog` already parameterises `plugins_dir` and
-      `package_name` (`:177-185`), so multi-root discovery is a change to
-      defaults and callers, not to the discovery logic. Only relevant once
-      4.7 actually splits `plugins/` into `extensions/*`.
-- [ ] **4.12** Extend `_MOVED_PLUGIN_PATHS` — see [T7](#t7--operator-stored-plugin-paths-break-on-a-folder-move).
+- [x] **4.11** Hand-edit the two dynamic import sites: `driver_runtime.py:28`
+      and `plugin_catalog.py`. Both resolve categorized packages through
+      `plugin_framework/extension_layout.py`.
+- [x] **4.12** Extend `_MOVED_PLUGIN_PATHS` — see [T7](#t7--operator-stored-plugin-paths-break-on-a-folder-move).
       Now in `runtime_core/settings/hardware_settings_service.py` (moved in 4.6).
-- [ ] **4.13** Pull the rest along: `study_runner_server_common.py` (15 path
+- [x] **4.13** Pull the rest along: `study_runner_server_common.py` (15 path
       literals) · `build_source_release.py` · `build_python_onedir.py` ·
       `build_python_update_manifest.py` ·
       `tools/{setup_recording_worker,study_runner_manager,make_timeline_fixture}.py` ·
       `tools/{install,start}-{windows.ps1,macos.sh}` · `ci.yml` ·
       `.gitattributes` · `release_tools/tests/test_pyinstaller_common.py` ·
       the ~30 `Path(…)/"study_runner"/…` literals in `software/tests/`.
-      **Not yet done** — `tools/setup_recording_worker.py`'s one dotted
-      Python import (`study_runner.recording_worker.core`) was already fixed
-      as a side effect of 4.4 since the mechanical script covered `tools/`
-      too, but the path-literal sweep proper (PyInstaller specs, CI,
-      install/start scripts) has not been done yet and should happen after
-      4.7-4.9 land, not before, since several of those literals will need
-      updating twice otherwise.
-- [ ] **4.14** Rewrite `docs/file-guide.md` structurally, **once, at the end**
+      The final sweep and path tests cover current source, packaging, CI, and
+      documentation paths; legacy literals remain only in explicit migration
+      tests and historical documents.
+- [x] **4.14** Rewrite `docs/file-guide.md` structurally, **once, at the end**
       (the test only checks name presence, so it stays green throughout —
       confirmed still true after 4.0-4.6; one line was added for the new
       `shared/filename_sanitizer.py` in 4.5 rather than deferred, since the
       test would otherwise fail immediately, not just look stale), and
       add ~20 lines asserting every backticked path in the guide exists on disk
-- [ ] **4.15** `version.py` → `1.0.0-dev`
-- [ ] **4.16** **Build and start a bundle now**, not at the end of Phase 6 —
+- [x] **4.15** `version.py` → `1.0.0-dev`
+- [x] **4.16** **Build and start a bundle now**, not at the end of Phase 6 —
       otherwise a packaging break sits undetected in the branch for weeks
 
-**Handoff note for whoever continues this (Claude or Codex):** the pattern
-for 4.7-4.9 is identical to 4.1-4.6 above — write a throwaway rewrite script
-(see the six already-landed commits' messages for the exact shape), `git mv`,
-run it, fix what the script's literal string-replace cannot reach (relative
-imports, manifest `entry_point` fields, hardcoded test path-literals,
-`test_import_boundaries.py`'s `RULES` tuple and `test_architecture_invariants.py`'s
-area/prefix checks), run the full suite, fix forward, commit. Every package
-so far has surfaced at least one genuine latent bug this way (see each
-entry's "Real issue(s) found" above) — that is a feature of doing the move
-for real rather than a sign something is going wrong; do not skip the full
-suite run to save time, it has been the single highest-value five minutes of
-every commit in this phase.
+**Handoff note:** Phase 4 is closed. Resume with the deferred Phase 3
+compatibility/plugin-contract work, then Phase 5c lifecycle and checkpoint
+recovery. Keep native hardware and measured power-loss checks as separate
+release gates.
 
 Keep the branch fresh with `git merge main` daily. **Do not rebase** — it
 re-derives rename detection on every replay and will eventually lose a file's
@@ -986,12 +961,12 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 4 (directory move) — next: `extensions/*`, then `apps/ui`, `apps/server` | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+| Phase 3 compatibility/plugin contracts — next active package | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
 
 Completed: Claude implemented Phases 0-2, 5b, and Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`
-(6 of 10, commits `dec0908`..`2d40c4a`) on 2026-09-08; Codex completed R1-R5
-and the shared handoff on 2026-09-08. No delegated agent remains active.
+(commits `dec0908`..`2d40c4a`) on 2026-09-08; Codex completed R1-R5 and the
+remaining Phase 4 packages on 2026-09-08. No package is currently owned.
 
 Rules:
 - **Moves and tree-wide import rewrites are serial.** Approved R1–R4 repairs
@@ -1167,3 +1142,15 @@ editable in study recording settings and remains the existing
 open/focus that setting; invalid UI values, invalid/non-finite stream rates and
 storage-query errors fail closed with useful messages. Evidence: 109 targeted
 Python and focused JavaScript tests passed; both locale files parse.
+
+Final Phase 4 checkpoint: the path sweep, structural file guide, development
+version, and real bundle gate are complete. The structure baseline moves from
+152 to 235 visible edges because nested areas now expose the former monolithic
+server and plugin relationships; cycles remain 0 and no forbidden dependency
+was added. `contracts` is 1515 lines after the planned `plugin_api.py` move;
+the largest module remains the 2283-line BrainBit adapter. Evidence: 814 Python
+passed/4 skipped, 27 JavaScript passed, 25 release/packaging passed, structure
+and `1.0.0-dev` version checks passed. A fresh Windows onedir build with only
+the harmless packaging-probe extension passed UI/root resolution and its real
+child-process initialize/status/shutdown RPC. Phase 4 is closed; next is the
+deferred Phase 3 compatibility/plugin-contract work.

@@ -35,7 +35,7 @@ from study_runner.contracts.plugin_api import Plugin
 
 MANIFEST_FILENAME = "manifest.json"
 PLUGIN_IGNORE_FILENAME = ".pluginignore"
-DEFAULT_PACKAGE_NAME = "study_runner.plugins"
+DEFAULT_PACKAGE_NAME = "study_runner.extensions"
 # The framework and the plugins are sibling packages, so the trusted root is
 # resolved from this file rather than from the caller or the process directory.
 DEFAULT_PLUGINS_DIRECTORY = Path(__file__).resolve().parent.parent / "plugins"

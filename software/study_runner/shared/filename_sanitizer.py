@@ -1,6 +1,6 @@
 """Turn an arbitrary identifier into a safe filename fragment.
 
-Needed by both the results/recovery side (backend/services/studies) and the
+Needed by both the results/recovery side (runtime_core/studies) and the
 live sensor-history flush side (data_core/host) -- neither owns the other,
 so it belongs here rather than in either.
 """

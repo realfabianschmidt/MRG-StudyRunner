@@ -16,6 +16,8 @@ every path in SOURCE_DIRS.
 from __future__ import annotations
 
 from pathlib import Path
+import re
+import re
 import unittest
 
 
@@ -94,6 +96,18 @@ class FileGuideTests(unittest.TestCase):
             [],
             "release_tools Python scripts must use snake_case",
         )
+
+    def test_documented_concrete_repository_paths_exist(self) -> None:
+        guide_text = GUIDE.read_text(encoding="utf-8")
+        paths = set(re.findall(r"`((?:software|release_tools|tools|docs|\.github)/[^`]+)`", guide_text))
+        missing = []
+        for value in paths:
+            if any(character in value for character in "*{}|"):
+                continue
+            candidate = REPO_ROOT / value.rstrip("/")
+            if not candidate.exists():
+                missing.append(value)
+        self.assertEqual(missing, [], "documented paths do not exist: " + ", ".join(sorted(missing)))
 
 
 if __name__ == "__main__":

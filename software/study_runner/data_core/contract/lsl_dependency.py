@@ -2,7 +2,7 @@
 
 Moved out of `recording_worker.lsl_recording` during the 1.0 rebuild
 (docs/architecture-1.0-umbau.md, Phase 2.5): the host's fail-closed preflight
-(`backend/services/recording/recording_runtime.py`) needs to probe this
+(`data_core/host/recording_runtime.py`) needs to probe this
 *before* starting the worker, and the worker itself needs the same check when
 it actually opens its LSL inlets. Neither side should import the other's
 module just for this -- it's a pure dependency probe with no dependency of

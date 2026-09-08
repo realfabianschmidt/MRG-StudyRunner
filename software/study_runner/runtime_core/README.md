@@ -1,6 +1,6 @@
 # The work behind the HTTP surface
 
-`backend/routes/` decides what a URL means and hands off to here. These folders
+`apps/server/routes/` decides what a URL means and hands off to here. These folders
 hold the actual work, grouped by what part of a study they belong to. Nothing
 here knows about Flask requests.
 

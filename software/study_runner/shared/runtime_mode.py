@@ -1,16 +1,12 @@
 """Is this a packaged build, and where does it live?
 
-Moved out of `backend.services.settings.runtime_config` during the 1.0
-rebuild (docs/architecture-1.0-umbau.md, Phase 2.1): plugins and
-`plugin_framework` need to know whether they are running frozen, but neither
-may import from `backend` (target doc section 11 / section 14 invariant #2).
-Before this move, `plugin_framework/dependency_utils.py` and three plugin
-modules imported `runtime_config` for exactly these three functions and
-nothing else in it -- a real coupling to the whole backend for one boolean.
+Moved out of the former backend settings package during the 1.0 rebuild
+(docs/architecture-1.0-umbau.md, Phase 2.1). Extensions and
+`plugin_framework` need to know whether they are running frozen, and this
+dependency-light module keeps that question outside the HTTP server.
 
-`backend.services.settings.runtime_config` still re-exports all three, so
-every backend-internal caller keeps working unchanged; only the four
-formerly-out-of-area callers were repointed at this module directly.
+`runtime_core.settings.runtime_config` re-exports all three functions for
+runtime callers.
 """
 from __future__ import annotations
 

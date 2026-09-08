@@ -46,11 +46,21 @@ def _areas() -> list[str]:
     areas = {
         path.name
         for path in STUDY_RUNNER_ROOT.iterdir()
-        if path.is_dir() and not path.name.startswith("__")
+        if path.is_dir()
+        and not path.name.startswith("__")
+        and any(
+            source.suffix in {".py", ".js"} and "__pycache__" not in source.parts
+            for source in path.rglob("*")
+        )
     }
-    for name in ("host", "worker", "contract"):
-        if (STUDY_RUNNER_ROOT / "data_core" / name).is_dir():
-            areas.add(f"data_core.{name}")
+    for parent, children in {
+        "apps": ("server", "ui", "cli"),
+        "data_core": ("host", "worker", "contract"),
+        "extensions": ("sensors", "cards", "destinations", "outputs"),
+    }.items():
+        for name in children:
+            if (STUDY_RUNNER_ROOT / parent / name).is_dir():
+                areas.add(f"{parent}.{name}")
     return sorted(areas)
 
 

@@ -27,7 +27,8 @@ class ResultsServicePathTests(unittest.TestCase):
         expected = (
             Path(__file__).resolve().parents[1]
             / "study_runner"
-            / "plugins"
+            / "extensions"
+            / "sensors"
             / "brainbit"
             / "recordings"
         ).resolve()

@@ -84,7 +84,7 @@ class PluginContext:
         directly here so this file stays a plain data/type module with no
         behaviour of its own to keep in sync across two call sites:
         `registry.build_context()` wires it for the host
-        (`backend/__init__.py`), `driver_runtime.py` wires the same function
+        (`apps/server/__init__.py`), `driver_runtime.py` wires the same function
         for the subprocess.
         """
         if self.secret_resolver is None:

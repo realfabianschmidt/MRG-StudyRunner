@@ -48,7 +48,7 @@ schemas, timing limits, and capabilities. Important capability names are:
 - `credentials`: declares the one secret field a plugin needs
   (`config_field`, `env_var`, `per_study`) so `context.secret(plugin_key)`
   resolves it env > per-study > machine > legacy config. The manifest never
-  carries the value - see `backend/services/studies/study_secrets_service.py`.
+  carries the value - see `plugin_framework/plugin_secrets.py`.
 
 Only manifests in the application package are trusted. The entry point is
 resolved inside its own folder after schema and duplicate checks pass.

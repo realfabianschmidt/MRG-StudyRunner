@@ -139,7 +139,7 @@ def create_app() -> Flask:
     if not hardware_disabled:
         initialize_plugins(_plugin_context(app))
         # The two recording sources every session carries are not plugins -- see
-        # study_runner/recording/markers.py -- so they are not reached by the
+        # study_runner/data_core/host/markers.py -- so they are not reached by the
         # generic dispatch above and are initialized directly.
         recording_markers.initialize(hardware_config)
         recording_clock_diagnostics.initialize()

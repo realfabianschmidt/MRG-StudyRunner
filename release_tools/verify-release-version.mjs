@@ -30,6 +30,13 @@ function readPythonVersion() {
 
 function verifyChangelog(version) {
   const changelog = readFileSync(path.join(repoRoot, 'CHANGELOG.md'), 'utf8');
+  if (version.endsWith('-dev')) {
+    const unreleased = changelog.match(/^## Unreleased[ \t]*$/gm) || [];
+    if (unreleased.length !== 1) {
+      throw new Error('CHANGELOG.md must contain exactly one Unreleased section for a development build.');
+    }
+    return;
+  }
   const escapedVersion = version.replaceAll('.', '\\.');
   const matches = changelog.match(
     new RegExp(`^## ${escapedVersion}(?:[ \\t]+-[ \\t]+[^\\n]+)?[ \\t]*$`, 'gm'),

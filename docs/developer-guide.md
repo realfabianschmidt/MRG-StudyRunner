@@ -1,7 +1,7 @@
 # Developer Guide
 
 Study Runner uses trusted built-in integration plugins. A plugin is a Python
-package below `software/study_runner/plugins/`; there is no web upload,
+package below `software/study_runner/extensions/`; there is no web upload,
 marketplace, automatic dependency installation, or untrusted code path.
 
 The complete recording contract is in
@@ -31,19 +31,19 @@ the smallest safe plugin workflow.
   console, reserved-prefix RPC).
 - `software/study_runner/plugin_framework/driver_runtime.py`: runs inside
   that subprocess; imports the plugin's own `plugin.py` and dispatches to it.
-- `software/study_runner/apps/server/services/recording/sensor_coordinator_service.py`:
+- `software/study_runner/data_core/host/sensor_coordinator_service.py`:
   lifecycle and status orchestration.
-- `software/study_runner/apps/server/services/recording/recording_runtime.py`:
+- `software/study_runner/data_core/host/recording_runtime.py`:
   Flask-side worker orchestration; it contains no XDF encoding.
-- `software/study_runner/recording/`: worker protocol, session paths,
+- `software/study_runner/data_core/host/`: worker protocol, session paths,
   segment allocation, recovery, and XDF validation contracts.
-- `software/study_runner/recording_worker/`: detached Python worker.
+- `software/study_runner/data_core/worker/`: detached Python worker.
 - `software/recording_worker/native/`: native XDF-core source and CTest.
-- `software/study_runner/apps/server/services/delivery/finalization_service.py`:
+- `software/study_runner/runtime_core/delivery/finalization_service.py`:
   persistent finalization transitions only.
-- `software/study_runner/apps/server/services/studies/card_summary_service.py`:
+- `software/study_runner/runtime_core/studies/card_summary_service.py`:
   pure merged XDF-to-JSON derivation.
-- `software/study_runner/apps/server/services/delivery/artifact_manifest_service.py`:
+- `software/study_runner/runtime_core/delivery/artifact_manifest_service.py`:
   checksums, provenance, markers, and guarded purge.
 
 See `file-guide.md` for the complete, one-line-per-file map; the list above
@@ -52,7 +52,7 @@ is only the files worth knowing before touching plugin code.
 ## Required Plugin Shape
 
 ```text
-software/study_runner/plugins/my_new_sensor/
+software/study_runner/extensions/sensors/my_new_sensor/
   __init__.py
   manifest.json
   driver.py           # the only process entry point; a one-line wrapper

@@ -109,7 +109,7 @@ def _notify_internal_recording_sources(
 ) -> dict[str, dict[str, Any]]:
     """Feed the two recording sources every session carries.
 
-    They are not plugins -- see study_runner/recording/markers.py -- so they
+    They are not plugins -- see study_runner/data_core/host/markers.py -- so they
     are not reached by run_trial_start/stop/marker above and are called here
     directly. Each is isolated so one failure does not prevent the other from
     being attempted, while the returned outcomes keep the durable event from

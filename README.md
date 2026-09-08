@@ -16,7 +16,7 @@ Most app work happens in `software/`. Source-archive and release helpers live in
 
 In the local lab workspace, `../Sensorik/` is intentionally kept next to this
 repo as the hardware reference and experiment folder. Runtime-ready copies live
-inside `software/study_runner/plugins/`.
+inside `software/study_runner/extensions/`.
 
 ```text
 Software/
@@ -52,16 +52,13 @@ README:
 
 ```text
 study_runner/
-|-- backend/           The server: routes/ says what a URL means,
-|                      services/ does the work behind it.
-|-- frontend/          Everything the browser loads: pages, scripts,
-|                      styles, locales, fonts.
-|-- recording/         Host side of recording: starts the worker, owns the
-|                      session folder, reads the XDF back.
-|-- recording_worker/  The separate process that writes the XDF.
-|-- plugins/           One folder per plugin, all equal. Drop a folder with
-|                      a manifest.json in and it appears everywhere.
+|-- apps/              Flask server/routes and browser UI.
+|-- contracts/         Pure shared manifest and plugin contracts.
+|-- data_core/         Host, worker and wire-contract recording packages.
+|-- runtime_core/      Study, settings and delivery orchestration.
+|-- extensions/        Sensors, destinations, outputs and future cards.
 |-- plugin_framework/  The machinery that finds and runs those plugins.
+|-- shared/            Dependency-light common utilities.
 `-- updates/           Verifying and applying a signed update.
 ```
 

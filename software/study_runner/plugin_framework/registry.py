@@ -28,10 +28,10 @@ def build_context(
     """Build the context every plugin runs with.
 
     `secret_resolver` is accepted, not looked up here: `study_secrets_service`
-    lives in `backend`, which `plugin_framework` may not import
+    lives in `plugin_framework`, and the registry keeps resolution injected
     (docs/architecture-1.0-umbau.md invariant #2). The caller that owns that
     dependency supplies the callable; production's is
-    `backend/__init__.py::_plugin_context`.
+    `apps/server/__init__.py::_plugin_context`.
     """
     return PluginContext(
         base_dir=Path(base_dir),

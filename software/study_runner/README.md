@@ -5,12 +5,13 @@ matches what you are looking for.
 
 | Folder | What lives there |
 |---|---|
-| [`backend/`](backend/) | The Flask server. `routes/` decides what a URL means; `services/` does the work behind it, grouped by what part of a study it serves. |
-| [`frontend/`](frontend/) | Everything the browser loads: the two pages, their ES modules, styles, locales and fonts. No build step. |
-| [`recording/`](recording/) | The host side of recording: session folders, starting and supervising the worker, reading the XDF back. |
-| `recording_worker/` | The separate Python process that actually writes XDF. Its native half is `software/recording_worker/native/`. |
-| [`plugins/`](plugins/) | One folder per plugin, all equal. A folder with a `manifest.json` is discovered automatically. |
+| [`apps/server/`](apps/server/) | Flask app factory, HTTP routes, and server runtime. |
+| [`apps/ui/`](apps/ui/) | Browser pages, ES modules, styles, locales, and fonts. No build step. |
+| [`data_core/`](data_core/) | Recording host, detached worker, and their pure wire contracts. |
+| [`runtime_core/`](runtime_core/) | Study, settings, finalization, and delivery orchestration. |
+| [`extensions/`](extensions/) | Built-in sensors, destinations, outputs, and future cards, discovered from manifests. |
 | [`plugin_framework/`](plugin_framework/) | The machinery that finds, validates and talks to those plugins. Nothing here is a plugin. |
+| [`shared/`](shared/) | Dependency-light utilities used across package boundaries. |
 | `updates/` | Verifying a signed release and applying it. |
 
 Two loose files: `app_server.py` is the Flask app module used by browser and

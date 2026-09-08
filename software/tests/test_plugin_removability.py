@@ -76,7 +76,7 @@ class PlugInAndPullOutTests(unittest.TestCase):
                     if source.is_dir() and (source / "manifest.json").is_file():
                         shutil.copytree(source, copy / source.name, ignore=shutil.ignore_patterns("__pycache__"))
             shutil.rmtree(copy / plugin_key)
-            return discover_plugin_catalog(copy, package_name="study_runner.plugins")
+            return discover_plugin_catalog(copy, package_name="study_runner.extensions")
 
     def test_every_declared_plugin_is_actually_removable(self) -> None:
         for plugin_key in REMOVABLE_PLUGINS:
