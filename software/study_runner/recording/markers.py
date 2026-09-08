@@ -8,7 +8,7 @@ author turns on or off. It lives here, in `recording/`, rather than under
 without it.
 
 `markers.manifest.json` sits beside this file and is loaded through
-`plugin_catalog.validate_and_normalize_manifest`, the exact function real
+`contracts.manifest.validate_and_normalize_manifest`, the exact function real
 plugin manifests go through. That keeps the declared stream, its capabilities,
 and this module's own constants from a single source instead of two hand-kept
 copies -- but the manifest is never discovered from a directory scan and never
@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from study_runner.shared.dependency_utils import ensure_requirements
-from study_runner.plugin_framework.plugin_catalog import validate_and_normalize_manifest
+from study_runner.contracts.manifest import validate_and_normalize_manifest
 
 
 def _load_manifest() -> dict[str, Any]:

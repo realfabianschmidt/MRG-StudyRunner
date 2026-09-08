@@ -7,8 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-PLUGIN_API_VERSION = 4
-SUPPORTED_PLUGIN_API_VERSIONS = (3, 4)
+from study_runner.contracts.manifest import PLUGIN_API_VERSION, SUPPORTED_PLUGIN_API_VERSIONS
 
 
 SecretResolver = Callable[[str, dict[str, Any], dict[str, Any], str], str]

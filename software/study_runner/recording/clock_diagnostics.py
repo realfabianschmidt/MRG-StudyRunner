@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from study_runner.shared.dependency_utils import ensure_requirements
-from study_runner.plugin_framework.plugin_catalog import validate_and_normalize_manifest
+from study_runner.contracts.manifest import validate_and_normalize_manifest
 
 
 def _load_manifest() -> dict[str, Any]:
