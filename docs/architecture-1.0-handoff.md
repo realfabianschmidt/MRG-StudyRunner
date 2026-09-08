@@ -147,11 +147,39 @@ per-session file, written once at the same freeze point as
 baseline rewritten as a checkpoint. See the working plan's 5d entry for the
 full account.
 
-**Next task:** 5a (session lifecycle enum). 3.4 remains a written,
-unimplemented design plan (see above) -- it blocks nothing in Phase 5 and
-can land whenever convenient. Order for the rest of Phase 5:
-5a -> 5c -> 5h -> 5i -> 5g -> 5j -> 5f. Claim the package in the working
-plan before editing.
+## 5a complete -- 2026-09-08
+
+Explicit session lifecycle (`IDLE`/`PREFLIGHT`/`RECORDING`/`FINALIZING`/
+`SEALED`/`WITHDRAWN`/`FAILED`) as new `contracts/session_lifecycle.py`:
+states, allowed transitions, guards, and `derive_session_lifecycle()`.
+**Additive by design** -- the target doc's own instruction to keep
+recording, finalization and upload as separate state machines is what makes
+this tractable: the four existing status dimensions are *mapped*, not
+merged, and nothing about them changed. Surfaced as a `lifecycle` field per
+session in `sessions_index_service.py`, derived on read so it can never
+disagree with the documents it comes from.
+
+Three decisions worth knowing: upload status is genuinely not an input (so a
+refusing destination cannot un-seal data); `SEALED` requires the data to
+have validated, so a `completed` job with `quality_status: invalid` maps to
+`FINALIZING` while a human-confirmed `completed_degraded` is sealed; and
+`attention_required` is terminal on neither machine. `WITHDRAWN` is defined
+with its transitions and a settled marker name (`WITHDRAWN.json`) so 5i has
+something to write into. **Caught by running it against a real session, not
+just unit tests:** the first draft called the shipped `Demo_Completed_Study`
+fixture `IDLE`, because an archival session has only its `COMPLETE.json`;
+the derivation now falls back to that marker.
+
+21 new tests; full suite **851 passed, 4 skipped**; JS 27 passed; structure
+baseline rewritten as a checkpoint. See the working plan's 5a entry for the
+full account, including the mapping table.
+
+**Next task:** 5c (`quality.jsonl` + `timing.jsonl` written *during*
+recording, not at finalization). 3.4 remains a written, unimplemented design
+plan (see above) -- it blocks nothing in Phase 5 and can land whenever
+convenient. Order for the rest of Phase 5:
+5c -> 5h -> 5i -> 5g -> 5j -> 5f. Claim the package in the working plan
+before editing.
 
 ## Shared location and coordination
 

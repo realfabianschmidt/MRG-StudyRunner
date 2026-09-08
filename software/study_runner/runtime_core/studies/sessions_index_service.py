@@ -14,6 +14,11 @@ from pathlib import Path, PurePosixPath
 import threading
 from typing import Any
 
+from study_runner.contracts.session_lifecycle import (
+    WITHDRAWN_MARKER,
+    derive_session_lifecycle,
+)
+
 from .card_summary_service import CardSummaryError, PyXdfSampleReader
 
 
@@ -272,6 +277,14 @@ def _session_summary(
         "saved_at": _saved_at(session_root, result_file, payload),
         "status": str(marker.get("status") or ("attention_required" if (session_root / "ATTENTION_REQUIRED.json").is_file() else "completed")),
         "quality_status": str(manifest.get("quality_status") or ""),
+        # Package 5a: one name for "where is this session overall", derived
+        # from the per-machine documents rather than stored a second time.
+        "lifecycle": derive_session_lifecycle(
+            recording_plan=_optional_json(session_root / "recording-plan.json"),
+            finalization_state=_optional_json(session_root / "finalization-state.json"),
+            terminal_marker=marker,
+            withdrawn=(session_root / WITHDRAWN_MARKER).is_file(),
+        ),
         "answers_count": (
             len(answers)
             if isinstance(answers, dict)

@@ -36,9 +36,9 @@ see Phase 3 section); **only 3.4 remains in Phase 3**, then Phase 5 in full
 (operator decided 2026-09-08 to keep the complete target scope, including
 `mrg` CLI and the extension SDK, rather than trim it against
 CONTRIBUTING.md's "keep it simple" guidance). **Phase 5's first two
-packages, 5e (journal/XDF event-id comparison) and 5d (stream contracts +
-timing provenance), are also complete** — see Phase 5 section. Next: 5a,
-then 5c, 5h, 5i, 5g, 5j, 5f in that order (3.4 is a written,
+packages 5e (journal/XDF event-id comparison), 5d (stream contracts +
+timing provenance) and 5a (session lifecycle) are also complete** — see
+Phase 5 section. Next: 5c, then 5h, 5i, 5g, 5j, 5f in that order (3.4 is a written,
 not-yet-implemented design plan, see Phase 3 section — it can land
 whenever convenient, it blocks nothing in Phase 5).
 The shared rebuild is `feature/architecture-1.0`, worktree `C:\SR-1.0`.
@@ -1028,11 +1028,70 @@ history.
 
 ### Phase 5 — New capabilities (branch, partly parallel)
 
-- [ ] **5a** Explicit session/recording lifecycle and transition guards. Keep
+- [x] **5a** Explicit session/recording lifecycle and transition guards. Keep
       recording recovery, finalization jobs and upload jobs as separate state
       machines, with a documented mapping. `SEALED` describes validated data;
       a failed upload cannot invalidate that seal. Define withdrawal transitions
-      during recording and after sealing. Scientific sealing depends on 5h
+      during recording and after sealing. Scientific sealing depends on 5h.
+
+      **This is additive, not a replacement** — the doc's own instruction
+      ("keep them as separate state machines") is what makes 5a tractable.
+      Mapped, not merged, the four status dimensions that already exist and
+      each answer their own question well:
+
+      | Machine | Document | States |
+      |---|---|---|
+      | Recorder | `recording-plan.json` `.status` | `starting`, `recording`, `recovering`, `attention_required`, `frozen` |
+      | Finalization job | `finalization-state.json` `.status` | `queued`, `running`, `retrying`, `attention_required`, `completed`, `completed_degraded`, `failed` |
+      | Scientific quality | `finalization-state.json` `.quality_status` | `pending`, `valid`, `degraded`, `invalid` |
+      | Upload job | upload queue | `queued`, `running`, `done`, `failed` |
+
+      New `contracts/session_lifecycle.py` (pure, no dependencies): the
+      seven states, `ALLOWED_TRANSITIONS`, `is_allowed_transition()`/
+      `require_transition()` guards, and `derive_session_lifecycle()` — the
+      documented mapping. Surfaced as a `lifecycle` field on every session
+      in `sessions_index_service.py`, derived on read rather than stored a
+      second time, so it can never disagree with the documents it comes from.
+
+      Three decisions worth naming, each protecting something the target
+      doc asks for:
+      - **Upload status is not an input at all.** Not "considered and
+        outranked" — genuinely not read, so a destination that refuses a
+        file cannot un-seal validated data (ownership table: "failed upload
+        does not unseal valid data"). Pinned by its own test.
+      - **`SEALED` requires the data to have validated**, not merely that a
+        job stopped: a `completed` job whose `quality_status` is `invalid`
+        maps to `FINALIZING`, not `SEALED`. A *human-confirmed* degraded
+        outcome (`completed_degraded` + `degraded`, which only happens after
+        an operator explicitly confirms via `degraded_confirmation`) is
+        sealed — the degradation stays visible in `quality_status`, which
+        remains its own separate dimension.
+      - **`attention_required` is not terminal** on either machine. On the
+        finalization side an operator can still retry or confirm-degraded,
+        so it maps to `FINALIZING`; on the recorder side participation
+        continues, so it maps to `RECORDING`. The *reason* stays in each
+        machine's own status, unchanged.
+
+      **Caught by running it against a real session, not just unit tests:**
+      the first draft reported the shipped `Demo_Completed_Study` fixture as
+      `IDLE`, because an archival session has neither a recording plan nor a
+      finalization state — only its `COMPLETE.json` marker. Reporting a
+      visibly finished session as "not started" is exactly the confidently
+      wrong answer the module's own docstring warns against, so the
+      derivation now falls back to the terminal marker (which carries the
+      same status vocabulary, having been written by the finalization job).
+
+      `WITHDRAWN` is defined here with its transitions (reachable from every
+      state including `SEALED`, terminal itself) and a settled marker name
+      (`WITHDRAWN.json`, matching the existing marker convention), so 5i's
+      withdrawal workflow has something to write into rather than inventing
+      a state next to an already-shipped lifecycle. `SEALED` never returns
+      to `FINALIZING`; `FAILED` does, because a retry is a real operator
+      action.
+
+      21 new tests (`test_session_lifecycle.py`). Full suite **851 passed,
+      4 skipped**; JS 27 passed; structure baseline rewritten as a
+      checkpoint.
 - [x] **5b** Preflight: capacity and clock, enforced once at
       `RecordingRuntimeService._start_worker_generation()` (covers fresh
       start, crash-recovery reissue and full resume — the single real
@@ -1234,12 +1293,12 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 5a (session lifecycle enum) — next active package; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+| Phase 5c (quality.jsonl + timing.jsonl) — next active package; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`
 (commits `dec0908`..`2d40c4a`), Phase 3 items 3.1/3.2/3.3/3.5, and Phase 5
-items 5e and 5d on 2026-09-08; Codex completed R1-R5 and the remaining
+items 5e, 5d and 5a on 2026-09-08; Codex completed R1-R5 and the remaining
 Phase 4 packages on 2026-09-08. No package is currently owned.
 
 Rules:

@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 240,
+  "cross_package_import_edges": 241,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -10,7 +10,7 @@
     "apps": 0,
     "apps.server": 4294,
     "apps.ui": 0,
-    "contracts": 1670,
+    "contracts": 1838,
     "data_core": 16,
     "data_core.contract": 1223,
     "data_core.host": 6096,
@@ -21,7 +21,7 @@
     "extensions.outputs": 154,
     "extensions.sensors": 8087,
     "plugin_framework": 2403,
-    "runtime_core": 12288,
+    "runtime_core": 12301,
     "shared": 478,
     "updates": 247
   }
