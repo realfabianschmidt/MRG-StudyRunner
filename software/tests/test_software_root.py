@@ -67,7 +67,7 @@ class SoftwareRootTests(unittest.TestCase):
         similar short hops inside one package are fine and stay allowed.
         """
         watched = [
-            PROJECT_ROOT / "study_runner" / "backend" / "services" / "settings" / "runtime_config.py",
+            PROJECT_ROOT / "study_runner" / "runtime_core" / "settings" / "runtime_config.py",
             PROJECT_ROOT / "study_runner" / "plugin_framework" / "process_host.py",
             PROJECT_ROOT / "study_runner" / "plugins" / "camera_emotion" / "worker" / "plugin.py",
             PROJECT_ROOT / "study_runner" / "plugins" / "mr60_mini_radar" / "tools" / "ble_mr60_receiver.py",

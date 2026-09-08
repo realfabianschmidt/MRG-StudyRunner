@@ -13,12 +13,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.data_core.host.artifacts import sha256_file
-from study_runner.backend.services.delivery.artifact_manifest_service import ArtifactManifestStore
-from study_runner.backend.services.studies.card_summary_service import CardSummaryBuilder
-from study_runner.backend.services.delivery.destination_plugin_service import (
+from study_runner.runtime_core.delivery.artifact_manifest_service import ArtifactManifestStore
+from study_runner.runtime_core.studies.card_summary_service import CardSummaryBuilder
+from study_runner.runtime_core.delivery.destination_plugin_service import (
     DestinationPluginDefinition,
 )
-from study_runner.backend.services.delivery.finalization_service import (
+from study_runner.runtime_core.delivery.finalization_service import (
     DeferredStep,
     FinalizationError,
     FinalizationService,
@@ -191,7 +191,7 @@ class FinalizationServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             service = self._service(root)
-            from study_runner.backend.services.delivery import finalization_service as module
+            from study_runner.runtime_core.delivery import finalization_service as module
 
             real_atomic_write = module.atomic_write_json
 

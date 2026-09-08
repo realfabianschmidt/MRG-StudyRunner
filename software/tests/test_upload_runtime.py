@@ -14,9 +14,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.delivery.upload_runtime import _plugin_executor
-from study_runner.backend.services.delivery.upload_jobs_service import UploadJobError, UploadJobService
-from study_runner.backend.services.studies.study_config_service import (
+from study_runner.runtime_core.delivery.upload_runtime import _plugin_executor
+from study_runner.runtime_core.delivery.upload_jobs_service import UploadJobError, UploadJobService
+from study_runner.runtime_core.studies.study_config_service import (
     StudyRevisionConflict, delete_study, load_config, load_study,
     save_active_study, study_config_revision, study_transaction_path,
 )
@@ -170,7 +170,7 @@ class UploadTargetPersistenceTests(unittest.TestCase):
         self.assertNotIn("database_id", settings(publish.call_args.args[1]["config_data"]))
 
     def test_failed_study_refresh_does_not_lose_durable_target(self) -> None:
-        with patch("study_runner.backend.services.delivery.upload_runtime.patch_study_plugin_settings", side_effect=OSError("study locked")):
+        with patch("study_runner.runtime_core.delivery.upload_runtime.patch_study_plugin_settings", side_effect=OSError("study locked")):
             self.assertTrue(self.executor(self.discovered)(self.queued)["ok"])
         publish = Mock(return_value={"ok": True})
         self.executor(publish)(self.queued)
@@ -189,7 +189,7 @@ class UploadTargetPersistenceTests(unittest.TestCase):
     def test_checkpoint_failure_does_not_mark_queue_job_done(self) -> None:
         service = UploadJobService(self.app.config["DATA_DIR"], executors={"notion": self.executor(self.discovered)})
         service.enqueue(kind="notion", study_id="Study A", participant_id="p", session_id="s", label="Notion", payload=self.queued, job_id="job")
-        with patch("study_runner.backend.services.delivery.upload_runtime.atomic_write_json", side_effect=OSError("disk full")):
+        with patch("study_runner.runtime_core.delivery.upload_runtime.atomic_write_json", side_effect=OSError("disk full")):
             service.process_due_jobs_once()
         self.assertEqual(service.counts()["done"], 0)
         self.assertTrue((service.payload_dir / "job.json").is_file())

@@ -3,7 +3,7 @@ import threading
 
 from flask import Blueprint, current_app, jsonify, request
 
-from ..services.settings.update_service import (
+from study_runner.runtime_core.settings.update_service import (
     UpdateError,
     build_update_status,
     check_for_update,

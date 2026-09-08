@@ -20,7 +20,7 @@ import time
 from typing import Any, Callable, Mapping, Protocol
 
 from study_runner.data_core.host.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
-from study_runner.backend.services.studies.session_journal_service import SessionJournalStore
+from study_runner.runtime_core.studies.session_journal_service import SessionJournalStore
 
 from .artifact_manifest_service import ArtifactManifestError, ArtifactManifestStore
 from study_runner.shared.atomic_io import atomic_write_json

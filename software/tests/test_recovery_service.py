@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.shared.atomic_io import atomic_write_json
-from study_runner.backend.services.studies.recovery_service import (
+from study_runner.runtime_core.studies.recovery_service import (
     RecoveryError,
     discard_recovery_candidate,
     finalize_recovery_candidate,

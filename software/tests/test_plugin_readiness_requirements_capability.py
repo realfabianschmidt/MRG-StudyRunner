@@ -139,7 +139,7 @@ class FixtureDestinationReadinessTests(unittest.TestCase):
         }
 
     def test_a_fixture_plugin_with_nothing_configured_blocks_on_all_three(self) -> None:
-        from study_runner.backend.services.studies.study_readiness_service import check_study_readiness
+        from study_runner.runtime_core.studies.study_readiness_service import check_study_readiness
 
         with patch.object(registry, "_PLUGIN_CATALOG", self._patched_catalog()):
             report = check_study_readiness(
@@ -156,7 +156,7 @@ class FixtureDestinationReadinessTests(unittest.TestCase):
         self.assertFalse(report["ready"])
 
     def test_the_blocker_panel_is_the_plugin_key_with_no_registration(self) -> None:
-        from study_runner.backend.services.studies.study_readiness_service import check_study_readiness
+        from study_runner.runtime_core.studies.study_readiness_service import check_study_readiness
 
         with patch.object(registry, "_PLUGIN_CATALOG", self._patched_catalog()):
             report = check_study_readiness(
@@ -167,7 +167,7 @@ class FixtureDestinationReadinessTests(unittest.TestCase):
         self.assertEqual(panels[f"{PLUGIN_KEY}.credential_missing"], PLUGIN_KEY)
 
     def test_fully_configured_fixture_plugin_is_ready(self) -> None:
-        from study_runner.backend.services.studies.study_readiness_service import check_study_readiness
+        from study_runner.runtime_core.studies.study_readiness_service import check_study_readiness
 
         with patch.object(registry, "_PLUGIN_CATALOG", self._patched_catalog()):
             report = check_study_readiness(

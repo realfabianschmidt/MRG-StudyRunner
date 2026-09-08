@@ -20,14 +20,14 @@ from study_runner.plugin_framework.registry import (
     initialize_plugin,
     run_runtime_action,
 )
-from ..services.settings.hardware_settings_service import (
+from study_runner.runtime_core.settings.hardware_settings_service import (
     HardwareRevisionConflict,
     set_plugin_enabled,
     update_hardware_config,
 )
-from ..services.settings.secrets_service import update_local_secrets
-from ..services.studies.session_store import public_session
-from ..services.studies.study_config_service import load_config
+from study_runner.runtime_core.settings.secrets_service import update_local_secrets
+from study_runner.runtime_core.studies.session_store import public_session
+from study_runner.runtime_core.studies.study_config_service import load_config
 from study_runner.plugin_framework.plugin_secrets import secret_fields
 from study_runner.data_core.host.study_sensor_runtime import (
     SESSION_OVERRIDE_KEYS,
@@ -36,8 +36,8 @@ from study_runner.data_core.host.study_sensor_runtime import (
     build_sensor_runtime_state,
     normalize_session_overrides,
 )
-from ..services.studies.trial_service import configure_runtime
-from ..services.studies.validation import validate_and_normalize_config
+from study_runner.runtime_core.studies.trial_service import configure_runtime
+from study_runner.runtime_core.studies.validation import validate_and_normalize_config
 
 # Internal marker/clock streams are mandatory recording providers, not
 # operator-toggleable integrations.

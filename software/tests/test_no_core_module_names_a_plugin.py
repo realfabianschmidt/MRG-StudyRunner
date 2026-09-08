@@ -84,12 +84,12 @@ class GenericMechanismsNameNoPluginTests(unittest.TestCase):
                 self._assert_no_plugin_literal(fn)
 
     def test_hardware_config_redaction_names_no_plugin(self) -> None:
-        from study_runner.backend.services.settings.secrets_service import redact_hardware_config
+        from study_runner.runtime_core.settings.secrets_service import redact_hardware_config
 
         self._assert_no_plugin_literal(redact_hardware_config)
 
     def test_readiness_check_names_no_plugin(self) -> None:
-        from study_runner.backend.services.studies.study_readiness_service import check_study_readiness
+        from study_runner.runtime_core.studies.study_readiness_service import check_study_readiness
 
         self._assert_no_plugin_literal(check_study_readiness)
 
@@ -100,12 +100,12 @@ class GenericMechanismsNameNoPluginTests(unittest.TestCase):
 
     def test_manifest_url_validation_names_no_plugin(self) -> None:
         """The format string is documentation; the plugin resolves itself by key."""
-        from study_runner.backend.services.studies import validation
+        from study_runner.runtime_core.studies import validation
 
         self._assert_no_plugin_literal(validation._validate_manifest_url)
 
     def test_destination_policy_resolution_names_no_plugin(self) -> None:
-        from study_runner.backend.services.delivery import destination_plugin_service as svc
+        from study_runner.runtime_core.delivery import destination_plugin_service as svc
 
         self._assert_no_plugin_literal(svc.destination_definitions_from_manifests)
 

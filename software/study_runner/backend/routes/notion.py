@@ -10,10 +10,10 @@ from flask import Blueprint, current_app, jsonify
 
 from study_runner.plugin_framework.registry import get_plugin, get_plugin_status
 
-from ..services.studies.study_config_service import load_config
-from ..services.studies.study_plugin_config import normalize_study_settings_plugins
+from study_runner.runtime_core.studies.study_config_service import load_config
+from study_runner.runtime_core.studies.study_plugin_config import normalize_study_settings_plugins
 from study_runner.plugin_framework.plugin_secrets import describe_secret_state
-from ..services.studies.validation import validate_and_normalize_config
+from study_runner.runtime_core.studies.validation import validate_and_normalize_config
 from .helpers import _plugin_context
 
 

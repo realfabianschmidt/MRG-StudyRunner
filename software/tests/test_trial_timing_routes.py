@@ -390,7 +390,7 @@ class TrialTimingRouteTests(unittest.TestCase):
                 return prior
 
             with patch(
-                "study_runner.backend.services.studies.trial_service.run_trial_marker",
+                "study_runner.runtime_core.studies.trial_service.run_trial_marker",
                 side_effect=inspect_context,
             ):
                 response = client.post(

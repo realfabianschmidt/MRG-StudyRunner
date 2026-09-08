@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
 
-from ..services.settings.folder_open_service import FolderOpenError, open_results_folder
-from ..services.delivery.upload_jobs_service import (
+from study_runner.runtime_core.settings.folder_open_service import FolderOpenError, open_results_folder
+from study_runner.runtime_core.delivery.upload_jobs_service import (
     DEFAULT_STATUS_DAYS,
     MAX_STATUS_DAYS,
     UploadJobError,

@@ -5,13 +5,13 @@ import threading
 from flask import Blueprint, current_app, jsonify, request
 
 from study_runner.plugin_framework.registry import initialize_plugin, run_runtime_action
-from ..services.settings.admin_status_service import build_admin_status
-from ..services.settings.runtime_config import build_runtime_info
-from ..services.settings.shortcut_service import ShortcutError, create_desktop_shortcut
-from ..services.studies.study_client_service import get_client_status
-from ..services.settings.secrets_service import update_local_secrets
-from ..services.studies.study_config_service import delete_study, list_studies, load_config, load_study, save_config
-from ..services.studies.study_readiness_service import check_study_readiness, describe_credentials
+from study_runner.runtime_core.settings.admin_status_service import build_admin_status
+from study_runner.runtime_core.settings.runtime_config import build_runtime_info
+from study_runner.runtime_core.settings.shortcut_service import ShortcutError, create_desktop_shortcut
+from study_runner.runtime_core.studies.study_client_service import get_client_status
+from study_runner.runtime_core.settings.secrets_service import update_local_secrets
+from study_runner.runtime_core.studies.study_config_service import delete_study, list_studies, load_config, load_study, save_config
+from study_runner.runtime_core.studies.study_readiness_service import check_study_readiness, describe_credentials
 from study_runner.plugin_framework.plugin_secrets import (
     forget_study_secrets,
     list_study_credential_state,
@@ -19,7 +19,7 @@ from study_runner.plugin_framework.plugin_secrets import (
     set_study_secret,
 )
 from study_runner.data_core.host.study_sensor_runtime import STUDY_SENSOR_KEYS
-from ..services.studies.validation import validate_and_normalize_config
+from study_runner.runtime_core.studies.validation import validate_and_normalize_config
 from .helpers import (
     _clear_session_overrides,
     _delayed_shutdown,

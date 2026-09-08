@@ -104,7 +104,7 @@ class TrialServiceDispatchTests(unittest.TestCase):
     with no hardware config and no toggle involved."""
 
     def test_trial_start_stop_and_marker_all_reach_both_sources(self) -> None:
-        from study_runner.backend.services.studies import trial_service
+        from study_runner.runtime_core.studies import trial_service
 
         with (
             patch.object(markers, "send_marker") as send_marker,
@@ -133,7 +133,7 @@ class TrialServiceDispatchTests(unittest.TestCase):
         self.assertEqual(emit.call_count, 3)
 
     def test_one_source_failing_attempts_the_other_but_fails_the_durable_event(self) -> None:
-        from study_runner.backend.services.studies import trial_service
+        from study_runner.runtime_core.studies import trial_service
 
         with (
             patch.object(markers, "send_marker", side_effect=RuntimeError("outlet gone")),
@@ -147,7 +147,7 @@ class TrialServiceDispatchTests(unittest.TestCase):
         self.assertTrue(raised.exception.outcomes["core.clock_diagnostics"]["ok"])
 
     def test_core_marker_with_explicit_source_time_precedes_plugin_callbacks(self) -> None:
-        from study_runner.backend.services.studies import trial_service
+        from study_runner.runtime_core.studies import trial_service
 
         order: list[str] = []
 
@@ -184,8 +184,8 @@ class TrialServiceDispatchTests(unittest.TestCase):
         self.assertEqual(response["dispatch"]["core.markers"]["marker_lsl_timestamp"], 42.125)
 
     def test_actual_clamped_lsl_timestamp_and_post_push_walltime_reach_journal(self) -> None:
-        from study_runner.backend.services.studies import trial_service
-        from study_runner.backend.services.studies.trial_event_service import TrialEventService
+        from study_runner.runtime_core.studies import trial_service
+        from study_runner.runtime_core.studies.trial_event_service import TrialEventService
 
         outlet = _Outlet()
         markers._outlet = outlet

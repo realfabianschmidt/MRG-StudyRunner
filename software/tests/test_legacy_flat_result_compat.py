@@ -36,8 +36,8 @@ import shutil
 import tempfile
 import unittest
 
-from study_runner.backend.services.studies.recovery_service import list_recovery_candidates
-from study_runner.backend.services.studies.sessions_index_service import list_sessions
+from study_runner.runtime_core.studies.recovery_service import list_recovery_candidates
+from study_runner.runtime_core.studies.sessions_index_service import list_sessions
 from study_runner.shared.atomic_io import atomic_write_json
 
 

@@ -25,16 +25,16 @@ from study_runner.data_core.contract.worker_protocol import (
 )
 from study_runner.data_core.host import recording_dependencies
 from study_runner.data_core.host import study_sensor_runtime
-from study_runner.backend.services.studies import validation
-from study_runner.backend.services.studies import study_readiness_service
-from study_runner.backend.services.studies.card_summary_service import CardSummaryBuilder
-from study_runner.backend.services.settings.plugin_settings_service import (
+from study_runner.runtime_core.studies import validation
+from study_runner.runtime_core.studies import study_readiness_service
+from study_runner.runtime_core.studies.card_summary_service import CardSummaryBuilder
+from study_runner.runtime_core.settings.plugin_settings_service import (
     apply_plugin_settings,
     build_plugin_settings_schema,
 )
 from study_runner.data_core.host.recording_runtime import RecordingRuntimeService
 from study_runner.data_core.host.recording_runtime_support import RECORDING_PLAN_SCHEMA
-from study_runner.backend.services.studies.study_plugin_config import normalize_card_plugin_actions
+from study_runner.runtime_core.studies.study_plugin_config import normalize_card_plugin_actions
 from study_runner.plugin_framework import registry
 from study_runner.plugin_framework.plugin_catalog import PluginCatalog, discover_plugin_catalog
 

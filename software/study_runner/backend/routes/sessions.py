@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
 
-from ..services.studies.sessions_index_service import (
+from study_runner.runtime_core.studies.sessions_index_service import (
     DEFAULT_MAX_POINTS,
     SessionNotFoundError,
     list_sessions,

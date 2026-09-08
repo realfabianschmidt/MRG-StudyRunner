@@ -6,7 +6,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from ..services.delivery.certificate_transfer_service import (
+from study_runner.runtime_core.delivery.certificate_transfer_service import (
     EXPORT_FILENAME,
     CertificateTransferError,
     apply_import,

@@ -18,14 +18,14 @@ from study_runner.plugin_framework.registry import (
     run_participant_action,
     run_runtime_action,
 )
-from ..services.settings.hardware_settings_service import (
+from study_runner.runtime_core.settings.hardware_settings_service import (
     HardwareRevisionConflict,
     hardware_config_revision,
     load_hardware_config,
     update_hardware_config as update_hardware_config_transaction,
 )
-from ..services.settings.secrets_service import redact_hardware_config, update_local_secrets
-from ..services.settings.plugin_settings_service import (
+from study_runner.runtime_core.settings.secrets_service import redact_hardware_config, update_local_secrets
+from study_runner.runtime_core.settings.plugin_settings_service import (
     PluginSettingsError,
     apply_plugin_settings,
     build_plugin_settings_schema,

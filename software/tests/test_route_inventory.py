@@ -201,7 +201,7 @@ class UpdaterWireFormatTests(unittest.TestCase):
         longer verify new release manifests. Do not change the expected
         bytes; change the code back.
         """
-        from study_runner.backend.services.settings.update_service import canonical_asset_payload
+        from study_runner.runtime_core.settings.update_service import canonical_asset_payload
 
         payload = canonical_asset_payload(
             "9.9.9",

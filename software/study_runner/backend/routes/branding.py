@@ -9,7 +9,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
-from ..services.settings.branding_service import (
+from study_runner.runtime_core.settings.branding_service import (
     MAX_ASSET_BYTES,
     BrandingError,
     public_manifest,

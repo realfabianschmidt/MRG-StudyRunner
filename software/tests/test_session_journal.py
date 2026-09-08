@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from study_runner.backend.services.studies import session_journal_service as journal
+from study_runner.runtime_core.studies import session_journal_service as journal
 
 
 class SessionJournalOrderingTests(unittest.TestCase):

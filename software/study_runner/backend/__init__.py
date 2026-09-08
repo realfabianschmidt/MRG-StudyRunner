@@ -8,7 +8,7 @@ from study_runner.plugin_framework.registry import build_context, initialize_plu
 from study_runner.data_core.host import clock_diagnostics as recording_clock_diagnostics
 from study_runner.data_core.host import markers as recording_markers
 from .routes import register_routes
-from .services.settings.runtime_config import (
+from study_runner.runtime_core.settings.runtime_config import (
     get_app_mode,
     get_project_base_dir,
     initialize_runtime_storage,
@@ -18,24 +18,24 @@ from .services.settings.runtime_config import (
     resolve_runtime_paths,
 )
 from study_runner.data_core.host.clock_sync_service import ClockSyncService
-from .services.delivery.finalization_runtime import configure_finalization
-from .services.settings.hardware_settings_service import (
+from study_runner.runtime_core.delivery.finalization_runtime import configure_finalization
+from study_runner.runtime_core.settings.hardware_settings_service import (
     migrate_moved_plugin_paths,
     save_hardware_config,
 )
 from study_runner.data_core.host.recording_runtime import RecordingRuntimeService
-from .services.delivery.recording_finalization_adapter import RuntimeRecordingFinalizationAdapter
-from .services.settings.secrets_service import load_local_secrets
+from study_runner.runtime_core.delivery.recording_finalization_adapter import RuntimeRecordingFinalizationAdapter
+from study_runner.runtime_core.settings.secrets_service import load_local_secrets
 from study_runner.plugin_framework.plugin_secrets import resolve_plugin_secret
 from study_runner.data_core.host.sensor_coordinator_service import SensorCoordinator
 from study_runner.data_core.host.sensor_flush_service import SensorFlushService
-from .services.studies.study_client_service import reset_client_status
-from .services.studies.session_store import SessionStore
-from .services.studies.study_config_service import load_config
-from .services.studies.study_run_state_service import StudyRunStateStore
-from .services.studies.trial_event_service import TrialEventService
-from .services.studies.trial_service import stop_trial_session
-from .services.delivery.upload_runtime import configure_upload_jobs
+from study_runner.runtime_core.studies.study_client_service import reset_client_status
+from study_runner.runtime_core.studies.session_store import SessionStore
+from study_runner.runtime_core.studies.study_config_service import load_config
+from study_runner.runtime_core.studies.study_run_state_service import StudyRunStateStore
+from study_runner.runtime_core.studies.trial_event_service import TrialEventService
+from study_runner.runtime_core.studies.trial_service import stop_trial_session
+from study_runner.runtime_core.delivery.upload_runtime import configure_upload_jobs
 
 
 BASE_DIR = get_project_base_dir()
@@ -209,7 +209,7 @@ def _write_finalization_end_marker(app: Flask, context) -> dict:
         "phase": "study_end",
     }
     with app.app_context():
-        from .services.studies.trial_service import send_trial_marker
+        from study_runner.runtime_core.studies.trial_service import send_trial_marker
 
         return app.config["TRIAL_EVENT_SERVICE"].execute(
             options["event_id"],

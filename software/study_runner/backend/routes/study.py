@@ -9,25 +9,25 @@ import time
 
 from flask import Blueprint, current_app, jsonify, request
 
-from ..services.settings.secrets_service import update_local_secrets
-from ..services.studies.study_client_service import register_heartbeat
+from study_runner.runtime_core.settings.secrets_service import update_local_secrets
+from study_runner.runtime_core.studies.study_client_service import register_heartbeat
 from study_runner.plugin_framework.plugin_secrets import copy_study_secrets
-from ..services.studies.study_config_service import (
+from study_runner.runtime_core.studies.study_config_service import (
     StudyRevisionConflict,
     load_config,
     save_active_study,
     study_config_revision,
 )
-from ..services.studies.study_readiness_service import check_study_readiness
+from study_runner.runtime_core.studies.study_readiness_service import check_study_readiness
 from study_runner.data_core.host.recording_runtime import required_recording_plugins
-from ..services.studies.trial_service import send_trial_marker, start_trial_session, stop_trial_session
-from ..services.studies.trial_service import TrialDispatchError
-from ..services.studies.trial_event_service import (
+from study_runner.runtime_core.studies.trial_service import send_trial_marker, start_trial_session, stop_trial_session
+from study_runner.runtime_core.studies.trial_service import TrialDispatchError
+from study_runner.runtime_core.studies.trial_event_service import (
     TrialEventConflictError,
     TrialEventInProgressError,
     TrialPreparationRequiredError,
 )
-from ..services.studies.validation import validate_and_normalize_config, validate_and_normalize_trial_options
+from study_runner.runtime_core.studies.validation import validate_and_normalize_config, validate_and_normalize_trial_options
 from .helpers import (
     _current_config_data,
     _public_study_session,

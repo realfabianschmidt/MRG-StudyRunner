@@ -165,7 +165,7 @@ class FixtureDestinationCredentialTests(unittest.TestCase):
         self.assertEqual(state, {"configured": True, "scope": "machine", "source": "local_file"})
 
     def test_redact_hardware_config_blanks_it_and_reports_why(self) -> None:
-        from study_runner.backend.services.settings.secrets_service import redact_hardware_config
+        from study_runner.runtime_core.settings.secrets_service import redact_hardware_config
 
         hardware_config = {PLUGIN_KEY: {"access_token": "machine-token", "enabled": True}}
 

@@ -28,7 +28,7 @@ from study_runner.data_core.host.worker_binary import WorkerBinaryAvailability
 from study_runner.data_core.contract.worker_protocol import LoopbackWorkerClient, WorkerEndpointState
 from study_runner.data_core.host.xdf import StreamInspection, XdfArtifactInspection
 from study_runner.data_core.contract.recording_errors import WorkerUnavailableError
-from study_runner.backend.services.delivery.recording_finalization_adapter import (
+from study_runner.runtime_core.delivery.recording_finalization_adapter import (
     RuntimeRecordingFinalizationAdapter,
 )
 from study_runner.data_core.host.recording_runtime import (
@@ -47,7 +47,7 @@ from study_runner.data_core.host.recording_contract import (
 from study_runner.data_core.host.recording_runtime_support import RecordingRuntimeError
 from study_runner.plugin_framework.registry import get_plugin_manifest
 from study_runner.data_core.host.recording_quality import scientific_source_checks
-from study_runner.backend.services.delivery.finalization_service import FinalizationError
+from study_runner.runtime_core.delivery.finalization_service import FinalizationError
 from study_runner.data_core.host.recording_dependencies import (
     PINNED_PYLSL_VERSION,
     probe_lsl_dependencies,

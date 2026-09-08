@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.settings.secrets_service import (
+from study_runner.runtime_core.settings.secrets_service import (
     LocalSecretsError,
     load_local_secrets,
     redact_hardware_config,
@@ -72,7 +72,7 @@ class StudySecretStorageTests(unittest.TestCase):
 
     def test_key_matches_the_filename_normalizer(self) -> None:
         # Credential key and study filename must agree, or a rename strands secrets.
-        from study_runner.backend.services.studies.study_config_service import normalize_study_id
+        from study_runner.runtime_core.studies.study_config_service import normalize_study_id
 
         for raw in ("My Study!", "study/../etc", "Neue Studie"):
             self.assertEqual(study_key(raw), normalize_study_id(raw))
@@ -269,7 +269,7 @@ class LeakageTests(unittest.TestCase):
 
     def test_study_settings_never_carry_a_credential_field(self) -> None:
         """The exported study file must have nowhere to put a secret."""
-        from study_runner.backend.services.studies.validation import _validate_study_settings
+        from study_runner.runtime_core.studies.validation import _validate_study_settings
 
         keys = set(_validate_study_settings({}))
 

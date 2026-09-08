@@ -24,8 +24,8 @@ has always used.
 """
 from flask import Flask, jsonify
 
-from ..services.studies.trial_service import configure_runtime
-from ..services.studies.validation import ValidationError
+from study_runner.runtime_core.studies.trial_service import configure_runtime
+from study_runner.runtime_core.studies.validation import ValidationError
 from . import admin, branding, certificate, finalization, notion, pages, plugins, recovery, results, sensors, sessions, study, update, uploads
 
 
