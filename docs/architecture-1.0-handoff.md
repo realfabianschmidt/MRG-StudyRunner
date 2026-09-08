@@ -79,12 +79,25 @@ reading the code. No code changed. The read path (accepting legacy fields as
 input) correctly stays per D3 -- removing it is gated on a real release
 shipping first, which hasn't happened (version is still `1.0.0-dev`).
 
-**Next task:** 3.4 (merge `readiness`/`runtime_control`/`health` into one
-`api_version: 5` lifecycle contract — real design work, 3-5 days, touches
-all six plugins), then Phase 5 **in full** (operator decision, 2026-09-08:
-keep the complete target scope including `mrg` CLI 5f and the extension SDK
-5j, rather than trim against CONTRIBUTING.md's "keep it simple" guidance —
-see the working plan's decision log for the exact reasoning). Order for
+## 3.4 design plan written, not yet implemented — 2026-09-08
+
+Traced every consumer of `readiness`/`runtime_control`/`health` before
+proposing a merge shape — see the working plan's 3.4 entry for the full
+account. Headline finding: `health` and `runtime_control` both turned out to
+have **zero effect anywhere in the running app today** (confirmed by tracing
+every call site, not assumed) — only `readiness` (platform-mode support,
+meaningful only for camera_emotion) is load-bearing. Recommended design:
+drop `runtime_control`, make `health` actually gate polling for the first
+time, rename `readiness` to `runtime_modes` to stop colliding with the
+unrelated `readiness_requirements` capability, bump to `api_version: 5`.
+**Not yet implemented or approved** — read the working plan before starting
+3.4's actual code changes.
+
+**Next task:** implement 3.4 per that plan (or revise it first if you
+disagree with the recommendation), then Phase 5 **in full** (operator
+decision, 2026-09-08: keep the complete target scope including `mrg` CLI 5f
+and the extension SDK 5j, rather than trim against CONTRIBUTING.md's "keep
+it simple" guidance — see the working plan's decision log). Order for
 Phase 5: 5e -> 5d -> 5a -> 5c -> 5h -> 5i -> 5g -> 5j -> 5f. Claim the
 package in the working plan before editing.
 

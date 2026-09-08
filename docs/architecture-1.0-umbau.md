@@ -777,13 +777,87 @@ Zero directory moves: existing runtime packages remain in place; `shared/` and
       (`tests/test_legacy_flat_result_compat.py`) — this was wording-only.
       **Do not remove** (D2)
 - [ ] **3.4** Merge capabilities `readiness` / `runtime_control` / `health` into
-      one lifecycle contract, `api_version: 5`. This is a manifest-contract
-      rewrite touching all six plugins, `study_readiness_service.py`,
-      `plugin_health_poll_service.py` and the generic admin UI — **not a
-      removal**, despite where the target doc files it. 3–5 days. Real
-      design work: the shape of the merged contract needs to be decided
-      before code is written, not derived mechanically from the three
-      existing ones.
+      one lifecycle contract, `api_version: 5`. **Design plan below, not yet
+      implemented** (2026-09-08) — traced every consumer of all three
+      capabilities across the whole codebase before proposing a shape,
+      rather than guessing at a "natural merge."
+
+      **What each capability actually does today, verified by tracing every
+      call site, not assumed from the manifests:**
+
+      - **`health`** (declared by all 6 manifests): **zero effect anywhere.**
+        `sensor_coordinator_service.py::SensorCoordinator.build_status` polls
+        *every* plugin via `iter_plugins()` unconditionally — nothing reads
+        the `health` capability to decide whether to poll. Declaring or
+        omitting it changes nothing observable.
+      - **`runtime_control`** (declared by the 3 sensors: brainbit,
+        camera_emotion, mr60_mini_radar): **also zero effect**, for two
+        independent reasons. (a) `process_host.py::build_process_plugin`'s
+        only use of it is a *fallback* — `actions = runtime.actions or
+        (["start","stop","restart"] if "runtime_control" in capabilities
+        else [])` — but all three sensors already declare `runtime.actions`
+        explicitly, so the fallback branch is dead code in practice. (b) The
+        admin UI's `plugin-catalog.js::pluginUiIcon()` has a `runtime_control`
+        icon branch, but it sits *after* `lsl_stream_provider` in the
+        cascade, and all three sensors also declare `lsl_stream_provider` —
+        so that branch is unreachable too.
+      - **`readiness`** (platform-mode support; declared by all 6, but
+        non-empty only for camera_emotion's `worker_mode` local/remote
+        split): the **only one with real, load-bearing behavior** —
+        `study_readiness_service.py` reads `mode_setting`/`default_mode`/
+        `platform_modes` from it to block an unsupported mode per platform.
+        For the other 5 plugins it is declared as `{}`, which
+        `contracts/manifest.py::_normalize_readiness`'s own `if not config:
+        return {}` turns into a confirmed no-op.
+
+      **What this means for scope:** this is not "merge three living
+      contracts" — it is "retire two capabilities that already do nothing,
+      keep the one that does something, and fix a confusing name," which is
+      smaller and safer than a from-scratch 3–5 day contract redesign.
+      `readiness` (this capability) and `readiness_requirements` (a
+      completely different, unrelated capability — "is the operator's
+      config complete", see that function's own docstring) already collide
+      in name today; the merge is a good moment to fix that too.
+
+      **Recommended design for `api_version: 5`:**
+      1. Remove `runtime_control` entirely. Confirmed unused; per
+         CONTRIBUTING.md §1 ("no structure for a hypothetical future need")
+         there is no reason to keep a flag with a provably dead fallback.
+         `runtime.actions` remains the one and only source of truth for
+         start/stop/restart, with its existing default of `[]` when absent
+         — no capability-triggered default needed.
+      2. Make `health` mean something instead of removing it: gate
+         `SensorCoordinator.build_status`'s per-plugin poll on
+         `"health" in capabilities`, so a plugin that has nothing worth
+         polling (e.g. a pure one-shot output) can opt out. Keeps the
+         familiar name, gives it real teeth for the first time.
+      3. Rename `readiness` (this capability) to **`runtime_modes`** —
+         same schema (`mode_setting`/`default_mode`/`platform_modes`), just
+         a name that stops colliding with `readiness_requirements`. Drop the
+         empty `{}` declarations on the 5 plugins that never configured it;
+         only camera_emotion keeps it, non-empty.
+      4. `SUPPORTED_PLUGIN_API_VERSIONS` becomes `(5,)`, mirroring 3.1's "one
+         live version" cleanup — no reason to carry a `(4, 5)` transition
+         window since every manifest is migrated in the same commit.
+
+      **Files that would change** (not yet touched):
+      `contracts/manifest.py` (drop `runtime_control` from the allowed
+      capability set, rename the `_normalize_readiness` schema's capability
+      key to `runtime_modes`, bump `PLUGIN_API_VERSION`/
+      `SUPPORTED_PLUGIN_API_VERSIONS`); all 6
+      `extensions/*/*/manifest.json` (remove `runtime_control`, rename/drop
+      `readiness`, bump `api_version: 5`); `plugin_framework/process_host.py`
+      (drop the `runtime_control` fallback branch); `data_core/host/
+      sensor_coordinator_service.py` (gate polling on `health`);
+      `runtime_core/studies/study_readiness_service.py` (read
+      `runtime_modes` instead of `readiness`); `apps/ui/scripts/shared/
+      plugin-catalog.js` (drop the dead `runtime_control` icon branch);
+      tests referencing any of these three capability names by string.
+
+      This design is a recommendation, not yet approved for implementation
+      — flag disagreement before starting, since renaming a capability key
+      is a manifest-contract break every plugin author (including future
+      ones) needs to know about.
 - [x] **3.5** Fixed doc drift: the file is `extensions/README.md` now (moved
       in Phase 4.7) and already correctly said "api_version: 4" everywhere
       except one leftover sentence ("API v3 reads only per-folder
