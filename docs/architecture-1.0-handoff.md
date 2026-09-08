@@ -250,16 +250,54 @@ language explanation of 5a/5c/5d/5h for non-coders now lives in
 `docs/how-recording-quality-works.md` (per CONTRIBUTING.md §8); keep it in
 step when these algorithms change.
 
-**Next task:** 5i (withdrawal workflow -- stop writers, cancel pending
-finalization and publication, then delete raw/derived data and journal
-copies through a replayable operation; cover already sealed sessions and
-interrupted deletion; record what happens to already published destinations
-without claiming external deletion you cannot evidence). 5a already defined
-`WITHDRAWN_MARKER` and the transitions into `WITHDRAWN` from every state, so
-5i writes into a settled contract rather than inventing one. 3.4 remains a
-written, unimplemented design plan (see above) -- it blocks nothing in
-Phase 5. Order for the rest of Phase 5: 5i -> 5g -> 5j -> 5f. Claim the
-package in the working plan before editing.
+## 5i complete (Claude, 2026-09-08)
+
+New `runtime_core/delivery/withdrawal_service.py`: five ordered steps,
+`stop_recording` -> `cancel_uploads` -> `delete_session_journals` ->
+`delete_session_contents` -> `write_tombstone`. The order is a safety
+property, not a preference: writers stopped and queue drained before any
+deletion, so nothing publishes or re-creates a file behind the deletion.
+
+**Three things to know before touching this again:**
+
+*The ledger lives outside the folder it empties* (`runtime/withdrawals/`).
+Inside, a withdrawal would erase its own progress record halfway through and
+an interrupted run could not tell "already deleted" from "never started".
+
+*A withdrawal leaves a tombstone, not a hole.* Contents go, the folder stays
+with only `WITHDRAWN.json`. A vanished folder is indistinguishable from data
+loss. **This forced a read-path change** found by reading the code rather
+than assuming: `sessions_index_service` required a final marker *and* a
+result payload, both of which a withdrawal deletes -- a tombstoned session
+would have dropped out of the index entirely and 5a's `withdrawn=` branch
+would never have been reached. `WITHDRAWN.json` is now a final marker in its
+own right with a synthetic, answer-free payload.
+
+*Published data is named, never claimed deleted.* Completed uploads sit on
+someone else's server. `cancel_session()` returns them and they are written
+into the tombstone so an operator knows where to go. Do not add code that
+reports remote deletion it cannot evidence.
+
+**Honest limitation:** the tombstone keeps its path, which contains the
+participant folder name. Shedding that means removing the folder, which makes
+the withdrawal invisible again. Recorded, not hidden.
+
+Upload queue: terminal `cancelled` status restored by the journal replay,
+queued payload files deleted (a queued job holds a second copy of the
+participant's data), and three resurrection paths closed -- `_record_failure`
+will not reschedule a cancelled in-flight job, `_run_job` will not mark it
+done, explicit `retry(job_id=...)` refuses it.
+
+12 new tests; full suite **905 passed, 4 skipped**; structure baseline
+rewritten.
+
+**Next task:** 5g (card extensions). Note the standing decision of
+2026-09-07: this is the **highest data-corruption risk in the programme** --
+a generalisation of 13 already-working card types. Read that decision and the
+5g entry in the working plan before starting, and consider proposing a
+narrower scope to the owner rather than starting wide. Order for the rest of
+Phase 5: 5g -> 5j -> 5f. 3.4 remains a written, unimplemented design plan --
+it blocks nothing. Claim the package in the working plan before editing.
 
 ## Shared location and coordination
 

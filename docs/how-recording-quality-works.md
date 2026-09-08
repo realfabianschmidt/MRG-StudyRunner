@@ -260,6 +260,39 @@ have no finalisation file, but they do carry a `COMPLETE.json` or
 it, the example study shipped with the application reported itself as
 `IDLE` — a visibly finished session claiming it had never started.
 
+### What happens when someone withdraws consent
+
+Withdrawing consent deletes the session's data: the recordings, the results,
+the quality journals, the logs, and the separate copies of the trial-by-trial
+journal that live outside the session folder. It also stops any upload still
+waiting in the queue and deletes that queued copy too — a pending upload
+holds its own copy of the data and would otherwise publish it minutes later.
+
+**The folder itself stays**, holding a single `WITHDRAWN.json` file and
+nothing else. This is deliberate. A session folder that simply disappeared
+would be indistinguishable from data loss, and the point of this whole system
+is that nothing disappears quietly. What remains is a tombstone: it proves a
+withdrawal happened, and it carries no data about the participant.
+
+Two honest limits are worth knowing.
+
+**Anything already uploaded cannot be recalled by this program.** Once a file
+is on another organisation's server, only that organisation can delete it.
+Study Runner will not pretend otherwise: the destinations that already
+received data are **listed by name** in the tombstone, so you know exactly
+where to go and what to ask for. If you ever see software claim it deleted
+data from a remote service it does not control, be suspicious of it.
+
+**The folder's location still contains the participant identifier**, because
+the folder path is how a session is filed. Removing that would mean removing
+the folder, which would make the withdrawal invisible again. It is a
+trade-off between two kinds of erasure, and this is the side it falls on.
+
+A withdrawal can also be interrupted — the machine restarts halfway through —
+and picked up again where it stopped. The record of its progress is kept
+*outside* the folder being emptied, for the plain reason that a checklist
+stored inside the thing you are deleting does not survive the deletion.
+
 ---
 
 ## 6. How much of the recording is actually on the disk

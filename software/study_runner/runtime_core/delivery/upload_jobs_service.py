@@ -192,6 +192,67 @@ class UploadJobService:
             self._run_job(job_id)
         return len(due_ids)
 
+    def cancel_session(self, session_id: str, *, reason: str = "withdrawn") -> dict[str, Any]:
+        """Stop every unfinished upload for one session, permanently (5i).
+
+        Consent withdrawal has to reach the queue, not just the disk: a
+        pending job holds its own copy of the participant's data in
+        ``payload_dir`` and would publish it minutes later. Cancelling is
+        terminal here -- a cancelled job is never retried, rescheduled, or
+        resurrected by a failure that was already in flight.
+
+        Jobs already ``done`` are reported, never rewritten. Their data is
+        on someone else's server, and this process cannot delete it or
+        honestly claim it did; naming them is what lets an operator go and
+        do it. That list is the point of the return value.
+        """
+        wanted = str(session_id or "").strip()
+        if not wanted:
+            raise UploadJobError("A session_id is required to cancel uploads.")
+        cancelled: list[str] = []
+        published: list[dict[str, Any]] = []
+        with self._lock:
+            for job in list(self._jobs.values()):
+                if str(job.get("session_id") or "") != wanted:
+                    continue
+                if job.get("status") == "done":
+                    published.append(
+                        {
+                            "job_id": job["job_id"],
+                            "kind": job.get("kind"),
+                            "label": job.get("label"),
+                            "completed_at": job.get("completed_at"),
+                        }
+                    )
+                    continue
+                if job.get("status") == "cancelled":
+                    continue
+                event = {
+                    "event": "cancelled",
+                    "job_id": job["job_id"],
+                    "cancelled_at": _iso_time(self._clock()),
+                    "reason": str(reason or "withdrawn"),
+                }
+                self._append_event(event)
+                self._apply_event(event)
+                cancelled.append(job["job_id"])
+        removed = 0
+        for job_id in cancelled:
+            # The queued payload is a second copy of the participant's data.
+            # Deleting the session tree while leaving this behind would be a
+            # withdrawal that did not withdraw.
+            try:
+                (self.payload_dir / f"{job_id}.json").unlink(missing_ok=True)
+                removed += 1
+            except OSError:
+                pass
+        return {
+            "ok": True,
+            "cancelled": cancelled,
+            "payloads_removed": removed,
+            "already_published": published,
+        }
+
     def retry(self, *, job_id: str = "", all_failed: bool = False, kind: str = "") -> dict[str, Any]:
         with self._lock:
             if all_failed:
@@ -208,6 +269,8 @@ class UploadJobService:
                     raise UploadJobError("Upload job does not match the requested destination.")
                 if job.get("status") == "done":
                     raise UploadJobError("A completed upload cannot be retried.")
+                if job.get("status") == "cancelled":
+                    raise UploadJobError("A withdrawn upload cannot be retried.")
                 targets = [job]
 
             now = self._clock()
@@ -267,6 +330,10 @@ class UploadJobService:
             "running": sum(job.get("status") == "running" for job in matching),
             "done": sum(job.get("status") == "done" for job in matching),
             "failed": sum(job.get("status") == "failed" for job in matching),
+            # 5i: withdrawn work is counted, not hidden. An operator checking
+            # the queue should see that jobs stopped because of a withdrawal
+            # rather than find them quietly absent.
+            "cancelled": sum(job.get("status") == "cancelled" for job in matching),
         }
 
     def start(self) -> None:
@@ -332,6 +399,11 @@ class UploadJobService:
             return
 
         with self._lock:
+            if (self._jobs.get(job_id) or {}).get("status") == "cancelled":
+                # Cancelled mid-attempt. The upload may well have reached the
+                # destination, so this is recorded as a published destination
+                # by cancel_session's caller rather than silently forgotten.
+                return
             done_event = {
                 "event": "done",
                 "job_id": job_id,
@@ -349,6 +421,11 @@ class UploadJobService:
         now = self._clock()
         with self._lock:
             job = self._jobs[job_id]
+            if job.get("status") == "cancelled":
+                # It was cancelled while this attempt was in flight. Its
+                # failure must not schedule a retry of data the participant
+                # has withdrawn.
+                return
             attempts = int(job.get("attempts") or 1)
             created_epoch = job.get("created_epoch")
             if not isinstance(created_epoch, (int, float)):
@@ -457,6 +534,17 @@ class UploadJobService:
             )
             if destination_step:
                 destination_step["status"] = "done"
+        elif event_type == "cancelled":
+            # Terminal by design (5i): a withdrawal that a later retry could
+            # undo would not be a withdrawal.
+            job.update(
+                status="cancelled",
+                cancelled_at=event.get("cancelled_at"),
+                last_error="",
+                result={},
+            )
+            if destination_step:
+                destination_step["status"] = "cancelled"
         elif event_type == "failed":
             job.update(
                 status="failed",

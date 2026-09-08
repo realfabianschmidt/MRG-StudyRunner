@@ -92,6 +92,7 @@ Edit-safety legend:
 | `software/study_runner/runtime_core/delivery/certificate_download_service.py` | Plain-HTTP, one-file bootstrap download for the local root CA | careful |
 | `software/study_runner/runtime_core/delivery/certificate_transfer_service.py` | Validates, exports, and transactionally imports the reusable local root CA | no |
 | `software/study_runner/runtime_core/settings/branding_service.py` | Validates logo uploads and resolves a slot to a stored file, never to a caller's path | no |
+| `software/study_runner/runtime_core/delivery/withdrawal_service.py` | Consent withdrawal: stops writers, cancels pending uploads, deletes the session tree and the journal copies outside it, then leaves a `WITHDRAWN.json` tombstone; its ledger lives outside the folder it empties so an interrupted run can resume | dangerous |
 | `software/study_runner/runtime_core/delivery/upload_jobs_service.py` | Persistent upload journal, crash replay, backoff worker, and retry state | no |
 | `software/study_runner/runtime_core/delivery/upload_runtime.py` | Registers manifest-declared destination plugin handlers with persistent upload jobs | no |
 | `software/study_runner/runtime_core/settings/folder_open_service.py` | Validates and opens result folders on Windows or macOS | no |

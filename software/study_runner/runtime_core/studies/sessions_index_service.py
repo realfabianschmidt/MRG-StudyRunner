@@ -199,7 +199,33 @@ def _canonical_records(data_root: Path) -> list[tuple[Path, Path, dict[str, Any]
         if selected is not None:
             result_file, payload = selected
             records.append((session_root, result_file, payload))
+            continue
+        # Package 5i: a withdrawn session has no result payload left -- that
+        # was the point. It is still listed, from its tombstone alone, so the
+        # operator sees a withdrawal rather than a gap in the list.
+        marker = session_root / WITHDRAWN_MARKER
+        if marker.is_file():
+            records.append((session_root, marker, _withdrawn_payload(session_root, marker)))
     return records
+
+
+def _withdrawn_payload(session_root: Path, marker: Path) -> dict[str, Any]:
+    """The little that can honestly be said about a withdrawn session.
+
+    Study, participant and session identifiers come from the folder path,
+    because the tombstone deliberately carries no participant data of its
+    own. Those path segments are the one identifying trace a tombstone
+    cannot shed: removing them would mean removing the folder, and then the
+    withdrawal would be invisible again.
+    """
+    payload = _optional_json(marker)
+    return {
+        "study_id": session_root.parents[3].name,
+        "participant_id": session_root.parents[1].name,
+        "session_id": str(payload.get("session_id") or session_root.name),
+        "answers": {},
+        "withdrawn": True,
+    }
 
 
 def _canonical_session_roots(data_root: Path) -> list[Path]:
@@ -407,7 +433,15 @@ def _directory_signature(data_root: Path) -> tuple[tuple[str, int, int], ...]:
 
 
 def _has_final_marker(session_root: Path) -> bool:
-    return (session_root / "COMPLETE.json").is_file() or (session_root / "ATTENTION_REQUIRED.json").is_file()
+    # Package 5i: a withdrawn session is a tombstone -- its COMPLETE.json and
+    # its result file were deleted along with everything else. Without this
+    # third marker it would drop out of the index entirely, which is exactly
+    # the silence that makes a withdrawal indistinguishable from data loss.
+    return (
+        (session_root / "COMPLETE.json").is_file()
+        or (session_root / "ATTENTION_REQUIRED.json").is_file()
+        or (session_root / WITHDRAWN_MARKER).is_file()
+    )
 
 
 def _marker_payload(session_root: Path) -> dict[str, Any]:

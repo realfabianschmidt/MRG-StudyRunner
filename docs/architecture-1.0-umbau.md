@@ -38,8 +38,8 @@ see Phase 3 section); **only 3.4 remains in Phase 3**, then Phase 5 in full
 CONTRIBUTING.md's "keep it simple" guidance). **Phase 5's first two
 packages 5e (journal/XDF event-id comparison), 5d (stream contracts +
 timing provenance), 5a (session lifecycle), 5c (live quality/timing
-journals) and 5h (recording checkpoints + bounded ingest) are also
-complete** — see Phase 5 section. Next: 5i, then
+journals), 5h (recording checkpoints + bounded ingest) and 5i (withdrawal
+workflow) are also complete** — see Phase 5 section. Next:
 5g, 5j, 5f in that order (3.4 is a written,
 not-yet-implemented design plan, see Phase 3 section — it can land
 whenever convenient, it blocks nothing in Phase 5).
@@ -1390,11 +1390,69 @@ history.
       they passed while exercising no failure at all. Now a child of a regular
       file, which cannot be a directory on any platform. Worth remembering for
       any future "this path cannot be written" test
-- [ ] **5i** Withdrawal workflow. Stop writers, cancel pending finalization and
-      publication, then delete raw/derived data and runtime/session/trial journal
-      copies through a replayable operation. Cover already sealed sessions and
-      interrupted deletion. Explicitly record what happens to already published
-      destinations; do not claim external deletion without evidence
+- [x] **5i** Withdrawal workflow. New
+      `runtime_core/delivery/withdrawal_service.py`, five ordered steps
+      (`stop_recording`, `cancel_uploads`, `delete_session_journals`,
+      `delete_session_contents`, `write_tombstone`). The order is itself a
+      safety property: writers stopped and queue drained *before* any
+      deletion, so nothing can publish or re-create a file behind the
+      deletion's back. 5a had already settled the destination (`WITHDRAWN`
+      reachable from every state, nothing reachable from it), so this package
+      only had to reach it safely.
+
+      **Three design constraints, each one the obvious implementation gets
+      wrong:**
+
+      1. *The ledger must outlive what it deletes.* A withdrawal recording its
+         progress inside the session folder erases that record halfway through,
+         and an interrupted run could never tell "already deleted" from "never
+         started". The ledger lives in `runtime/withdrawals/<session>.json`;
+         the session tree is only ever a target. Every step is idempotent, so
+         a crash costs a repeat of at most one step.
+      2. *Deleting everything hides the withdrawal.* A folder that simply
+         vanishes is indistinguishable from data loss — the exact silence this
+         project spends its effort removing. Contents go, folder stays, holding
+         only `WITHDRAWN.json`. **This forced a real change to the read path**
+         (see below).
+      3. *Published data cannot be un-published.* Completed uploads put a copy
+         on someone else's server. The queue is stopped; the remote copy is
+         *named* in the tombstone, never claimed deleted. Claiming external
+         deletion without evidence is the one failure here no later check could
+         catch.
+
+      **Found by reading the real read path, not assumed:**
+      `sessions_index_service._canonical_session_roots` requires
+      `COMPLETE.json`/`ATTENTION_REQUIRED.json` *and* `_canonical_records`
+      requires a result payload — both deleted by a withdrawal. A tombstoned
+      session would have dropped out of the index entirely and the lifecycle's
+      `withdrawn=` branch would never have been reached. `WITHDRAWN.json` is
+      now a final marker in its own right, with a synthetic payload
+      (`_withdrawn_payload`) carrying no answers and no file list.
+
+      **Honest limitation, recorded rather than hidden:** the tombstone keeps
+      its path, and the path contains the participant folder name. That is the
+      one identifying trace it cannot shed — shedding it means removing the
+      folder, which makes the withdrawal invisible again. Named in the code
+      comment and in `how-recording-quality-works.md`.
+
+      **Upload queue changes** (`upload_jobs_service.py`): new
+      `cancel_session()`, a terminal `cancelled` status that the journal replay
+      restores, deletion of the queued payload file (a queued job holds a
+      *second copy* of the participant's data — deleting the tree while leaving
+      it behind would be a withdrawal that did not withdraw), and three
+      resurrection paths closed: `_record_failure` will not reschedule a
+      cancelled in-flight job, `_run_job` will not mark it done, and explicit
+      `retry(job_id=...)` refuses it. `counts()` reports `cancelled` so
+      withdrawn work is visible rather than quietly absent.
+
+      **Deliberately injected, not imported:** `recording_stopper` is a
+      callable. Reaching into the host recording stack from here would tie the
+      withdrawal path to a stack it must run without — a sealed session has no
+      recorder left to stop.
+
+      12 new tests. Not covered by design: withdrawing a session while the
+      recorder is mid-write is exercised through the injected stopper, not
+      against a live worker; that belongs to a Phase 6 hardware gate
 - [ ] **5j** Minimal extension SDK: versioned JSON schemas, validator, fake
       runtime, synthetic LSL source and one template for each extension type.
       Verify templates with the same contract validation used by the runtime
@@ -1424,7 +1482,7 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 5i (withdrawal workflow) — next active package; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+| Phase 5g (card extensions) — next active package, highest data-corruption risk in the programme; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`

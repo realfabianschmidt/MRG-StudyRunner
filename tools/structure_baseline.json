@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 248,
+  "cross_package_import_edges": 250,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -21,7 +21,7 @@
     "extensions.outputs": 154,
     "extensions.sensors": 8087,
     "plugin_framework": 2403,
-    "runtime_core": 12301,
+    "runtime_core": 12689,
     "shared": 478,
     "updates": 247
   }
