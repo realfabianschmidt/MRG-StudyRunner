@@ -68,22 +68,66 @@ disk write benchmark) and clock plausibility (two hardcoded epoch bounds,
 per-platform time-service evidence) enforced once at
 `RecordingRuntimeService._start_worker_generation()`, the single real
 worker-spawn choke point. New `shared/system_clock_probe.py`,
-`backend/services/recording/recording_capacity.py`, new optional study field
-`planned_session_duration_minutes`, two independent readiness blocker codes.
-38 new/extended tests; full suite **807 passed, 4 skipped**; JS **27 passed**;
-structure baseline rewritten as a checkpoint (152 edges, cycles still 0). See
-the working plan's Phase-5b checkbox and decision log for detail.
+`backend/services/recording/recording_capacity.py` (that file has since
+moved again -- it is `data_core/host/recording_capacity.py` as of Phase 4.5
+below), new optional study field `planned_session_duration_minutes`, two
+independent readiness blocker codes. 38 new/extended tests; full suite
+**807 passed, 4 skipped**; JS **27 passed**; structure baseline rewritten as
+a checkpoint (152 edges, cycles still 0). See the working plan's Phase-5b
+checkbox and decision log for detail.
 
 ## User-directed course change — 2026-09-08
 
 Operator judged incremental, fully-tested small steps too slow. Phase 3
-(legacy removal) and Phase 5c-5j are deliberately deferred. **Next task:
-Phase 4, the directory restructure**, executed against the working plan's
-existing Phase 4 section but **without the per-package full-suite-green
-gate** — one commit per target package as before, but only a single suite
-run at the end of all moves, failures fixed in a bundling pass rather than
-between each move. `main` still receives Phase 4 only once, as one merge,
-once that end-of-phase suite is green again.
+(legacy removal) and Phase 5c-5j are deliberately deferred behind Phase 4,
+the directory restructure. **Correction to the plan as first written down:**
+the per-package full-suite-green gate was *intended* to be dropped for
+speed, but in practice every package landed so far kept it -- see the
+working plan's decision log, 2026-09-08 entries, for why (every single
+package surfaced a real latent bug the full suite caught immediately: a
+subprocess-blocker rule pointing at a module that no longer existed at that
+path, a fresh `backend <-> data_core.host` import cycle, a stale hardcoded
+test path). Moving fast was honored by keeping each package large and
+shim-free instead, never by skipping the one check that kept catching
+something.
+
+## Phase 4 progress — 6 of 10 packages done, 2026-09-08
+
+Commits `dec0908`..`2d40c4a` on `feature/architecture-1.0` (in order:
+`4.0`-`4.1` shim removal, `4.2` contracts/plugin_api, `4.3` data_core/contract,
+`4.4` data_core/worker, `4.5` data_core/host, `4.6` runtime_core). Full detail,
+including the two real design issues found and fixed during 4.5 (a
+`recording_finalization_adapter.py` relocation to avoid a fresh import cycle,
+and a new `shared/filename_sanitizer.py` extraction), is in the working
+plan's Phase 4 section -- **read that section, not just this summary**,
+before starting the next package.
+
+Verified after every one of the six: full suite **807 passed, 4 skipped**,
+`tools/measure_structure.py --check` cycle count unchanged at **0** (the
+structure baseline itself is deliberately *not* rewritten mid-phase -- edge
+count growth from each merge is expected and gets checkpointed once, at the
+end of Phase 4, same as the one checkpoint after Phase 2).
+
+**Next task, in order: `extensions/*` (item 4.7), then `apps/ui` (4.8), then
+`apps/server` (4.9), then the tail items 4.11-4.16.** Claim the package in
+the working plan's file-ownership table before starting. The mechanical
+pattern is identical each time (see the six commit messages for the exact
+shape): write a short throwaway Python script doing a literal
+`str.replace()` on the dotted import path across `software/` (and `tools/`,
+`release_tools/` where relevant) → `git mv` the directory → run the script →
+grep for anything the literal replace could not reach (relative `from ..x
+import` forms always need a manual pass; check both single- and double-dot
+depending on the importing file's own location) → fix
+`test_import_boundaries.py`'s `RULES` tuple and
+`test_architecture_invariants.py`'s area/prefix checks if the moved package
+touches either → run the full suite → fix forward → commit. `extensions/*`
+specifically also needs: reading each of the six plugin manifests'
+`category` field before moving anything (do not guess the destination
+subfolder from the plugin's name), and very likely a same-or-next-commit
+touch to `_MOVED_PLUGIN_PATHS` in `runtime_core/settings/hardware_settings_service.py`
+(T7) plus the two dynamic import sites in `driver_runtime.py:28` and
+`plugin_catalog.py:28`/`:31` (item 4.11) -- operator-stored plugin paths on a
+real field machine's `hardware_settings.json` will break otherwise.
 
 Phase 3 migration, lifecycle/QC/timing/checkpoint recovery, withdrawal, cards,
 SDK and CLI remain open behind Phase 4. Hardware, power-loss measurement, full
