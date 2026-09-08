@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import config_section, timestamp
-from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
+from study_runner.contracts.plugin_api import PluginContext, Plugin
 from study_runner.shared.runtime_mode import get_project_base_dir
 from .model_errors import (
     DEEPFACE_EMOTION_MODEL_MIN_BYTES,

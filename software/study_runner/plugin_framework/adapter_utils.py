@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from .plugin_api import PluginContext
+from study_runner.contracts.plugin_api import PluginContext
 
 
 def timestamp(epoch: float | None = None) -> str:

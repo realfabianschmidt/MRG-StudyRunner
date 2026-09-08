@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from study_runner.plugin_framework.plugin_api import Plugin
+from study_runner.contracts.plugin_api import Plugin
 from study_runner.plugin_framework.registry import (
     build_context,
     get_plugin_manifest,

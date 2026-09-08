@@ -29,7 +29,7 @@ from study_runner.contracts.manifest import (
     validate_and_normalize_manifest,
 )
 from study_runner.shared.runtime_mode import is_frozen
-from .plugin_api import Plugin
+from study_runner.contracts.plugin_api import Plugin
 
 
 MANIFEST_FILENAME = "manifest.json"

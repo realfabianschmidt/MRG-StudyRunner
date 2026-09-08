@@ -22,7 +22,7 @@ from typing import Any, Mapping
 
 from study_runner.shared.runtime_mode import get_project_base_dir, is_frozen
 
-from .plugin_api import Plugin, PluginContext
+from study_runner.contracts.plugin_api import Plugin, PluginContext
 
 
 PROTOCOL_PREFIX = "@study-runner "

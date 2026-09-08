@@ -20,7 +20,7 @@ from study_runner.backend.services.studies.study_config_service import (
     StudyRevisionConflict, delete_study, load_config, load_study,
     save_active_study, study_config_revision, study_transaction_path,
 )
-from study_runner.plugin_framework.plugin_api import Plugin
+from study_runner.contracts.plugin_api import Plugin
 from study_runner.contracts.manifest import PluginManifestError, validate_and_normalize_manifest
 
 

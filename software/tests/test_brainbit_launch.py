@@ -18,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from study_runner.plugins.brainbit import adapter, brainbit_realtime_cli
 from study_runner.plugins.brainbit import plugin as brainbit_plugin
-from study_runner.plugin_framework.plugin_api import PluginContext
+from study_runner.contracts.plugin_api import PluginContext
 
 
 class FakeRunningProcess:

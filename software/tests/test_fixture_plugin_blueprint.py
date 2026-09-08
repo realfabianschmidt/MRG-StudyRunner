@@ -488,7 +488,7 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
             encoding="utf-8",
         )
         (plugin_dir / "plugin.py").write_text(
-            "from study_runner.plugin_framework.plugin_api import Plugin\n\n"
+            "from study_runner.contracts.plugin_api import Plugin\n\n"
             "def _status(context):\n"
             f"    configured = bool(context.hardware_config.get({PLUGIN_KEY!r}, {{}}).get('enabled'))\n"
             "    return {\n"

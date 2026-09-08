@@ -66,7 +66,7 @@ MANIFEST = {
 }
 
 PLUGIN_PY = """
-from study_runner.plugin_framework.plugin_api import Plugin
+from study_runner.contracts.plugin_api import Plugin
 
 def _status(context):
     return {{"status": "waiting"}}

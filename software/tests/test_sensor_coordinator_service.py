@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend.services.recording.sensor_coordinator_service import SensorCoordinator
-from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
+from study_runner.contracts.plugin_api import PluginContext, Plugin
 
 
 class FakeClock:

@@ -11,7 +11,7 @@ from .plugin_catalog import (
     discover_plugin_catalog,
     validate_admin_action_payload,
 )
-from .plugin_api import PluginContext, Plugin, SecretResolver
+from study_runner.contracts.plugin_api import PluginContext, Plugin, SecretResolver
 
 
 def build_context(

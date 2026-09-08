@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import config_section
-from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
+from study_runner.contracts.plugin_api import PluginContext, Plugin
 
 
 def _initialize(context: PluginContext) -> None:

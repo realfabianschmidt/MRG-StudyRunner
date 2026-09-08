@@ -7,7 +7,7 @@ import time
 from typing import Any, Callable
 import weakref
 
-from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
+from study_runner.contracts.plugin_api import PluginContext, Plugin
 
 
 DEFAULT_POLL_INTERVAL_MS = 2000

@@ -89,7 +89,7 @@ def _check_application(fixture_key: str) -> int:
 
 
 def _check_plugin_process(app, catalog, fixture_key: str) -> None:
-    from study_runner.plugin_framework.plugin_api import PluginContext
+    from study_runner.contracts.plugin_api import PluginContext
     from study_runner.plugin_framework.plugin_catalog import DEFAULT_PLUGINS_DIRECTORY
     from study_runner.plugin_framework.process_host import PluginProcessRuntime
 

@@ -24,7 +24,7 @@ from study_runner.plugin_framework.registry import (
     run_participant_action,
     run_trial_start,
 )
-from study_runner.plugin_framework.plugin_api import Plugin, PluginContext
+from study_runner.contracts.plugin_api import Plugin, PluginContext
 from study_runner.plugin_framework.process_host import get_process_runtime
 
 

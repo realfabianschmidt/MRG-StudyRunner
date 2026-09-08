@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from study_runner.plugin_framework.plugin_api import PluginContext
+from study_runner.contracts.plugin_api import PluginContext
 from study_runner.plugin_framework.registry import get_plugin_statuses
 from ..studies.study_client_service import get_client_status
 

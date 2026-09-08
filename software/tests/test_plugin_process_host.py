@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from flask import Flask
 
-from study_runner.plugin_framework.plugin_api import PluginContext
+from study_runner.contracts.plugin_api import PluginContext
 from study_runner.plugin_framework.process_host import (
     ConsoleLockedError,
     MAX_CONSOLE_LINE_BYTES,

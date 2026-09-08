@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from study_runner.plugins.camera_emotion.worker import plugin as worker_plugin
 from study_runner.plugins.camera_emotion.worker import server as worker_server
-from study_runner.plugin_framework.plugin_api import PluginContext
+from study_runner.contracts.plugin_api import PluginContext
 from study_runner.plugins.camera_emotion import adapter as camera_adapter
 from study_runner.plugins.camera_emotion.plugin import PLUGIN as CAMERA_EMOTION_PLUGIN
 

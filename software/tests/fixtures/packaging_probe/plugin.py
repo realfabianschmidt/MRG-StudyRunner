@@ -1,7 +1,7 @@
 """Exercise plugin RPC without devices, network calls, or background jobs."""
 import os
 
-from study_runner.plugin_framework.plugin_api import Plugin
+from study_runner.contracts.plugin_api import Plugin
 
 
 def _initialize(context):

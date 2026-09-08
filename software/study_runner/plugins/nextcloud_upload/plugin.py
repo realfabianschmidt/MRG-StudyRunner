@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from study_runner.plugin_framework.plugin_api import PluginContext, Plugin
+from study_runner.contracts.plugin_api import PluginContext, Plugin
 
 
 def _status(context: PluginContext) -> dict[str, Any]:

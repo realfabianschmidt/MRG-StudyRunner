@@ -9,7 +9,7 @@ import sys
 import threading
 from typing import Any, Mapping
 
-from .plugin_api import Plugin, PluginContext
+from study_runner.contracts.plugin_api import Plugin, PluginContext
 from .plugin_secrets import resolve_plugin_secret
 from .process_host import PROTOCOL_PREFIX
 

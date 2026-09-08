@@ -18,7 +18,7 @@ from study_runner.plugin_framework.plugin_catalog import (
     discover_plugin_catalog,
     validate_and_normalize_manifest,
 )
-from study_runner.plugin_framework.plugin_api import PluginContext
+from study_runner.contracts.plugin_api import PluginContext
 from study_runner.plugin_framework.process_host import get_process_runtime
 from study_runner.plugin_framework.registry import run_admin_action
 from study_runner.plugin_framework.registry import get_plugin_catalog_payload
@@ -392,7 +392,7 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
         (plugin_dir / "__init__.py").write_text("", encoding="utf-8")
         (plugin_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         plugin_source = source or (
-            "from study_runner.plugin_framework.plugin_api import Plugin\n"
+            "from study_runner.contracts.plugin_api import Plugin\n"
             f"PLUGIN = Plugin(key={manifest['plugin_key']!r}, label={manifest['ui']['label']!r}, "
             f"category='test', config_key={manifest['config_key']!r}, get_status=lambda context: {{}})\n"
         )
@@ -479,7 +479,7 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
 
     def test_missing_declared_handler_is_reported_without_crashing_discovery(self) -> None:
         source = (
-            "from study_runner.plugin_framework.plugin_api import Plugin\n"
+            "from study_runner.contracts.plugin_api import Plugin\n"
             "PLUGIN = Plugin(key='no_health', label='no_health', "
             "category='test', config_key='no_health')\n"
         )
@@ -500,7 +500,7 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
             "default": "",
         }
         source = (
-            "from study_runner.plugin_framework.plugin_api import Plugin\n"
+            "from study_runner.contracts.plugin_api import Plugin\n"
             "PLUGIN = Plugin(key='fixture_export', label='fixture_export', "
             "category='test', config_key='fixture_export', get_status=lambda context: {}, "
             "publish_destination=lambda context, payload: {'ok': True})\n"

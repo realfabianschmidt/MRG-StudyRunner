@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from study_runner.plugin_framework.plugin_api import PluginContext
+from study_runner.contracts.plugin_api import PluginContext
 
 from .results_service import (
     _project_root,
