@@ -5,8 +5,9 @@ This is the shared working document for the 1.0 architecture rebuild. Two agents
 source of truth for what is done, what is in progress, and who owns which
 files.**
 
-The target architecture is described in `../MRG_Recorder_Core_Architektur_1.0.md`
-(German). This document does not restate it; it tracks execution against it.
+The target architecture is preserved in [the initial plan](architecture-1.0-initial.md)
+(German). That file is the unchanged input. This working document records
+approved deviations, implementation progress and acceptance evidence.
 
 ## How to use this document
 
@@ -22,9 +23,14 @@ The target architecture is described in `../MRG_Recorder_Core_Architektur_1.0.md
    verified way this rebuild breaks silently — meaning CI stays green and the
    damage shows up weeks later on a field machine.
 
-Status: **Phase 0 complete, merged to `main` (a1f39d9).** Phases 1 and 2
-complete on `feature/architecture-1.0` (worktree at `C:\SR-1.0`), not yet
-merged. Phase 3 not yet started. Version stays `0.7.0` until Phase 4.
+Status, 2026-09-08: **Phase 0 merged to `main` (`a1f39d9`); Phase 1
+implemented, verification repairs open; Phase 2 largely implemented, not complete.**
+The reviewed rebuild is `feature/architecture-1.0` at `c557cd2`, worktree
+`C:\SR-1.0`. Approved corrections are being prepared on
+`fix/architecture-review` in the main workspace's `.tmp/v1-review` worktree,
+then integrated into the rebuild branch. Phase 3 has not started.
+Version stays `0.7.0` until Phase 4. The copy on `main` is a foundation snapshot
+with a pointer here, not a second independently maintained progress checklist.
 
 ---
 
@@ -58,6 +64,82 @@ and are cherry-picked onto the branch, never the other way round.
 
 ---
 
+## Approved review corrections — 2026-09-08
+
+The user approved this package before implementation. Keep the 1.0 scope;
+repair the foundations before further broad restructuring. The original
+9–14 week estimate is a planning estimate, not current completion evidence.
+
+### Immediate repair packages
+
+- [ ] **R1 — Upload correctness.** Repair both Notion call signatures. Exercise
+  the real publish-to-adapter path with a fake destination. A destination
+  reports a narrow allowed settings patch; the host merges into the latest
+  matching study under the existing save lock/revision transaction. Never
+  restore an entire queued study snapshot as the active study. Persist discovered
+  destination identity independently of subsequent upload success and reuse it
+  across retries/older queued jobs for the same study and destination settings.
+  Preserve the queued scientific configuration as immutable session evidence.
+- [ ] **R2 — Effective architecture checks.** Replace the ineffective Python 3.12
+  import blocker, add a negative control, resolve `from package import module`
+  and relative equivalents, and run the structure check in CI. Keep host/worker
+  boundaries visible after they share the `data_core` parent. Structural baseline
+  changes need an explained checkpoint; a field-name denylist is only a tripwire,
+  not proof of timing semantics.
+- [ ] **R3 — Packaged runtime.** Resolve frozen resources without requiring a
+  source checkout or physical Python entry scripts. Run a bundled harmless
+  plugin through its process protocol. Self-check always overrides the data
+  directory, prevents background runtime work and restores its environment.
+  Source tests and a plugin-free bundle alone cannot demonstrate plugin startup.
+- [ ] **R4 — Durable journal order.** Recovery follows append order/a durable
+  sequence, never wall-clock ordering. Preserve old journals, account for
+  restarts and torn tails, and test backwards/forwards clock jumps. Do not claim
+  that this audit-journal fix implements the recording checkpoint protocol below.
+- [ ] **R5 — Finish Phase 2.4 before moves.** Extract manifest normalization and
+  its pure dependency closure into `contracts`, remove the two remaining known
+  violations, then require an empty allowlist. Temporary re-export modules have
+  explicit removal work in Phase 4; they are not the final package contract.
+
+Sequence: update this document → R1–R4 → R5 → early preflight (5b) → serial
+package moves → remaining recording/lifecycle/extensions work → release gates.
+Independent repairs may run in parallel with exclusive file ownership; directory
+moves and tree-wide import rewrites remain serial.
+
+### Ownership of durable state
+
+| Concern | Authoritative owner | Other components |
+|---|---|---|
+| Study configuration, semantic session/card events | RuntimeCore | UI/CLI submit commands; destinations return limited observations |
+| Semantic event journal | RuntimeCore, one append API | Acknowledgement follows durable append; the same `event_id` is sent through LSL |
+| Recording lifecycle, segment checkpoints, ingest QC/timing | DataCore | RuntimeCore requests transitions and reads the recording state |
+| Scientific validation, merge and sealing | DataCore | RuntimeCore schedules the work; it cannot assert `SEALED` independently |
+| Finalization and publication job progress | RuntimeCore | Distinct from recording/session state; failed upload does not unseal valid data |
+| Withdrawal orchestration | RuntimeCore | DataCore stops writers; delivery cancels jobs; deletion is replayable |
+
+The initial plan's “only the Core writes the session” is refined to these
+explicit owners. Extensions never directly mutate session artifacts or study
+configuration. Each durable journal has one defined append interface. Split
+scientific sealing out of the current `delivery` services when assigning final
+package locations; do not mechanically move all finalization responsibility
+into RuntimeCore.
+
+### Requirements traced to acceptance
+
+| Initial requirement | Work package | Required evidence |
+|---|---|---|
+| §2, §8 durable acquisition | 5h checkpoints/recovery | Inject failure before/after data flush and journal commit; recover only confirmed prefix; report gaps |
+| §6 honest timing | 5d timing contract + 5c live observations | Source/receive/LSL clocks distinguished; delay provenance required including `unknown`; detect clock jumps |
+| §7 journal/LSL event parity | 5e | Identical IDs, replay deduplication and persisted mismatch evidence |
+| §8 bounded queues/writer isolation | 5h | Saturate one stream without silently losing/blocking unrelated streams; record drops |
+| §9 preflight and versioned QC | 5b, 5c | Disk reserve, required stream, clock plausibility failures; versioned thresholds |
+| §10 lifecycle/seal | 5a | Transition table; sealing requires verified artifacts; upload failure preserves seal |
+| §10 withdrawal | 5i | Stop writers/jobs; repeatable deletion of raw, derived and runtime journal copies; destination disposition recorded |
+| §11 extension SDK | 5j | Versioned schemas, validator, fake runtime, synthetic LSL source, one template per type |
+| §12 maintenance CLI | 5f | Shared online command guards; offline writes refuse a live runtime and require exclusive maintenance lock |
+| §13 compatibility | 3.1–3.3, 6.2–6.3 | Existing studies migrate and recordings remain readable; archival discovery/browser promises tested separately |
+| §14 invariants/structure | R2, R5, 4, 5a | Negative controls; empty import allowlist; CI structure check; sealed-session validation |
+| §16–17 release decisions | 6 | Licence/platform decisions, real upgrade, hardware smoke and measured power-loss test |
+
 ## Target package mapping
 
 ```text
@@ -90,7 +172,7 @@ readability of already-recorded sessions.
 
 ---
 
-## Current state (verified against the code)
+## Baseline inventory (verified before Phase 1; see status and R1–R5 for progress)
 
 ### Already built — move it, do not rebuild it
 
@@ -239,7 +321,7 @@ fixtures plus `tools/make_timeline_fixture.py` in the same commit.
 ### Phase 0 — Foundation (on `main`, before the branch exists)
 
 - [x] **0.0** Create this document, link it from `docs/README.md`
-- [ ] **0.1** Record the import-root decision (done: D1) and confirm no
+- [x] **0.1** Record the import-root decision (D1) and confirm no
       packaging metadata is needed — there is no `pyproject.toml`, `setup.py`,
       `setup.cfg` or `pytest.ini` in the repo today; imports work via
       `software/tests/conftest.py:33` `sys.path.insert(0, software/)`
@@ -346,7 +428,7 @@ fixtures plus `tools/make_timeline_fixture.py` in the same commit.
       - No 0.7.x fix is needed before the rebuild — the assumptions above
         are already stable across the versions checked.
 
-### Phase 1 — Invariant harness (branch) — **complete**
+### Phase 1 — Invariant harness (branch) — **implemented; R2 verification repairs open**
 
 - [x] **1.1** AST-based import walker at `software/tests/support/import_graph.py`
       (`ImportEdge`, `iter_imports`, `iter_python_files`, `module_area`,
@@ -449,10 +531,11 @@ isolation.) One doc-drift catch along the way: `test_file_guide.py` correctly
 went red for the new `tools/measure_structure.py` having no guide entry —
 exactly the mechanism it exists for, not a bug.
 
-### Phase 2 — Break the import edges in place (branch, zero moves) — **complete**
+### Phase 2 — Break the import edges in place (branch, zero moves) — **largely implemented; R1–R5 open**
 
-Best value-to-risk ratio in the programme. Afterwards every import invariant is
-true with no path changes and no packaging changes.
+Break the import edges before directory moves. Completion requires the remaining
+validator extraction and verified checks; the current two exceptions are not a
+completed invariant.
 
 All 19 known violations resolved except 2 (`recording/{markers,clock_diagnostics}.py`
 → `plugin_framework.plugin_catalog`), deliberately deferred to Phase 4 (see
@@ -534,7 +617,7 @@ is exactly where it was; only `shared/` grew.
         The `request_study_config` capability this step's plan text
         mentioned was **not needed**: it would only have served the now-
         deleted dead code path
-- [x] **2.4** Split into a cheap half and an expensive half; only did the
+- [ ] **2.4** Split into a cheap half and an expensive half; only did the
       cheap one here.
       - **`ensure_requirements` → `shared/dependency_utils.py`.** Fully
         self-contained (stdlib + `shared.runtime_mode`), so the whole file
@@ -556,7 +639,9 @@ is exactly where it was; only `shared/` grew.
         the kind of test coverage and time Phase 4 (the actual directory
         move) budgets for — not a Phase 2 in-place edge break. Left as 2
         `KNOWN_VIOLATIONS` entries with this reasoning inline, explicitly
-        deferred to Phase 4
+        deferred in the original implementation. Approved correction: complete
+        this extraction as R5 before Phase 4; no substantive extraction hidden
+        inside a mechanical move
 - [x] **2.5** Broke the host↔worker cycle. Landed in `shared/`, not
       `recording/contract/`: a subpackage nested under `recording/` would
       still match `study_runner.recording` as a dotted prefix and violate the
@@ -660,15 +745,16 @@ history.
 
 ### Phase 5 — New capabilities (branch, partly parallel)
 
-- [ ] **5a** Session lifecycle enum. Keystone for everything else. This is a
-      *merge* of two state machines that currently disagree: `recording-plan.json`
-      (`starting/recording/frozen/recovering/attention_required`) and the
-      finalization job states — `attention_required` means different things in
-      each. Design work, not a rename
+- [ ] **5a** Explicit session/recording lifecycle and transition guards. Keep
+      recording recovery, finalization jobs and upload jobs as separate state
+      machines, with a documented mapping. `SEALED` describes validated data;
+      a failed upload cannot invalidate that seal. Define withdrawal transitions
+      during recording and after sealing. Scientific sealing depends on 5h
 - [ ] **5b** Preflight: free disk space vs planned duration × measured write
-      rate; system-clock plausibility and a running time service. ~200 LOC, no
-      coupling, highest operator value per line in the whole document.
-      **Build early**, right after Phase 2
+      rate plus explicit reserve; system-clock plausibility and time-service
+      observation. Define unknown-duration/rate behavior and actionable refusal
+      reasons; a running service alone is not proof of a correct clock.
+      **Build early**, after the Phase 2 repair and contract work
 - [ ] **5c** `quality.jsonl` + `timing.jsonl` during recording. **Not merely a
       relocation**: `recording_quality.py:8-15` imports `markers` (→
       `plugin_framework`) and reads plugin manifests, so moving it into the
@@ -679,12 +765,17 @@ history.
       `stream-contracts.json`, write into the XDF header. Partly built already —
       `plugins/brainbit/adapter.py:741` has `_actual_stream_contracts` and every
       manifest declares `streams[]`. See [T8](#t8--the-stream-contract-in-the-xdf-header-changes-recorded-bytes)
+      Define source, receive and LSL clock domains; require timing-delay
+      provenance (`measured/datasheet/estimated/unknown`) and versioned QC
+      thresholds before implementing live interpretation in 5c
 - [ ] **5e** Shared `event_id` across journal and LSL markers, dedup and compare
       at finalization, mismatch is a quality event. ~70% of the substance exists
 - [ ] **5f** `mrg` CLI. Last. "the same local command API as the UI" **does not
       exist** — the UI speaks HTTPS to Flask. Either the CLI does TLS and auth,
       or a new IPC surface gets designed. `software/server.py` keeps working
       regardless (D5)
+      Include read-only offline inspection and exclusive maintenance locking for
+      recovery/sealing writes; never bypass a running runtime's ownership
 - [ ] **5g** Card extensions. **Only after Phase 4 is complete, never in
       parallel.** 13 registered types across 14 files in
       `frontend/scripts/cards/`, hand-written normalizers per type in
@@ -695,8 +786,23 @@ history.
       Order: pilot `card-slider` completely → freeze the contract against it →
       one golden fixture per card type → the remaining twelve.
       **Hard stop after the pilot** if the contract cannot reproduce
-      `validation.py`'s semantics exactly; cards come out of 1.0 rather than
-      being forced through
+      `validation.py`'s semantics exactly; report the incompatibility for a scope
+      decision. Do not silently remove cards from the approved 1.0 scope
+
+- [ ] **5h** Recording checkpoints and bounded ingest. Write → durable data
+      flush → committed segment position/sample counts → journal fsync → ack.
+      Recovery admits only the confirmed prefix and journals unconfirmed tails
+      as gaps. Define per-stream queue limits, writer isolation and priority for
+      markers. Fault-injection tests cover every commit boundary; actual
+      power-loss guarantees remain a platform/storage-specific release gate
+- [ ] **5i** Withdrawal workflow. Stop writers, cancel pending finalization and
+      publication, then delete raw/derived data and runtime/session/trial journal
+      copies through a replayable operation. Cover already sealed sessions and
+      interrupted deletion. Explicitly record what happens to already published
+      destinations; do not claim external deletion without evidence
+- [ ] **5j** Minimal extension SDK: versioned JSON schemas, validator, fake
+      runtime, synthetic LSL source and one template for each extension type.
+      Verify templates with the same contract validation used by the runtime
 
 ### Phase 6 — Acceptance
 
@@ -724,12 +830,18 @@ Add a row before starting. Remove it when the package is merged.
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
 | Phase 0 (complete, merged) | Claude Code | `main` | 2026-09-07 |
-| Phase 1 (import invariant harness, complete) | Claude Code | `feature/architecture-1.0` | 2026-09-07 |
-| Phase 2 (break import edges in place, complete) | Claude Code | `feature/architecture-1.0` | 2026-09-07 |
+| Phase 1 (implemented; R2 reopens verification) | Claude Code | `feature/architecture-1.0` | 2026-09-07 |
+| Phase 2 (largely implemented; R1–R5 open) | Claude Code | `feature/architecture-1.0` | 2026-09-07 |
+| Review integration, docs, R4 and R5 | Codex | `fix/architecture-review` | 2026-09-08 |
+| R1 upload adapters, upload runtime, study config saves and tests | Codex upload agent | `fix/architecture-review` | 2026-09-08 |
+| R2 import harness, structure tool, CI verify job | Codex boundary agent | `fix/architecture-review` | 2026-09-08 |
+| R3 packaged startup, self-check, packaging smoke job and tests | Codex packaging agent | `fix/architecture-review` | 2026-09-08 |
 
 Rules:
-- **Phases 0–4 are serial, one agent.** Moves and import rewrites are
-  tree-wide; two concurrent runs guarantee conflicts.
+- **Moves and tree-wide import rewrites are serial.** Approved R1–R4 repairs
+  may run in parallel under the disjoint ownership above. One integrator owns
+  the document and commits; concurrent agents do not stage or commit each
+  other's files. CI edits are separated by job and coordinated
 - **`contracts/` is not frozen** — every Phase 5 package needs to write to it.
   Instead: contract changes land as their own commits, additive only, never
   mixed with a feature commit, read by both agents.
@@ -779,10 +891,11 @@ Two more environment facts:
   fail-closed. Run `python tools/setup_recording_worker.py`, or copy the
   directory **including `worker-build.json`** (validation is content-hash based,
   not path based).
-- DeepFace weights are gitignored (`model_assets/*.h5`) and
-  `study_runner_server_common.py:41-47` raises without them. The
-  `packaging-smoke` job needs `release_tools/fetch_deepface_model_assets.py` to
-  run first, and should cache the result.
+- DeepFace weights are gitignored (`model_assets/*.h5`) and are required for
+  a bundle containing the camera plugin. The reduced CI packaging smoke excludes
+  production plugins and does not require these weights. A complete release
+  bundle must provision/cache the models and the canonical recording core;
+  passing the reduced smoke does not certify those components.
 
 Open a **draft PR to `main` on day one** — it gives PR-triggered CI regardless of
 branch-name rules, a running diff, and a place to keep this checklist visible.
@@ -809,6 +922,9 @@ the Flask-free subprocess import of `data_core`.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-09-08 | User approved review package R1–R5 and requirements/ownership corrections; documentation updated before implementation | Restore trustworthy gates and fix concrete upload/recovery regressions before broad restructuring |
+| 2026-09-08 | Prepare repairs in `.tmp/v1-review` on `fix/architecture-review`, then integrate into the existing rebuild branch | Existing `C:\SR-1.0` is outside this session's writable workspace; the additional worktree isolates development from operator data |
+| 2026-09-08 | Keep session state separate from finalization/publication job states | Matches initial §10; publication failure does not invalidate an intact scientific seal |
 | 2026-09-07 | Single top-level package `study_runner`, structure nested inside (D1) | Deviates from the target doc §3; invariants are about import edges, and the literal layout costs the PyInstaller spec, conftest bootstrap and 328 test references for no enforcement benefit |
 | 2026-09-07 | Flat result folders stay readable (D2) | Contradicts target doc §13, but that section contradicts the project's own constraint that existing recordings stay readable |
 | 2026-09-07 | One `1.0.0` release, full scope | Sized at 9–14 weeks; accepted. Phase 0 lands on `main` separately to preserve a hotfix path |
@@ -829,9 +945,9 @@ Both come from the target document §16 and must be answered before the 1.0 tag.
   is deliberately fail-closed (`recording/worker_binary.py`, `_core_target`), and
   `.github/workflows/ci.yml` already runs a three-platform `recording-core`
   matrix. The decision is therefore narrower than the document implies: **does a
-  canonical Linux build get added?** Today's consequence is that the cheap CI
-  runner cannot exercise the most critical path, so the real safety net is the
-  hardware smoke test as a release gate.
+  canonical Linux build get added?** Windows/macOS CI already exercises the
+  native writer, merge and synthetic LSL paths. Hardware smoke and measured
+  power-loss tests remain additional release gates.
 
 Additional questions raised during planning:
 
