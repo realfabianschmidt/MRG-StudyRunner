@@ -52,8 +52,11 @@ class PluginRegistryContractTests(unittest.TestCase):
     def test_folder_plugin_key_and_config_key_mapping_is_explicit(self) -> None:
         actual = {}
         for folder in EXPECTED_PLUGIN_MAPPING:
+            category = "sensors" if folder in {"brainbit", "camera_emotion", "mr60_mini_radar"} else (
+                "destinations" if folder in {"notion_upload", "nextcloud_upload"} else "outputs"
+            )
             module = importlib.import_module(
-                f"study_runner.plugins.{folder}.plugin"
+                f"study_runner.extensions.{category}.{folder}.plugin"
             )
             plugin = module.PLUGIN
             actual[folder] = (plugin.key, plugin.config_key)
@@ -312,7 +315,7 @@ class PluginRegistryContractTests(unittest.TestCase):
         }
         for plugin_key, module_suffix in adapter_modules.items():
             with self.subTest(plugin=plugin_key):
-                adapter = importlib.import_module(f"study_runner.plugins.{module_suffix}")
+                adapter = importlib.import_module(f"study_runner.extensions.sensors.{module_suffix}")
                 manifest_ids = {
                     stream["key"]: stream["source_id"]
                     for stream in get_plugin_manifest(plugin_key)["streams"]

@@ -1,19 +1,19 @@
-# The built-in plugins
+# Built-in extensions
 
 Each trusted plugin shipped with Study Runner owns one directory containing:
 
 ```text
-plugins/<folder>/
+extensions/<category>/<folder>/
   manifest.json
   plugin.py
   optional adapter.py, ui/*.js, assets, and focused helpers
 ```
 
-The folders are flat and equal. A plugin's kind (`biosignal`, `storage`,
-`output`, `sync`) is the manifest's `category` field, not a parent directory, so
-the interface groups plugins at runtime and adding one never means choosing
-where it belongs. The machinery that reads all of this is one folder over, in
-`../plugin_framework/`.
+The trusted category roots are `sensors`, `cards`, `destinations`, and
+`outputs`. The manifest remains authoritative for runtime capabilities and its
+stable `plugin_key`; the directory category controls code ownership and import
+boundaries. Discovery combines every root before checking global uniqueness.
+The framework lives in `../plugin_framework/`.
 
 The server discovers these folders automatically. There is no central import
 list and no web upload or dependency installer for plugins. A malformed
@@ -23,7 +23,7 @@ stop other plugins or the server from loading.
 
 ## Manifest contract
 
-Every manifest uses `api_version: 3` and declares identity, plugin version,
+Every current manifest uses `api_version: 4` and declares identity, plugin version,
 category, config key, `plugin:PLUGIN` entry point, UI metadata, settings
 schemas, timing limits, and capabilities. Important capability names are:
 
@@ -38,7 +38,7 @@ schemas, timing limits, and capabilities. Important capability names are:
 - `readiness_requirements`: distinct from `readiness` above - what a study
   needs before this plugin can actually deliver results:
   `requires_secret`, `requires_settings` (a list; any one satisfies it), and
-  `requires_machine_enabled`. `study_readiness_service.py` checks every
+  `requires_machine_enabled`. `runtime_core/studies/study_readiness_service.py` checks every
   plugin that declares this the same way, before the study can start.
 - `participant_actions` and `participant_ingest`: closed allow-lists for
   participant lifecycle commands and browser payloads through generic routes.

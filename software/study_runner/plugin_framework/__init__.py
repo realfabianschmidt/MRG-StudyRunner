@@ -1,7 +1,7 @@
 """The machinery that finds, validates, and talks to plugins.
 
 Nothing in here is a plugin. Plugins live one folder over, in
-:mod:`study_runner.plugins`, and this package is what turns a folder with a
+:mod:`study_runner.extensions`, and this package is what turns a folder with a
 ``manifest.json`` into something the rest of the app can use:
 
 - ``plugin_catalog``  discovery and manifest validation

@@ -1143,3 +1143,9 @@ Next: destinations, then outputs. Owner remains Codex.
 
 Checkpoint: destinations moved; catalog, real fake-client Notion path, retry and
 hardware-path suites: 69 passed. Next: outputs and final multi-root tests.
+
+Checkpoint: 4.7 complete. All six built-ins now live below categorized
+`extensions/`; the obsolete `plugins` package is removed. One trusted-root
+resolver serves catalog, child drivers, UI assets, self-check and packaging.
+Cross-category candidates share the global conflict pass. Targeted evidence:
+84 Python, 4 packaging and 4 JavaScript tests passed. Next: 4.8 `apps/ui`.

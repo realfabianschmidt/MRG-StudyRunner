@@ -154,3 +154,10 @@ Next: destinations, then outputs. Owner remains Codex.
 
 Checkpoint: destinations moved; catalog, real fake-client Notion path, retry and
 hardware-path suites: 69 passed. Next: outputs and final multi-root tests.
+
+Checkpoint: outputs moved and the obsolete `plugins` package removed. Discovery,
+driver startup, UI assets and self-check now share the trusted category-root
+resolver. Packaging scans categorized manifests and CI stages its harmless
+fixture under sensors. Targeted Python tests: 84 passed; packaging: 4 passed;
+targeted JavaScript: 4 passed. Cross-category conflict coverage added. Next:
+move `frontend` to `apps/ui`.

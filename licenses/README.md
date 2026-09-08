@@ -19,7 +19,7 @@ of these licenses themselves require:
 
 Not third-party, kept out of this folder on purpose: the Materiability
 heading font (first-party, covered by `../LICENSE`) and
-`software/study_runner/plugins/brainbit/HelloEEG_HelloMYO_01.3.toe` (a
+`software/study_runner/extensions/sensors/brainbit/HelloEEG_HelloMYO_01.3.toe` (a
 project-original TouchDesigner reference project, also covered by
 `../LICENSE` — see `THIRD_PARTY_NOTICES.md`).
 

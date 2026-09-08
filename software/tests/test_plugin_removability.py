@@ -9,7 +9,7 @@ both are now real recording code instead -- see `recording/markers.py` and
 `recording/clock_diagnostics.py`.
 
 This test makes the promise executable for what is left, instead of assumed. It
-works on a copy of the real `plugins/` tree with one folder removed, so a
+works on a flat copy of the real `extensions/*/` trees with one folder removed, so a
 regression here means an operator's plugin folder, not a fixture.
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ from study_runner.plugin_framework.plugin_catalog import PluginCatalog, discover
 from study_runner.plugin_framework.registry import reload_plugin_catalog
 
 
-PLUGINS_DIR = PROJECT_ROOT / "study_runner" / "plugins"
+EXTENSIONS_DIR = PROJECT_ROOT / "study_runner" / "extensions"
 
 # Every folder under plugins/ must have this property. If a folder is added
 # that is not meant to be removable, it does not belong under plugins/ --
@@ -40,8 +40,8 @@ PLUGINS_DIR = PROJECT_ROOT / "study_runner" / "plugins"
 REMOVABLE_PLUGINS = tuple(
     sorted(
         path.name
-        for path in PLUGINS_DIR.iterdir()
-        if path.is_dir() and (path / "manifest.json").is_file()
+        for category in EXTENSIONS_DIR.iterdir() if category.is_dir()
+        for path in category.iterdir() if path.is_dir() and (path / "manifest.json").is_file()
     )
 )
 
@@ -68,7 +68,13 @@ class PlugInAndPullOutTests(unittest.TestCase):
     def _catalog_without(self, plugin_key: str):
         with tempfile.TemporaryDirectory() as tmp:
             copy = Path(tmp) / "plugins"
-            shutil.copytree(PLUGINS_DIR, copy, ignore=shutil.ignore_patterns("__pycache__"))
+            copy.mkdir()
+            for category in EXTENSIONS_DIR.iterdir():
+                if not category.is_dir():
+                    continue
+                for source in category.iterdir():
+                    if source.is_dir() and (source / "manifest.json").is_file():
+                        shutil.copytree(source, copy / source.name, ignore=shutil.ignore_patterns("__pycache__"))
             shutil.rmtree(copy / plugin_key)
             return discover_plugin_catalog(copy, package_name="study_runner.plugins")
 

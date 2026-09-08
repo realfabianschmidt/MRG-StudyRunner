@@ -10,7 +10,7 @@ from release_tools.pyinstaller import study_runner_server_common as common
 
 
 def _touch_internal_recording_manifests(root: Path) -> None:
-    recording_dir = root / "study_runner" / "recording"
+    recording_dir = root / "study_runner" / "data_core" / "host"
     recording_dir.mkdir(parents=True, exist_ok=True)
     (recording_dir / "markers.manifest.json").write_text("{}", encoding="utf-8")
     (recording_dir / "clock_diagnostics.manifest.json").write_text("{}", encoding="utf-8")
@@ -70,8 +70,8 @@ class PyInstallerCommonTests(unittest.TestCase):
                 datas = common.common_datas(root)
 
             destinations = {destination for _source, destination in datas}
-            self.assertIn("study_runner/recording", destinations)
-            sources = {Path(source).name for source, destination in datas if destination == "study_runner/recording"}
+            self.assertIn("study_runner/data_core/host", destinations)
+            sources = {Path(source).name for source, destination in datas if destination == "study_runner/data_core/host"}
             self.assertEqual(sources, {"markers.manifest.json", "clock_diagnostics.manifest.json"})
 
     def test_missing_internal_recording_manifest_fails_the_build(self) -> None:
@@ -80,7 +80,7 @@ class PyInstallerCommonTests(unittest.TestCase):
             (root / "study_runner" / "frontend").mkdir(parents=True)
             (root / "study_runner" / "plugins").mkdir()
             (root / "study_content").mkdir()
-            # Deliberately do not create study_runner/recording/*.manifest.json.
+            # Deliberately do not create data_core/host/*.manifest.json.
 
             with self.assertRaisesRegex(RuntimeError, "recording manifest is missing"):
                 common.common_datas(root)

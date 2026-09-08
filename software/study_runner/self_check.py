@@ -90,14 +90,14 @@ def _check_application(fixture_key: str) -> int:
 
 def _check_plugin_process(app, catalog, fixture_key: str) -> None:
     from study_runner.contracts.plugin_api import PluginContext
-    from study_runner.plugin_framework.plugin_catalog import DEFAULT_PLUGINS_DIRECTORY
+    from study_runner.plugin_framework.extension_layout import resolve_extension
     from study_runner.plugin_framework.process_host import PluginProcessRuntime
 
     entries = [entry for entry in catalog.entries if entry.plugin_key == fixture_key]
     if len(entries) != 1 or entries[0].status != "valid":
         raise RuntimeError(f"expected one valid bundled fixture plugin {fixture_key!r}")
     entry = entries[0]
-    runtime = PluginProcessRuntime(entry.manifest, DEFAULT_PLUGINS_DIRECTORY / entry.directory)
+    runtime = PluginProcessRuntime(entry.manifest, resolve_extension(fixture_key)[0])
     context = PluginContext(
         base_dir=Path(app.config["BASE_DIR"]),
         data_dir=Path(app.config["DATA_DIR"]),

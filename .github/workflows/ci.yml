@@ -157,10 +157,11 @@ jobs:
         # Keep the manifest/discovery/child-process path in the real bundle,
         # without importing hardware SDKs or provisioning DeepFace weights.
         run: |
-          mv software/study_runner/plugins software/study_runner/plugins.disabled
-          mkdir software/study_runner/plugins
-          cp software/study_runner/plugins.disabled/__init__.py software/study_runner/plugins/
-          cp -R software/tests/fixtures/packaging_probe software/study_runner/plugins/packaging_probe
+          mv software/study_runner/extensions software/study_runner/extensions.disabled
+          mkdir -p software/study_runner/extensions/{sensors,cards,destinations,outputs}
+          touch software/study_runner/extensions/__init__.py
+          touch software/study_runner/extensions/{sensors,cards,destinations,outputs}/__init__.py
+          cp -R software/tests/fixtures/packaging_probe software/study_runner/extensions/sensors/packaging_probe
 
       - name: Build the PyInstaller onedir bundle
         run: python release_tools/build_python_onedir.py

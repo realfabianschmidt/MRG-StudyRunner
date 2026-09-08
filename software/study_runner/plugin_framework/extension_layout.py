@@ -10,7 +10,7 @@ def trusted_roots() -> tuple[tuple[Path, str], ...]:
     return tuple(
         (package / "extensions" / category, f"study_runner.extensions.{category}")
         for category in CATEGORIES
-    ) + ((package / "plugins", "study_runner.plugins"),)
+    )
 
 
 def candidate_directories(root: Path) -> list[Path]:

@@ -141,7 +141,6 @@ def common_hidden_imports(root: Path) -> list[str]:
         collect_submodules("study_runner.backend")
         + collect_submodules("study_runner.plugin_framework")
         + collect_submodules("study_runner.extensions")
-        + collect_submodules("study_runner.plugins")
         + [
             "study_runner.updates.installer",
             "study_runner.updates.trusted_keys",

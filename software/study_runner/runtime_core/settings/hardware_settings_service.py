@@ -37,6 +37,8 @@ _MOVED_PLUGIN_PATHS = (
     ('study_runner\\plugins\\nextcloud_upload\\', 'study_runner\\extensions\\destinations\\nextcloud_upload\\'),
     ('study_runner/plugins/notion_upload/', 'study_runner/extensions/destinations/notion_upload/'),
     ('study_runner\\plugins\\notion_upload\\', 'study_runner\\extensions\\destinations\\notion_upload\\'),
+    ('study_runner/plugins/osc_touchdesigner/', 'study_runner/extensions/outputs/osc_touchdesigner/'),
+    ('study_runner\\plugins\\osc_touchdesigner\\', 'study_runner\\extensions\\outputs\\osc_touchdesigner\\'),
 )
 
 

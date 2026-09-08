@@ -97,7 +97,10 @@ class SelfCheckIsolationTests(unittest.TestCase):
     def test_fixture_failure_still_shuts_down_its_process(self) -> None:
         fixture = PluginCatalogEntry("packaging_probe", "valid", "packaging_probe", manifest={"plugin_key": "packaging_probe"})
         app = SimpleNamespace(config={"BASE_DIR": Path("."), "DATA_DIR": Path("data"), "LOCAL_SECRETS_FILE": Path("secrets.json")})
-        with patch("study_runner.plugin_framework.process_host.PluginProcessRuntime") as runtime_class:
+        with patch("study_runner.plugin_framework.process_host.PluginProcessRuntime") as runtime_class, patch(
+            "study_runner.plugin_framework.extension_layout.resolve_extension",
+            return_value=(Path("fixture"), "fixture.packaging_probe"),
+        ):
             runtime = runtime_class.return_value
             runtime.request.side_effect = RuntimeError("RPC failure")
             with self.assertRaisesRegex(RuntimeError, "RPC failure"):

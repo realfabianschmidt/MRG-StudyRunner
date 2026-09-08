@@ -477,6 +477,28 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
         self.assertFalse(catalog.plugins)
         self.assertEqual(len(catalog.invalid_entries), 2)
 
+    def test_conflicts_are_checked_across_extension_category_roots(self) -> None:
+        first_root = self.package_dir / "sensors"
+        second_root = self.package_dir / "outputs"
+        first_root.mkdir()
+        second_root.mkdir()
+        for root, folder, manifest in (
+            (first_root, "first", _manifest("duplicate", source_id="same.source")),
+            (second_root, "second", _manifest("duplicate", source_id="same.source")),
+        ):
+            plugin = root / folder
+            plugin.mkdir()
+            (plugin / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            (plugin / "plugin.py").write_text("raise AssertionError('conflict imported')\n", encoding="utf-8")
+        roots = ((first_root, self.package_name), (second_root, self.package_name))
+
+        with patch("study_runner.plugin_framework.plugin_catalog.trusted_roots", return_value=roots):
+            catalog = discover_plugin_catalog()
+
+        self.assertFalse(catalog.plugins)
+        self.assertEqual(len(catalog.invalid_entries), 2)
+        self.assertTrue(all("duplicate plugin_key" in entry.errors[0] for entry in catalog.invalid_entries))
+
     def test_missing_declared_handler_is_reported_without_crashing_discovery(self) -> None:
         source = (
             "from study_runner.contracts.plugin_api import Plugin\n"
