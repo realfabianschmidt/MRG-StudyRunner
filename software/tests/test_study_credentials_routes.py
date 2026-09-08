@@ -20,7 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from study_runner.backend import create_app
 from study_runner.backend.services.settings.secrets_service import load_local_secrets
-from study_runner.backend.services.studies.study_secrets_service import (
+from study_runner.plugin_framework.plugin_secrets import (
     _credential_declarations,
     get_study_secret,
 )
@@ -196,7 +196,7 @@ class StudyCredentialRouteTests(unittest.TestCase):
             _save_study(client, "Study A")
             client.post("/api/admin/studies/Study A/credentials", json={"notion": "study-key"})
 
-            from study_runner.backend.services.studies.study_secrets_service import resolve_plugin_secret
+            from study_runner.plugin_framework.plugin_secrets import resolve_plugin_secret
 
             resolved = resolve_plugin_secret(
                 "notion",

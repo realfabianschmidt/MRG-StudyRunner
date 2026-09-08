@@ -7,7 +7,7 @@ from typing import Any, Callable, TypeVar
 
 from study_runner.shared.atomic_io import atomic_path_lock, atomic_write_json
 
-from ..studies.study_secrets_service import describe_secret_state, secret_fields
+from study_runner.plugin_framework.plugin_secrets import describe_secret_state, secret_fields
 
 
 class LocalSecretsError(RuntimeError):

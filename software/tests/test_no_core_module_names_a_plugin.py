@@ -70,7 +70,7 @@ class GenericMechanismsNameNoPluginTests(unittest.TestCase):
         )
 
     def test_credential_resolution_names_no_plugin(self) -> None:
-        from study_runner.backend.services.studies import study_secrets_service as svc
+        from study_runner.plugin_framework import plugin_secrets as svc
 
         for fn in (
             svc.secret_fields,

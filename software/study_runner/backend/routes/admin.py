@@ -12,7 +12,7 @@ from ..services.studies.study_client_service import get_client_status
 from ..services.settings.secrets_service import update_local_secrets
 from ..services.studies.study_config_service import delete_study, list_studies, load_config, load_study, save_config
 from ..services.studies.study_readiness_service import check_study_readiness, describe_credentials
-from ..services.studies.study_secrets_service import (
+from study_runner.plugin_framework.plugin_secrets import (
     forget_study_secrets,
     list_study_credential_state,
     secret_fields,

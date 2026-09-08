@@ -115,7 +115,7 @@ class FixtureDestinationCredentialTests(unittest.TestCase):
         return PluginCatalog(entries=(*original.entries, *fixture_catalog.entries))
 
     def test_secret_fields_picks_up_the_fixture_plugin_unmodified(self) -> None:
-        from study_runner.backend.services.studies.study_secrets_service import secret_fields
+        from study_runner.plugin_framework.plugin_secrets import secret_fields
 
         with patch.object(registry, "_PLUGIN_CATALOG", self._patched_catalog()):
             fields = secret_fields()
@@ -126,7 +126,7 @@ class FixtureDestinationCredentialTests(unittest.TestCase):
         self.assertEqual(fields["nextcloud"], "password")
 
     def test_resolve_plugin_secret_finds_it_at_every_scope(self) -> None:
-        from study_runner.backend.services.studies.study_secrets_service import resolve_plugin_secret
+        from study_runner.plugin_framework.plugin_secrets import resolve_plugin_secret
 
         with patch.object(registry, "_PLUGIN_CATALOG", self._patched_catalog()):
             legacy = resolve_plugin_secret(
@@ -142,7 +142,7 @@ class FixtureDestinationCredentialTests(unittest.TestCase):
     def test_env_var_declared_in_the_manifest_overrides_everything(self) -> None:
         import os
 
-        from study_runner.backend.services.studies.study_secrets_service import resolve_plugin_secret
+        from study_runner.plugin_framework.plugin_secrets import resolve_plugin_secret
 
         with (
             patch.object(registry, "_PLUGIN_CATALOG", self._patched_catalog()),
@@ -155,7 +155,7 @@ class FixtureDestinationCredentialTests(unittest.TestCase):
         self.assertEqual(resolved, "env-token")
 
     def test_describe_secret_state_reports_scope_without_the_value(self) -> None:
-        from study_runner.backend.services.studies.study_secrets_service import describe_secret_state
+        from study_runner.plugin_framework.plugin_secrets import describe_secret_state
 
         with patch.object(registry, "_PLUGIN_CATALOG", self._patched_catalog()):
             state = describe_secret_state(

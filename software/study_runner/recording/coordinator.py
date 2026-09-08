@@ -16,10 +16,10 @@ import time
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from study_runner.shared.atomic_io import atomic_write_json
+from study_runner.shared.recording_errors import WorkerProtocolError
+from study_runner.shared.worker_protocol import LoopbackWorkerClient, WorkerResponse
 
 from .artifacts import ArtifactPaths, sha256_file
-from .errors import WorkerProtocolError
-from .worker_protocol import LoopbackWorkerClient, WorkerResponse
 
 
 SEGMENT_LEDGER_SCHEMA = "study-runner/xdf-segment-ledger/v1"

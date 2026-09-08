@@ -27,7 +27,7 @@ from study_runner.backend.services.settings.secrets_service import (
     save_local_secrets,
     update_local_secrets,
 )
-from study_runner.backend.services.studies.study_secrets_service import (
+from study_runner.plugin_framework.plugin_secrets import (
     _credential_declarations,
     copy_study_secrets,
     describe_secret_state,

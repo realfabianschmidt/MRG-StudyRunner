@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import set_state, timestamp
-from study_runner.plugin_framework.dependency_utils import ensure_requirements
+from study_runner.shared.dependency_utils import ensure_requirements
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 
 

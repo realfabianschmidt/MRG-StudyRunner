@@ -22,12 +22,12 @@ WORKER_UNAVAILABLE_REASON = (
 
 from study_runner.recording.artifacts import ArtifactStore, SessionIdentity
 from study_runner.recording.coordinator import RecordingCoordinator, SegmentLedger
-from study_runner.recording.errors import CommandConflictError, WorkerProtocolError
-from study_runner.recording.recovery import (
+from study_runner.shared.recording_errors import CommandConflictError, WorkerProtocolError
+from study_runner.shared.recording_lease import (
     DEFAULT_RECORDING_LEASE_SECONDS,
     RecordingLeaseStore,
 )
-from study_runner.recording.worker_protocol import (
+from study_runner.shared.worker_protocol import (
     PersistentCommandLedger,
     LoopbackWorkerClient,
     WorkerCommand,

@@ -28,7 +28,7 @@ from ..services.settings.hardware_settings_service import (
 from ..services.settings.secrets_service import update_local_secrets
 from ..services.studies.session_store import public_session
 from ..services.studies.study_config_service import load_config
-from ..services.studies.study_secrets_service import secret_fields
+from study_runner.plugin_framework.plugin_secrets import secret_fields
 from ..services.recording.study_sensor_runtime import (
     SESSION_OVERRIDE_KEYS,
     STUDY_SENSOR_KEYS,

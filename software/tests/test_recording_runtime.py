@@ -23,11 +23,11 @@ WORKER_UNAVAILABLE_REASON = (
 
 from study_runner.recording.artifacts import ArtifactStore, SessionIdentity
 from study_runner.recording.coordinator import SegmentLedger
-from study_runner.recording.recovery import RecordingLeaseStore
+from study_runner.shared.recording_lease import RecordingLeaseStore
 from study_runner.recording.worker_binary import WorkerBinaryAvailability
-from study_runner.recording.worker_protocol import LoopbackWorkerClient, WorkerEndpointState
+from study_runner.shared.worker_protocol import LoopbackWorkerClient, WorkerEndpointState
 from study_runner.recording.xdf import StreamInspection, XdfArtifactInspection
-from study_runner.recording.errors import WorkerUnavailableError
+from study_runner.shared.recording_errors import WorkerUnavailableError
 from study_runner.backend.services.recording.recording_runtime import (
     NativeWorkerLauncher,
     RecordingRuntimeService,

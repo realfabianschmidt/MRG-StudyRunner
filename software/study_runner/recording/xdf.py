@@ -18,10 +18,11 @@ import os
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
+from study_runner.shared.recording_errors import XdfBackendUnavailableError
+from study_runner.shared.worker_protocol import WorkerResponse
+
 from .artifacts import sha256_file
 from .coordinator import RecordingCoordinator
-from .errors import XdfBackendUnavailableError
-from .worker_protocol import WorkerResponse
 
 
 PINNED_PYXDF_VERSION = "1.16.8"

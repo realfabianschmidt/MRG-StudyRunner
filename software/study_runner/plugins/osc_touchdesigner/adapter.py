@@ -22,7 +22,7 @@ Enable:   set "osc": { "enabled": true } in study_content/settings/hardware_sett
 from __future__ import annotations
 from typing import Any
 
-from study_runner.plugin_framework.dependency_utils import ensure_requirements
+from study_runner.shared.dependency_utils import ensure_requirements
 
 # Module-level state. None means OSC is not active.
 _client:        Any = None

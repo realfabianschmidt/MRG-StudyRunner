@@ -32,7 +32,7 @@ from typing import Any
 
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 
-from study_runner.plugin_framework.dependency_utils import ensure_requirements
+from study_runner.shared.dependency_utils import ensure_requirements
 from .brainbit_realtime_cli import (
     EXIT_BLE_UNAVAILABLE,
     EXIT_CALLBACK_FAILURE,

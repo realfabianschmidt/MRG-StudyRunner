@@ -17,7 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend.services.studies.study_readiness_service import check_study_readiness
-from study_runner.backend.services.studies.study_secrets_service import (
+from study_runner.plugin_framework.plugin_secrets import (
     _credential_declarations,
     set_study_secret,
 )

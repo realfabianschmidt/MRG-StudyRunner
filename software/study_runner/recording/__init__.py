@@ -11,37 +11,9 @@ labelled recovery journal which can never be mistaken for an ``.xdf`` file.
 """
 
 from .artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
-from .backup import (
-    BackupChannel,
-    BackupFrame,
-    BackupProjection,
-    BackupSampler,
-    choose_backup_rate,
-    projections_from_manifest,
-)
-from .errors import (
-    CommandConflictError,
-    CommandInProgressError,
-    RecordingError,
-    WorkerProtocolError,
-    WorkerUnavailableError,
-    XdfBackendUnavailableError,
-)
 
 __all__ = [
     "ArtifactPaths",
     "ArtifactStore",
-    "BackupChannel",
-    "BackupFrame",
-    "BackupProjection",
-    "BackupSampler",
-    "CommandConflictError",
-    "CommandInProgressError",
-    "RecordingError",
     "SessionIdentity",
-    "WorkerProtocolError",
-    "WorkerUnavailableError",
-    "XdfBackendUnavailableError",
-    "choose_backup_rate",
-    "projections_from_manifest",
 ]

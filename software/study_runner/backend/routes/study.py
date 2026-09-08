@@ -11,7 +11,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from ..services.settings.secrets_service import update_local_secrets
 from ..services.studies.study_client_service import register_heartbeat
-from ..services.studies.study_secrets_service import copy_study_secrets
+from study_runner.plugin_framework.plugin_secrets import copy_study_secrets
 from ..services.studies.study_config_service import (
     StudyRevisionConflict,
     load_config,
