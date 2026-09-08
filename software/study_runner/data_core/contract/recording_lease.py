@@ -17,7 +17,7 @@ import time
 from typing import Any, Callable, Mapping
 
 from study_runner.shared.atomic_io import atomic_write_json
-from study_runner.shared.recording_errors import WorkerProtocolError
+from study_runner.data_core.contract.recording_errors import WorkerProtocolError
 
 
 LEASE_SCHEMA = "study-runner/recording-lease/v1"

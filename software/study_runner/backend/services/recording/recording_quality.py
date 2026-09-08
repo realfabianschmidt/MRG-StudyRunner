@@ -7,8 +7,8 @@ from typing import Any, Iterable, Mapping
 
 from study_runner.recording import markers
 from study_runner.recording.artifacts import ArtifactPaths
-from study_runner.shared.backup_projection import BackupSampler, projections_from_manifest
-from study_runner.shared.recording_lease import RecordingLeaseStore
+from study_runner.data_core.contract.backup_projection import BackupSampler, projections_from_manifest
+from study_runner.data_core.contract.recording_lease import RecordingLeaseStore
 from study_runner.recording.xdf import ValidationIssue, XdfArtifactInspection
 from .recording_contract import RecordingContractError, load_recording_contract
 from .recording_dependencies import get_plugin_manifests_with_internal_sources

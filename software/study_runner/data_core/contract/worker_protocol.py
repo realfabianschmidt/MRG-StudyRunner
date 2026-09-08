@@ -26,7 +26,7 @@ import uuid
 
 from study_runner.shared.atomic_io import atomic_write_json
 
-from study_runner.shared.recording_errors import (
+from study_runner.data_core.contract.recording_errors import (
     CommandConflictError,
     CommandInProgressError,
     WorkerProtocolError,

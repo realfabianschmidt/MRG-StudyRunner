@@ -11,8 +11,8 @@ import time
 from typing import Any, Callable, Mapping
 
 from study_runner.recording.artifacts import ArtifactPaths, SessionIdentity
-from study_runner.shared.recording_errors import RecordingError
-from study_runner.shared.worker_protocol import LoopbackWorkerClient
+from study_runner.data_core.contract.recording_errors import RecordingError
+from study_runner.data_core.contract.worker_protocol import LoopbackWorkerClient
 
 
 RECORDING_PLAN_SCHEMA = "study-runner/recording-plan/v1"

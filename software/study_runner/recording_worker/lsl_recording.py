@@ -12,12 +12,12 @@ from typing import Any, Callable, Mapping, Sequence
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
 
-from study_runner.shared.backup_projection import BackupProjection, BackupSampler, projections_from_manifest
+from study_runner.data_core.contract.backup_projection import BackupProjection, BackupSampler, projections_from_manifest
 # require_pylsl/lsl_version_info moved to shared.lsl_dependency during the
 # 1.0 rebuild (docs/architecture-1.0-umbau.md, Phase 2.5): the host's
 # preflight needs them too and may not import this module. Re-exported here
 # so existing worker-side callers keep working unchanged.
-from study_runner.shared.lsl_dependency import lsl_version_info, require_pylsl
+from study_runner.data_core.contract.lsl_dependency import lsl_version_info, require_pylsl
 
 from .core import NativeXdfCore, NativeXdfWriter
 

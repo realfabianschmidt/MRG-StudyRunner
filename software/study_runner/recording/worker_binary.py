@@ -15,8 +15,8 @@ from pathlib import Path
 import platform
 from typing import Any, Callable, Mapping
 
-from study_runner.shared.native_core_probe import CoreProbe, NativeXdfError, probe_core_library
-from study_runner.shared.worker_protocol import WORKER_PROTOCOL_VERSION
+from study_runner.data_core.contract.native_core_probe import CoreProbe, NativeXdfError, probe_core_library
+from study_runner.data_core.contract.worker_protocol import WORKER_PROTOCOL_VERSION
 
 
 CORE_ENVIRONMENT_VARIABLE = "STUDY_RUNNER_XDF_CORE"

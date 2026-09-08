@@ -62,8 +62,8 @@ class AreaBoundaryTests(unittest.TestCase):
             (
                 "study_runner.recording.artifacts",
                 "study_runner.recording.coordinator",
-                "study_runner.shared.recording_lease",
-                "study_runner.shared.worker_protocol",
+                "study_runner.data_core.contract.recording_lease",
+                "study_runner.data_core.contract.worker_protocol",
                 "study_runner.recording.xdf",
             ),
             "flask",
@@ -112,9 +112,9 @@ class AreaBoundaryTests(unittest.TestCase):
             (
                 "study_runner.recording.artifacts",
                 "study_runner.recording.coordinator",
-                "study_runner.shared.recording_lease",
+                "study_runner.data_core.contract.recording_lease",
                 "study_runner.recording.worker_binary",
-                "study_runner.shared.worker_protocol",
+                "study_runner.data_core.contract.worker_protocol",
                 "study_runner.recording.xdf",
             ),
             "study_runner.recording_worker",

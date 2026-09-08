@@ -16,8 +16,8 @@ import time
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from study_runner.shared.atomic_io import atomic_write_json
-from study_runner.shared.recording_errors import WorkerProtocolError
-from study_runner.shared.worker_protocol import LoopbackWorkerClient, WorkerResponse
+from study_runner.data_core.contract.recording_errors import WorkerProtocolError
+from study_runner.data_core.contract.worker_protocol import LoopbackWorkerClient, WorkerResponse
 
 from .artifacts import ArtifactPaths, sha256_file
 

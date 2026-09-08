@@ -15,7 +15,7 @@ from typing import Any, Iterable, Sequence
 # writer probes its own library on construction below) and re-exported so
 # existing callers of `recording_worker.core.{CoreProbe,NativeXdfError,
 # probe_core_library}` keep working unchanged.
-from study_runner.shared.native_core_probe import (
+from study_runner.data_core.contract.native_core_probe import (
     EXPECTED_ABI_VERSION,
     REQUIRED_CANONICAL_FEATURES,
     CoreProbe,

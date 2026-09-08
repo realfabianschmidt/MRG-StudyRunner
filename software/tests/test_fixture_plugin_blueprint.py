@@ -19,7 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from study_runner.recording.artifacts import SessionIdentity
 from study_runner.recording.coordinator import SegmentLedger
 from study_runner.recording.worker_binary import WorkerBinaryAvailability
-from study_runner.shared.worker_protocol import (
+from study_runner.data_core.contract.worker_protocol import (
     LoopbackWorkerClient,
     WorkerEndpointState,
 )

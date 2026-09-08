@@ -20,7 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.recording_worker.core import NativeXdfCore, NativeXdfError
-from study_runner.shared.backup_projection import (
+from study_runner.data_core.contract.backup_projection import (
     BackupSampler,
     STATUS_DEGRADED,
     STATUS_STALE,
@@ -33,7 +33,7 @@ from study_runner.recording_worker.lsl_recording import (
     StreamSpec,
 )
 from study_runner.recording_worker.runtime import RecordingWorkerRuntime, sha256_file
-from study_runner.shared.worker_protocol import (
+from study_runner.data_core.contract.worker_protocol import (
     WorkerCommand,
     WorkerEndpointState,
     WorkerStateStore,
