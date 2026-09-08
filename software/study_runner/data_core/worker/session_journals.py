@@ -20,8 +20,20 @@ import threading
 from pathlib import Path
 from typing import Any, Mapping
 
-QUALITY_JOURNAL_FILENAME = "quality.jsonl"
-TIMING_JOURNAL_FILENAME = "timing.jsonl"
+from study_runner.contracts.recording_checkpoint import CHECKPOINT_JOURNAL_FILENAME
+# Re-exported: the names moved to contracts in 5h so the host can append to
+# quality.jsonl during recovery without importing anything worker-side.
+from study_runner.contracts.quality_journal import (
+    QUALITY_JOURNAL_FILENAME,
+    TIMING_JOURNAL_FILENAME,
+)
+
+__all__ = [
+    "CHECKPOINT_JOURNAL_FILENAME",
+    "QUALITY_JOURNAL_FILENAME",
+    "TIMING_JOURNAL_FILENAME",
+    "SessionJournalWriter",
+]
 
 
 class SessionJournalWriter:
@@ -38,6 +50,28 @@ class SessionJournalWriter:
 
     def append_timing(self, record: Mapping[str, Any]) -> None:
         self._append(TIMING_JOURNAL_FILENAME, record)
+
+    def append_checkpoint(self, record: Mapping[str, Any]) -> bool:
+        """Append a checkpoint and fsync it; ``True`` only if it is on disk.
+
+        Package 5h. Unlike the other two journals this one is durable per
+        record and reports whether it succeeded, because a checkpoint is a
+        *claim* about durability. Flushing it lazily would let recovery
+        confirm a prefix that was never written, which is worse than having
+        no checkpoint at all: it would turn an honest "unknown tail" into a
+        false "all present".
+        """
+        self._append(CHECKPOINT_JOURNAL_FILENAME, record)
+        with self._lock:
+            handle = self._handles.get(CHECKPOINT_JOURNAL_FILENAME)
+            if handle is None:
+                return False
+            try:
+                handle.flush()
+                os.fsync(handle.fileno())
+            except OSError:
+                return False
+        return True
 
     def flush(self, *, durable: bool = False) -> None:
         """Flush both journals; ``durable`` also fsyncs each open file."""

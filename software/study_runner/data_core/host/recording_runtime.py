@@ -69,6 +69,7 @@ from .recording_runtime_support import (
     identity_from_session as _identity_from_session,
     parse_utc as _parse_utc,
     public_plan as _public_plan,
+    report_unconfirmed_tail as _report_unconfirmed_tail,
     read_object as _read_object,
     recovery_backup_grid_anchor as _recovery_backup_grid_anchor,
     require_worker_ok as _require_worker_ok,
@@ -630,6 +631,15 @@ class RecordingRuntimeService:
             ((plan.get("worker") or {}).get("generation") or 0)
         )
         generation = max(1, previous_generation + 1)
+        # Package 5h: before the replacement generation starts writing, note
+        # where the dead one stopped being able to vouch for itself. Done
+        # here rather than after the start, because a failed start would
+        # otherwise lose the only record of the previous segment's boundary.
+        _report_unconfirmed_tail(
+            paths,
+            generation=previous_generation,
+            monotonic=time.monotonic(),
+        )
         plan.update(
             status="recovering",
             recovery_started_at_epoch=self._clock(),

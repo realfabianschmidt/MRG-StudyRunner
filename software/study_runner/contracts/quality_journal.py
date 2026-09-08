@@ -33,6 +33,12 @@ from typing import Any, Iterable, Mapping, Sequence
 QUALITY_JOURNAL_SCHEMA = "study-runner/quality-journal/v1"
 TIMING_JOURNAL_SCHEMA = "study-runner/timing-journal/v1"
 
+# The filenames live here rather than next to the writer because 5h gave
+# the host a reason to append to quality.jsonl too (recovery reporting),
+# and host and worker may not import each other (invariant #1).
+QUALITY_JOURNAL_FILENAME = "quality.jsonl"
+TIMING_JOURNAL_FILENAME = "timing.jsonl"
+
 # Target doc §9: "Schwellenwerte stehen in einem versionierten
 # Qualitätsprofil." Versioned so a recording says which rules judged it --
 # a later, stricter profile must not silently re-judge old sessions.
@@ -55,6 +61,10 @@ EVENT_GAP = "gap"
 EVENT_TIMESTAMP_REGRESSION = "timestamp_regression"
 EVENT_CLOCK_JUMP = "clock_jump"
 EVENT_SUMMARY = "summary"
+# 5h. Written by the *host* during recovery, not by the ingest loop: the
+# process that could have described its own last seconds is the one that
+# died. See contracts/recording_checkpoint.py for what "confirmed" means.
+EVENT_UNCONFIRMED_TAIL = "unconfirmed_tail"
 
 # Timing observation names.
 OBSERVATION_CLOCK_OFFSET = "clock_offset"

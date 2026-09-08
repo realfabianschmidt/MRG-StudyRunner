@@ -155,11 +155,20 @@ class SessionJournalWriterTests(unittest.TestCase):
             journals.close()
 
     def test_an_unwritable_session_directory_never_breaks_the_recording(self) -> None:
-        """Journals are evidence about the recording, not a reason to stop it."""
-        journals = SessionJournalWriter(Path("/definitely/not/a/writable/path"))
-        journals.append_quality({"event": "gap"})
-        journals.flush(durable=True)
-        journals.close()
+        """Journals are evidence about the recording, not a reason to stop it.
+
+        The unwritable path is a child of a *file*: an invented absolute
+        path resolves under the current drive on Windows and is usually
+        creatable, which made the earlier version of this test pass
+        without ever exercising a failure.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            blocker = Path(temp_dir) / "not-a-directory"
+            blocker.write_text("", encoding="utf-8")
+            journals = SessionJournalWriter(blocker / "session")
+            journals.append_quality({"event": "gap"})
+            journals.flush(durable=True)
+            journals.close()
 
     def test_appending_after_close_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

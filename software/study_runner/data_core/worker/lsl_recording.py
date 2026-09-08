@@ -23,6 +23,7 @@ from study_runner.contracts.quality_journal import (
     StreamQualityObserver,
     timing_record,
 )
+from study_runner.contracts.recording_checkpoint import checkpoint_record, stream_commit
 
 from .core import NativeXdfCore, NativeXdfWriter
 from .session_journals import SessionJournalWriter
@@ -196,6 +197,16 @@ class StreamRuntimeState:
         }
 
 
+def _relative_to_session(target: Path, session_root: Path | None) -> str:
+    """Segment path relative to the session, or its name when unrelatable."""
+    if session_root is None:
+        return target.name
+    try:
+        return target.relative_to(Path(session_root).resolve()).as_posix()
+    except ValueError:
+        return target.name
+
+
 class LslSourceRecorder:
     """One append-never plugin XDF containing all manifest-declared LSL streams."""
 
@@ -210,6 +221,8 @@ class LslSourceRecorder:
         pylsl_module: Any,
         clock: Callable[[], float] = time.monotonic,
         journals: SessionJournalWriter | None = None,
+        generation: int = 1,
+        session_root: Path | None = None,
     ) -> None:
         if not plugin_key.strip():
             raise ValueError("plugin_key is required")
@@ -224,6 +237,12 @@ class LslSourceRecorder:
             raise ValueError("recording source declares more than one primary stream")
         self.plugin_key = plugin_key
         self.target_path = Path(target_path).resolve()
+        # Package 5h: a committed sample count only means something against
+        # the segment it was counted in, so a checkpoint carries both. The
+        # path is stored relative to the session so a moved or copied
+        # session folder still resolves it.
+        self.generation = int(generation)
+        self.segment_relative_path = _relative_to_session(self.target_path, session_root)
         self._writer = core.create_writer(self.target_path)
         self._cache = cache
         self._pylsl = pylsl_module
@@ -507,6 +526,36 @@ class LslSourceRecorder:
             if observer is not None and observer.sample_count:
                 self._append_quality(observer.summary(monotonic=now))
 
+    def _write_checkpoint(self, now: float, *, reason: str) -> bool:
+        """Record how far this recorder's data is known to be on disk.
+
+        Read under the state lock so the counts cannot be a torn mixture of
+        two ingest threads' updates. The counts are taken *after* the
+        durable flush, so they describe the flushed file rather than the
+        in-memory state that was ahead of it.
+        """
+        if self._journals is None:
+            return False
+        with self._lock:
+            commits = [
+                stream_commit(
+                    plugin_key=self.plugin_key,
+                    stream_key=state.spec.key,
+                    sample_count=state.sample_count,
+                    last_timestamp=state.last_timestamp,
+                )
+                for state in self._states
+            ]
+        return self._journals.append_checkpoint(
+            checkpoint_record(
+                generation=self.generation,
+                monotonic=now,
+                segment_relative_path=self.segment_relative_path,
+                streams=commits,
+                reason=reason,
+            )
+        )
+
     def _checkpoint_loop(self) -> None:
         next_boundary = self._clock() + BOUNDARY_INTERVAL_SECONDS
         next_flush = self._clock() + DURABLE_FLUSH_INTERVAL_SECONDS
@@ -517,6 +566,10 @@ class LslSourceRecorder:
                     self._writer.boundary()
                     next_boundary += BOUNDARY_INTERVAL_SECONDS
                 if now >= next_flush:
+                    # Package 5h's commit order, and the order is the point:
+                    # the data reaches the disk first, then the checkpoint
+                    # claiming it did. Reversed, a surviving checkpoint could
+                    # vouch for samples that never landed.
                     self._writer.flush(durable=True)
                     # Quality evidence is made durable on the same tick as
                     # the data it describes, so a crash loses at most the
@@ -524,6 +577,7 @@ class LslSourceRecorder:
                     self._write_quality_summaries(now)
                     if self._journals is not None:
                         self._journals.flush(durable=True)
+                    self._write_checkpoint(now, reason="periodic")
                     next_flush += DURABLE_FLUSH_INTERVAL_SECONDS
             except Exception as error:
                 with self._lock:
@@ -605,6 +659,12 @@ class LslSourceRecorder:
         self._write_quality_summaries(self._clock())
         if self._journals is not None:
             self._journals.flush(durable=True)
+        # The closing checkpoint is what distinguishes a cleanly ended
+        # segment from a crashed one: it is written after close(durable=True)
+        # and therefore confirms the whole file. Recovery finding a "freeze"
+        # checkpoint knows there is no unconfirmed tail to report.
+        if self._closed:
+            self._write_checkpoint(self._clock(), reason="freeze")
         return self.status()
 
     @staticmethod

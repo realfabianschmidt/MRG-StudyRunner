@@ -5,11 +5,23 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
+import os
 from pathlib import Path
 import socket
 import time
 from typing import Any, Callable, Mapping
 
+from study_runner.contracts.quality_journal import (
+    EVENT_UNCONFIRMED_TAIL,
+    QUALITY_JOURNAL_FILENAME,
+    quality_record,
+)
+from study_runner.contracts.recording_checkpoint import (
+    CHECKPOINT_JOURNAL_FILENAME,
+    confirmed_stream_positions,
+    last_checkpoint_for_generation,
+    read_checkpoints,
+)
 from study_runner.data_core.host.artifacts import ArtifactPaths, SessionIdentity
 from study_runner.data_core.contract.recording_errors import RecordingError
 from study_runner.data_core.contract.worker_protocol import LoopbackWorkerClient
@@ -189,3 +201,70 @@ def public_plan(plan: Mapping[str, Any], *, reused: bool = False) -> dict[str, A
         "worker": plan.get("worker"),
         "reused": reused,
     }
+
+
+def report_unconfirmed_tail(paths: ArtifactPaths, *, generation: int, monotonic: float) -> int:
+    """Journal what the dying worker generation could not vouch for (5h).
+
+    The crashed process is the one that could have described its own last
+    seconds, so the host does it instead, once, at the moment it decides to
+    start a replacement generation.
+
+    What gets reported is a *boundary*, not a loss: samples after the last
+    surviving checkpoint may well be in the file. The point is that nobody
+    confirmed they are, and an unconfirmed boundary that nobody wrote down
+    is exactly the silent case package 5h exists to remove. An operator
+    reading ``quality.jsonl`` afterwards sees where to look.
+
+    Returns how many streams were reported, for the caller's logging.
+    Never raises: a recovery must not fail because its own note-taking did.
+    """
+    if generation < 1:
+        return 0
+    checkpoint = last_checkpoint_for_generation(
+        read_checkpoints(paths.root / CHECKPOINT_JOURNAL_FILENAME),
+        generation=int(generation),
+    )
+    if checkpoint is not None and str(checkpoint.get("reason") or "") == "freeze":
+        # That generation closed cleanly and confirmed its whole segment;
+        # there is no tail, and inventing an event here would teach
+        # operators to ignore a warning that is usually meaningless.
+        return 0
+    positions = confirmed_stream_positions(checkpoint)
+    records = [
+        quality_record(
+            event=EVENT_UNCONFIRMED_TAIL,
+            monotonic=float(monotonic),
+            plugin_key=str(commit.get("plugin_key") or ""),
+            stream_key=str(commit.get("stream_key") or ""),
+            generation=int(generation),
+            segment_relative_path=str(checkpoint.get("segment_relative_path") or "") if checkpoint else "",
+            confirmed_sample_count=commit.get("sample_count"),
+            confirmed_last_timestamp=commit.get("last_timestamp"),
+            confirmed_at_monotonic=checkpoint.get("monotonic") if checkpoint else None,
+        )
+        for commit in positions.values()
+    ]
+    if not records:
+        # No checkpoint survived at all: the generation died before its
+        # first durable flush, or the journal itself was lost. Say so
+        # rather than staying quiet, because "nothing confirmed" is the
+        # strongest form of this warning, not the absence of one.
+        records = [
+            quality_record(
+                event=EVENT_UNCONFIRMED_TAIL,
+                monotonic=float(monotonic),
+                generation=int(generation),
+                confirmed_sample_count=0,
+                note="no checkpoint survived for this worker generation",
+            )
+        ]
+    try:
+        with (paths.root / QUALITY_JOURNAL_FILENAME).open("a", encoding="utf-8", newline="\n") as handle:
+            for record in records:
+                handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError:
+        return 0
+    return len(records)

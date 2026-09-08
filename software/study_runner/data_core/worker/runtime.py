@@ -271,6 +271,8 @@ class RecordingWorkerRuntime:
                     cache=self.cache,
                     pylsl_module=self.pylsl,
                     journals=self.journals,
+                    generation=self.generation,
+                    session_root=self.session_dir,
                 )
                 self._sources[plugin_key] = recorder
                 self._source_configs[plugin_key] = config
