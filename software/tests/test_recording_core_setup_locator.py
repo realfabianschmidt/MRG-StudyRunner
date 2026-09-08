@@ -30,7 +30,7 @@ from study_runner.recording.worker_binary import (  # noqa: E402
     EXPECTED_UPSTREAM_VERSION,
     EXPECTED_SOURCE_LOCK_SHA256,
 )
-from study_runner.recording_worker.core import (  # noqa: E402
+from study_runner.data_core.worker.core import (  # noqa: E402
     CoreProbe,
     REQUIRED_CANONICAL_FEATURES,
 )

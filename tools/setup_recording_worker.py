@@ -233,7 +233,7 @@ def run_synthetic_xdf_smoke(library_path: Path, build_dir: Path) -> dict[str, An
         sys.path.insert(0, software_path)
     try:
         import pyxdf
-        from study_runner.recording_worker.core import NativeXdfCore
+        from study_runner.data_core.worker.core import NativeXdfCore
     except (ImportError, OSError) as error:
         raise SetupError(f"synthetic XDF smoke dependencies are unavailable: {error}") from error
 

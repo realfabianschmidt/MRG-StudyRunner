@@ -74,7 +74,7 @@ class AreaBoundaryTests(unittest.TestCase):
     def test_the_detached_worker_does_not_need_the_web_application(self) -> None:
         """It runs as its own process; Flask is not installed in its CI job."""
         result = _imports_cleanly_without(
-            ("study_runner.recording_worker.runtime", "study_runner.recording_worker.core"),
+            ("study_runner.data_core.worker.runtime", "study_runner.data_core.worker.core"),
             "flask",
         )
 
@@ -92,10 +92,10 @@ class AreaBoundaryTests(unittest.TestCase):
         """
         result = _imports_cleanly_without(
             (
-                "study_runner.recording_worker.application",
-                "study_runner.recording_worker.runtime",
-                "study_runner.recording_worker.core",
-                "study_runner.recording_worker.lsl_recording",
+                "study_runner.data_core.worker.application",
+                "study_runner.data_core.worker.runtime",
+                "study_runner.data_core.worker.core",
+                "study_runner.data_core.worker.lsl_recording",
             ),
             "study_runner.recording",
         )
@@ -117,7 +117,7 @@ class AreaBoundaryTests(unittest.TestCase):
                 "study_runner.data_core.contract.worker_protocol",
                 "study_runner.recording.xdf",
             ),
-            "study_runner.recording_worker",
+            "study_runner.data_core.worker",
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)

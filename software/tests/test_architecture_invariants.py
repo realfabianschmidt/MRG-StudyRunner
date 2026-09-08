@@ -5,9 +5,9 @@ package restructure moves anything.
 Two invariants live here rather than in `test_import_boundaries.py`:
 
 - #5, "only the DataCore writes XDF bytes" -- today's writer is
-  `recording_worker.core.NativeXdfWriter`. This isn't an import-boundary
+  `data_core.worker.core.NativeXdfWriter`. This isn't an import-boundary
   question (several files legitimately import *something* from
-  `recording_worker.core`, e.g. `recording/worker_binary.py` imports
+  `data_core.worker.core`, e.g. `recording/worker_binary.py` imports
   `probe_core_library` to validate the native library without writing to
   it); it's specifically about which files instantiate the writer class.
 - #3, "`contracts/` imports nothing from the rest of the app" -- there is no
@@ -36,12 +36,16 @@ from support.import_graph import iter_imports, iter_python_files  # noqa: E402
 
 STUDY_RUNNER_ROOT = PROJECT_ROOT / "study_runner"
 
-# Areas allowed to actually write XDF bytes through the native core today.
+# Path prefix (under study_runner/) allowed to actually write XDF bytes
+# through the native core today. A two-segment prefix, not just the
+# top-level area: `data_core/contract/` and a future `data_core/host/`
+# live under the same top-level `data_core` as the worker but must not
+# gain this permission by sharing its first path segment.
 # `recording/worker_binary.py` is deliberately excluded: it imports
 # `probe_core_library`/`CoreProbe`/`NativeXdfError` to validate the library,
 # never `NativeXdfWriter` itself -- see the file-specific check below, which
 # enforces that distinction precisely instead of exempting the whole file.
-WRITER_ALLOWED_AREAS = {"recording_worker"}
+WRITER_ALLOWED_PREFIX = ("data_core", "worker")
 WRITER_CLASS_NAME = "NativeXdfWriter"
 
 
@@ -49,8 +53,8 @@ class OnlyDataCoreWritesXdfBytesTests(unittest.TestCase):
     def test_native_xdf_writer_is_only_instantiated_in_the_worker_area(self) -> None:
         offenders: list[str] = []
         for path in iter_python_files(STUDY_RUNNER_ROOT):
-            area = path.relative_to(STUDY_RUNNER_ROOT).parts[0]
-            if area in WRITER_ALLOWED_AREAS:
+            parts = path.relative_to(STUDY_RUNNER_ROOT).parts
+            if parts[: len(WRITER_ALLOWED_PREFIX)] == WRITER_ALLOWED_PREFIX:
                 continue
             for edge in iter_imports(path, package_root=PROJECT_ROOT):
                 if WRITER_CLASS_NAME in edge.names:
@@ -60,7 +64,7 @@ class OnlyDataCoreWritesXdfBytesTests(unittest.TestCase):
         self.assertEqual(
             offenders,
             [],
-            f"only {sorted(WRITER_ALLOWED_AREAS)} may import {WRITER_CLASS_NAME}: "
+            f"only {'/'.join(WRITER_ALLOWED_PREFIX)} may import {WRITER_CLASS_NAME}: "
             + ", ".join(offenders),
         )
 

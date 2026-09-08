@@ -35,14 +35,14 @@ if __name__ == "__main__":
 
         raise SystemExit(run_plugin_driver(sys.argv[2]))
     if len(sys.argv) > 1 and sys.argv[1] == "--recording-worker":
-        from study_runner.recording_worker.application import main as run_recording_worker
+        from study_runner.data_core.worker.application import main as run_recording_worker
 
         raise SystemExit(run_recording_worker(sys.argv[2:]))
     if len(sys.argv) > 2 and sys.argv[1] == "--recording-worker-probe":
         import json
         from pathlib import Path
 
-        from study_runner.recording_worker.core import probe_core_library
+        from study_runner.data_core.worker.core import probe_core_library
 
         probe = probe_core_library(Path(sys.argv[2]))
         print(json.dumps(probe.as_dict(), ensure_ascii=False, sort_keys=True))

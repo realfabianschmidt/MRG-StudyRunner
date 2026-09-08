@@ -53,17 +53,17 @@ STUDY_RUNNER_ROOT = PROJECT_ROOT / "study_runner"
 # (source path prefix under study_runner/, forbidden imported-module prefix)
 RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("plugin_framework",), "study_runner.backend"),
-    (("plugin_framework",), "study_runner.recording_worker"),
+    (("plugin_framework",), "study_runner.data_core.worker"),
     (("plugin_framework",), "study_runner.recording"),
     (("plugins",), "study_runner.backend"),
     (("plugins",), "study_runner.recording"),
-    (("plugins",), "study_runner.recording_worker"),
-    (("recording",), "study_runner.recording_worker"),
+    (("plugins",), "study_runner.data_core.worker"),
+    (("recording",), "study_runner.data_core.worker"),
     (("recording",), "study_runner.plugin_framework"),
-    (("recording_worker",), "study_runner.recording"),
-    (("recording_worker",), "study_runner.plugin_framework"),
-    (("recording_worker",), "study_runner.backend"),
-    (("backend", "services", "recording"), "study_runner.recording_worker"),
+    (("data_core", "worker"), "study_runner.recording"),
+    (("data_core", "worker"), "study_runner.plugin_framework"),
+    (("data_core", "worker"), "study_runner.backend"),
+    (("backend", "services", "recording"), "study_runner.data_core.worker"),
 )
 
 # (file relative to study_runner/, imported module). One entry per distinct
