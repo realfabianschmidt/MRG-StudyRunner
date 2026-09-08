@@ -42,6 +42,8 @@ from study_runner.recording.xdf import (
     validator_dependency_status,
 )
 from study_runner.shared.atomic_io import atomic_write_json
+from study_runner.shared.system_clock_probe import probe_system_clock
+from .recording_capacity import evaluate_capacity
 from .recording_contract import (
     RecordingContractError,
     build_recording_contract,
@@ -278,6 +280,7 @@ class RecordingRuntimeService:
         configured_worker_path: Path | None = None,
         launcher_factory: Callable[[WorkerLaunchSpec], NativeWorkerLauncher] = NativeWorkerLauncher,
         clock: Callable[[], float] = time.time,
+        system_clock_probe: Callable[[], dict[str, Any]] = probe_system_clock,
     ) -> None:
         self.data_dir = Path(data_dir).resolve()
         self.resource_root = Path(resource_root).resolve()
@@ -291,6 +294,11 @@ class RecordingRuntimeService:
             configured_worker_path is not None and launcher_factory is not NativeWorkerLauncher
         )
         self._clock = clock
+        # Injectable for the same reason `clock` is: the real probe shells out
+        # to an OS time service (see shared/system_clock_probe.py), which
+        # would make unrelated worker-launch tests flaky on any machine or CI
+        # runner where that service happens not to be running.
+        self._probe_system_clock = system_clock_probe
         self._lock = threading.RLock()
         self._active_paths: dict[str, Path] = {}
 
@@ -337,6 +345,45 @@ class RecordingRuntimeService:
         availability = self.availability()
         reasons = [str(availability.get("reason") or "")] if not availability["available"] else []
         ready = not selected or bool(availability["available"])
+
+        # Advisory only -- no plan exists yet at this point, so there is no
+        # negotiated contract to check against, only manifest-declared rates.
+        # The actual gate (which cannot be bypassed) runs at the real start
+        # boundary in _start_worker_generation. A study with no recording
+        # plugin selected is unaffected, matching `ready` above.
+        capacity: dict[str, Any] | None = None
+        clock: dict[str, Any] | None = None
+        if selected:
+            clock = self._probe_system_clock()
+            if not clock["ok"] and ready:
+                reasons.append(str(clock.get("reason") or "system clock preflight failed"))
+                ready = False
+            try:
+                all_selected = list(dict.fromkeys([*selected, *INTERNAL_RECORDING_SOURCE_KEYS]))
+                manifests = get_plugin_manifests_with_internal_sources()
+                manifest_streams_by_source = {
+                    plugin_key: list((manifests.get(plugin_key) or {}).get("streams") or [])
+                    for plugin_key in all_selected
+                }
+                projection_specs = get_backup_projection_specs(set(all_selected))
+                backup_contract = _build_backup_contract(
+                    all_selected, manifest_streams_by_source, projection_specs
+                )
+                capacity = evaluate_capacity(
+                    target_dir=self.data_dir,
+                    streams_by_source=manifest_streams_by_source,
+                    backup_contract=backup_contract,
+                    config_data=config_data,
+                )
+                if not capacity["ok"] and ready:
+                    reasons.append(str(capacity.get("reason") or "storage capacity preflight failed"))
+                    ready = False
+            except RecordingRuntimeError:
+                # Backup projection can't be resolved yet (e.g. a plugin
+                # selection that hasn't settled). Not this function's job to
+                # report -- the real gate re-checks with a settled contract.
+                capacity = None
+
         return {
             **availability,
             "recording_expected": bool(selected),
@@ -349,6 +396,8 @@ class RecordingRuntimeService:
             "clock_diagnostics_plugin_ready": True,
             "internal_recording_plugins": list(INTERNAL_RECORDING_SOURCE_KEYS),
             "disabled_lsl_bridges": [],
+            "capacity": capacity,
+            "clock": clock,
             "ready": ready,
             "reason": "; ".join(reason for reason in reasons if reason) or None,
         }
@@ -436,6 +485,16 @@ class RecordingRuntimeService:
             except RecordingContractError as error:
                 raise RecordingRuntimeError(str(error)) from error
 
+            # Frozen alongside the recording contract, not re-read from the
+            # live study on every worker (re)start: a crash-recovery restart
+            # re-checks capacity against the *originally planned* duration,
+            # not against whatever an operator may have edited into the study
+            # since. See recording_capacity.py.
+            planned_duration = (
+                (config_data.get("study_settings") or {}).get("planned_session_duration_minutes")
+                if isinstance(config_data, Mapping)
+                else None
+            )
             plan: dict[str, Any] = {
                 "schema": RECORDING_PLAN_SCHEMA,
                 "session_id": identity.session_id,
@@ -446,6 +505,7 @@ class RecordingRuntimeService:
                 "recording_plugins": selected,
                 "required_source_keys": required,
                 "recording_contract": recording_contract,
+                "planned_session_duration_minutes": planned_duration,
                 "backup": None,
                 "worker": None,
                 "last_error": None,
@@ -581,6 +641,40 @@ class RecordingRuntimeService:
             ) from error
         return _public_plan(plan, reused=True)
 
+    def _enforce_recording_preflight_gate(
+        self,
+        plan: Mapping[str, Any],
+        streams_by_source: Mapping[str, list[dict[str, Any]]],
+        backup_contract: Mapping[str, Any],
+    ) -> None:
+        """Fail closed before a worker process is spawned.
+
+        Neither check trusts a single signal (see recording_capacity.py and
+        shared/system_clock_probe.py for why); this method only enforces
+        their verdicts. `plan["planned_session_duration_minutes"]` is the
+        value frozen at session creation, not a fresh config read, so a
+        crash-recovery restart is judged by the same promise the session
+        started with.
+        """
+
+        capacity_config = {
+            "study_settings": {
+                "planned_session_duration_minutes": plan.get("planned_session_duration_minutes"),
+            }
+        }
+        capacity = evaluate_capacity(
+            target_dir=self.data_dir,
+            streams_by_source=streams_by_source,
+            backup_contract=backup_contract,
+            config_data=capacity_config,
+        )
+        if not capacity["ok"]:
+            raise RecordingRuntimeError(f"storage capacity preflight failed: {capacity['reason']}")
+
+        clock = self._probe_system_clock()
+        if not clock["ok"]:
+            raise RecordingRuntimeError(f"system clock preflight failed: {clock['reason']}")
+
     def _healthy_client(
         self,
         paths: ArtifactPaths,
@@ -621,6 +715,14 @@ class RecordingRuntimeService:
     ) -> None:
         """Start/reconcile one generation and allocate append-never segments."""
 
+        manifests, streams_by_source, backup_contract = _recording_inputs_from_plan(plan)
+        # The actual start boundary (Package 5b, docs/architecture-1.0-umbau.md):
+        # every path that reaches this point is about to spawn a worker
+        # process. Gate it here, once, rather than at each of the three call
+        # sites (fresh start, partial-start reissue, crash recovery) -- a
+        # worker process is not yet running for any of them at this line.
+        self._enforce_recording_preflight_gate(plan, streams_by_source, backup_contract)
+
         if endpoint is None or client is None:
             launcher = self._launcher_factory(
                 WorkerLaunchSpec(availability=availability, resource_root=self.resource_root)
@@ -629,7 +731,6 @@ class RecordingRuntimeService:
         if endpoint.generation != generation:
             raise RecordingRuntimeError("recording worker generation mismatch")
 
-        manifests, streams_by_source, backup_contract = _recording_inputs_from_plan(plan)
         recording_plugins = [str(key) for key in plan.get("recording_plugins") or []]
         required_sources = {str(key) for key in plan.get("required_source_keys") or []}
         optional_source_warnings: list[dict[str, Any]] = []

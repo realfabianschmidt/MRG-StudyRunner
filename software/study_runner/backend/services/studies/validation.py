@@ -1024,6 +1024,10 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
         ),
         "plugins": plugins,
         "progress_bar_enabled": _normalize_boolean(migrated.get("progress_bar_enabled", False)),
+        "planned_session_duration_minutes": _optional_positive_minutes(
+            migrated.get("planned_session_duration_minutes"),
+            "study_settings.planned_session_duration_minutes",
+        ),
     }
 
 
@@ -1299,6 +1303,15 @@ def _normalize_boolean(value: Any) -> bool:
         if normalized in {"0", "false", "no", "off"}:
             return False
     return bool(value)
+
+
+def _optional_positive_minutes(value: Any, field_name: str) -> float | None:
+    """None means unset -- distinct from zero, which would be a promise."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not (value > 0) or value == float("inf"):
+        raise ValidationError(f"{field_name} must be a positive number of minutes.")
+    return float(value)
 
 
 def _normalize_text(value: Any, default: str = "") -> str:

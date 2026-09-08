@@ -37,6 +37,8 @@ BLOCKER_PANELS = {
     "browser_source_requires_https": "sensors",
     "recording_worker_unavailable": "sensors",
     "plugin_mode_unsupported": "sensors",
+    "recording_capacity_insufficient": "sensors",
+    "recording_clock_implausible": "sensors",
 }
 
 
@@ -193,12 +195,43 @@ def check_study_readiness(
             )
 
     if isinstance(recording_preflight, dict) and not recording_preflight.get("ready", True):
-        add(
-            "recording_worker_unavailable",
-            blocking=bool(recording_preflight.get("required_plugins")),
-            plugins=list(recording_preflight.get("selected_plugins") or []),
-            details=[str(recording_preflight.get("reason") or "Native XDF worker is unavailable.")],
-        )
+        blocking = bool(recording_preflight.get("required_plugins"))
+        plugins = list(recording_preflight.get("selected_plugins") or [])
+        capacity = recording_preflight.get("capacity")
+        clock = recording_preflight.get("clock")
+        # Independent, not mutually exclusive: a dev machine with neither a
+        # built native worker nor a configured session duration is genuinely
+        # two separate problems, and an operator needs to see both rather
+        # than have one hide the other.
+        reported_specific = False
+        if isinstance(capacity, dict) and not capacity.get("ok", True):
+            add(
+                "recording_capacity_insufficient",
+                blocking=blocking,
+                plugins=plugins,
+                details=[str(capacity.get("reason") or "Insufficient storage capacity for the planned session.")],
+            )
+            reported_specific = True
+        if isinstance(clock, dict) and not clock.get("ok", True):
+            add(
+                "recording_clock_implausible",
+                blocking=blocking,
+                plugins=plugins,
+                details=[str(clock.get("reason") or "The system clock is not plausible.")],
+            )
+            reported_specific = True
+        # `available` (spread from RecordingRuntimeService.availability()) is
+        # the worker-binary/dependency check specifically -- checked directly
+        # so it can never be silently swallowed by an unrelated capacity or
+        # clock failure, and never duplicated when it's the only problem.
+        worker_unavailable = not bool(recording_preflight.get("available", True))
+        if worker_unavailable or not reported_specific:
+            add(
+                "recording_worker_unavailable",
+                blocking=blocking,
+                plugins=plugins,
+                details=[str(recording_preflight.get("reason") or "Native XDF worker is unavailable.")],
+            )
 
     start_blocked = any(blocker.get("blocking") for blocker in blockers)
     # A missing OPTIONAL plugin is informational (the feature is simply not

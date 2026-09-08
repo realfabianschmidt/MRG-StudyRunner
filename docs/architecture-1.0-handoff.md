@@ -61,19 +61,31 @@ Set `PYTHONDONTWRITEBYTECODE=1`, `STUDY_RUNNER_DISABLE_HARDWARE=1` and
 access required approved unsandboxed execution. No production instance or real
 upload was used. The reduced bundle does not certify native recording/devices.
 
-## Next task: early preflight (5b)
+## 5b (preflight) complete — 2026-09-08
 
-1. Claim 5b in the working plan. Inspect existing preflight and start routes.
-2. Define explicit planned-duration and acquisition-byte-rate inputs and their
-   provenance. Disk throughput is not acquisition rate. Unknown duration/rate
-   must not produce a successful capacity prediction.
-3. Implement capacity plus reserve, required-stream and clock plausibility
-   results with actionable reasons; enforce them at the actual start boundary.
-   A running time service alone does not prove clock correctness.
-4. Test sufficient/insufficient space, missing/invalid inputs, missing required
-   streams and implausible clocks. Update plan, handoff and commit evidence.
+Capacity (manifest-declared stream rate x planned duration, never a measured
+disk write benchmark) and clock plausibility (two hardcoded epoch bounds,
+per-platform time-service evidence) enforced once at
+`RecordingRuntimeService._start_worker_generation()`, the single real
+worker-spawn choke point. New `shared/system_clock_probe.py`,
+`backend/services/recording/recording_capacity.py`, new optional study field
+`planned_session_duration_minutes`, two independent readiness blocker codes.
+38 new/extended tests; full suite **807 passed, 4 skipped**; JS **27 passed**;
+structure baseline rewritten as a checkpoint (152 edges, cycles still 0). See
+the working plan's Phase-5b checkbox and decision log for detail.
 
-Phase 3 migration, serial Phase 4 moves, lifecycle/QC/timing/checkpoint recovery,
-withdrawal, cards, SDK and CLI remain open. Hardware, power-loss measurement,
-full bundle/upgrade, licences and platform release gates remain open. Version
-is still 0.7.0; this checkpoint does not declare v1.0 complete.
+## User-directed course change — 2026-09-08
+
+Operator judged incremental, fully-tested small steps too slow. Phase 3
+(legacy removal) and Phase 5c-5j are deliberately deferred. **Next task:
+Phase 4, the directory restructure**, executed against the working plan's
+existing Phase 4 section but **without the per-package full-suite-green
+gate** — one commit per target package as before, but only a single suite
+run at the end of all moves, failures fixed in a bundling pass rather than
+between each move. `main` still receives Phase 4 only once, as one merge,
+once that end-of-phase suite is green again.
+
+Phase 3 migration, lifecycle/QC/timing/checkpoint recovery, withdrawal, cards,
+SDK and CLI remain open behind Phase 4. Hardware, power-loss measurement, full
+bundle/upgrade, licences and platform release gates remain open. Version is
+still 0.7.0; this checkpoint does not declare v1.0 complete.

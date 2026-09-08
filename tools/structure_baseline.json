@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 151,
+  "cross_package_import_edges": 152,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -7,14 +7,14 @@
     "path": "software/study_runner/plugins/brainbit/adapter.py"
   },
   "lines_per_package": {
-    "backend": 19680,
+    "backend": 19965,
     "contracts": 1376,
     "frontend": 0,
     "plugin_framework": 2603,
     "plugins": 9840,
     "recording": 2430,
     "recording_worker": 2037,
-    "shared": 1536,
+    "shared": 1680,
     "updates": 247
   }
 }

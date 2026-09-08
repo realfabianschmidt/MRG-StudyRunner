@@ -319,10 +319,21 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
             )
 
     def _exercise_worker_plan(self, selected, required):
+        # Package 5b's preflight gate (recording_runtime.py) checks the
+        # system clock before every worker launch; the real probe shells out
+        # to an OS time service, which this worker-mechanics test has no
+        # interest in.
         runtime = RecordingRuntimeService(
             self.root / "saved_results",
             PROJECT_ROOT,
             clock=lambda: 1_000.5,
+            system_clock_probe=lambda: {
+                "ok": True,
+                "plausible": True,
+                "service_running": True,
+                "epoch_seconds": 1_753_920_000.0,
+                "reason": None,
+            },
         )
         identity = SessionIdentity(
             study_id="blueprint-study",
@@ -340,6 +351,9 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
             "status": "starting",
             "recording_plugins": list(selected),
             "required_source_keys": list(required),
+            # Package 5b's capacity check needs this to predict required
+            # storage; the check itself is covered by test_recording_capacity.py.
+            "planned_session_duration_minutes": 30,
             "backup": None,
             "worker": None,
             "last_error": None,

@@ -96,6 +96,25 @@ class MutableClock:
         return self.value
 
 
+def _always_ok_clock() -> dict:
+    """A deterministic stand-in for the real OS time-service probe.
+
+    Package 5b's preflight gate (recording_runtime.py) checks the system
+    clock before every worker launch. The real probe shells out to an OS
+    time service, which these worker-mechanics tests have no interest in and
+    which would otherwise make them depend on whatever service state happens
+    to be running on the machine executing the test.
+    """
+    return {"ok": True, "plausible": True, "service_running": True, "epoch_seconds": 1_753_920_000.0, "reason": None}
+
+
+# Every fixture study below selects a recording plugin, so Package 5b's
+# capacity gate requires this to predict required storage. 30 minutes keeps
+# the numbers small and unremarkable; the gate's own behavior is covered by
+# its dedicated tests, not by every worker-mechanics test in this file.
+_PLANNED_DURATION_SETTINGS = {"planned_session_duration_minutes": 30}
+
+
 class RecordingRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         FakeLauncher.commands = []
@@ -110,6 +129,7 @@ class RecordingRuntimeTests(unittest.TestCase):
                 root,
                 configured_worker_path=binary,
                 launcher_factory=FakeLauncher,
+                system_clock_probe=_always_ok_clock,
             )
             config = {
                 "study_id": "study",
@@ -117,7 +137,8 @@ class RecordingRuntimeTests(unittest.TestCase):
                     "plugins": {
                         "brainbit": {"enabled": True, "required": True, "settings": {}},
                         "mini_radar": {"enabled": True, "required": True, "settings": {}},
-                    }
+                    },
+                    **_PLANNED_DURATION_SETTINGS,
                 },
             }
             result = runtime.start_session(
@@ -181,6 +202,7 @@ class RecordingRuntimeTests(unittest.TestCase):
                 root,
                 configured_worker_path=binary,
                 launcher_factory=FakeLauncher,
+                system_clock_probe=_always_ok_clock,
             )
             manifest_eeg = next(
                 stream
@@ -204,7 +226,8 @@ class RecordingRuntimeTests(unittest.TestCase):
                     "study_settings": {
                         "plugins": {
                             "brainbit": {"enabled": True, "required": True, "settings": {}}
-                        }
+                        },
+                        **_PLANNED_DURATION_SETTINGS,
                     },
                 },
                 {"brainbit": {"enabled": True}},
@@ -262,7 +285,9 @@ class RecordingRuntimeTests(unittest.TestCase):
     def test_missing_worker_is_fail_closed_in_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            runtime = RecordingRuntimeService(root / "saved_results", root)
+            runtime = RecordingRuntimeService(
+                root / "saved_results", root, system_clock_probe=_always_ok_clock
+            )
             report = runtime.preflight(
                 {
                     "study_settings": {
@@ -290,13 +315,15 @@ class RecordingRuntimeTests(unittest.TestCase):
                 configured_worker_path=binary,
                 launcher_factory=FakeLauncher,
                 clock=clock,
+                system_clock_probe=_always_ok_clock,
             )
             config = {
                 "study_id": "study",
                 "study_settings": {
                     "plugins": {
                         "brainbit": {"enabled": True, "required": True, "settings": {}},
-                    }
+                    },
+                    **_PLANNED_DURATION_SETTINGS,
                 },
             }
             session = {
@@ -336,13 +363,15 @@ class RecordingRuntimeTests(unittest.TestCase):
                 root,
                 configured_worker_path=binary,
                 launcher_factory=FakeLauncher,
+                system_clock_probe=_always_ok_clock,
             )
             config = {
                 "study_id": "study",
                 "study_settings": {
                     "plugins": {
                         "brainbit": {"enabled": True, "required": True, "settings": {}},
-                    }
+                    },
+                    **_PLANNED_DURATION_SETTINGS,
                 },
             }
             session = {
@@ -810,13 +839,15 @@ class RecordingRuntimeTests(unittest.TestCase):
                 root,
                 configured_worker_path=binary,
                 launcher_factory=FakeLauncher,
+                system_clock_probe=_always_ok_clock,
             )
             config = {
                 "study_id": "study",
                 "study_settings": {
                     "plugins": {
                         "brainbit": {"enabled": True, "required": True, "settings": {}},
-                    }
+                    },
+                    **_PLANNED_DURATION_SETTINGS,
                 },
             }
             runtime.start_session(

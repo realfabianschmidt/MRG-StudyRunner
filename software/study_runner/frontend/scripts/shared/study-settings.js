@@ -29,7 +29,17 @@ export function defaultStudySettings() {
     sensors: defaultStudySensors(true),
     plugins: defaultStudyPlugins(true),
     progress_bar_enabled: false,
+    planned_session_duration_minutes: null,
   };
+}
+
+/** Mirrors backend _optional_positive_minutes(): null means unset, never zero. */
+function normalizePlannedSessionDurationMinutes(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const minutes = Number(value);
+  return Number.isFinite(minutes) && minutes > 0 ? minutes : null;
 }
 
 /** Mirrors backend normalize_study_sensors(): the master switch wins over each sensor. */
@@ -73,6 +83,9 @@ export function normalizeStudySettings(settings) {
     sensors: sensors,
     plugins: plugins,
     progress_bar_enabled: Boolean(source.progress_bar_enabled),
+    planned_session_duration_minutes: normalizePlannedSessionDurationMinutes(
+      source.planned_session_duration_minutes,
+    ),
   };
 }
 

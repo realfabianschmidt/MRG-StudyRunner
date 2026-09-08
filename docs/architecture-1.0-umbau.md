@@ -25,12 +25,18 @@ approved deviations, implementation progress and acceptance evidence.
    verified way this rebuild breaks silently — meaning CI stays green and the
    damage shows up weeks later on a field machine.
 
-Status, 2026-09-08: **Phase 0 merged to `main` (`a1f39d9`); Phase 1 and
-Phase 2 implemented, including approved repairs R1-R5.**
+Status, 2026-09-08: **Phase 0 merged to `main` (`a1f39d9`); Phase 1, Phase 2
+and 5b (preflight) implemented, including approved repairs R1-R5.**
 The shared rebuild is `feature/architecture-1.0`, worktree `C:\SR-1.0`.
 Corrections were prepared on `fix/architecture-review`; see the tracked handoff
-for integration and verification evidence. Phase 3 has not started. Next is
-preflight (5b), brought forward before directory moves.
+for integration and verification evidence. **User-directed course change,
+2026-09-08:** Phase 3 (legacy removal) and the remaining Phase 5 packages
+(5c-5j) are deliberately deferred — priority moves to Phase 4 (directory
+restructure) next, executed without a full-suite-green gate between each
+package move (a single suite run at the end instead), because the operator
+judged incremental, fully-tested small steps too slow relative to the goal.
+Temporary breakage between package moves is accepted; `main` still only
+receives the result once Phase 4's suite is green again, in one merge.
 Version stays `0.7.0` until Phase 4. The copy on `main` is a foundation snapshot
 with a pointer here, not a second independently maintained progress checklist.
 
@@ -735,11 +741,28 @@ history.
       machines, with a documented mapping. `SEALED` describes validated data;
       a failed upload cannot invalidate that seal. Define withdrawal transitions
       during recording and after sealing. Scientific sealing depends on 5h
-- [ ] **5b** Preflight: free disk space vs planned duration × measured write
-      rate plus explicit reserve; system-clock plausibility and time-service
-      observation. Define unknown-duration/rate behavior and actionable refusal
-      reasons; a running service alone is not proof of a correct clock.
-      **Build early**, after the Phase 2 repair and contract work
+- [x] **5b** Preflight: capacity and clock, enforced once at
+      `RecordingRuntimeService._start_worker_generation()` (covers fresh
+      start, crash-recovery reissue and full resume — the single real
+      worker-spawn choke point, not three scattered checks).
+      New `shared/system_clock_probe.py` (plausibility bound against two
+      hardcoded epoch constants, not a self-referential one; per-platform
+      time-service evidence via PowerShell `Get-Service .Status` on
+      Windows — a .NET enum, locale-invariant, unlike `sc query` text) and
+      `backend/services/recording/recording_capacity.py`. **Deviation from
+      the literal target text:** required bytes come from the
+      manifest-declared stream rate (`channels × format bytes ×
+      nominal_rate_hz`) × the new optional `planned_session_duration_minutes`
+      study setting, never a measured disk write-speed benchmark — an SSD's
+      hundreds of MB/s sequential rate would always pass against a
+      kilobytes/s EEG stream and prove nothing. Missing duration is
+      `ok=False, known=False`, never a silent pass.
+      `study_readiness_service.py` gained two independent blocker codes
+      (`recording_capacity_insufficient`, `recording_clock_implausible`)
+      alongside the existing `recording_worker_unavailable`, checked
+      independently so one failure never hides another. 38 new/extended
+      tests, full suite 807 passed/4 skipped, structure baseline rewritten
+      as a deliberate checkpoint (152 edges, cycles still 0).
 - [ ] **5c** `quality.jsonl` + `timing.jsonl` during recording. **Not merely a
       relocation**: `recording_quality.py:8-15` imports `markers` (→
       `plugin_framework`) and reads plugin manifests, so moving it into the
@@ -814,10 +837,10 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Next package 5b | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+| Phase 4 (directory move) | Claude Code | `feature/architecture-1.0` | 2026-09-08 |
 
-Completed: Claude implemented Phases 0-2; Codex completed R1-R5 and the shared
-handoff on 2026-09-08. No delegated agent remains active.
+Completed: Claude implemented Phases 0-2 and 5b; Codex completed R1-R5 and the
+shared handoff on 2026-09-08. No delegated agent remains active.
 
 Rules:
 - **Moves and tree-wide import rewrites are serial.** Approved R1–R4 repairs
@@ -904,6 +927,8 @@ the Flask-free subprocess import of `data_core`.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-09-08 | Skip the per-package full-suite-green gate during Phase 4; run the suite once at the end instead. Phase 3 and Phase 5c-5j deferred behind Phase 4 | Operator-directed: incremental, fully re-tested small steps were judged too slow relative to the rebuild's goal. `git mv` + same-commit import rewrite per package stays; only the interleaved test run is dropped. `main` still receives Phase 4 only as one merge once the branch suite is green again — the "main must keep working" constraint is unchanged, only its timing moved to the end of the phase |
+| 2026-09-08 | 5b (preflight) complete; checkpoint structural baseline again | New `system_clock_probe.py`/`recording_capacity.py` plus wiring raise cross-package edges 151 to 152, `backend/` 19680 to 19965 lines, `shared/` 1536 to 1680; cycles remain 0. Expected growth from genuinely new preflight logic, not debt |
 | 2026-09-08 | Complete R1-R5 and checkpoint structural baseline | Explicit contracts/generic upload checkpoint dependencies raise cross-package edges 147 to 151; framework LOC 3924 to 2603, contracts 1376; cycles remain 0 and largest module remains 2283 LOC. All metric gates remain enabled. |
 | 2026-09-08 | User approved review package R1–R5 and requirements/ownership corrections; documentation updated before implementation | Restore trustworthy gates and fix concrete upload/recovery regressions before broad restructuring |
 | 2026-09-08 | Prepare repairs in `.tmp/v1-review` on `fix/architecture-review`, then integrate into the existing rebuild branch | Existing `C:\SR-1.0` is outside this session's writable workspace; the additional worktree isolates development from operator data |

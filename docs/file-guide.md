@@ -70,6 +70,8 @@ Edit-safety legend:
 | `../shared/recording_lease.py` | The persistent 15-minute recording lease -- the worker needs it too; re-exported from `recording/recovery.py` | careful |
 | `../shared/native_core_probe.py` | `CoreProbe`/`probe_core_library` split out of `recording_worker/core.py` so the host-side locator can validate a build without depending on the worker | careful |
 | `../shared/lsl_dependency.py` | `require_pylsl`/`lsl_version_info` -- both the host preflight and the worker need this pylsl/liblsl check; moved out of `recording_worker/lsl_recording.py` | no |
+| `../shared/system_clock_probe.py` | Package 5b preflight: system-clock plausibility bounds plus a per-platform time-sync-service check; no network access | careful |
+| `services/recording/recording_capacity.py` | Package 5b preflight: predicts required storage from the negotiated recording contract's declared stream rates (never disk throughput) against the study's planned duration | careful |
 | `services/studies/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
 | `services/studies/results_service.py` | Builds answer details, slices biosignals per card, writes result files | no |
 | `services/studies/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |

@@ -316,5 +316,114 @@ class ReadinessTests(unittest.TestCase):
             self.assertIn(expected, codes(report))
 
 
+class RecordingPreflightReadinessTests(unittest.TestCase):
+    """Package 5b: capacity and clock get their own blocker codes, distinct
+    from the generic "worker unavailable" one, so an operator sees exactly
+    what's wrong instead of one message that hides which."""
+
+    def test_capacity_failure_gets_its_own_code(self) -> None:
+        report = check_study_readiness(
+            study(sensors_enabled=True, sensors={"brainbit": True}),
+            hardware(),
+            {},
+            https_active=True,
+            recording_preflight={
+                "ready": False,
+                "selected_plugins": ["brainbit"],
+                "required_plugins": ["brainbit"],
+                "capacity": {"ok": False, "known": False, "reason": "planned_session_duration_minutes is not configured"},
+                "clock": {"ok": True},
+                "reason": "planned_session_duration_minutes is not configured",
+            },
+        )
+
+        self.assertIn("recording_capacity_insufficient", codes(report))
+        self.assertNotIn("recording_worker_unavailable", codes(report))
+        self.assertNotIn("recording_clock_implausible", codes(report))
+        self.assertFalse(report["ready"])
+
+    def test_clock_failure_gets_its_own_code(self) -> None:
+        report = check_study_readiness(
+            study(sensors_enabled=True, sensors={"brainbit": True}),
+            hardware(),
+            {},
+            https_active=True,
+            recording_preflight={
+                "ready": False,
+                "selected_plugins": ["brainbit"],
+                "required_plugins": ["brainbit"],
+                "capacity": {"ok": True},
+                "clock": {"ok": False, "reason": "System clock is not plausible."},
+                "reason": "System clock is not plausible.",
+            },
+        )
+
+        self.assertIn("recording_clock_implausible", codes(report))
+        self.assertNotIn("recording_worker_unavailable", codes(report))
+        self.assertNotIn("recording_capacity_insufficient", codes(report))
+
+    def test_both_capacity_and_clock_can_block_at_once(self) -> None:
+        report = check_study_readiness(
+            study(sensors_enabled=True, sensors={"brainbit": True}),
+            hardware(),
+            {},
+            https_active=True,
+            recording_preflight={
+                "ready": False,
+                "selected_plugins": ["brainbit"],
+                "required_plugins": ["brainbit"],
+                "capacity": {"ok": False, "reason": "insufficient space"},
+                "clock": {"ok": False, "reason": "implausible clock"},
+                "reason": "insufficient space; implausible clock",
+            },
+        )
+
+        self.assertIn("recording_capacity_insufficient", codes(report))
+        self.assertIn("recording_clock_implausible", codes(report))
+
+    def test_worker_unavailable_without_capacity_or_clock_detail_keeps_the_generic_code(self) -> None:
+        """A missing native worker binary is neither a capacity nor a clock
+        problem; the fallback code must still fire when preflight failed for
+        some other reason (see availability())."""
+        report = check_study_readiness(
+            study(sensors_enabled=True, sensors={"brainbit": True}),
+            hardware(),
+            {},
+            https_active=True,
+            recording_preflight={
+                "ready": False,
+                "selected_plugins": ["brainbit"],
+                "required_plugins": ["brainbit"],
+                "capacity": None,
+                "clock": None,
+                "reason": "native XDF worker is unavailable",
+            },
+        )
+
+        self.assertIn("recording_worker_unavailable", codes(report))
+        self.assertNotIn("recording_capacity_insufficient", codes(report))
+        self.assertNotIn("recording_clock_implausible", codes(report))
+
+    def test_ready_preflight_reports_no_recording_blocker(self) -> None:
+        report = check_study_readiness(
+            study(sensors_enabled=True, sensors={"brainbit": True}),
+            hardware(),
+            {},
+            https_active=True,
+            recording_preflight={
+                "ready": True,
+                "selected_plugins": ["brainbit"],
+                "required_plugins": ["brainbit"],
+                "capacity": {"ok": True},
+                "clock": {"ok": True},
+                "reason": None,
+            },
+        )
+
+        self.assertNotIn("recording_capacity_insufficient", codes(report))
+        self.assertNotIn("recording_clock_implausible", codes(report))
+        self.assertNotIn("recording_worker_unavailable", codes(report))
+
+
 if __name__ == "__main__":
     unittest.main()
