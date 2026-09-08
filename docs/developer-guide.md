@@ -31,19 +31,19 @@ the smallest safe plugin workflow.
   console, reserved-prefix RPC).
 - `software/study_runner/plugin_framework/driver_runtime.py`: runs inside
   that subprocess; imports the plugin's own `plugin.py` and dispatches to it.
-- `software/study_runner/backend/services/recording/sensor_coordinator_service.py`:
+- `software/study_runner/apps/server/services/recording/sensor_coordinator_service.py`:
   lifecycle and status orchestration.
-- `software/study_runner/backend/services/recording/recording_runtime.py`:
+- `software/study_runner/apps/server/services/recording/recording_runtime.py`:
   Flask-side worker orchestration; it contains no XDF encoding.
 - `software/study_runner/recording/`: worker protocol, session paths,
   segment allocation, recovery, and XDF validation contracts.
 - `software/study_runner/recording_worker/`: detached Python worker.
 - `software/recording_worker/native/`: native XDF-core source and CTest.
-- `software/study_runner/backend/services/delivery/finalization_service.py`:
+- `software/study_runner/apps/server/services/delivery/finalization_service.py`:
   persistent finalization transitions only.
-- `software/study_runner/backend/services/studies/card_summary_service.py`:
+- `software/study_runner/apps/server/services/studies/card_summary_service.py`:
   pure merged XDF-to-JSON derivation.
-- `software/study_runner/backend/services/delivery/artifact_manifest_service.py`:
+- `software/study_runner/apps/server/services/delivery/artifact_manifest_service.py`:
   checksums, provenance, markers, and guarded purge.
 
 See `file-guide.md` for the complete, one-line-per-file map; the list above

@@ -136,7 +136,7 @@ class AreaBoundaryTests(unittest.TestCase):
         offenders = []
         for path in shared.rglob("*.py"):
             text = path.read_text(encoding="utf-8")
-            for area in ("backend", "frontend", "recording", "plugins", "plugin_framework", "updates"):
+            for area in ("apps", "data_core", "extensions", "plugin_framework", "runtime_core", "updates"):
                 if f"study_runner.{area}" in text:
                     offenders.append(f"{path.name} imports study_runner.{area}")
 

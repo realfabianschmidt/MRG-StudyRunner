@@ -167,3 +167,10 @@ source-release licences and all browser-test imports follow the new path. Public
 HTTP routes are unchanged. Evidence: 73 targeted Python, 27 JavaScript and 25
 release/packaging tests passed. Next: move the Flask factory and routes to
 `apps/server`, retaining both promised entrypoints.
+
+Checkpoint: Flask factory, routes and server runtime moved to `apps/server`.
+`software/server.py` and `study_runner/app_server.py` remain stable entrypoints;
+the latter delegates and still supports module execution. The obsolete backend
+package is gone. Evidence: 80 targeted route/server/architecture/self-check
+tests and 4 packaging tests passed. Next: preflight settings UI and defensive
+capacity errors in a separate behavior commit.

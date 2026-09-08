@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend import create_app
+from study_runner.apps.server import create_app
 
 
 class TrialTimingRouteTests(unittest.TestCase):
@@ -48,11 +48,11 @@ class TrialTimingRouteTests(unittest.TestCase):
             prepared = client.post("/api/trial/prepare", json=payload)
             with (
                 patch(
-                    "study_runner.backend.routes.study.start_trial_session",
+                    "study_runner.apps.server.routes.study.start_trial_session",
                     return_value={"marker_value": "start-marker"},
                 ) as start_handler,
                 patch(
-                    "study_runner.backend.routes.study._require_trial_start_runtime",
+                    "study_runner.apps.server.routes.study._require_trial_start_runtime",
                     return_value={"active_session": True, "session_id": "session-test"},
                 ),
             ):
@@ -89,7 +89,7 @@ class TrialTimingRouteTests(unittest.TestCase):
                 "planned_start_epoch_ms": now_ms + 1_000.0,
                 "planned_deadline_epoch_ms": now_ms + 31_000.0,
             }
-            with patch("study_runner.backend.routes.study.start_trial_session") as handler:
+            with patch("study_runner.apps.server.routes.study.start_trial_session") as handler:
                 response = client.post("/api/start", json=payload)
 
         self.assertEqual(response.status_code, 428)
@@ -166,11 +166,11 @@ class TrialTimingRouteTests(unittest.TestCase):
             prepared = client.post("/api/trial/prepare", json=payload)
             with (
                 patch(
-                    "study_runner.backend.routes.study.start_trial_session",
+                    "study_runner.apps.server.routes.study.start_trial_session",
                     return_value={"marker_value": "start-marker"},
                 ) as handler,
                 patch(
-                    "study_runner.backend.routes.study._require_trial_start_runtime",
+                    "study_runner.apps.server.routes.study._require_trial_start_runtime",
                     return_value={"active_session": True, "session_id": "session-test"},
                 ),
             ):
@@ -218,8 +218,8 @@ class TrialTimingRouteTests(unittest.TestCase):
             self.assertEqual(client.post("/api/trial/prepare", json=payload).status_code, 200)
             config = {"study_id": "study-a", "study_settings": {"plugins": {}}}
             with (
-                patch("study_runner.backend.routes.study._current_config_data", return_value=config),
-                patch("study_runner.backend.routes.study.start_trial_session") as handler,
+                patch("study_runner.apps.server.routes.study._current_config_data", return_value=config),
+                patch("study_runner.apps.server.routes.study.start_trial_session") as handler,
             ):
                 response = client.post("/api/start", json=payload)
 
@@ -268,9 +268,9 @@ class TrialTimingRouteTests(unittest.TestCase):
             }
 
             with (
-                patch("study_runner.backend.routes.study._current_config_data", return_value=config),
+                patch("study_runner.apps.server.routes.study._current_config_data", return_value=config),
                 patch(
-                    "study_runner.backend.routes.study.start_trial_session",
+                    "study_runner.apps.server.routes.study.start_trial_session",
                     return_value={"marker_value": "started"},
                 ) as handler,
             ):
@@ -364,7 +364,7 @@ class TrialTimingRouteTests(unittest.TestCase):
                 "question_type": "likert",
             }
             with patch(
-                "study_runner.backend.routes.study.send_trial_marker",
+                "study_runner.apps.server.routes.study.send_trial_marker",
                 return_value={"marker_value": "marker"},
             ):
                 first = client.post("/api/marker", json=payload)
@@ -436,10 +436,10 @@ class TrialTimingRouteTests(unittest.TestCase):
                 return {"marker_value": "start-marker"}
 
             with (
-                patch("study_runner.backend.routes.study._refresh_trial_runtime", side_effect=refresh),
-                patch("study_runner.backend.routes.study.start_trial_session", side_effect=handler),
+                patch("study_runner.apps.server.routes.study._refresh_trial_runtime", side_effect=refresh),
+                patch("study_runner.apps.server.routes.study.start_trial_session", side_effect=handler),
                 patch(
-                    "study_runner.backend.routes.study._require_trial_start_runtime",
+                    "study_runner.apps.server.routes.study._require_trial_start_runtime",
                     return_value={"active_session": True, "session_id": "session-test"},
                 ),
             ):

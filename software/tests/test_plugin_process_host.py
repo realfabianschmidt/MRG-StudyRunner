@@ -20,7 +20,7 @@ from study_runner.plugin_framework.process_host import (
     PluginProcessError,
     PluginProcessRuntime,
 )
-from study_runner.backend.routes.plugins import bp as plugins_blueprint
+from study_runner.apps.server.routes.plugins import bp as plugins_blueprint
 
 
 _DRIVER_SOURCE = r'''
@@ -230,7 +230,7 @@ class PluginConsoleRouteTests(unittest.TestCase):
         self.app.config["DATA_DIR"] = Path(self.temp_dir.name)
         self.app.register_blueprint(plugins_blueprint)
         self.plugin_patch = patch(
-            "study_runner.backend.routes.plugins.get_plugin",
+            "study_runner.apps.server.routes.plugins.get_plugin",
             return_value=object(),
         )
         self.plugin_patch.start()
@@ -251,8 +251,8 @@ class PluginConsoleRouteTests(unittest.TestCase):
 
     def test_console_uses_actual_loopback_and_ignores_forwarding_headers(self) -> None:
         with (
-            patch("study_runner.backend.routes.plugins.get_process_runtime", return_value=self.runtime),
-            patch("study_runner.backend.routes.plugins._study_run_state", return_value={"status": "loaded"}),
+            patch("study_runner.apps.server.routes.plugins.get_process_runtime", return_value=self.runtime),
+            patch("study_runner.apps.server.routes.plugins._study_run_state", return_value={"status": "loaded"}),
         ):
             remote = self.app.test_client().get(
                 "/api/admin/plugins/fixture/console",
@@ -272,8 +272,8 @@ class PluginConsoleRouteTests(unittest.TestCase):
         self.runtime.unlock_console.return_value = 1234.0
         state = {"status": "running", "run_id": "study-run-abc"}
         with (
-            patch("study_runner.backend.routes.plugins.get_process_runtime", return_value=self.runtime),
-            patch("study_runner.backend.routes.plugins._study_run_state", return_value=state),
+            patch("study_runner.apps.server.routes.plugins.get_process_runtime", return_value=self.runtime),
+            patch("study_runner.apps.server.routes.plugins._study_run_state", return_value=state),
         ):
             response = self.app.test_client().post(
                 "/api/admin/plugins/fixture/console/unlock",
@@ -293,8 +293,8 @@ class PluginConsoleRouteTests(unittest.TestCase):
 
     def test_unlock_requires_confirmation_and_reason(self) -> None:
         with (
-            patch("study_runner.backend.routes.plugins.get_process_runtime", return_value=self.runtime),
-            patch("study_runner.backend.routes.plugins._study_run_state", return_value={"status": "running", "run_id": "run"}),
+            patch("study_runner.apps.server.routes.plugins.get_process_runtime", return_value=self.runtime),
+            patch("study_runner.apps.server.routes.plugins._study_run_state", return_value={"status": "running", "run_id": "run"}),
         ):
             no_confirmation = self.app.test_client().post(
                 "/api/admin/plugins/fixture/console/unlock",
@@ -311,8 +311,8 @@ class PluginConsoleRouteTests(unittest.TestCase):
         self.runtime.begin_intervention_transcript.side_effect = OSError("disk full")
         state = {"status": "running", "run_id": "study-run-abc"}
         with (
-            patch("study_runner.backend.routes.plugins.get_process_runtime", return_value=self.runtime),
-            patch("study_runner.backend.routes.plugins._study_run_state", return_value=state),
+            patch("study_runner.apps.server.routes.plugins.get_process_runtime", return_value=self.runtime),
+            patch("study_runner.apps.server.routes.plugins._study_run_state", return_value=state),
         ):
             response = self.app.test_client().post(
                 "/api/admin/plugins/fixture/console/unlock",

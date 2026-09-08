@@ -9,7 +9,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from study_runner import backend, self_check
+from study_runner import self_check
+from study_runner.apps import server as backend
 from study_runner.plugin_framework.plugin_catalog import (
     PluginCatalog,
     PluginCatalogEntry,

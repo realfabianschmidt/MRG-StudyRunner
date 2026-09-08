@@ -14,8 +14,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend import create_app
-from study_runner.backend.routes.helpers import _plugin_context
+from study_runner.apps.server import create_app
+from study_runner.apps.server.routes.helpers import _plugin_context
 from study_runner.plugin_framework.process_host import get_process_runtime
 
 
@@ -44,7 +44,7 @@ class RuntimeRoutesTests(unittest.TestCase):
                 except BaseException as error:  # surfaced below in the test thread
                     errors.append(error)
 
-            with patch("study_runner.backend.routes.helpers._refresh_trial_runtime") as refresh:
+            with patch("study_runner.apps.server.routes.helpers._refresh_trial_runtime") as refresh:
                 reader_thread = threading.Thread(target=persist_from_reader)
                 reader_thread.start()
                 reader_thread.join(2.0)
@@ -551,7 +551,7 @@ class RuntimeRoutesTests(unittest.TestCase):
                 app = create_app()
 
             with patch(
-                "study_runner.backend.routes.admin.create_desktop_shortcut",
+                "study_runner.apps.server.routes.admin.create_desktop_shortcut",
                 return_value={"ok": True, "platform": "windows", "path": "C:/Users/test/Desktop/Study Runner.lnk"},
             ):
                 response = app.test_client().post("/api/admin/system/create-shortcut")

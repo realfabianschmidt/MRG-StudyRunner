@@ -48,7 +48,7 @@ class PyInstallerCommonTests(unittest.TestCase):
                 side_effect=lambda package: [package],
             ):
                 hidden = common.common_hidden_imports(root)
-            self.assertIn("study_runner.backend", hidden)
+            self.assertIn("study_runner.apps.server", hidden)
             self.assertIn("study_runner.self_check", hidden)
             self.assertNotIn("study_runner.extensions.sensors.brainbit.brainbit_realtime_cli", hidden)
             self.assertNotIn("pythonosc", hidden)
@@ -89,7 +89,7 @@ class PyInstallerCommonTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "study_runner" / "apps" / "ui").mkdir(parents=True)
-            plugin = root / "study_runner" / "plugins" / "renamed_camera_folder"
+            plugin = root / "study_runner" / "extensions" / "sensors" / "renamed_camera_folder"
             plugin.mkdir(parents=True)
             (root / "study_content").mkdir()
             _touch_internal_recording_manifests(root)

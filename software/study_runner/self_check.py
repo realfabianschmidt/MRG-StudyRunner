@@ -47,7 +47,7 @@ def main() -> int:
 
 
 def _check_application(fixture_key: str) -> int:
-    from study_runner.backend import create_app
+    from study_runner.apps.server import create_app
     from study_runner.plugin_framework.plugin_catalog import discover_plugin_catalog
 
     app = create_app()

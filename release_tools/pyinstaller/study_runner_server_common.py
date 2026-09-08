@@ -25,7 +25,7 @@ def software_root(spec_path: str) -> Path:
 def common_datas(root: Path) -> list[tuple[str, str]]:
     datas = [
         # runtime_config.get_project_base_dir() resolves to the PyInstaller
-        # extraction root, and backend/__init__.py appends study_runner/apps/ui.
+        # extraction root, and apps/server/__init__.py appends study_runner/apps/ui.
         (str(root / "study_runner" / "apps" / "ui"), "study_runner/apps/ui"),
         (str(root / "study_content"), "study_content"),
     ]
@@ -138,7 +138,7 @@ def common_binaries(root: Path | None = None) -> list[tuple[str, str]]:
 def common_hidden_imports(root: Path) -> list[str]:
     plugin_keys = _plugin_keys(root)
     imports = (
-        collect_submodules("study_runner.backend")
+        collect_submodules("study_runner.apps.server")
         + collect_submodules("study_runner.plugin_framework")
         + collect_submodules("study_runner.extensions")
         + [
@@ -189,9 +189,7 @@ def common_hidden_imports(root: Path) -> list[str]:
 
 def _plugin_manifests(root: Path) -> list[tuple[Path, dict]]:
     manifests: list[tuple[Path, dict]] = []
-    plugins_root = root / "study_runner" / "plugins"
-    paths = list(plugins_root.glob("*/manifest.json"))
-    paths += list((root / "study_runner" / "extensions").glob("*/*/manifest.json"))
+    paths = list((root / "study_runner" / "extensions").glob("*/*/manifest.json"))
     for manifest in sorted(paths):
         try:
             payload = json.loads(manifest.read_text(encoding="utf-8"))

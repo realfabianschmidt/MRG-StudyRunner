@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend import create_app
+from study_runner.apps.server import create_app
 from study_runner.runtime_core.settings.folder_open_service import (
     FolderOpenError,
     resolve_results_folder,
@@ -252,7 +252,7 @@ class UploadRoutesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             app = self._app(temp_dir)
             with patch(
-                "study_runner.backend.routes.uploads.open_results_folder",
+                "study_runner.apps.server.routes.uploads.open_results_folder",
                 return_value={"ok": True, "path": "/results/study/p01"},
             ) as opener:
                 response = app.test_client().post(

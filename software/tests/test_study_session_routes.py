@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend import create_app
+from study_runner.apps.server import create_app
 
 
 def _app(data_dir: str, *, disable_hardware: bool = True):
@@ -117,7 +117,7 @@ class StudySessionRouteTests(unittest.TestCase):
     def test_resume_after_restart_restarts_sensors_too(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             with (
-                patch("study_runner.backend.initialize_plugins"),
+                patch("study_runner.apps.server.initialize_plugins"),
                 patch("study_runner.data_core.host.sensor_coordinator_service.initialize_plugin") as initialize_plugin,
                 patch("study_runner.data_core.host.sensor_coordinator_service.run_runtime_action", return_value={"ok": True}) as run_action,
             ):
@@ -156,8 +156,8 @@ class StudySessionRouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             app = _app(temp_dir)
             with (
-                patch("study_runner.backend.routes.helpers.initialize_plugin") as initialize_plugin,
-                patch("study_runner.backend.routes.helpers.run_runtime_action", return_value={"ok": True}) as run_action,
+                patch("study_runner.apps.server.routes.helpers.initialize_plugin") as initialize_plugin,
+                patch("study_runner.apps.server.routes.helpers.run_runtime_action", return_value={"ok": True}) as run_action,
             ):
                 client = app.test_client()
                 _load_plain_study(client)

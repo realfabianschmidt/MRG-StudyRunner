@@ -4,8 +4,8 @@
 
 The app now uses clear top-level folders:
 
-- `study_runner/backend/` for backend app code.
-- `study_runner/backend/services/` for small backend services.
+- `study_runner/apps/server/` for backend app code.
+- `study_runner/apps/server/services/` for small backend services.
 - `study_runner/integrations/` for built-in integrations.
 - `study_runner/web/` for browser files.
 - `study_content/settings/` for editable local settings.

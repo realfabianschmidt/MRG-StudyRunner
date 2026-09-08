@@ -107,7 +107,7 @@ class PlugInAndPullOutTests(unittest.TestCase):
 
     def test_empty_catalog_keeps_app_admin_hardware_and_study_io_available(self) -> None:
         """Zero plugins is a supported deployment, not an import-time accident."""
-        from study_runner.backend import create_app
+        from study_runner.apps.server import create_app
         from study_runner.plugin_framework import registry
 
         with tempfile.TemporaryDirectory() as plugin_dir, tempfile.TemporaryDirectory() as data_dir:

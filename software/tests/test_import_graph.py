@@ -28,7 +28,7 @@ class ImportGraphTests(unittest.TestCase):
 
     def test_boundary_rules_catch_absolute_relative_and_local_submodule_imports(self) -> None:
         statements = (
-            "import study_runner.backend as web",
+            "import study_runner.apps.server as web",
             "from study_runner import backend as web",
             "from ... import backend as web",
             "from ...backend import create_app",
@@ -42,30 +42,30 @@ class ImportGraphTests(unittest.TestCase):
                     boundaries, "STUDY_RUNNER_ROOT", self.root
                 ):
                     actual = boundaries._find_violations()
-                self.assertIn(("plugins/sample/plugin.py", "study_runner.backend"), actual)
+                self.assertIn(("plugins/sample/plugin.py", "study_runner.apps.server"), actual)
 
     def test_package_init_relative_import_uses_the_package_itself(self) -> None:
         source = self.root / "plugins" / "sample" / "__init__.py"
         source.write_text("from ... import backend\n", encoding="utf-8")
         modules = {edge.imported_module for edge in iter_imports(source, package_root=self.software)}
-        self.assertIn("study_runner.backend", modules)
+        self.assertIn("study_runner.apps.server", modules)
         self.assertNotIn("backend", modules)
 
     def test_from_import_preserves_attributes_without_inventing_modules(self) -> None:
         source = self.root / "plugins" / "sample" / "plugin.py"
-        source.write_text("from study_runner.backend import create_app\n", encoding="utf-8")
+        source.write_text("from study_runner.apps.server import create_app\n", encoding="utf-8")
         edges = list(iter_imports(source, package_root=self.software))
         self.assertEqual([(edge.imported_module, edge.names) for edge in edges], [
-            ("study_runner.backend", ("create_app",)),
+            ("study_runner.apps.server", ("create_app",)),
         ])
 
     def test_from_import_finds_a_module_file_without_importing_its_code(self) -> None:
         backend_module = self.root / "backend" / "dangerous.py"
         backend_module.write_text("raise RuntimeError('must never execute')\n", encoding="utf-8")
         source = self.root / "plugins" / "sample" / "plugin.py"
-        source.write_text("from study_runner.backend import dangerous\n", encoding="utf-8")
+        source.write_text("from study_runner.apps.server import dangerous\n", encoding="utf-8")
         modules = {edge.imported_module for edge in iter_imports(source, package_root=self.software)}
-        self.assertEqual(modules, {"study_runner.backend", "study_runner.backend.dangerous"})
+        self.assertEqual(modules, {"study_runner.apps.server", "study_runner.apps.server.dangerous"})
 
 
 if __name__ == "__main__":

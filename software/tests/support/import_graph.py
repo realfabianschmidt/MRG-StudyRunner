@@ -1,6 +1,6 @@
 """AST-based import graph for enforcing package boundaries.
 
-String-matching (`"study_runner.backend" in text`) misses the shape most
+String-matching (`"study_runner.apps.server" in text`) misses the shape most
 real violations take: 8 of the 11 import-boundary violations known at the
 start of the 1.0 rebuild (docs/architecture-1.0-umbau.md) are function-local
 imports, deliberately placed inside a function body to dodge a cycle at
@@ -57,7 +57,7 @@ class ImportEdge:
 def module_area(dotted_module: str) -> str | None:
     """First-level `study_runner` subpackage a dotted module belongs to.
 
-    `study_runner.backend.services.x` -> `"backend"`. Anything outside
+    `study_runner.apps.server.services.x` -> `"backend"`. Anything outside
     `study_runner` -> `None`.
 
     A two-segment name like `study_runner.version` returns `"version"` here

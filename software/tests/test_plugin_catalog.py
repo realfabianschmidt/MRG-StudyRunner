@@ -22,8 +22,8 @@ from study_runner.contracts.plugin_api import PluginContext
 from study_runner.plugin_framework.process_host import get_process_runtime
 from study_runner.plugin_framework.registry import run_admin_action
 from study_runner.plugin_framework.registry import get_plugin_catalog_payload
-from study_runner.backend.routes.helpers import _plugin_context
-from study_runner.backend.routes.plugins import bp as plugins_blueprint
+from study_runner.apps.server.routes.helpers import _plugin_context
+from study_runner.apps.server.routes.plugins import bp as plugins_blueprint
 
 
 def _manifest(plugin_key: str, *, source_id: str | None = None) -> dict:
@@ -594,7 +594,7 @@ class PublicCatalogTests(unittest.TestCase):
         app.register_blueprint(plugins_blueprint)
         client = app.test_client()
         with patch(
-            "study_runner.backend.routes.plugins._plugin_context",
+            "study_runner.apps.server.routes.plugins._plugin_context",
             return_value=object(),
         ):
             rejected = client.post(
@@ -612,22 +612,22 @@ class PublicCatalogTests(unittest.TestCase):
         client = app.test_client()
         with (
             patch(
-                "study_runner.backend.routes.plugins.get_plugin",
+                "study_runner.apps.server.routes.plugins.get_plugin",
                 return_value=object(),
             ),
             patch(
-                "study_runner.backend.routes.plugins._plugin_context",
+                "study_runner.apps.server.routes.plugins._plugin_context",
                 return_value=object(),
             ),
             patch(
-                "study_runner.backend.routes.plugins._require_secure_participant_ingest",
+                "study_runner.apps.server.routes.plugins._require_secure_participant_ingest",
             ),
             patch(
-                "study_runner.backend.routes.plugins.run_participant_action",
+                "study_runner.apps.server.routes.plugins.run_participant_action",
                 return_value={"ok": True, "result": {"monitor_active": True}},
             ) as action,
             patch(
-                "study_runner.backend.routes.plugins.ingest_participant_payload",
+                "study_runner.apps.server.routes.plugins.ingest_participant_payload",
                 return_value={"ok": True, "result": {"accepted": True}},
             ) as ingest,
         ):
@@ -666,7 +666,7 @@ class PublicCatalogTests(unittest.TestCase):
         with (
             patch.object(runtime, "_context", object()),
             patch(
-                "study_runner.backend.routes.plugins._plugin_context",
+                "study_runner.apps.server.routes.plugins._plugin_context",
                 return_value=object(),
             ),
             patch.object(
@@ -742,7 +742,7 @@ class PublicCatalogTests(unittest.TestCase):
         app.register_blueprint(plugins_blueprint)
         client = app.test_client()
         with patch(
-            "study_runner.backend.routes.plugins._plugin_context",
+            "study_runner.apps.server.routes.plugins._plugin_context",
             return_value=object(),
         ):
             wrong_type = client.post(

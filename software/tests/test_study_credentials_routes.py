@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend import create_app
+from study_runner.apps.server import create_app
 from study_runner.runtime_core.settings.secrets_service import load_local_secrets
 from study_runner.plugin_framework.plugin_secrets import (
     _credential_declarations,

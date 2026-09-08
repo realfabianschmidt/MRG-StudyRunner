@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.routes.finalization import bp
+from study_runner.apps.server.routes.finalization import bp
 
 
 class FakeFinalizationService:
@@ -80,7 +80,7 @@ class FinalizationRoutesTests(unittest.TestCase):
             job = {"job_id": "finalization-1", "session_path": session_path}
             app = self._app(root, job)
             with patch(
-                "study_runner.backend.routes.finalization.open_session_folder",
+                "study_runner.apps.server.routes.finalization.open_session_folder",
                 return_value={"ok": True, "path": str(root / session_path)},
             ) as opener:
                 response = app.test_client().post(

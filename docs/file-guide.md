@@ -32,7 +32,7 @@ Edit-safety legend:
 |---|---|---|
 | `software/study_runner/contracts/manifest.py` | Pure manifest/command-payload validation and API versions; imports only the standard library, shared by recorder and plugin framework | no |
 
-## Backend - HTTP routes (`software/study_runner/backend/routes/`)
+## Backend - HTTP routes (`software/study_runner/apps/server/routes/`)
 
 | File | Purpose | Edit? |
 |---|---|---|
@@ -53,7 +53,7 @@ Edit-safety legend:
 | `routes/plugins.py` | Serves the manifest-derived plugin catalog used by generic admin UI | careful |
 | `routes/helpers.py` | Shared request helpers: runtime config, sessions, sensor runtime | careful |
 
-## Backend - services (`software/study_runner/backend/services/`)
+## Backend - services (`software/study_runner/apps/server/services/`)
 
 | File | Purpose | Edit? |
 |---|---|---|

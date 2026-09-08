@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend import create_app
+from study_runner.apps.server import create_app
 
 
 VALIDATED_RESULTS = {
@@ -60,10 +60,10 @@ class ResultsRoutesTests(unittest.TestCase):
 
     def _results_patches(self):
         return (
-            patch("study_runner.backend.routes.results.load_config", return_value={}),
-            patch("study_runner.backend.routes.results.validate_and_normalize_config", return_value=dict(CONFIG_DATA)),
-            patch("study_runner.backend.routes.results.validate_and_normalize_results", return_value=dict(VALIDATED_RESULTS)),
-            patch("study_runner.backend.routes.results.build_answer_details", return_value=[]),
+            patch("study_runner.apps.server.routes.results.load_config", return_value={}),
+            patch("study_runner.apps.server.routes.results.validate_and_normalize_config", return_value=dict(CONFIG_DATA)),
+            patch("study_runner.apps.server.routes.results.validate_and_normalize_results", return_value=dict(VALIDATED_RESULTS)),
+            patch("study_runner.apps.server.routes.results.build_answer_details", return_value=[]),
         )
 
     def test_save_failure_returns_500_and_preserves_raw_payload(self) -> None:
@@ -169,11 +169,11 @@ class ResultsRoutesTests(unittest.TestCase):
                 patches[2],
                 patches[3],
                 patch(
-                    "study_runner.backend.routes.results._stop_study_session_tracking",
+                    "study_runner.apps.server.routes.results._stop_study_session_tracking",
                     side_effect=OSError("session journal busy"),
                 ),
                 patch(
-                    "study_runner.backend.routes.results._complete_study_run",
+                    "study_runner.apps.server.routes.results._complete_study_run",
                     side_effect=OSError("run journal busy"),
                 ),
             ):
@@ -219,13 +219,13 @@ class ResultsRoutesTests(unittest.TestCase):
                 "participant_id": "p01",
             }
             with (
-                patch("study_runner.backend.routes.results.load_config", return_value={}),
-                patch("study_runner.backend.routes.results.validate_and_normalize_config", return_value=config),
+                patch("study_runner.apps.server.routes.results.load_config", return_value={}),
+                patch("study_runner.apps.server.routes.results.validate_and_normalize_config", return_value=config),
                 patch(
-                    "study_runner.backend.routes.results.validate_and_normalize_results",
+                    "study_runner.apps.server.routes.results.validate_and_normalize_results",
                     return_value={**VALIDATED_RESULTS, "session_id": "sess-upload"},
                 ),
-                patch("study_runner.backend.routes.results.build_answer_details", return_value=[]),
+                patch("study_runner.apps.server.routes.results.build_answer_details", return_value=[]),
                 patch(
                     "study_runner.extensions.destinations.notion_upload.adapter.upload_study_result",
                     side_effect=AssertionError("Notion network call ran inside /api/results"),
@@ -274,17 +274,17 @@ class ResultsRoutesTests(unittest.TestCase):
                 "card_summary": {"cards": [{"mean": 999}]},
             }
             with (
-                patch("study_runner.backend.routes.results.load_config", return_value={}),
+                patch("study_runner.apps.server.routes.results.load_config", return_value={}),
                 patch(
-                    "study_runner.backend.routes.results.validate_and_normalize_config",
+                    "study_runner.apps.server.routes.results.validate_and_normalize_config",
                     return_value=dict(CONFIG_DATA),
                 ),
                 patch(
-                    "study_runner.backend.routes.results.validate_and_normalize_results",
+                    "study_runner.apps.server.routes.results.validate_and_normalize_results",
                     return_value=validated,
                 ),
                 patch(
-                    "study_runner.backend.routes.results.build_answer_details",
+                    "study_runner.apps.server.routes.results.build_answer_details",
                     return_value=[
                         {
                             "question_index": 0,
@@ -325,7 +325,7 @@ class ResultsRoutesTests(unittest.TestCase):
                 patches[2],
                 patches[3],
                 patch(
-                    "study_runner.backend.routes.results._enqueue_upload_jobs",
+                    "study_runner.apps.server.routes.results._enqueue_upload_jobs",
                     side_effect=OSError("journal disk full"),
                 ),
             ):

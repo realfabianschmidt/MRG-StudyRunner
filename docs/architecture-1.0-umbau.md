@@ -70,7 +70,7 @@ and are cherry-picked onto the branch, never the other way round.
 
 | # | Decision | Rationale |
 |---|---|---|
-| D1 | **`study_runner` stays the single importable top-level package.** The 1.0 structure is nested *inside* it, not placed beside it as `software/{apps,packages,extensions}`. | Every invariant in §14 of the target document is about **import edges**, and edges are enforceable in any layout. The literal top-level layout would break `collect_submodules("study_runner.backend")`, the single `sys.path` entry in `software/tests/conftest.py`, `DEFAULT_PACKAGE_NAME`, 328 `study_runner.` references across 66 test modules, and the `(root/"study_runner").exists()` software-root probe in the PyInstaller spec — in exchange for a nicer directory listing. **This deviates from the target document; §3 there should be corrected.** |
+| D1 | **`study_runner` stays the single importable top-level package.** The 1.0 structure is nested *inside* it, not placed beside it as `software/{apps,packages,extensions}`. | Every invariant in §14 of the target document is about **import edges**, and edges are enforceable in any layout. The literal top-level layout would break `collect_submodules("study_runner.apps.server")`, the single `sys.path` entry in `software/tests/conftest.py`, `DEFAULT_PACKAGE_NAME`, 328 `study_runner.` references across 66 test modules, and the `(root/"study_runner").exists()` software-root probe in the PyInstaller spec — in exchange for a nicer directory listing. **This deviates from the target document; §3 there should be corrected.** |
 | D2 | **Legacy flat result folders are NOT removed** (contra target doc §13). | `software/saved_results/Example_Sensors_Study/` is in that shape on disk right now, as is every session recorded before the layout change. A major release that removes the ability to read a researcher's earlier data is not cleanup. Keep the read path, pin it with a fixture test, and rename it in the docs from "legacy" to "archival compatibility surface". Remove only remaining *write* paths. |
 | D3 | **`upload_destination.legacy` is migrated before it is removed.** | It reads fields out of live operator `.study-runner` files. Order: migrate and write forward → ship one release → then remove the read path. |
 | D4 | **Work happens in a second worktree**, `git worktree add C:\SR-1.0 -b feature/architecture-1.0`, with an external data directory. | The production install must keep working. See [Development environment](#development-environment). |
@@ -292,7 +292,7 @@ rather than deleting it immediately keeps an operator-edited manifest loading.
 hand on the developer machine.
 
 `release_tools/tests/test_pyinstaller_common.py` pins exactly the strings a
-rename breaks (`"study_runner/apps/ui"`, `"study_runner.backend"`), but
+rename breaks (`"study_runner/apps/ui"`, `"study_runner.apps.server"`), but
 `ci.yml:68` runs only `release_tools.tests.test_build_source_release`, and
 `python -m pytest software` never reaches `release_tools/`. **The test is dark.**
 Turning it on is one line and it is the highest-value action available before
@@ -829,7 +829,7 @@ commit per category, derived from each manifest's `category`) → `apps/ui` →
       that point whether the remaining bare `backend/` (just `__init__.py`
       and `routes/`) folds entirely into `apps/server/` or whether
       `create_app()` itself is the one thing that stays as
-      `study_runner/backend/__init__.py` alongside `apps/server/routes/`.
+      `study_runner/apps/server/__init__.py` alongside `apps/server/routes/`.
       Not yet decided — flagging for whoever does this package rather than
       guessing. `software/server.py` itself is unaffected either way (D5).
 - [ ] **4.10** *(reserved — the plan above only names 8 real packages plus
@@ -1154,3 +1154,9 @@ Checkpoint: 4.8 complete. `frontend` is now `apps/ui`; runtime data lookup,
 PyInstaller, source-release licences and JS/Python path contracts moved with it.
 HTTP paths did not change. Evidence: 73 targeted Python, 27 JavaScript and 25
 release/packaging tests passed. Next: 4.9 `apps/server`.
+
+Checkpoint: 4.9 complete. The Flask factory, routes and runtime implementation
+live under `apps/server`; both `software/server.py` and the permanent
+`study_runner/app_server.py` entrypoint remain. The old `backend` package is
+removed. Evidence: 80 targeted Python and 4 packaging tests passed. Next is the
+separate preflight UI/error-handling commit, then the Phase 4 tail sweep.

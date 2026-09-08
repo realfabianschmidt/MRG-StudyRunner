@@ -15,7 +15,7 @@ SOFTWARE_DIR = Path(__file__).resolve().parents[1]
 if str(SOFTWARE_DIR) not in sys.path:
     sys.path.insert(0, str(SOFTWARE_DIR))
 
-from study_runner.backend.routes.certificate import bp
+from study_runner.apps.server.routes.certificate import bp
 from study_runner.runtime_core.delivery.certificate_transfer_service import (
     CertificateTransferError,
     apply_import,
