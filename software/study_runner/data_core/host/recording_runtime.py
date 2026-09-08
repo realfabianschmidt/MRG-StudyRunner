@@ -48,6 +48,7 @@ from .recording_contract import (
     RecordingContractError,
     build_recording_contract,
     load_recording_contract,
+    stream_contracts_document,
 )
 from .recording_dependencies import (
     INTERNAL_RECORDING_SOURCE_KEYS,
@@ -483,6 +484,20 @@ class RecordingRuntimeService:
                 )
             except RecordingContractError as error:
                 raise RecordingRuntimeError(str(error)) from error
+
+            # Package 5d (docs/architecture-1.0-umbau.md): a publishable
+            # projection of the same frozen contract, as its own top-level
+            # session artifact (target doc §8) -- written once, here, at the
+            # same freeze point as recording-plan.json itself, never
+            # rewritten on a later reattach/recovery of this same session.
+            atomic_write_json(
+                paths.root / "stream-contracts.json",
+                stream_contracts_document(
+                    recording_contract,
+                    session_id=identity.session_id,
+                    frozen_at_epoch=self._clock(),
+                ),
+            )
 
             # Frozen alongside the recording contract, not re-read from the
             # live study on every worker (re)start: a crash-recovery restart

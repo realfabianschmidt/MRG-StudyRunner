@@ -16,6 +16,7 @@ from typing import Any, Callable, Mapping
 
 from study_runner.shared.dependency_utils import ensure_requirements
 from study_runner.contracts.manifest import validate_and_normalize_manifest
+from study_runner.contracts.stream_contract import apply_stream_contract_desc
 
 
 def _load_manifest() -> dict[str, Any]:
@@ -65,6 +66,7 @@ def initialize() -> None:
             channel = channels.append_child("channel")
             channel.append_child_value("label", label)
             channel.append_child_value("unit", unit)
+        apply_stream_contract_desc(info, MANIFEST["streams"][0])
         with _lock:
             _local_clock = local_clock
             _outlet = StreamOutlet(info)

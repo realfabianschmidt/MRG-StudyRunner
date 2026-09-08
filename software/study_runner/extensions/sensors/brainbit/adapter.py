@@ -33,6 +33,7 @@ from typing import Any
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 
 from study_runner.shared.dependency_utils import ensure_requirements
+from study_runner.contracts.stream_contract import apply_stream_contract_desc, load_own_stream_contracts
 from .brainbit_realtime_cli import (
     EXIT_BLE_UNAVAILABLE,
     EXIT_CALLBACK_FAILURE,
@@ -57,6 +58,11 @@ LSL_CHANNEL_UNITS = {
     "quality": ("ratio",) * 4,
     "battery": ("percent",),
 }
+# Package 5d (docs/architecture-1.0-umbau.md): this plugin's own frozen
+# stream contract, for the desc/study_runner XDF header block only -- the
+# LSL_SOURCE_IDS/LSL_CHANNEL_UNITS constants above remain the source of
+# truth for outlet creation itself, unchanged.
+STREAM_CONTRACTS = load_own_stream_contracts(__file__)
 
 
 # How the CLI's exit codes translate for the operator. "retry" means a restart
@@ -1727,6 +1733,9 @@ def _initialize_lsl_outlets() -> None:
         acquisition = info.desc().append_child("acquisition")
         acquisition.append_child_value("timestamp_source", "host_callback_reconstructed")
         acquisition.append_child_value("raw_processing", "unit_scale_only")
+        stream_contract = STREAM_CONTRACTS.get(stream_suffix.lower())
+        if stream_contract is not None:
+            apply_stream_contract_desc(info, stream_contract)
         return StreamOutlet(info)
 
     _lsl_create_outlet = create_outlet

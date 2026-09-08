@@ -20,6 +20,7 @@ from typing import Any, Iterable, Mapping
 RECORDING_CONTRACT_SCHEMA = "study-runner/recording-contract/v1"
 RECORDING_CONTRACT_VERSION = 1
 RECORDING_CONTRACT_HASH_ALGORITHM = "sha256"
+STREAM_CONTRACTS_SCHEMA = "study-runner/stream-contracts/v1"
 
 
 class RecordingContractError(ValueError):
@@ -137,6 +138,37 @@ def build_recording_contract(
     )
     assert validated is not None
     return validated
+
+
+def stream_contracts_document(
+    recording_contract: Mapping[str, Any],
+    *,
+    session_id: str,
+    frozen_at_epoch: float,
+) -> dict[str, Any]:
+    """Package 5d: the publishable, per-session ``stream-contracts.json``.
+
+    A flat projection of ``recording_contract["streams_by_source"]`` --
+    the same frozen data already inside ``recording-plan.json`` -- but as
+    its own top-level session artifact (target doc §8's file layout),
+    readable without knowing this application's internal recording-plan
+    shape. Each stream also carries the ``plugin_key`` that declared it,
+    since the source contract is keyed by plugin but a flat list is what a
+    researcher or an external tool actually wants to read.
+    """
+    streams_by_source = recording_contract.get("streams_by_source")
+    streams: list[dict[str, Any]] = []
+    if isinstance(streams_by_source, Mapping):
+        for plugin_key in sorted(streams_by_source):
+            for stream in streams_by_source[plugin_key] or []:
+                if isinstance(stream, Mapping):
+                    streams.append({"plugin_key": plugin_key, **deepcopy(dict(stream))})
+    return {
+        "schema": STREAM_CONTRACTS_SCHEMA,
+        "session_id": str(session_id or ""),
+        "frozen_at_epoch": float(frozen_at_epoch),
+        "streams": streams,
+    }
 
 
 def load_recording_contract(plan: Mapping[str, Any]) -> dict[str, Any] | None:

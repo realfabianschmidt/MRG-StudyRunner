@@ -169,6 +169,53 @@ class PluginManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(PluginManifestError, "sequence_channel"):
             validate_and_normalize_manifest(payload, directory_name="fixture")
 
+    def test_stream_timing_defaults_to_an_honest_unknown_capture_delay(self) -> None:
+        payload = _manifest("fixture", source_id="fixture.stream")
+        manifest = validate_and_normalize_manifest(payload, directory_name="fixture")
+        self.assertEqual(
+            manifest["streams"][0]["timing"],
+            {"capture_delay_ns": {"source": "unknown", "min_ns": None, "max_ns": None, "reference": None}},
+        )
+
+    def test_stream_timing_accepts_a_measured_capture_delay_with_provenance(self) -> None:
+        payload = _manifest("fixture", source_id="fixture.stream")
+        payload["streams"][0]["timing"] = {
+            "capture_delay_ns": {
+                "source": "measured",
+                "min_ns": 12_000_000,
+                "max_ns": 18_000_000,
+                "reference": "loopback-2026-08-14, tools/measure_capture_delay.py",
+            }
+        }
+        manifest = validate_and_normalize_manifest(payload, directory_name="fixture")
+        self.assertEqual(manifest["streams"][0]["timing"]["capture_delay_ns"]["source"], "measured")
+        self.assertEqual(manifest["streams"][0]["timing"]["capture_delay_ns"]["min_ns"], 12_000_000)
+
+    def test_stream_timing_requires_a_recognized_source(self) -> None:
+        payload = _manifest("fixture", source_id="fixture.stream")
+        payload["streams"][0]["timing"] = {"capture_delay_ns": {"source": "guessed"}}
+        with self.assertRaisesRegex(PluginManifestError, "source must be one of"):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
+    def test_stream_timing_requires_bounds_and_reference_unless_unknown(self) -> None:
+        payload = _manifest("fixture", source_id="fixture.stream")
+        payload["streams"][0]["timing"] = {"capture_delay_ns": {"source": "estimated"}}
+        with self.assertRaises(PluginManifestError):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
+    def test_stream_timing_rejects_an_inverted_range(self) -> None:
+        payload = _manifest("fixture", source_id="fixture.stream")
+        payload["streams"][0]["timing"] = {
+            "capture_delay_ns": {
+                "source": "datasheet",
+                "min_ns": 20,
+                "max_ns": 10,
+                "reference": "vendor datasheet rev 3",
+            }
+        }
+        with self.assertRaisesRegex(PluginManifestError, "max_ns must be >= min_ns"):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
     def test_acquisition_transport_enforces_delivery_pairs(self) -> None:
         payload = _manifest("fixture")
         payload["capabilities"]["acquisition_transport"] = {

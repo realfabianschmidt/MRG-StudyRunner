@@ -194,6 +194,23 @@ class RecordingRuntimeTests(unittest.TestCase):
             self.assertEqual(contract["backup"]["channel_names"], channel_names)
             self.assertEqual(len(contract["sha256"]), 64)
 
+            stream_contracts = json.loads(
+                (session_roots[0] / "stream-contracts.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(stream_contracts["schema"], "study-runner/stream-contracts/v1")
+            self.assertEqual(stream_contracts["session_id"], "session-1")
+            brainbit_streams = [
+                stream for stream in stream_contracts["streams"] if stream["plugin_key"] == "brainbit"
+            ]
+            self.assertEqual(
+                {stream["key"] for stream in brainbit_streams},
+                {stream["key"] for stream in contract["streams_by_source"]["brainbit"]},
+            )
+            self.assertEqual(
+                brainbit_streams[0]["timing"]["capture_delay_ns"]["source"],
+                "unknown",
+            )
+
     def test_device_confirmed_channels_are_sealed_separately_from_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -17,6 +17,7 @@ from typing import Any
 from study_runner.plugin_framework.adapter_utils import set_state, timestamp
 from study_runner.shared.dependency_utils import ensure_requirements
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
+from study_runner.contracts.stream_contract import apply_stream_contract_desc, load_own_stream_contracts
 
 
 _state_lock = Lock()
@@ -52,6 +53,11 @@ LSL_CHANNEL_UNITS = {
     "emotion": ("probability",) * len(_EMOTIONS) + ("probability", "boolean", "count"),
     "face_quality": ("boolean", "probability", "pixel", "pixel", "count"),
 }
+# Package 5d (docs/architecture-1.0-umbau.md): this plugin's own frozen
+# stream contract, for the desc/study_runner XDF header block only -- the
+# LSL_SOURCE_IDS/LSL_CHANNEL_UNITS constants above remain the source of
+# truth for outlet creation itself, unchanged.
+STREAM_CONTRACTS = load_own_stream_contracts(__file__)
 
 
 def initialize(
@@ -652,6 +658,7 @@ def _initialize_lsl_outlets() -> None:
         channel = channels.append_child("channel")
         channel.append_child_value("label", label)
         channel.append_child_value("unit", unit)
+    apply_stream_contract_desc(info, STREAM_CONTRACTS["emotion"])
 
     quality_info = StreamInfo(
         name="CameraFaceQuality",
@@ -670,6 +677,7 @@ def _initialize_lsl_outlets() -> None:
         channel = quality_channels.append_child("channel")
         channel.append_child_value("label", label)
         channel.append_child_value("unit", unit)
+    apply_stream_contract_desc(quality_info, STREAM_CONTRACTS["face_quality"])
 
     _lsl_outlets = {
         "CameraEmotion": StreamOutlet(info),

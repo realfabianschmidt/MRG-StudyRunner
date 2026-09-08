@@ -33,6 +33,7 @@ Edit-safety legend:
 |---|---|---|
 | `software/study_runner/contracts/manifest.py` | Pure manifest/command-payload validation and API versions; imports only the standard library, shared by recorder and plugin framework | no |
 | `software/study_runner/contracts/plugin_api.py` | Dependency-light runtime context and plugin protocol shared by server, framework, and extension subprocesses | no |
+| `software/study_runner/contracts/stream_contract.py` | Turns one manifest-declared stream contract into `desc/study_runner` XDF header fields; every LSL-producing module calls it before creating its outlet | no |
 
 ## Apps server - HTTP routes (`software/study_runner/apps/server/routes/`)
 

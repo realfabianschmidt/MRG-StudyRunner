@@ -31,6 +31,7 @@ from typing import Any, Mapping
 
 from study_runner.shared.dependency_utils import ensure_requirements
 from study_runner.contracts.manifest import validate_and_normalize_manifest
+from study_runner.contracts.stream_contract import apply_stream_contract_desc
 
 
 def _load_manifest() -> dict[str, Any]:
@@ -80,6 +81,7 @@ def initialize(hardware_config: Mapping[str, Any] | None = None) -> None:
         channel = info.desc().append_child("channels").append_child("channel")
         channel.append_child_value("label", "event")
         channel.append_child_value("unit", LSL_CHANNEL_UNITS["markers"][0])
+        apply_stream_contract_desc(info, MANIFEST["streams"][0])
         outlet = StreamOutlet(info)
         # Capture one mapping between wall time and LSL's monotonic clock.  A
         # stable offset avoids reintroducing wall-clock jumps for every event.

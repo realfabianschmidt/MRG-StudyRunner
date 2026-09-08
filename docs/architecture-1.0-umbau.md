@@ -35,11 +35,12 @@ already implemented pre-dating this rebuild, verified rather than built —
 see Phase 3 section); **only 3.4 remains in Phase 3**, then Phase 5 in full
 (operator decided 2026-09-08 to keep the complete target scope, including
 `mrg` CLI and the extension SDK, rather than trim it against
-CONTRIBUTING.md's "keep it simple" guidance). **Phase 5's first package,
-5e (journal/XDF event-id comparison), is also complete** — see Phase 5
-section. Next: 5d, then 5a, 5c, 5h, 5i, 5g, 5j, 5f in that order (3.4 is
-a written, not-yet-implemented design plan, see Phase 3 section — it can
-land whenever convenient, it blocks nothing in Phase 5).
+CONTRIBUTING.md's "keep it simple" guidance). **Phase 5's first two
+packages, 5e (journal/XDF event-id comparison) and 5d (stream contracts +
+timing provenance), are also complete** — see Phase 5 section. Next: 5a,
+then 5c, 5h, 5i, 5g, 5j, 5f in that order (3.4 is a written,
+not-yet-implemented design plan, see Phase 3 section — it can land
+whenever convenient, it blocks nothing in Phase 5).
 The shared rebuild is `feature/architecture-1.0`, worktree `C:\SR-1.0`.
 Corrections were prepared on `fix/architecture-review`; see the tracked handoff
 for integration and verification evidence. **User-directed course change,
@@ -1060,13 +1061,69 @@ history.
       worker violates invariant #2. Its signatures also consume fully parsed XDF
       artifacts, while live QC needs streaming counters. Needs its own data
       model, and must come after 2.5 and 5e
-- [ ] **5d** Stream contracts: freeze at start, persist as
-      `stream-contracts.json`, write into the XDF header. Partly built already —
-      `plugins/brainbit/adapter.py:741` has `_actual_stream_contracts` and every
-      manifest declares `streams[]`. See [T8](#t8--the-stream-contract-in-the-xdf-header-changes-recorded-bytes)
-      Define source, receive and LSL clock domains; require timing-delay
-      provenance (`measured/datasheet/estimated/unknown`) and versioned QC
-      thresholds before implementing live interpretation in 5c
+- [x] **5d** Stream contracts: freeze at start, persist as
+      `stream-contracts.json`, write into the XDF header, define timing-delay
+      provenance. Operator decision 2026-09-08: do both the mechanical
+      freeze/persist/header-write *and* the timing-provenance schema in one
+      pass, rather than deferring provenance to 5c.
+
+      **Confirmed before writing code, not assumed:** the native XDF writer
+      needed no change. `card_summary_service.py::_study_runner_metadata`
+      already *read* a `desc/study_runner/...` namespace defensively
+      (`except: return None`), and `tools/make_timeline_fixture.py` already
+      *wrote* a one-field version of it (`plugin_key` only) — but nothing
+      populated it for a real recording. This is pure Python-side LSL
+      outlet metadata (`pylsl.StreamInfo.desc()`), not an ABI/native change.
+
+      **Freeze + persist**: new
+      `recording_contract.py::stream_contracts_document()` projects the
+      *already-frozen* `recording_contract["streams_by_source"]` (built by
+      `build_recording_contract()`, itself unchanged) into a flat,
+      publishable `stream-contracts.json` — written once in
+      `recording_runtime.py::start_session()`'s fresh-start branch, the
+      same freeze point as `recording-plan.json`, never rewritten on a
+      later reattach/recovery of the same session (target doc §8's file
+      layout, item marked *neu*).
+
+      **Timing provenance** (target doc §6): new per-stream `timing`
+      schema in `contracts/manifest.py`
+      (`streams[].timing.capture_delay_ns.{source,min_ns,max_ns,reference}`,
+      `source` one of `measured|datasheet|estimated|unknown`). Defaults to
+      an honest `source: "unknown"` when absent — no adapter has a real
+      measured delay yet, and CONTRIBUTING.md's own standard ("broken or
+      incomplete data must not silently count as success") argues against
+      fabricating false precision. Declaring anything but `"unknown"`
+      requires bounds *and* a reference, so a future real measurement
+      cannot be entered without also saying how it was obtained.
+
+      **XDF header write**: new `contracts/stream_contract.py`
+      (`stream_contract_desc_fields`, `apply_stream_contract_desc`,
+      `load_own_stream_contracts`) — one shared, pure function instead of
+      five hand-copied XML-building blocks. Wired into all five LSL
+      producers: `data_core/host/{markers,clock_diagnostics}.py` (already
+      load their own manifest at module scope) and the three sensor
+      adapters `extensions/sensors/{brainbit,camera_emotion,mr60_mini_radar}/adapter.py`
+      (which, as v4 process-host plugins, never see the host's parsed
+      manifest — each now loads and normalizes its own `manifest.json`
+      independently via `load_own_stream_contracts(__file__)`, same
+      pattern `markers.py` already used for itself). Adapters' existing
+      hand-written `LSL_SOURCE_IDS`/`LSL_CHANNEL_UNITS` constants are
+      untouched — this only adds the new `study_runner` desc block
+      alongside them, not a refactor of outlet creation itself.
+      `tools/make_timeline_fixture.py` updated in the same commit (T8) to
+      match the same field names, so the manual fixture stays consistent
+      with a genuine 5d-era recording instead of drifting from it.
+
+      Destinations/outputs (`nextcloud_upload`, `notion_upload`,
+      `osc_touchdesigner`) do not publish LSL streams and needed no change.
+
+      11 new tests (5 timing-schema tests in `test_plugin_catalog.py`, 6 in
+      new `test_stream_contract.py`, plus an extended assertion in an
+      existing `test_recording_runtime.py` test exercising the real
+      freeze-to-file path). Full suite **830 passed, 4 skipped** (819 + 11
+      new); JS 27 passed; structure baseline rewritten as a checkpoint
+      (expected growth: new `contracts/stream_contract.py`, five adapters
+      each gained a few lines of wiring).
 - [x] **5e** Shared `event_id` across journal and LSL markers, dedup and
       compare at finalization, mismatch is a quality event.
       **Duplicate detection within the XDF marker stream already existed**
@@ -1177,13 +1234,13 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 5d (stream contracts) — next active package; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+| Phase 5a (session lifecycle enum) — next active package; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`
-(commits `dec0908`..`2d40c4a`), Phase 3 items 3.1/3.2/3.3/3.5, and Phase 5e
-on 2026-09-08; Codex completed R1-R5 and the remaining Phase 4 packages on
-2026-09-08. No package is currently owned.
+(commits `dec0908`..`2d40c4a`), Phase 3 items 3.1/3.2/3.3/3.5, and Phase 5
+items 5e and 5d on 2026-09-08; Codex completed R1-R5 and the remaining
+Phase 4 packages on 2026-09-08. No package is currently owned.
 
 Rules:
 - **Moves and tree-wide import rewrites are serial.** Approved R1–R4 repairs

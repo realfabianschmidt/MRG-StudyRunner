@@ -114,12 +114,44 @@ markers as `extra_in_xdf`. Fixed before commit. 7 new tests; full suite
 **819 passed, 4 skipped**; JS 27 passed; structure baseline rewritten as a
 checkpoint. See the working plan's 5e entry for the full account.
 
-**Next task:** 5d (stream contracts frozen at start, persisted as
-`stream-contracts.json`, written into the XDF header). 3.4 remains a
-written, unimplemented design plan (see above) -- it blocks nothing in
-Phase 5 and can land whenever convenient. Order for the rest of Phase 5:
-5d -> 5a -> 5c -> 5h -> 5i -> 5g -> 5j -> 5f. Claim the package in the
-working plan before editing.
+## 5d complete — 2026-09-08
+
+Stream contracts frozen at start, persisted as `stream-contracts.json`,
+written into the XDF header; timing-delay provenance defined in the same
+pass (operator decision: do both parts of 5d together rather than deferring
+provenance to 5c). **Confirmed before writing code**: the native XDF writer
+needed no change -- `card_summary_service.py` already read a
+`desc/study_runner/...` namespace defensively, and
+`tools/make_timeline_fixture.py` already wrote a one-field version of it;
+nothing had ever populated it for a real recording. Pure Python-side LSL
+`StreamInfo.desc()` metadata, no ABI risk.
+
+New `contracts/manifest.py` schema:
+`streams[].timing.capture_delay_ns.{source,min_ns,max_ns,reference}`,
+`source` one of `measured|datasheet|estimated|unknown`, defaulting to an
+honest `"unknown"` -- no adapter has a real measured delay yet, and
+inventing one would be exactly the "silently count as success" data
+CONTRIBUTING.md warns against. New `contracts/stream_contract.py`
+(`stream_contract_desc_fields`, `apply_stream_contract_desc`,
+`load_own_stream_contracts`) wired into all five LSL producers
+(`data_core/host/{markers,clock_diagnostics}.py` plus the three sensor
+adapters, which as v4 process-host plugins load and normalize their own
+`manifest.json` independently, same pattern `markers.py` already used). New
+`recording_contract.py::stream_contracts_document()` projects the
+already-frozen `recording_contract["streams_by_source"]` into the new
+per-session file, written once at the same freeze point as
+`recording-plan.json` in `recording_runtime.py::start_session()`.
+`tools/make_timeline_fixture.py` updated to match (T8).
+
+11 new tests; full suite **830 passed, 4 skipped**; JS 27 passed; structure
+baseline rewritten as a checkpoint. See the working plan's 5d entry for the
+full account.
+
+**Next task:** 5a (session lifecycle enum). 3.4 remains a written,
+unimplemented design plan (see above) -- it blocks nothing in Phase 5 and
+can land whenever convenient. Order for the rest of Phase 5:
+5a -> 5c -> 5h -> 5i -> 5g -> 5j -> 5f. Claim the package in the working
+plan before editing.
 
 ## Shared location and coordination
 

@@ -1190,6 +1190,7 @@ def _normalize_streams(value: Any) -> list[dict[str, Any]]:
             )
         if any(not isinstance(unit, str) or not unit.strip() for unit in channel_units):
             raise PluginManifestError(f"streams[{index}].channel_units must contain strings")
+        timing = _normalize_stream_timing(raw_stream.get("timing"), index=index)
         streams.append(
             {
                 **deepcopy(raw_stream),
@@ -1201,9 +1202,75 @@ def _normalize_streams(value: Any) -> list[dict[str, Any]]:
                 "sequence_channel": sequence_channel,
                 "channels": deepcopy(channels),
                 "channel_units": deepcopy(channel_units),
+                "timing": timing,
             }
         )
     return streams
+
+
+_CAPTURE_DELAY_SOURCES = {"measured", "datasheet", "estimated", "unknown"}
+_UNKNOWN_CAPTURE_DELAY: dict[str, Any] = {
+    "source": "unknown",
+    "min_ns": None,
+    "max_ns": None,
+    "reference": None,
+}
+
+
+def _normalize_stream_timing(value: Any, *, index: int) -> dict[str, Any]:
+    """Capture-delay provenance for one stream (Package 5d, target doc §6).
+
+    Defaults to an honest ``source: "unknown"`` rather than a fabricated
+    number: no adapter has a real measured/datasheet delay yet, and
+    claiming precision nobody has is worse than admitting it is unknown --
+    "unknown ist ein zulässiges und ehrliches Ergebnis" (target doc §6).
+    Declaring anything other than "unknown" requires the bounds and a
+    reference for where the number came from, so a future real measurement
+    cannot be entered without also saying how it was obtained.
+    """
+    if value is None:
+        return {"capture_delay_ns": deepcopy(_UNKNOWN_CAPTURE_DELAY)}
+    if not isinstance(value, dict):
+        raise PluginManifestError(f"streams[{index}].timing must be a JSON object")
+    unexpected = sorted(set(value) - {"capture_delay_ns"})
+    if unexpected:
+        raise PluginManifestError(
+            f"streams[{index}].timing contains unsupported fields: " + ", ".join(unexpected)
+        )
+    raw_delay = value.get("capture_delay_ns")
+    if raw_delay is None:
+        return {"capture_delay_ns": deepcopy(_UNKNOWN_CAPTURE_DELAY)}
+    if not isinstance(raw_delay, dict):
+        raise PluginManifestError(f"streams[{index}].timing.capture_delay_ns must be a JSON object")
+    unexpected_delay = sorted(set(raw_delay) - {"source", "min_ns", "max_ns", "reference"})
+    if unexpected_delay:
+        raise PluginManifestError(
+            f"streams[{index}].timing.capture_delay_ns contains unsupported fields: "
+            + ", ".join(unexpected_delay)
+        )
+    source = _optional_text(raw_delay.get("source")) or "unknown"
+    if source not in _CAPTURE_DELAY_SOURCES:
+        raise PluginManifestError(
+            f"streams[{index}].timing.capture_delay_ns.source must be one of: "
+            + ", ".join(sorted(_CAPTURE_DELAY_SOURCES))
+        )
+    if source == "unknown":
+        return {"capture_delay_ns": deepcopy(_UNKNOWN_CAPTURE_DELAY)}
+    min_ns = _non_negative_int(raw_delay.get("min_ns"), f"streams[{index}].timing.capture_delay_ns.min_ns")
+    max_ns = _non_negative_int(raw_delay.get("max_ns"), f"streams[{index}].timing.capture_delay_ns.max_ns")
+    if max_ns < min_ns:
+        raise PluginManifestError(
+            f"streams[{index}].timing.capture_delay_ns.max_ns must be >= min_ns"
+        )
+    reference = _required_text(raw_delay, "reference", prefix=f"streams[{index}].timing.capture_delay_ns.")
+    return {
+        "capture_delay_ns": {
+            "source": source,
+            "min_ns": min_ns,
+            "max_ns": max_ns,
+            "reference": reference,
+        }
+    }
 
 
 def _validate_capability_contracts(

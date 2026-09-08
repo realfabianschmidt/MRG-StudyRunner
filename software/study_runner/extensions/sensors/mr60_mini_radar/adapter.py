@@ -20,6 +20,7 @@ from typing import Any
 from study_runner.plugin_framework.adapter_utils import set_state, timestamp
 from study_runner.shared.dependency_utils import ensure_requirements
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
+from study_runner.contracts.stream_contract import apply_stream_contract_desc, load_own_stream_contracts
 
 
 BLE_SERVICE_UUID = "9d6f0001-7d2a-4c6b-9f4e-5c2b1f4a6e10"
@@ -35,6 +36,11 @@ LSL_CHANNEL_UNITS = {
     "vitals": ("beats_per_minute", "breaths_per_minute", "arbitrary_unit", "metre"),
     "phases": ("radian", "radian", "radian"),
 }
+# Package 5d (docs/architecture-1.0-umbau.md): this plugin's own frozen
+# stream contract, for the desc/study_runner XDF header block only -- the
+# LSL_SOURCE_IDS/LSL_CHANNEL_UNITS constants above remain the source of
+# truth for outlet creation itself, unchanged.
+STREAM_CONTRACTS = load_own_stream_contracts(__file__)
 
 _lock = threading.Lock()
 _state_lock = threading.Lock()
@@ -642,6 +648,7 @@ def _initialize_lsl_outlets() -> None:
             channel = channels.append_child("channel")
             channel.append_child_value("label", label)
             channel.append_child_value("unit", unit)
+        apply_stream_contract_desc(info, STREAM_CONTRACTS[suffix.lower()])
         return StreamOutlet(info)
 
     _lsl_outlets = {
