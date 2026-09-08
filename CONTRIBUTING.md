@@ -84,7 +84,7 @@ It keeps only the rules that are useful for this small Study Runner project. The
 - Then add answer collection.
 - Then update validation and documentation.
 - Required: External tools such as BrainBit or TouchDesigner should live in small adapter files.
-- Required: Built-in integrations declare API-v3 capabilities in their own `manifest.json`; `registry.py` remains the runtime compatibility layer for status, controls, trial callbacks, and exports.
+- Required: Built-in integrations declare API-v4 capabilities in their own `manifest.json`; `registry.py` remains the runtime compatibility layer for status, controls, trial callbacks, and exports.
 - Required: Extend the existing simple path instead of building a second system next to it.
 
 ## 8. Write documents for humans
