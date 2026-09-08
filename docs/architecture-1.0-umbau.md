@@ -824,8 +824,8 @@ commit per category, derived from each manifest's `category`) → `apps/ui` →
       itself doesn't reference the path, but check `WEB_INTERFACE_DIR` in
       `backend/__init__.py`).
 - [ ] **4.9 `apps/server`** — NOT STARTED. `backend/routes/` +
-      `app_server.py` → `apps/server/`. `backend/__init__.py` (the Flask app
-      factory) and `backend/services/` no longer exist as of 4.6 — decide at
+      `app_server.py` → `apps/server/`. `backend/services/` no longer exists as of 4.6; the Flask app factory
+      still exists in `backend/__init__.py` — decide at
       that point whether the remaining bare `backend/` (just `__init__.py`
       and `routes/`) folds entirely into `apps/server/` or whether
       `create_app()` itself is the one thing that stays as
@@ -1122,3 +1122,16 @@ Additional questions raised during planning:
   operator documentation". That number must come from the plug-pull test, not be
   derived from the flush interval — real loss also depends on the OS cache and
   the storage device.
+
+
+## Approved completion package - active 2026-09-08
+
+Owner: Codex, `fix/architecture-review`, based on `8635aee`; integrate verified
+commits into `feature/architecture-1.0` at `C:\SR-1.0`. No concurrent file owner.
+Implement extensions by category, then apps/ui and apps/server; keep server.py
+and app_server.py entrypoints. Separate preflight UI/validation changes from moves.
+Actual initial structure check FAILS: edges 152 to 229, contracts 1376 to 1515 LOC;
+zero cycles alone is not a green check. Review and checkpoint once at completion.
+Required final evidence: Python/JS/release suites, architecture gates and actual
+Windows fixture bundle startup/RPC. Planned duration needs a settings input.
+Do not touch operator edits on main, including study.html and main.css.

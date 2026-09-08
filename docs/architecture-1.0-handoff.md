@@ -133,3 +133,16 @@ Phase 3 migration, lifecycle/QC/timing/checkpoint recovery, withdrawal, cards,
 SDK and CLI remain open behind Phase 4. Hardware, power-loss measurement, full
 bundle/upgrade, licences and platform release gates remain open. Version is
 still 0.7.0; this checkpoint does not declare v1.0 complete.
+
+
+## Approved completion package - active 2026-09-08
+
+Owner: Codex, `fix/architecture-review`, based on `8635aee`; integrate verified
+commits into `feature/architecture-1.0` at `C:\SR-1.0`. No concurrent file owner.
+Implement extensions by category, then apps/ui and apps/server; keep server.py
+and app_server.py entrypoints. Separate preflight UI/validation changes from moves.
+Actual initial structure check FAILS: edges 152 to 229, contracts 1376 to 1515 LOC;
+zero cycles alone is not a green check. Review and checkpoint once at completion.
+Required final evidence: Python/JS/release suites, architecture gates and actual
+Windows fixture bundle startup/RPC. Planned duration needs a settings input.
+Do not touch operator edits on main, including study.html and main.css.
