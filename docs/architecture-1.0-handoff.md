@@ -63,11 +63,30 @@ both already smaller than the working plan estimated and are done. Full
 suite: **812 passed, 4 skipped** (two fewer than 814 from the dead-test
 removal in point 2, not a new gap).
 
-**Next task:** 3.2 (`upload_destination.legacy` migrate-and-write-forward),
-then 3.4 (merge `readiness`/`runtime_control`/`health` into one
+## 3.2 closed — verification only, 2026-09-08
+
+`upload_destination.legacy` migrate-and-write-forward was already fully
+implemented, predating this rebuild. Traced the full persist chain
+(`apps/server/routes/{admin,study}.py` -> `validate_and_normalize_config` ->
+`normalize_study_settings_plugins` -> `_remove_legacy_destination_fields`,
+all in `runtime_core/studies/`): every save already migrates
+`notion_enabled`/`nextcloud_enabled`/etc. into the canonical
+`study_settings.plugins.<key>.settings` shape and strips the flat legacy
+keys before writing. Confirmed by two already-passing tests
+(`test_study_plugin_config.py`,
+`test_study_settings_contract.py::StudySettingsRoundTripTests`), not just by
+reading the code. No code changed. The read path (accepting legacy fields as
+input) correctly stays per D3 -- removing it is gated on a real release
+shipping first, which hasn't happened (version is still `1.0.0-dev`).
+
+**Next task:** 3.4 (merge `readiness`/`runtime_control`/`health` into one
 `api_version: 5` lifecycle contract — real design work, 3-5 days, touches
-all six plugins). Operator decision: finish Phase 3 fully before starting
-Phase 5. Claim the package in the working plan before editing.
+all six plugins), then Phase 5 **in full** (operator decision, 2026-09-08:
+keep the complete target scope including `mrg` CLI 5f and the extension SDK
+5j, rather than trim against CONTRIBUTING.md's "keep it simple" guidance —
+see the working plan's decision log for the exact reasoning). Order for
+Phase 5: 5e -> 5d -> 5a -> 5c -> 5h -> 5i -> 5g -> 5j -> 5f. Claim the
+package in the working plan before editing.
 
 ## Shared location and coordination
 

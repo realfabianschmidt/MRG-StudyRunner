@@ -30,9 +30,12 @@ and 5b (preflight) implemented, including approved repairs R1-R5. Phase 4
 (directory move) is complete.** The final packages are `extensions/*`,
 `apps/ui`, and `apps/server`; the old `plugins`, `frontend`, and `backend`
 packages are gone. Tail items 4.11-4.16 are complete and version is
-`1.0.0-dev`. **Phase 3 items 3.1/3.3/3.5 also complete** (see Phase 3
-section for what each turned up); 3.2 and 3.4 remain, in that priority order
-per the operator's decision to finish Phase 3 before starting Phase 5.
+`1.0.0-dev`. **Phase 3 items 3.1/3.2/3.3/3.5 also complete** (3.2 was found
+already implemented pre-dating this rebuild, verified rather than built —
+see Phase 3 section); **only 3.4 remains in Phase 3**, then Phase 5 in full
+(operator decided 2026-09-08 to keep the complete target scope, including
+`mrg` CLI and the extension SDK, rather than trim it against
+CONTRIBUTING.md's "keep it simple" guidance).
 The shared rebuild is `feature/architecture-1.0`, worktree `C:\SR-1.0`.
 Corrections were prepared on `fix/architecture-review`; see the tracked handoff
 for integration and verification evidence. **User-directed course change,
@@ -745,7 +748,28 @@ Zero directory moves: existing runtime packages remain in place; `shared/` and
       genuine v4 subprocess pipeline end to end, not a synthetic stand-in.
       Full suite still green throughout (812 passed/4 skipped — two fewer
       than before from the dead-test removal above, not a new gap).
-- [ ] **3.2** `upload_destination.legacy`: migrate and write forward (D3)
+- [x] **3.2** `upload_destination.legacy`: migrate and write forward (D3) —
+      **found already implemented, predating this rebuild; verified, not
+      newly built.** Traced the full call chain: every route that persists a
+      study (`apps/server/routes/{admin,study}.py`) calls
+      `validate_and_normalize_config` before `save_config`/`save_active_study`,
+      which calls `normalize_study_settings_plugins`
+      (`runtime_core/studies/study_plugin_config.py`), which migrates
+      `notion_enabled`/`notion_database_id`/`nextcloud_enabled`/
+      `nextcloud_share_link` etc. into the canonical
+      `study_settings.plugins.<key>.settings` shape *and* calls
+      `_remove_legacy_destination_fields` to pop every legacy flat key from
+      the dict that actually gets written to disk. Confirmed by two already-
+      passing tests, not just by reading the code:
+      `test_study_plugin_config.py::test_v3_plugin_values_override_legacy_without_reemitting_flat_fields`
+      and `test_study_settings_contract.py`'s round-trip tests both assert
+      `assertNotIn("notion_enabled", ...)` after normalization. No code
+      change was needed or made. What D3 still defers, correctly: the READ
+      path (accepting the legacy fields as input) stays — D3's own sequence
+      is migrate-and-write-forward → ship one release → *then* remove
+      reading them, and no release has shipped yet (version is
+      `1.0.0-dev`). Removing the read path is explicitly **not** part of
+      3.2 and remains future work, gated on a real release.
 - [x] **3.3** Renamed "legacy flat result folders" to "archival compatibility
       surface" in `docs/plugin-recording-architecture.md` and
       `docs/sensors-and-data.md`. The fixture test pinning the actual
@@ -1026,13 +1050,13 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 3.2/3.4 (legacy migration, capability contract merge) — next active package, in that order per operator decision | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+| Phase 3.4 (capability contract merge to api_version 5) — next active package, then Phase 5 in full | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`
-(commits `dec0908`..`2d40c4a`), and Phase 3 items 3.1/3.3/3.5 on 2026-09-08;
-Codex completed R1-R5 and the remaining Phase 4 packages on 2026-09-08. No
-package is currently owned.
+(commits `dec0908`..`2d40c4a`), and Phase 3 items 3.1/3.2/3.3/3.5 on
+2026-09-08; Codex completed R1-R5 and the remaining Phase 4 packages on
+2026-09-08. No package is currently owned.
 
 Rules:
 - **Moves and tree-wide import rewrites are serial.** Approved R1–R4 repairs
@@ -1119,6 +1143,8 @@ the Flask-free subprocess import of `data_core`.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-09-08 | Keep the full Phase 5 target scope (including `mrg` CLI 5f and the extension SDK 5j) rather than trim it against `CONTRIBUTING.md` §1/§10 ("no structure for a hypothetical future need", "no heavy framework just to look architecturally clean") | Operator-directed after the tension was raised explicitly: the target document (`MRG_Recorder_Core_Architektur_1.0.md`) is the deliberate, current decision on functional scope. `CONTRIBUTING.md`'s other rules (clear names, thin handlers, why-comments, validate at every boundary) still apply in full to *how* each package gets built — only the scope question itself was in play, not the quality bar |
+| 2026-09-08 | 3.2 (`upload_destination.legacy` migrate-and-write-forward) closed as verification-only, no code change | Traced the full persist call chain and found `normalize_study_settings_plugins`/`_remove_legacy_destination_fields` already migrate and strip every legacy flat field before any save, confirmed by two already-passing tests. This predates the 1.0 rebuild; 3.2 was not new work, just unverified until now |
 | 2026-09-08 | Removed `_validate_plugin_object` from `plugin_catalog.py` in the same commit as 3.1's `_import_plugin` removal, rather than leaving it as a defensive check | It is dead code for its only remaining caller: `build_process_plugin` derives every handler it checks for directly and unconditionally from the same manifest's `capabilities` set, so the check is a tautology for anything build_process_plugin produces. It only ever caught anything for a hand-written v3 `Plugin` object, which could genuinely omit a handler while still declaring the capability — that possibility no longer exists |
 | 2026-09-08 | Added `TEST_EXTRA_ROOT_PATH_ENV_VAR`/`TEST_EXTRA_ROOT_PACKAGE_ENV_VAR` to `plugin_framework/extension_layout.py`, read only from the environment | Three tests discover a synthetic plugin from a temp directory and (in one case) invoke a live handler through it; v4's real path spawns `driver.py` as a subprocess that resolves itself via `trusted_roots()`, hardcoded to the real `extensions/*` directories with no prior injection seam — a spawned subprocess has no access to a parent test's monkeypatches, only its environment. Read only from the environment, never a request or manifest value, so it can never become an attacker-controlled plugin path (CONTRIBUTING.md #1) |
 | 2026-09-08 | Directory-move package boundaries for Phase 4: `contracts` gets `plugin_api.py`; `data_core/host` absorbs both old `recording/` and `backend/services/recording/`; `runtime_core` is exactly `studies`+`settings`+`delivery` | Matches D6/target package mapping; `data_core/host`'s merge specifically resolves the pre-1.0 split that existed only because `backend` importing `recording` eagerly at Flask-construction time was a real cycle risk before this package (with no Flask routes) existed |
