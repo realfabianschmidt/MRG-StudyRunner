@@ -1,11 +1,20 @@
 # Architecture 1.0 Rebuild — Working State
 
+> **Current implementation, 2026-09-08:** this `main` copy records the
+> Phase 0 foundation. Phases 1/2 and approved repairs R1-R5 are implemented
+> on `feature/architecture-1.0` at `f43cf1f`, in `C:\SR-1.0`.
+> Continue with that checkout's `docs/architecture-1.0-umbau.md` and
+> `docs/architecture-1.0-handoff.md`. The next package is early preflight (5b).
+> [Shared Claude/Codex entry point](architecture-1.0-handoff.md).
+> The [versioned initial plan](architecture-1.0-initial.md) preserves the input;
+> approved deviations and acceptance evidence live on the development branch.
+
 This is the shared working document for the 1.0 architecture rebuild. Two agents
 (Claude Code and Codex) work on it in parallel, so **this file is the single
 source of truth for what is done, what is in progress, and who owns which
 files.**
 
-The target architecture is described in `../MRG_Recorder_Core_Architektur_1.0.md`
+The target architecture is described in [the initial plan](architecture-1.0-initial.md)
 (German). This document does not restate it; it tracks execution against it.
 
 ## How to use this document
