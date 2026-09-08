@@ -1,7 +1,4 @@
 # Project Rules
-
-This document replaces the imported engineering standards from the other software project.
-
 It keeps only the rules that are useful for this small Study Runner project. The goal is not maximum complexity. The goal is a project that stays readable for researchers, designers, and teammates with little or no coding experience.
 
 ## Why these rules exist
