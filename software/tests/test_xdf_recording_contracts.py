@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.data_core.contract.recording_errors import XdfBackendUnavailableError
-from study_runner.recording.xdf import (
+from study_runner.data_core.host.xdf import (
     PyXdfInspector,
     PythonRecoveryJournalBackend,
     StreamInspection,

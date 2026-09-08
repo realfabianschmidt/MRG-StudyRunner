@@ -471,7 +471,7 @@ class RuntimeRoutesTests(unittest.TestCase):
             # Exercise route/status assembly with an isolated loader. Real
             # asynchronous driver polls can outlive this temporary data tree.
             with patch(
-                "study_runner.backend.services.recording.sensor_coordinator_service.get_plugin_status",
+                "study_runner.data_core.host.sensor_coordinator_service.get_plugin_status",
                 return_value={"status": "disabled"},
             ):
                 try:

@@ -131,7 +131,7 @@ class NativeCoreSmokeTests(unittest.TestCase):
             shutil.rmtree(root)
 
     def test_truncated_last_chunk_is_preserved_but_never_validated_as_complete(self) -> None:
-        from study_runner.recording.xdf import PyXdfInspector, validate_sources
+        from study_runner.data_core.host.xdf import PyXdfInspector, validate_sources
 
         core = NativeXdfCore(Path(os.environ["STUDY_RUNNER_XDF_CORE_TEST"]))
         root = REPOSITORY_ROOT / ".tmp" / f"native-truncated-smoke-{uuid.uuid4().hex}"

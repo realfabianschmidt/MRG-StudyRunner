@@ -10,11 +10,8 @@ commit, whether a change made things better or worse.
 
 Instead: `KNOWN_VIOLATIONS` lists every current violation, found mechanically
 (see the discovery script in docs/architecture-1.0-umbau.md Phase 1.2 -- not
-hand-transcribed, which already missed two real edges once: this file's
-predecessor list had 17 pairs; the actual tree has 18, including one the
-architecture doc's own invariant list doesn't mention --
-`backend/services/recording` importing `recording_worker` directly, the
-future data_core host importing the future data_core worker).
+hand-transcribed, which already missed two real edges once). It is empty as
+of Phase 2's completion.
 
 This test fails two ways, deliberately:
   - a violation exists that is NOT in KNOWN_VIOLATIONS -- something got
@@ -25,13 +22,14 @@ This test fails two ways, deliberately:
     being enforced. Delete the entry in the same commit that fixes the code.
 
 `RULES` encodes path-prefix -> forbidden-module-prefix, not just top-level
-area -> area, because the sharpest edges do not align with today's directory
-boundaries: `backend/services/recording/` is the future data_core *host* and
-must not import `recording_worker` (the future data_core *worker*), but nothing
-else under `backend` is restricted that way -- it legitimately talks to most
-of the application. Once Phase 4 physically separates these, the prefixes
-below become the new top-level package names and this file's RULES collapse
-to plain area checks; nothing about the enforcement changes.
+area -> area: `data_core/host/` (merged from `recording/` and
+`backend/services/recording/` in Phase 4) must not import `data_core/worker`
+or `plugin_framework`, and the reverse for `data_core/worker/`, matching
+invariant #1. Now that Phase 4 has physically separated `data_core`'s three
+sub-areas, most of these prefixes are two segments deep (`data_core`, `host`)
+rather than a bare top-level area, since `module_area()`/`file_area()` in
+`support/import_graph.py` only resolve the first segment and would otherwise
+conflate host, worker and contract.
 """
 from __future__ import annotations
 
@@ -54,16 +52,14 @@ STUDY_RUNNER_ROOT = PROJECT_ROOT / "study_runner"
 RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("plugin_framework",), "study_runner.backend"),
     (("plugin_framework",), "study_runner.data_core.worker"),
-    (("plugin_framework",), "study_runner.recording"),
+    (("plugin_framework",), "study_runner.data_core.host"),
     (("plugins",), "study_runner.backend"),
-    (("plugins",), "study_runner.recording"),
+    (("plugins",), "study_runner.data_core.host"),
     (("plugins",), "study_runner.data_core.worker"),
-    (("recording",), "study_runner.data_core.worker"),
-    (("recording",), "study_runner.plugin_framework"),
-    (("data_core", "worker"), "study_runner.recording"),
+    (("data_core", "host"), "study_runner.data_core.worker"),
+    (("data_core", "worker"), "study_runner.data_core.host"),
     (("data_core", "worker"), "study_runner.plugin_framework"),
     (("data_core", "worker"), "study_runner.backend"),
-    (("backend", "services", "recording"), "study_runner.data_core.worker"),
 )
 
 # (file relative to study_runner/, imported module). One entry per distinct

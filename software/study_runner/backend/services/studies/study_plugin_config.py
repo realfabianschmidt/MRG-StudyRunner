@@ -11,8 +11,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from study_runner.recording import clock_diagnostics as recording_clock_diagnostics
-from study_runner.recording import markers as recording_markers
+from study_runner.data_core.host import clock_diagnostics as recording_clock_diagnostics
+from study_runner.data_core.host import markers as recording_markers
 
 
 # markers and clock_diagnostics record unconditionally on every session -- see

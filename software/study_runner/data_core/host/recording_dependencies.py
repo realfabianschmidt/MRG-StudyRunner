@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping
 
 from study_runner.plugin_framework.registry import get_plugin_manifests
-from study_runner.recording import clock_diagnostics, markers
+from study_runner.data_core.host import clock_diagnostics, markers
 
 
 PINNED_PYLSL_VERSION = "1.18.2"

@@ -17,11 +17,11 @@ from study_runner.plugin_framework.registry import (
     get_plugins_with_capability,
 )
 from study_runner.shared.atomic_io import atomic_write_json
+from study_runner.shared.filename_sanitizer import sanitize_identifier_for_filename
 from ..services.delivery.finalization_service import SubmissionConflictError
 from ..services.studies.results_service import (
     build_answer_details,
     sanitize_canonical_submission_sensor_summaries,
-    sanitize_identifier_for_filename,
 )
 from ..services.settings.secrets_service import redact_hardware_config
 from ..services.studies.study_config_service import load_config

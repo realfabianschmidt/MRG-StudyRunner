@@ -37,10 +37,10 @@ from .results_service import (
     _resolve_project_path,
     _write_signal_sidecar,
     build_answer_details,
-    sanitize_identifier_for_filename,
     save_results_payload,
 )
-from ..recording.sensor_flush_service import discard_session_flush_files
+from study_runner.shared.filename_sanitizer import sanitize_identifier_for_filename
+from study_runner.data_core.host.sensor_flush_service import discard_session_flush_files
 from .sessions_index_service import list_sessions
 from .validation import skipped_optional_questions_for_result
 

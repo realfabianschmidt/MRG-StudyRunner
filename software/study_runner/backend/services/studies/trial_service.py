@@ -13,8 +13,8 @@ from study_runner.plugin_framework.registry import (
     run_trial_start,
     run_trial_stop,
 )
-from study_runner.recording import clock_diagnostics as recording_clock_diagnostics
-from study_runner.recording import markers as recording_markers
+from study_runner.data_core.host import clock_diagnostics as recording_clock_diagnostics
+from study_runner.data_core.host import markers as recording_markers
 
 
 _RUNTIME = {

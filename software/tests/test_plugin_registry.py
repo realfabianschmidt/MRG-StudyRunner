@@ -331,7 +331,7 @@ class BuiltInRecordingSourceTests(unittest.TestCase):
     see recording/markers.py and recording/clock_diagnostics.py."""
 
     def test_declared_source_ids_match_module_constants(self) -> None:
-        from study_runner.recording import clock_diagnostics, markers
+        from study_runner.data_core.host import clock_diagnostics, markers
 
         for module in (markers, clock_diagnostics):
             with self.subTest(module=module.__name__):
@@ -346,14 +346,14 @@ class BuiltInRecordingSourceTests(unittest.TestCase):
                 self.assertEqual(manifest_units, module.LSL_CHANNEL_UNITS)
 
     def test_neither_is_reachable_through_the_plugin_catalog(self) -> None:
-        from study_runner.recording import clock_diagnostics, markers
+        from study_runner.data_core.host import clock_diagnostics, markers
 
         manifests = get_plugin_manifests()
         self.assertNotIn(markers.SOURCE_KEY, manifests)
         self.assertNotIn(clock_diagnostics.SOURCE_KEY, manifests)
 
     def test_both_still_declare_how_samples_reach_lsl(self) -> None:
-        from study_runner.recording import clock_diagnostics, markers
+        from study_runner.data_core.host import clock_diagnostics, markers
 
         for module in (markers, clock_diagnostics):
             with self.subTest(module=module.__name__):

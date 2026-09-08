@@ -23,7 +23,7 @@ from ..studies.study_plugin_config import (
 # STUDY_SENSOR_KEYS remains imported as a compatibility/patch seam for fixture
 # tests and external validators. Unknown legacy keys are migrated instead of
 # being rejected against this tuple.
-from ..recording.study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
+from study_runner.data_core.host.study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
 from study_runner.shared.participant_fields import PARTICIPANT_FIELD_ORDER
 
 

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
-from study_runner.recording.artifacts import ArtifactPaths, SessionIdentity, sha256_file
+from study_runner.data_core.host.artifacts import ArtifactPaths, SessionIdentity, sha256_file
 
 from study_runner.shared.atomic_io import atomic_write_bytes, atomic_write_json
 

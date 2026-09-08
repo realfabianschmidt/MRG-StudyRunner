@@ -25,7 +25,7 @@ from typing import Any
 from ..settings.runtime_config import is_https_enabled
 from .study_plugin_config import normalize_study_settings_plugins
 from study_runner.plugin_framework.plugin_secrets import list_study_credential_state, resolve_plugin_secret
-from ..recording.study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
+from study_runner.data_core.host.study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
 
 # Which left-hand panel of the study settings shell fixes each blocker, so the
 # UI can send the operator straight there instead of making them hunt. Only

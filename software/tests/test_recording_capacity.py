@@ -15,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.recording.recording_capacity import (
+from study_runner.data_core.host.recording_capacity import (
     MINIMUM_FREE_SPACE_RESERVE_BYTES,
     estimated_acquisition_bytes_per_second,
     evaluate_capacity,
@@ -120,7 +120,7 @@ class EvaluateCapacityTests(unittest.TestCase):
             free = 100  # bytes -- far below even the minimum reserve
 
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch(
-            "study_runner.backend.services.recording.recording_capacity.shutil.disk_usage",
+            "study_runner.data_core.host.recording_capacity.shutil.disk_usage",
             return_value=TinyDisk(),
         ):
             result = evaluate_capacity(

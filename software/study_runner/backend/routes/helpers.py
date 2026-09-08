@@ -29,7 +29,7 @@ from ..services.settings.secrets_service import update_local_secrets
 from ..services.studies.session_store import public_session
 from ..services.studies.study_config_service import load_config
 from study_runner.plugin_framework.plugin_secrets import secret_fields
-from ..services.recording.study_sensor_runtime import (
+from study_runner.data_core.host.study_sensor_runtime import (
     SESSION_OVERRIDE_KEYS,
     STUDY_SENSOR_KEYS,
     build_effective_hardware_config,

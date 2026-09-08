@@ -16,15 +16,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.recording.artifacts import SessionIdentity
-from study_runner.recording.coordinator import SegmentLedger
-from study_runner.recording.worker_binary import WorkerBinaryAvailability
+from study_runner.data_core.host.artifacts import SessionIdentity
+from study_runner.data_core.host.coordinator import SegmentLedger
+from study_runner.data_core.host.worker_binary import WorkerBinaryAvailability
 from study_runner.data_core.contract.worker_protocol import (
     LoopbackWorkerClient,
     WorkerEndpointState,
 )
-from study_runner.backend.services.recording import recording_dependencies
-from study_runner.backend.services.recording import study_sensor_runtime
+from study_runner.data_core.host import recording_dependencies
+from study_runner.data_core.host import study_sensor_runtime
 from study_runner.backend.services.studies import validation
 from study_runner.backend.services.studies import study_readiness_service
 from study_runner.backend.services.studies.card_summary_service import CardSummaryBuilder
@@ -32,8 +32,8 @@ from study_runner.backend.services.settings.plugin_settings_service import (
     apply_plugin_settings,
     build_plugin_settings_schema,
 )
-from study_runner.backend.services.recording.recording_runtime import RecordingRuntimeService
-from study_runner.backend.services.recording.recording_runtime_support import RECORDING_PLAN_SCHEMA
+from study_runner.data_core.host.recording_runtime import RecordingRuntimeService
+from study_runner.data_core.host.recording_runtime_support import RECORDING_PLAN_SCHEMA
 from study_runner.backend.services.studies.study_plugin_config import normalize_card_plugin_actions
 from study_runner.plugin_framework import registry
 from study_runner.plugin_framework.plugin_catalog import PluginCatalog, discover_plugin_catalog
@@ -307,7 +307,7 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
         self.assertIs(registry.get_plugin_catalog(), original_catalog)
         self.assertIsNone(registry.get_plugin(PLUGIN_KEY))
         for relative_path in (
-            "study_runner/backend/services/recording/recording_runtime.py",
+            "study_runner/data_core/host/recording_runtime.py",
             "study_runner/frontend/scripts/shared/plugin-catalog.js",
             "study_runner/frontend/scripts/settings/study/study-settings-panel.js",
             "study_runner/frontend/scripts/cards/card-stimulus.js",

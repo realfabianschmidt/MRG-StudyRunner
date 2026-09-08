@@ -64,6 +64,7 @@ Edit-safety legend:
 | `../shared/study_identifiers.py` | `normalize_study_id` -- the one place a study's stable filename/credential key gets computed; re-exported from `study_config_service.py` | no |
 | `../shared/dependency_utils.py` | `ensure_requirements` -- moved here so `recording/markers.py`/`clock_diagnostics.py` can use it without depending on plugin_framework; re-exported from `plugin_framework/dependency_utils.py` | no |
 | `../shared/participant_fields.py` | `PARTICIPANT_FIELD_ORDER` -- moved here so the Notion destination plugin can use it without depending on backend; re-exported from `validation.py` | no |
+| `../shared/filename_sanitizer.py` | `sanitize_identifier_for_filename` -- needed by both `backend/services/studies` (results/recovery) and `data_core/host` (sensor flush), so it belongs to neither | no |
 | `../shared/recording_errors.py` | Typed recording/worker errors -- both sides of the host/worker boundary use these and may not import each other; re-exported from `recording/errors.py` | no |
 | `../shared/worker_protocol.py` | The authenticated, idempotent loopback wire protocol between host and worker; re-exported from `recording/worker_protocol.py` | careful |
 | `../shared/backup_projection.py` | Slowest-grid backup projection model (`BackupProjection`/`BackupSampler`) -- the worker needs it too; re-exported from `recording/backup.py` | careful |

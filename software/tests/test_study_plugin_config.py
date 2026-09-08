@@ -91,7 +91,7 @@ class StudyPluginMigrationTests(unittest.TestCase):
         )
 
     def test_empty_catalog_preserves_missing_plugins_and_card_actions_opaquely(self) -> None:
-        from study_runner.backend.services.recording import study_sensor_runtime
+        from study_runner.data_core.host import study_sensor_runtime
         from study_runner.plugin_framework import registry
 
         source = {

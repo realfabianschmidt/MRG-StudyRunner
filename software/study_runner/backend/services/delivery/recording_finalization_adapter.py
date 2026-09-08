@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 
-from ..delivery.finalization_service import FinalizationContext, FinalizationError, StepResult
-from .recording_quality import (
+from study_runner.data_core.host.recording_quality import (
     producer_stop_failures,
     validation_details,
     validation_error,
 )
+
+from .finalization_service import FinalizationContext, FinalizationError, StepResult
 
 
 class RuntimeRecordingFinalizationAdapter:

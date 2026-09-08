@@ -30,7 +30,7 @@ from ..services.settings.plugin_settings_service import (
     apply_plugin_settings,
     build_plugin_settings_schema,
 )
-from ..services.recording.study_sensor_runtime import SESSION_OVERRIDE_KEYS, STUDY_SENSOR_KEYS
+from study_runner.data_core.host.study_sensor_runtime import SESSION_OVERRIDE_KEYS, STUDY_SENSOR_KEYS
 from .helpers import (
     _apply_plugin_toggle_to_active_runtime,
     _apply_session_override_runtime,

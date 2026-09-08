@@ -19,7 +19,7 @@ import threading
 import time
 from typing import Any, Callable, Mapping, Protocol
 
-from study_runner.recording.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
+from study_runner.data_core.host.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
 from study_runner.backend.services.studies.session_journal_service import SessionJournalStore
 
 from .artifact_manifest_service import ArtifactManifestError, ArtifactManifestStore

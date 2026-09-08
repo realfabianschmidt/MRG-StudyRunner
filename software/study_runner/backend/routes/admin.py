@@ -18,7 +18,7 @@ from study_runner.plugin_framework.plugin_secrets import (
     secret_fields,
     set_study_secret,
 )
-from ..services.recording.study_sensor_runtime import STUDY_SENSOR_KEYS
+from study_runner.data_core.host.study_sensor_runtime import STUDY_SENSOR_KEYS
 from ..services.studies.validation import validate_and_normalize_config
 from .helpers import (
     _clear_session_overrides,

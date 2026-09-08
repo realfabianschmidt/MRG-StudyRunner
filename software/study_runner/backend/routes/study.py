@@ -19,7 +19,7 @@ from ..services.studies.study_config_service import (
     study_config_revision,
 )
 from ..services.studies.study_readiness_service import check_study_readiness
-from ..services.recording.recording_runtime import required_recording_plugins
+from study_runner.data_core.host.recording_runtime import required_recording_plugins
 from ..services.studies.trial_service import send_trial_marker, start_trial_session, stop_trial_session
 from ..services.studies.trial_service import TrialDispatchError
 from ..services.studies.trial_event_service import (

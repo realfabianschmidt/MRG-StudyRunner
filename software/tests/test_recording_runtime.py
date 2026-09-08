@@ -21,32 +21,34 @@ WORKER_UNAVAILABLE_REASON = (
     "fail-closed" if platform.system().strip().casefold() == "linux" else "not found"
 )
 
-from study_runner.recording.artifacts import ArtifactStore, SessionIdentity
-from study_runner.recording.coordinator import SegmentLedger
+from study_runner.data_core.host.artifacts import ArtifactStore, SessionIdentity
+from study_runner.data_core.host.coordinator import SegmentLedger
 from study_runner.data_core.contract.recording_lease import RecordingLeaseStore
-from study_runner.recording.worker_binary import WorkerBinaryAvailability
+from study_runner.data_core.host.worker_binary import WorkerBinaryAvailability
 from study_runner.data_core.contract.worker_protocol import LoopbackWorkerClient, WorkerEndpointState
-from study_runner.recording.xdf import StreamInspection, XdfArtifactInspection
+from study_runner.data_core.host.xdf import StreamInspection, XdfArtifactInspection
 from study_runner.data_core.contract.recording_errors import WorkerUnavailableError
-from study_runner.backend.services.recording.recording_runtime import (
+from study_runner.backend.services.delivery.recording_finalization_adapter import (
+    RuntimeRecordingFinalizationAdapter,
+)
+from study_runner.data_core.host.recording_runtime import (
     NativeWorkerLauncher,
     RecordingRuntimeService,
-    RuntimeRecordingFinalizationAdapter,
     WorkerLaunchSpec,
     _backup_source_checks,
     _recording_lease_quality_checks,
     _recovery_backup_grid_anchor,
     recording_lsl_dependency_status,
 )
-from study_runner.backend.services.recording.recording_contract import (
+from study_runner.data_core.host.recording_contract import (
     build_recording_contract,
     load_recording_contract,
 )
-from study_runner.backend.services.recording.recording_runtime_support import RecordingRuntimeError
+from study_runner.data_core.host.recording_runtime_support import RecordingRuntimeError
 from study_runner.plugin_framework.registry import get_plugin_manifest
-from study_runner.backend.services.recording.recording_quality import scientific_source_checks
+from study_runner.data_core.host.recording_quality import scientific_source_checks
 from study_runner.backend.services.delivery.finalization_service import FinalizationError
-from study_runner.backend.services.recording.recording_dependencies import (
+from study_runner.data_core.host.recording_dependencies import (
     PINNED_PYLSL_VERSION,
     probe_lsl_dependencies,
 )
@@ -384,15 +386,15 @@ class RecordingRuntimeTests(unittest.TestCase):
 
             with (
                 mock.patch(
-                    "study_runner.backend.services.recording.recording_dependencies.get_plugin_manifests",
+                    "study_runner.data_core.host.recording_dependencies.get_plugin_manifests",
                     return_value={},
                 ),
                 mock.patch(
-                    "study_runner.backend.services.recording.recording_runtime.get_plugin_manifests_with_internal_sources",
+                    "study_runner.data_core.host.recording_runtime.get_plugin_manifests_with_internal_sources",
                     side_effect=AssertionError("recovery consulted the live catalog"),
                 ),
                 mock.patch(
-                    "study_runner.backend.services.recording.recording_runtime.get_backup_projection_specs",
+                    "study_runner.data_core.host.recording_runtime.get_backup_projection_specs",
                     side_effect=AssertionError("recovery rebuilt backup from the live catalog"),
                 ),
             ):
@@ -461,7 +463,7 @@ class RecordingRuntimeTests(unittest.TestCase):
             "backup": None,
         }
         with mock.patch(
-            "study_runner.backend.services.recording.recording_quality.get_plugin_manifests_with_internal_sources",
+            "study_runner.data_core.host.recording_quality.get_plugin_manifests_with_internal_sources",
             side_effect=AssertionError("quality checks consulted the live catalog"),
         ):
             issues, metrics = scientific_source_checks(plan, [])
@@ -527,7 +529,7 @@ class RecordingRuntimeTests(unittest.TestCase):
                 popen=popen,
             )
             with mock.patch(
-                "study_runner.backend.services.recording.recording_runtime.LoopbackWorkerClient",
+                "study_runner.data_core.host.recording_runtime.LoopbackWorkerClient",
                 Client,
             ):
                 endpoint, _client = launcher.launch(paths)
@@ -638,7 +640,7 @@ class RecordingRuntimeTests(unittest.TestCase):
 
     def test_lsl_dependency_probe_fails_closed_before_session_start(self) -> None:
         with mock.patch(
-            "study_runner.backend.services.recording.recording_runtime.require_pylsl",
+            "study_runner.data_core.host.recording_runtime.require_pylsl",
             side_effect=RuntimeError("liblsl missing"),
         ):
             status = recording_lsl_dependency_status()
@@ -732,7 +734,7 @@ class RecordingRuntimeTests(unittest.TestCase):
                     )
 
             with mock.patch(
-                "study_runner.backend.services.recording.recording_runtime.PyXdfInspector",
+                "study_runner.data_core.host.recording_runtime.PyXdfInspector",
                 return_value=Inspector(),
             ):
                 inspections, report = runtime.inspect_sources(paths)

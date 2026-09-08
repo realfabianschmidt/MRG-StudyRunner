@@ -20,8 +20,8 @@ WORKER_UNAVAILABLE_REASON = (
     "fail-closed" if platform.system().strip().casefold() == "linux" else "not found"
 )
 
-from study_runner.recording.artifacts import ArtifactStore, SessionIdentity
-from study_runner.recording.coordinator import RecordingCoordinator, SegmentLedger
+from study_runner.data_core.host.artifacts import ArtifactStore, SessionIdentity
+from study_runner.data_core.host.coordinator import RecordingCoordinator, SegmentLedger
 from study_runner.data_core.contract.recording_errors import CommandConflictError, WorkerProtocolError
 from study_runner.data_core.contract.recording_lease import (
     DEFAULT_RECORDING_LEASE_SECONDS,
@@ -34,7 +34,7 @@ from study_runner.data_core.contract.worker_protocol import (
     WorkerCommandRouter,
     WorkerEndpointState,
 )
-from study_runner.recording.worker_binary import BundledWorkerLocator
+from study_runner.data_core.host.worker_binary import BundledWorkerLocator
 
 
 class MutableClock:

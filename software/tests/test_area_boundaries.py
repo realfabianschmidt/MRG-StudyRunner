@@ -60,11 +60,11 @@ class AreaBoundaryTests(unittest.TestCase):
         """Reading or writing a session must not construct the Flask app."""
         result = _imports_cleanly_without(
             (
-                "study_runner.recording.artifacts",
-                "study_runner.recording.coordinator",
+                "study_runner.data_core.host.artifacts",
+                "study_runner.data_core.host.coordinator",
                 "study_runner.data_core.contract.recording_lease",
                 "study_runner.data_core.contract.worker_protocol",
-                "study_runner.recording.xdf",
+                "study_runner.data_core.host.xdf",
             ),
             "flask",
         )
@@ -83,7 +83,7 @@ class AreaBoundaryTests(unittest.TestCase):
     def test_the_detached_worker_does_not_import_the_host_side_recording_package(self) -> None:
         """host and worker may not import each other (invariant #1).
 
-        Stronger than blocking `flask`: this blocks `study_runner.recording`
+        Stronger than blocking `flask`: this blocks `study_runner.data_core.host`
         itself. Before Phase 2.5 (docs/architecture-1.0-umbau.md), the worker
         genuinely could not have loaded here -- `worker_protocol`, `backup`
         and `recovery` lived under `recording/` and the worker imported them
@@ -97,7 +97,7 @@ class AreaBoundaryTests(unittest.TestCase):
                 "study_runner.data_core.worker.core",
                 "study_runner.data_core.worker.lsl_recording",
             ),
-            "study_runner.recording",
+            "study_runner.data_core.host",
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -110,12 +110,12 @@ class AreaBoundaryTests(unittest.TestCase):
         """
         result = _imports_cleanly_without(
             (
-                "study_runner.recording.artifacts",
-                "study_runner.recording.coordinator",
+                "study_runner.data_core.host.artifacts",
+                "study_runner.data_core.host.coordinator",
                 "study_runner.data_core.contract.recording_lease",
-                "study_runner.recording.worker_binary",
+                "study_runner.data_core.host.worker_binary",
                 "study_runner.data_core.contract.worker_protocol",
-                "study_runner.recording.xdf",
+                "study_runner.data_core.host.xdf",
             ),
             "study_runner.data_core.worker",
         )

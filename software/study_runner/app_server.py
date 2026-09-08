@@ -31,7 +31,7 @@ from study_runner.backend.services.settings.runtime_config import (
     read_server_host,
     read_server_port,
 )
-from study_runner.backend.services.recording.sensor_flush_service import SensorFlushService
+from study_runner.data_core.host.sensor_flush_service import SensorFlushService
 from study_runner.backend.services.settings.ssl_service import ensure_local_ssl_certificate
 from study_runner.backend.services.delivery.upload_jobs_service import UploadJobService
 

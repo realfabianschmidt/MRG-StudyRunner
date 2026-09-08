@@ -88,7 +88,7 @@ class PlugInAndPullOutTests(unittest.TestCase):
 
     def test_the_recording_plan_is_unaffected_by_any_one_plugin_removed(self) -> None:
         """The two sources every session carries are code now, not a catalog lookup."""
-        from study_runner.backend.services.recording.recording_dependencies import (
+        from study_runner.data_core.host.recording_dependencies import (
             INTERNAL_RECORDING_SOURCE_KEYS,
         )
 

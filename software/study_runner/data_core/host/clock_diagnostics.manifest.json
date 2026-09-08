@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "category": "sync",
   "config_key": "clock_diagnostics",
-  "entry_point": "recording.clock_diagnostics:BUILT_IN",
+  "entry_point": "data_core.host.clock_diagnostics:BUILT_IN",
   "ui": {
     "label": "Clock diagnostics",
     "description": "Internal wall-clock, LSL-clock and client clock observations.",
