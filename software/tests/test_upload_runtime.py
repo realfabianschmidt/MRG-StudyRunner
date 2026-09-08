@@ -206,7 +206,7 @@ class UploadTargetPersistenceTests(unittest.TestCase):
 
 class DestinationDiscoveryManifestTests(unittest.TestCase):
     def test_discovered_fields_must_be_declared_string_settings(self) -> None:
-        manifest = json.loads((PROJECT_ROOT / "study_runner/plugins/notion_upload/manifest.json").read_text())
+        manifest = json.loads((PROJECT_ROOT / "study_runner/extensions/destinations/notion_upload/manifest.json").read_text())
         for invalid in ({"type": "number"}, {}, "invalid"):
             with self.subTest(invalid=invalid):
                 manifest["settings"]["study"]["database_id"] = invalid
@@ -214,7 +214,7 @@ class DestinationDiscoveryManifestTests(unittest.TestCase):
                     normalize_manifest(manifest)
 
     def test_discovery_allowlist_is_explicit_and_validated(self) -> None:
-        manifest = json.loads((PROJECT_ROOT / "study_runner/plugins/notion_upload/manifest.json").read_text())
+        manifest = json.loads((PROJECT_ROOT / "study_runner/extensions/destinations/notion_upload/manifest.json").read_text())
         self.assertEqual(normalize_manifest(manifest)["capability_config"]["upload_destination"]["discovered_settings"], ["database_id", "data_source_id"])
         capability = manifest["capabilities"]["upload_destination"]
         for invalid in ("database_id", ["database_id", "database_id"], ["nested.field"], [42], [{}]):

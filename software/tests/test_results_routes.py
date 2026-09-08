@@ -227,11 +227,11 @@ class ResultsRoutesTests(unittest.TestCase):
                 ),
                 patch("study_runner.backend.routes.results.build_answer_details", return_value=[]),
                 patch(
-                    "study_runner.plugins.notion_upload.adapter.upload_study_result",
+                    "study_runner.extensions.destinations.notion_upload.adapter.upload_study_result",
                     side_effect=AssertionError("Notion network call ran inside /api/results"),
                 ) as notion_upload,
                 patch(
-                    "study_runner.plugins.nextcloud_upload.webdav_client.NextcloudPublicShareClient.upload_session_folder",
+                    "study_runner.extensions.destinations.nextcloud_upload.webdav_client.NextcloudPublicShareClient.upload_session_folder",
                     side_effect=AssertionError("Nextcloud network call ran inside /api/results"),
                 ) as nextcloud_upload,
             ):

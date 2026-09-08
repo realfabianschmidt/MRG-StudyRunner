@@ -33,6 +33,10 @@ _MOVED_PLUGIN_PATHS = (
     ('study_runner\\plugins\\camera_emotion\\', 'study_runner\\extensions\\sensors\\camera_emotion\\'),
     ('study_runner/plugins/mr60_mini_radar/', 'study_runner/extensions/sensors/mr60_mini_radar/'),
     ('study_runner\\plugins\\mr60_mini_radar\\', 'study_runner\\extensions\\sensors\\mr60_mini_radar\\'),
+    ('study_runner/plugins/nextcloud_upload/', 'study_runner/extensions/destinations/nextcloud_upload/'),
+    ('study_runner\\plugins\\nextcloud_upload\\', 'study_runner\\extensions\\destinations\\nextcloud_upload\\'),
+    ('study_runner/plugins/notion_upload/', 'study_runner/extensions/destinations/notion_upload/'),
+    ('study_runner\\plugins\\notion_upload\\', 'study_runner\\extensions\\destinations\\notion_upload\\'),
 )
 
 

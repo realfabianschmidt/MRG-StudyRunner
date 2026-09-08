@@ -151,3 +151,6 @@ Checkpoint: sensors moved; shared trusted-root discovery/driver/UI asset resolut
 and category-aware packaging added. Targeted catalog/process/camera/path tests:
 76 passed. Other categories remain on their original paths until their commits.
 Next: destinations, then outputs. Owner remains Codex.
+
+Checkpoint: destinations moved; catalog, real fake-client Notion path, retry and
+hardware-path suites: 69 passed. Next: outputs and final multi-root tests.
