@@ -36,10 +36,10 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
     # packaging-smoke CI job, which is the only place that actually runs a
     # built bundle (see docs/architecture-1.0-umbau.md, trap T5).
     for manifest_name in ("markers.manifest.json", "clock_diagnostics.manifest.json"):
-        manifest_path = root / "study_runner" / "recording" / manifest_name
+        manifest_path = root / "study_runner" / "data_core" / "host" / manifest_name
         if not manifest_path.is_file():
             raise RuntimeError(f"Internal recording manifest is missing: {manifest_path}")
-        datas.append((str(manifest_path), "study_runner/recording"))
+        datas.append((str(manifest_path), "study_runner/data_core/host"))
     plugin_manifests = _plugin_manifests(root)
     camera_manifest = next(
         (manifest for manifest, payload in plugin_manifests if payload.get("plugin_key") == "camera_emotion"),
@@ -57,11 +57,11 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
         datas.append(
             (
                 str(model_assets),
-                f"study_runner/plugins/{camera_manifest.parent.name}/worker/model_assets",
+                (camera_manifest.parent.relative_to(root) / "worker/model_assets").as_posix(),
             )
         )
     for manifest, payload in plugin_manifests:
-        datas.append((str(manifest), f"study_runner/plugins/{manifest.parent.name}"))
+        datas.append((str(manifest), manifest.parent.relative_to(root).as_posix()))
         ui = payload.get("ui") if isinstance(payload.get("ui"), dict) else {}
         extensions = ui.get("extensions") if isinstance(ui.get("extensions"), dict) else {}
         extra_assets = ui.get("assets") if isinstance(ui.get("assets"), list) else []
@@ -92,7 +92,7 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
             if not source.is_file():
                 raise RuntimeError(f"Plugin UI asset is missing: {source}")
             destination = PurePosixPath(
-                "study_runner", "plugins", manifest.parent.name, *relative.parts[:-1]
+                manifest.parent.relative_to(root).as_posix(), *relative.parts[:-1]
             ).as_posix()
             datas.append((str(source), destination))
     if camera_manifest is not None:
@@ -140,6 +140,7 @@ def common_hidden_imports(root: Path) -> list[str]:
     imports = (
         collect_submodules("study_runner.backend")
         + collect_submodules("study_runner.plugin_framework")
+        + collect_submodules("study_runner.extensions")
         + collect_submodules("study_runner.plugins")
         + [
             "study_runner.updates.installer",
@@ -157,7 +158,7 @@ def common_hidden_imports(root: Path) -> list[str]:
             + [
                 # Launched as "<own executable> --brainbit-cli" in packaged builds,
                 # because there is no separate Python interpreter to run the script.
-                "study_runner.plugins.brainbit.brainbit_realtime_cli",
+                "study_runner.extensions.sensors.brainbit.brainbit_realtime_cli",
             ]
         )
     if "osc" in plugin_keys:
@@ -190,9 +191,9 @@ def common_hidden_imports(root: Path) -> list[str]:
 def _plugin_manifests(root: Path) -> list[tuple[Path, dict]]:
     manifests: list[tuple[Path, dict]] = []
     plugins_root = root / "study_runner" / "plugins"
-    if not plugins_root.is_dir():
-        return manifests
-    for manifest in sorted(plugins_root.glob("*/manifest.json")):
+    paths = list(plugins_root.glob("*/manifest.json"))
+    paths += list((root / "study_runner" / "extensions").glob("*/*/manifest.json"))
+    for manifest in sorted(paths):
         try:
             payload = json.loads(manifest.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:

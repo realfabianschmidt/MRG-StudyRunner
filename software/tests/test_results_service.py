@@ -20,7 +20,7 @@ class ResultsServicePathTests(unittest.TestCase):
 
     def test_labrecorder_relative_path_resolves_under_software(self) -> None:
         resolved = results_service._resolve_project_path(
-            "study_runner/plugins/brainbit/recordings",
+            "study_runner/extensions/sensors/brainbit/recordings",
             results_service._project_root(),
         )
 

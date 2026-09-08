@@ -171,10 +171,10 @@ class ParticipantLanguageTests(unittest.TestCase):
     def test_participant_lifecycle_is_manifest_extension_driven(self) -> None:
         controller = _read(WEB / "scripts" / "participant" / "study-controller.js")
         camera_extension = _read(
-            PROJECT_ROOT / "study_runner" / "plugins" / "camera_emotion" / "ui" / "participant.js"
+            PROJECT_ROOT / "study_runner" / "extensions" / "sensors" / "camera_emotion" / "ui" / "participant.js"
         )
         camera_capture = _read(
-            PROJECT_ROOT / "study_runner" / "plugins" / "camera_emotion" / "ui" / "camera-capture.js"
+            PROJECT_ROOT / "study_runner" / "extensions" / "sensors" / "camera_emotion" / "ui" / "camera-capture.js"
         )
 
         self.assertNotIn("camera_emotion", controller)

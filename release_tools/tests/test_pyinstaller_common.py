@@ -50,7 +50,7 @@ class PyInstallerCommonTests(unittest.TestCase):
                 hidden = common.common_hidden_imports(root)
             self.assertIn("study_runner.backend", hidden)
             self.assertIn("study_runner.self_check", hidden)
-            self.assertNotIn("study_runner.plugins.brainbit.brainbit_realtime_cli", hidden)
+            self.assertNotIn("study_runner.extensions.sensors.brainbit.brainbit_realtime_cli", hidden)
             self.assertNotIn("pythonosc", hidden)
             self.assertNotIn("deepface", hidden)
 

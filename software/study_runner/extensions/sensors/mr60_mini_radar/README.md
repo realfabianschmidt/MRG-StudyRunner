@@ -105,7 +105,7 @@ Use the diagnostic receiver before debugging the whole Study Runner flow:
 
 ```powershell
 cd software
-python study_runner\plugins\mr60_mini_radar\tools\ble_mr60_receiver.py
+python study_runner\extensions\sensors\mr60_mini_radar\tools\ble_mr60_receiver.py
 ```
 
 Expected flow:
@@ -120,10 +120,10 @@ Stop with `Ctrl+C`.
 Useful variants:
 
 ```powershell
-python study_runner\plugins\mr60_mini_radar\tools\ble_mr60_receiver.py --scan-timeout 15
-python study_runner\plugins\mr60_mini_radar\tools\ble_mr60_receiver.py --address "<BLE address or identifier>"
-python study_runner\plugins\mr60_mini_radar\tools\ble_mr60_receiver.py --csv mr60_debug.csv
-python study_runner\plugins\mr60_mini_radar\tools\ble_mr60_receiver.py --osc-port 8000
+python study_runner\extensions\sensors\mr60_mini_radar\tools\ble_mr60_receiver.py --scan-timeout 15
+python study_runner\extensions\sensors\mr60_mini_radar\tools\ble_mr60_receiver.py --address "<BLE address or identifier>"
+python study_runner\extensions\sensors\mr60_mini_radar\tools\ble_mr60_receiver.py --csv mr60_debug.csv
+python study_runner\extensions\sensors\mr60_mini_radar\tools\ble_mr60_receiver.py --osc-port 8000
 ```
 
 The receiver reuses the production adapter constants and packet decoder, so a

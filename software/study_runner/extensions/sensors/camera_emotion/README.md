@@ -59,7 +59,7 @@ Source checkout on Windows x64 or macOS Apple Silicon:
 
 ```bash
 cd software
-python study_runner/plugins/camera_emotion/worker/server.py --port 3001
+python study_runner/extensions/sensors/camera_emotion/worker/server.py --port 3001
 ```
 
 The normal platform install script installs the local analysis dependencies on

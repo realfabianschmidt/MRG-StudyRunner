@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .extension_layout import resolve_extension
 
 import math
 from pathlib import Path
@@ -6,7 +7,6 @@ from typing import Any
 
 from .adapter_utils import config_section
 from .plugin_catalog import (
-    DEFAULT_PLUGINS_DIRECTORY,
     PluginCatalog,
     discover_plugin_catalog,
     validate_admin_action_payload,
@@ -555,7 +555,7 @@ def resolve_plugin_ui_asset(key: str, asset_path: str) -> Path:
     normalized = str(asset_path or "").replace("\\", "/")
     if normalized not in declared:
         raise ValueError(f"Plugin '{key}' does not declare UI asset '{normalized}'.")
-    plugin_root = (DEFAULT_PLUGINS_DIRECTORY / str(manifest["directory"])).resolve()
+    plugin_root = resolve_extension(key)[0]
     candidate = (plugin_root / normalized).resolve()
     try:
         candidate.relative_to(plugin_root)

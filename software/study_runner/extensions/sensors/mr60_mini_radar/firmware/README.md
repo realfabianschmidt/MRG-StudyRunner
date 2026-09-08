@@ -54,5 +54,5 @@ or examples — Seeed does not publish a BLE relay format of its own.
 Missing values are encoded as `-32768`.
 
 Study Runner receives this stream through
-`software/study_runner/plugins/mr60_mini_radar/adapter.py` when
+`software/study_runner/extensions/sensors/mr60_mini_radar/adapter.py` when
 `mini_radar.connection_type` is set to `ble`.

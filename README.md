@@ -232,7 +232,7 @@ Current built-in plugins:
 
 - **BrainBit** EEG through the repo-local NeuroSDK CLI.
 - **MR60 mini-radar** through ESP32-C6 BLE firmware in
-  `software/study_runner/plugins/mr60_mini_radar/firmware/`.
+  `software/study_runner/extensions/sensors/mr60_mini_radar/firmware/`.
 - **Camera and emotion** through the single `camera_emotion` plugin, using
   browser `getUserMedia` plus a local or remote analysis worker.
 - **Notion** and **Nextcloud** as manifest-declared upload destinations

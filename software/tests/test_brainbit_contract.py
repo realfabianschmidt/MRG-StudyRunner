@@ -22,10 +22,10 @@ from neurosdk.cmn_types import (
     SignalChannelsData,
 )
 
-from study_runner.plugins.brainbit import adapter
-from study_runner.plugins.brainbit import brainbit_realtime_cli as cli
-from study_runner.plugins.brainbit import diagnose_backends
-from study_runner.plugins.brainbit import driver
+from study_runner.extensions.sensors.brainbit import adapter
+from study_runner.extensions.sensors.brainbit import brainbit_realtime_cli as cli
+from study_runner.extensions.sensors.brainbit import diagnose_backends
+from study_runner.extensions.sensors.brainbit import driver
 
 
 class PacketDecoderTests(unittest.TestCase):

@@ -10,9 +10,9 @@ from study_runner.contracts.plugin_api import PluginContext, Plugin
 
 
 DEFAULT_BRAINBIT = {
-    "script_path": "study_runner/plugins/brainbit/brainbit_realtime_cli.py",
-    "working_dir": "study_runner/plugins/brainbit",
-    "log_dir": "study_runner/plugins/brainbit/logs",
+    "script_path": "study_runner/extensions/sensors/brainbit/brainbit_realtime_cli.py",
+    "working_dir": "study_runner/extensions/sensors/brainbit",
+    "log_dir": "study_runner/extensions/sensors/brainbit/logs",
 }
 
 

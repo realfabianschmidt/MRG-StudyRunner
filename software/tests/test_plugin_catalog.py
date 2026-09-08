@@ -752,7 +752,7 @@ class PublicCatalogTests(unittest.TestCase):
     def test_brainbit_selection_uses_generic_route_and_machine_context(self) -> None:
         """BrainBit is an API-v4 plugin: its admin actions run inside the
         driver.py child process, not the server process. Patching
-        study_runner.plugins.brainbit.plugin._restart here would be a no-op --
+        study_runner.extensions.sensors.brainbit.plugin._restart here would be a no-op --
         that module only runs inside the isolated driver. This test instead
         observes the process RPC boundary (like the equivalent Nextcloud
         test), so the HTTP-route -> validated-payload -> process-request
@@ -823,7 +823,7 @@ class BrainBitManifestActionTests(unittest.TestCase):
             persist_hardware_config=lambda value: persisted.append(value),
         )
         with (
-            patch("study_runner.plugins.brainbit.plugin._restart", return_value={"status": "waiting"}),
+            patch("study_runner.extensions.sensors.brainbit.plugin._restart", return_value={"status": "waiting"}),
             patch("study_runner.plugin_framework.registry.get_plugin_status", return_value={"status": "waiting"}),
         ):
             response = run_admin_action(

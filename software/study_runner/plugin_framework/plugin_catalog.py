@@ -28,6 +28,7 @@ from study_runner.contracts.manifest import (
     validate_admin_action_payload,
     validate_and_normalize_manifest,
 )
+from .extension_layout import trusted_roots, candidate_directories
 from study_runner.shared.runtime_mode import is_frozen
 from study_runner.contracts.plugin_api import Plugin
 
@@ -127,8 +128,9 @@ def discover_plugin_catalog(
     sibling ``plugins`` package and never accepts either value from a request.
     """
 
-    root = Path(plugins_dir or DEFAULT_PLUGINS_DIRECTORY).resolve()
-    candidates = [_read_candidate(path) for path in _plugin_directories(root)]
+    roots = ((Path(plugins_dir).resolve(), package_name),) if plugins_dir is not None else trusted_roots()
+    packages = {root.resolve(): package for root, package in roots}
+    candidates = [_read_candidate(path) for root, _ in roots for path in _plugin_directories(root)]
     _mark_duplicate_plugin_keys(candidates)
     _mark_duplicate_stream_ids(candidates)
     _mark_conflicting_upload_destinations(candidates)
@@ -145,7 +147,7 @@ def discover_plugin_catalog(
 
                 plugin = build_process_plugin(candidate.manifest or {}, candidate.directory)
             else:
-                plugin = _import_plugin(candidate, package_name, module_importer)
+                plugin = _import_plugin(candidate, packages[candidate.directory.parent.resolve()], module_importer)
             _validate_plugin_object(plugin, candidate.manifest or {})
         except Exception as error:
             candidate.add_error(str(error))
@@ -176,21 +178,7 @@ def _validate_declared_driver(directory: Path, manifest: Mapping[str, Any]) -> N
 
 
 def _plugin_directories(root: Path) -> list[Path]:
-    if not root.is_dir():
-        return []
-    return sorted(
-        (
-            path
-            for path in root.iterdir()
-            if path.is_dir()
-            and not path.name.startswith((".", "_"))
-            # Every trusted top-level directory is a plugin candidate.  A
-            # compatibility/helper package must opt out explicitly instead of
-            # making a missing manifest disappear silently.
-            and not (path / PLUGIN_IGNORE_FILENAME).is_file()
-        ),
-        key=lambda path: path.name,
-    )
+    return candidate_directories(root)
 
 
 def _read_candidate(directory: Path) -> _Candidate:

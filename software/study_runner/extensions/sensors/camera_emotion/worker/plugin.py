@@ -31,10 +31,10 @@ from .model_errors import (
 
 EMOTION_WORKER_MODES = {"local_worker", "remote_worker"}
 DEFAULT_WORKER = {
-    "script_path": "study_runner/plugins/camera_emotion/worker/server.py",
-    "log_dir": "study_runner/plugins/camera_emotion/worker/logs",
-    "model_assets_dir": "study_runner/plugins/camera_emotion/worker/model_assets",
-    "deepface_home": "study_runner/plugins/camera_emotion/worker/deepface_home",
+    "script_path": "study_runner/extensions/sensors/camera_emotion/worker/server.py",
+    "log_dir": "study_runner/extensions/sensors/camera_emotion/worker/logs",
+    "model_assets_dir": "study_runner/extensions/sensors/camera_emotion/worker/model_assets",
+    "deepface_home": "study_runner/extensions/sensors/camera_emotion/worker/deepface_home",
 }
 DEEPFACE_EMOTION_MODEL = {
     "name": DEEPFACE_EMOTION_MODEL_NAME,

@@ -12,7 +12,7 @@ Study Runner does not talk to the BrainBit headset directly from the browser.
 The backend starts this local CLI process:
 
 ```text
-software/study_runner/plugins/brainbit/brainbit_realtime_cli.py
+software/study_runner/extensions/sensors/brainbit/brainbit_realtime_cli.py
 ```
 
 That CLI uses NeuroSDK over Bluetooth LE to scan for BrainBit-family sensors,
@@ -134,7 +134,7 @@ Exit codes the adapter reacts to:
 Default log location:
 
 ```text
-software/study_runner/plugins/brainbit/logs/
+software/study_runner/extensions/sensors/brainbit/logs/
 ```
 
 Key files:
@@ -153,7 +153,7 @@ Run this from the Study Runner app root:
 
 ```powershell
 cd software
-python study_runner\plugins\brainbit\brainbit_realtime_cli.py --scan-seconds 10 --resist-seconds 10 --signal-seconds 0 --pretty --debug --no-osc
+python study_runner\extensions\sensors\brainbit\brainbit_realtime_cli.py --scan-seconds 10 --resist-seconds 10 --signal-seconds 0 --pretty --debug --no-osc
 ```
 
 Expected flow:
@@ -203,10 +203,10 @@ the two backends sequentially because a BLE band cannot be owned twice.
 
 ```powershell
 cd software
-python study_runner\plugins\brainbit\diagnose_backends.py --backend neurosdk --duration 30 --serial-number YOUR_SERIAL --report study_runner\plugins\brainbit\logs\neurosdk-report.json
+python study_runner\extensions\sensors\brainbit\diagnose_backends.py --backend neurosdk --duration 30 --serial-number YOUR_SERIAL --report study_runner\extensions\sensors\brainbit\logs\neurosdk-report.json
 python -m pip install brainflow
-python study_runner\plugins\brainbit\diagnose_backends.py --backend brainflow --duration 30 --serial-number YOUR_SERIAL --report study_runner\plugins\brainbit\logs\brainflow-report.json
-python study_runner\plugins\brainbit\diagnose_backends.py --compare study_runner\plugins\brainbit\logs\neurosdk-report.json study_runner\plugins\brainbit\logs\brainflow-report.json
+python study_runner\extensions\sensors\brainbit\diagnose_backends.py --backend brainflow --duration 30 --serial-number YOUR_SERIAL --report study_runner\extensions\sensors\brainbit\logs\brainflow-report.json
+python study_runner\extensions\sensors\brainbit\diagnose_backends.py --compare study_runner\extensions\sensors\brainbit\logs\neurosdk-report.json study_runner\extensions\sensors\brainbit\logs\brainflow-report.json
 ```
 
 The harness reports sample count, effective rate, every channel's min/max/RMS,
@@ -222,7 +222,7 @@ Use this when the headset works but TouchDesigner does not react:
 
 ```powershell
 cd software
-python study_runner\plugins\brainbit\brainbit_realtime_cli.py --scan-seconds 10 --resist-seconds 10 --signal-seconds 0 --pretty --debug --osc-host 127.0.0.1 --osc-port 8000
+python study_runner\extensions\sensors\brainbit\brainbit_realtime_cli.py --scan-seconds 10 --resist-seconds 10 --signal-seconds 0 --pretty --debug --osc-host 127.0.0.1 --osc-port 8000
 ```
 
 Then check:

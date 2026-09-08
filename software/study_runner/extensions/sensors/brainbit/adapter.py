@@ -3,9 +3,9 @@ BrainBit adapter - launches a repo-local BrainBit CLI process and optionally mir
 
 Expected setup inside this repository:
   - BrainBit Python CLI script in the project folder, for example:
-      study_runner/plugins/brainbit/brainbit_realtime_cli.py
+      study_runner/extensions/sensors/brainbit/brainbit_realtime_cli.py
   - TouchDesigner project listening for OSC on the configured port, for example:
-      study_runner/plugins/brainbit/HelloEEG_HelloMYO_01.3.toe
+      study_runner/extensions/sensors/brainbit/HelloEEG_HelloMYO_01.3.toe
 
 The BrainBit CLI itself is responsible for Bluetooth scanning and SDK usage. This adapter keeps
 Study Runner in charge of:

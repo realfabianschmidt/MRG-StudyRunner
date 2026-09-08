@@ -75,7 +75,7 @@ class SamplesInIntervalTests(unittest.TestCase):
 
 class AdapterBufferTests(unittest.TestCase):
     def test_adapter_summaries_report_truncation(self) -> None:
-        from study_runner.plugins.mr60_mini_radar import adapter as mr60_adapter
+        from study_runner.extensions.sensors.mr60_mini_radar import adapter as mr60_adapter
 
         original = mr60_adapter._history
         mr60_adapter._history = deque(maxlen=3)

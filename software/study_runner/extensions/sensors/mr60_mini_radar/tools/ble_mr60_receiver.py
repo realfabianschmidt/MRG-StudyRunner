@@ -33,10 +33,10 @@ def _find_software_root() -> Path:
 
 
 try:
-    from study_runner.plugins.mr60_mini_radar import adapter
+    from study_runner.extensions.sensors.mr60_mini_radar import adapter
 except ModuleNotFoundError:
     sys.path.insert(0, str(_find_software_root()))
-    from study_runner.plugins.mr60_mini_radar import adapter
+    from study_runner.extensions.sensors.mr60_mini_radar import adapter
 
 
 class CsvSink:

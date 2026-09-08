@@ -70,7 +70,7 @@ EEG remains recordable but derived values are not ready.
 From `software/`:
 
 ```powershell
-python study_runner\plugins\brainbit\brainbit_realtime_cli.py --scan-seconds 10 --resist-seconds 10 --signal-seconds 30 --pretty --debug --no-osc
+python study_runner\extensions\sensors\brainbit\brainbit_realtime_cli.py --scan-seconds 10 --resist-seconds 10 --signal-seconds 30 --pretty --debug --no-osc
 ```
 
 Useful evidence, in order:

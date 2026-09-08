@@ -10,6 +10,7 @@ import threading
 from typing import Any, Mapping
 
 from study_runner.contracts.plugin_api import Plugin, PluginContext
+from .extension_layout import resolve_extension
 from .plugin_secrets import resolve_plugin_secret
 from .process_host import PROTOCOL_PREFIX
 
@@ -26,7 +27,7 @@ def run_plugin_driver(plugin_key: str) -> int:
         return 2
     try:
         package_directory = _plugin_package_directory(normalized)
-        module = importlib.import_module(f"study_runner.plugins.{package_directory}.plugin")
+        module = importlib.import_module(f"{package_directory}.plugin")
         plugin = getattr(module, "PLUGIN", None)
         if not isinstance(plugin, Plugin):
             raise TypeError("plugin module does not expose PLUGIN")
@@ -94,18 +95,7 @@ def run_plugin_driver(plugin_key: str) -> int:
 def _plugin_package_directory(plugin_key: str) -> str:
     """Resolve a manifest key to its bundle folder without a core key map."""
 
-    plugins_root = Path(__file__).resolve().parent.parent / "plugins"
-    for directory in sorted(plugins_root.iterdir(), key=lambda item: item.name):
-        manifest_path = directory / "manifest.json"
-        if not directory.is_dir() or not manifest_path.is_file():
-            continue
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if isinstance(manifest, dict) and str(manifest.get("plugin_key") or "") == plugin_key:
-            return directory.name
-    raise LookupError(f"no plugin bundle declares key {plugin_key!r}")
+    return resolve_extension(plugin_key)[1]
 
 
 def _dispatch(

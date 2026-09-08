@@ -146,3 +146,8 @@ zero cycles alone is not a green check. Review and checkpoint once at completion
 Required final evidence: Python/JS/release suites, architecture gates and actual
 Windows fixture bundle startup/RPC. Planned duration needs a settings input.
 Do not touch operator edits on main, including study.html and main.css.
+
+Checkpoint: sensors moved; shared trusted-root discovery/driver/UI asset resolution
+and category-aware packaging added. Targeted catalog/process/camera/path tests:
+76 passed. Other categories remain on their original paths until their commits.
+Next: destinations, then outputs. Owner remains Codex.

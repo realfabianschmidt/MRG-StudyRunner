@@ -69,8 +69,8 @@ class SoftwareRootTests(unittest.TestCase):
         watched = [
             PROJECT_ROOT / "study_runner" / "runtime_core" / "settings" / "runtime_config.py",
             PROJECT_ROOT / "study_runner" / "plugin_framework" / "process_host.py",
-            PROJECT_ROOT / "study_runner" / "plugins" / "camera_emotion" / "worker" / "plugin.py",
-            PROJECT_ROOT / "study_runner" / "plugins" / "mr60_mini_radar" / "tools" / "ble_mr60_receiver.py",
+            PROJECT_ROOT / "study_runner" / "extensions" / "sensors" / "camera_emotion" / "worker" / "plugin.py",
+            PROJECT_ROOT / "study_runner" / "extensions" / "sensors" / "mr60_mini_radar" / "tools" / "ble_mr60_receiver.py",
         ]
         missing = [str(path) for path in watched if not path.exists()]
         self.assertEqual(missing, [], f"update these paths when the modules move: {missing}")

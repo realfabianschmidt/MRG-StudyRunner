@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
@@ -26,6 +27,12 @@ HardwareUpdateResult = TypeVar("HardwareUpdateResult")
 _MOVED_PLUGIN_PATHS = (
     ("study_runner/integrations/", "study_runner/plugins/"),
     ("study_runner\\integrations\\", "study_runner\\plugins\\"),
+    ('study_runner/plugins/brainbit/', 'study_runner/extensions/sensors/brainbit/'),
+    ('study_runner\\plugins\\brainbit\\', 'study_runner\\extensions\\sensors\\brainbit\\'),
+    ('study_runner/plugins/camera_emotion/', 'study_runner/extensions/sensors/camera_emotion/'),
+    ('study_runner\\plugins\\camera_emotion\\', 'study_runner\\extensions\\sensors\\camera_emotion\\'),
+    ('study_runner/plugins/mr60_mini_radar/', 'study_runner/extensions/sensors/mr60_mini_radar/'),
+    ('study_runner\\plugins\\mr60_mini_radar\\', 'study_runner\\extensions\\sensors\\mr60_mini_radar\\'),
 )
 
 
@@ -40,7 +47,12 @@ def migrate_moved_plugin_paths(value: Any) -> tuple[Any, int]:
     if isinstance(value, str):
         migrated = value
         for old, new in _MOVED_PLUGIN_PATHS:
-            migrated = migrated.replace(old, new)
+            if old.rstrip("/\\").endswith("integrations"):
+                continue
+            for source in (old, old.replace("plugins", "integrations")):
+                source = source.rstrip("/\\")
+                destination = new.rstrip("/\\")
+                migrated = re.sub(re.escape(source) + r"(?=$|[/\\])", lambda _: destination, migrated)
         return migrated, int(migrated != value)
 
     if isinstance(value, dict):
