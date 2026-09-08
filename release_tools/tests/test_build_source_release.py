@@ -290,7 +290,14 @@ class SourceReleaseTests(unittest.TestCase):
             all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in action_refs),
             f"every GitHub Action must use an immutable commit SHA: {action_refs}",
         )
-        self.assertEqual(workflows.count("persist-credentials: false"), 3)
+        checkout_steps = re.findall(
+            r"(?m)^        uses: actions/checkout@[^\n]+\n"
+            r"(?:(?!      - |  [a-zA-Z]).*\n)*",
+            workflows + "\n",
+        )
+        self.assertTrue(checkout_steps)
+        for step in checkout_steps:
+            self.assertIn("persist-credentials: false", step)
 
     def test_maintainer_release_commands_do_not_build_packaged_assets(self) -> None:
         helper = (release.REPOSITORY_ROOT / "release_tools/release-study-runner.mjs").read_text(

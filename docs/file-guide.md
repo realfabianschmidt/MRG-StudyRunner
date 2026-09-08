@@ -26,6 +26,12 @@ Edit-safety legend:
 | `tools/start-windows.ps1` / `tools/start-macos.sh` | Daily source-server launchers that use the repository `.venv` directly | careful |
 | `software/constraints/py312-*.txt` | Bounded release-tested Python 3.12 compatibility pins: bootstrap, common runtime, and platform-selected local emotion stack | careful |
 
+## Contracts (`software/study_runner/contracts/`)
+
+| File | Purpose | Edit? |
+|---|---|---|
+| `software/study_runner/contracts/manifest.py` | Pure manifest/command-payload validation and API versions; imports only the standard library, shared by recorder and plugin framework | no |
+
 ## Backend - HTTP routes (`software/study_runner/backend/routes/`)
 
 | File | Purpose | Edit? |

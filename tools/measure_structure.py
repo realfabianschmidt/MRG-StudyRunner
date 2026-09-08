@@ -9,11 +9,12 @@ absolute threshold. An absolute threshold set today would either do nothing
 violations -- see docs/architecture-1.0-umbau.md's KNOWN_VIOLATIONS) or block
 every commit before Phase 2 even starts.
 
-"Package" here means today's `study_runner/<area>/` directories (backend,
-plugin_framework, plugins, recording, recording_worker, shared, updates).
-Once Phase 4 actually moves code into `apps/packages/extensions`, re-run
-`--write-baseline` as part of that move's own commit -- a deliberate,
-visible reset, not silent drift. An area that appears in the current
+"Package" means today's `study_runner/<area>/` directories, plus the
+separate `data_core/{host,worker,contract}` packages once they exist. Their
+boundaries remain visible after the directory move. Before updating a
+baseline for intentional feature growth or a package move, review the full
+metric delta alongside the change; a passing check is never a reason to
+automatically overwrite the baseline. An area that appears in the current
 measurement but not in the baseline (a genuinely new package from an
 intentional restructuring) is reported but does not fail the check; an area
 whose line count grows past its own recorded baseline does.
@@ -38,15 +39,28 @@ BASELINE_PATH = Path(__file__).resolve().parent / "structure_baseline.json"
 sys.path.insert(0, str(SOFTWARE_ROOT))
 sys.path.insert(0, str(SOFTWARE_ROOT / "tests"))
 
-from support.import_graph import file_area, iter_imports, iter_python_files  # noqa: E402
+from support.import_graph import iter_imports, iter_python_files, module_path_of  # noqa: E402
 
 
 def _areas() -> list[str]:
-    return sorted(
+    areas = {
         path.name
         for path in STUDY_RUNNER_ROOT.iterdir()
         if path.is_dir() and not path.name.startswith("__")
-    )
+    }
+    for name in ("host", "worker", "contract"):
+        if (STUDY_RUNNER_ROOT / "data_core" / name).is_dir():
+            areas.add(f"data_core.{name}")
+    return sorted(areas)
+
+
+def _area_for_module(module: str, areas: list[str]) -> str | None:
+    """Choose the most specific real area; top-level .py files are not areas."""
+    for area in sorted(areas, key=len, reverse=True):
+        prefix = "study_runner." + area
+        if module == prefix or module.startswith(prefix + "."):
+            return area
+    return None
 
 
 def _line_count(path: Path) -> int:
@@ -58,11 +72,11 @@ def measure() -> dict:
     areas = _areas()
     lines_per_area: dict[str, int] = {area: 0 for area in areas}
     largest_file = {"path": "", "lines": 0}
-    cross_package_import_edges = 0
+    cross_package_import_edges: set[tuple[Path, int, str]] = set()
     direct_reach: dict[str, set[str]] = {area: set() for area in areas}
 
     for path in iter_python_files(STUDY_RUNNER_ROOT):
-        area = file_area(path, package_root=SOFTWARE_ROOT)
+        area = _area_for_module(module_path_of(path, package_root=SOFTWARE_ROOT), areas)
         if area is None:
             continue
         lines = _line_count(path)
@@ -74,10 +88,13 @@ def measure() -> dict:
             }
 
         for edge in iter_imports(path, package_root=SOFTWARE_ROOT):
-            if edge.area is None or edge.area == area:
+            target_area = _area_for_module(edge.imported_module, areas)
+            if target_area is None or target_area == area:
                 continue
-            cross_package_import_edges += 1
-            direct_reach[area].add(edge.area)
+            # A from-import's base and child modules can belong to the same
+            # area. Count that statement-to-area dependency once.
+            cross_package_import_edges.add((path, edge.lineno, target_area))
+            direct_reach[area].add(target_area)
 
     # Transitive closure over the (small) area graph: a cycle can route
     # through a third area, so direct mutual edges alone would undercount it.
@@ -102,7 +119,7 @@ def measure() -> dict:
     )
 
     return {
-        "cross_package_import_edges": cross_package_import_edges,
+        "cross_package_import_edges": len(cross_package_import_edges),
         "cycle_count": len(cycle_pairs),
         "cycle_pairs": [list(pair) for pair in cycle_pairs],
         "lines_per_package": lines_per_area,
@@ -119,12 +136,12 @@ def check(current: dict, baseline: dict) -> list[str]:
             f"{baseline['cross_package_import_edges']} -> {current['cross_package_import_edges']}"
         )
 
-    if current["cycle_count"] > baseline["cycle_count"]:
-        new_cycles = {tuple(pair) for pair in current["cycle_pairs"]} - {
-            tuple(pair) for pair in baseline["cycle_pairs"]
-        }
+    new_cycles = {tuple(pair) for pair in current["cycle_pairs"]} - {
+        tuple(pair) for pair in baseline["cycle_pairs"]
+    }
+    if new_cycles:
         problems.append(
-            f"import cycles grew: {baseline['cycle_count']} -> {current['cycle_count']} "
+            f"import cycles changed: {baseline['cycle_count']} -> {current['cycle_count']} "
             f"(new: {sorted(new_cycles)})"
         )
 

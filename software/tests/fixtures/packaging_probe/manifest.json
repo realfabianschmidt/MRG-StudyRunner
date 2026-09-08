@@ -1,0 +1,17 @@
+{
+  "api_version": 4,
+  "plugin_key": "packaging_probe",
+  "config_key": "packaging_probe",
+  "version": "1.0.0",
+  "category": "output",
+  "entry_point": "plugin:PLUGIN",
+  "ui": {"label": "Packaging probe"},
+  "capabilities": ["health"],
+  "runtime": {
+    "entrypoint": "driver.py",
+    "protocol": "study-runner-stdio/v1",
+    "interactive_stdin": false,
+    "sample_delivery": "none",
+    "actions": []
+  }
+}

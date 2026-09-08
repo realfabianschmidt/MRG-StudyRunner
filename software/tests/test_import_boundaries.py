@@ -70,18 +70,7 @@ RULES: tuple[tuple[tuple[str, ...], str], ...] = (
 # (file, module) pair, regardless of how many lines in that file import it --
 # the invariant is "this file must not couple to that module", not "this file
 # must not couple to that module more than once".
-KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset(
-    {
-        # validate_and_normalize_manifest has ~15 helper-function dependencies
-        # spanning most of plugin_catalog.py (1709 lines) -- extracting it
-        # correctly means moving nearly the whole file to contracts/, which
-        # is real Phase 4 (directory move) work with time to test it, not a
-        # Phase 2 in-place edge break. Deliberately left for Phase 4; see
-        # docs/architecture-1.0-umbau.md Phase 2.4.
-        ("recording/clock_diagnostics.py", "study_runner.plugin_framework.plugin_catalog"),
-        ("recording/markers.py", "study_runner.plugin_framework.plugin_catalog"),
-    }
-)
+KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset()
 
 
 def _matches_prefix(module: str, prefix: str) -> bool:

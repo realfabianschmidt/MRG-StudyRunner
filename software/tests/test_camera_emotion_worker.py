@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 import sys
 import tempfile
@@ -39,6 +40,26 @@ class FakeWorkerProcess:
 
 
 class CameraEmotionWorkerTests(unittest.TestCase):
+    def test_camera_plugin_import_uses_the_bundle_root_without_source_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary).resolve() / "_internal"
+            bundle.mkdir()
+            spec = importlib.util.spec_from_file_location(
+                worker_plugin.__package__ + ".packaged_import_check", worker_plugin.__file__
+            )
+            module = importlib.util.module_from_spec(spec)
+            with (
+                patch.object(sys, "frozen", True, create=True),
+                patch.object(sys, "_MEIPASS", str(bundle), create=True),
+                patch("study_runner.shared.software_root.find_software_root", side_effect=AssertionError("source root probe in bundle")),
+                patch.object(worker_plugin.subprocess, "Popen") as spawn,
+            ):
+                spec.loader.exec_module(module)
+
+            self.assertEqual(module._SOFTWARE_ROOT, bundle)
+            self.assertFalse((bundle / "server.py").exists())
+            spawn.assert_not_called()
+
     def setUp(self) -> None:
         worker_plugin._config = {}
         worker_plugin._process = None

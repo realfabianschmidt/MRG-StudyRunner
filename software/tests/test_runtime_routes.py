@@ -468,7 +468,16 @@ class RuntimeRoutesTests(unittest.TestCase):
                     },
                 },
             )
-            status = client.get("/api/admin/status")
+            # Exercise route/status assembly with an isolated loader. Real
+            # asynchronous driver polls can outlive this temporary data tree.
+            with patch(
+                "study_runner.backend.services.recording.sensor_coordinator_service.get_plugin_status",
+                return_value={"status": "disabled"},
+            ):
+                try:
+                    status = client.get("/api/admin/status")
+                finally:
+                    app.config["SENSOR_COORDINATOR"].close(wait=True)
 
         payload = status.get_json()
         self.assertEqual(heartbeat.status_code, 200)

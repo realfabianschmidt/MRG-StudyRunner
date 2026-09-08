@@ -13,7 +13,6 @@ Enable:   set "notion": { "enabled": true, ... } in study_content/settings/hardw
 from __future__ import annotations
 
 import hashlib
-from copy import deepcopy
 import re
 import time
 from pathlib import Path
@@ -156,7 +155,9 @@ def upload_study_result(
     study_config_updates: dict[str, str] = {}
     try:
         db_id = _ensure_database(client, study_settings, config_data, study_config_updates)
-        page_id = _find_or_create_participant(client, db_id, result_payload, study_settings, config_data)
+        page_id = _find_or_create_participant(
+            client, db_id, result_payload, study_settings, config_data, study_config_updates,
+        )
         session_id = str(result_payload.get("session_id") or "").strip()
         if not session_id:
             raise RuntimeError("Finalized result.json has no session_id.")
@@ -191,7 +192,10 @@ def upload_study_result(
         return result
     except Exception as error:
         print(f"[NOTION] Upload failed: {error}")
-        return {"ok": False, "error": str(error)}
+        result = {"ok": False, "error": str(error)}
+        if study_config_updates:
+            result["study_config_updates"] = study_config_updates
+        return result
 
 
 def test_connection(
@@ -349,13 +353,13 @@ def _ensure_database(
 
     new_id = _strip_dashes(db["id"])
     study_settings["notion_database_id"] = new_id
-    updates["notion_database_id"] = new_id
+    updates["database_id"] = new_id
 
     if hasattr(client, "data_sources"):
         data_sources = db.get("data_sources", [])
         if data_sources:
             study_settings["notion_data_source_id"] = data_sources[0]["id"]
-            updates["notion_data_source_id"] = data_sources[0]["id"]
+            updates["data_source_id"] = data_sources[0]["id"]
 
     print(f"[NOTION] Auto-created database: {new_id}")
     return new_id
@@ -430,18 +434,25 @@ def _get_data_source_id(
         if data_sources:
             ds_id = data_sources[0]["id"]
             study_settings["notion_data_source_id"] = ds_id
-            updates["notion_data_source_id"] = ds_id
+            updates["data_source_id"] = ds_id
             return ds_id
     except Exception as e:
         print(f"[NOTION] Could not retrieve data source: {e}")
 
     return db_id
 
-def _find_or_create_participant(client: Any, db_id: str, result_payload: dict[str, Any], study_settings: dict[str, Any], config_data: dict[str, Any]) -> str:
+def _find_or_create_participant(
+    client: Any,
+    db_id: str,
+    result_payload: dict[str, Any],
+    study_settings: dict[str, Any],
+    config_data: dict[str, Any],
+    updates: dict[str, str],
+) -> str:
     participant_id = str(result_payload.get("participant_id") or "unknown")
     session_date = _session_date_iso(result_payload)
 
-    ds_id = _get_data_source_id(client, db_id, study_settings, config_data)
+    ds_id = _get_data_source_id(client, db_id, study_settings, config_data, updates)
 
     if hasattr(client, "data_sources"):
         results = client.data_sources.query(
@@ -862,27 +873,6 @@ def _fmt_metric(value: Any) -> str:
     if isinstance(value, (int, float)):
         return f"{value:.2f}"
     return str(value)
-
-
-# _refresh_config_for_retry and _persist_study_database_id were removed in
-# the 1.0 rebuild (docs/architecture-1.0-umbau.md, Phase 2.3):
-#
-# - _refresh_config_for_retry was dead code. It only ran when
-#   upload_study_result's now-removed `is_retry` flag was True, and nothing
-#   ever passed True -- retries are the persistent upload-job queue's
-#   responsibility (see this module's top docstring), which simply re-calls
-#   publish_destination with the original queued payload.
-# - _persist_study_database_id imported Flask and backend.study_config_service
-#   directly, which this file (running inside the plugin's own subprocess)
-#   may not do. It also could not have worked as written: `flask.current_app`
-#   raises outside an active Flask application context, and a subprocess has
-#   none -- every call was silently swallowed by its own broad `except
-#   Exception`. In practice this meant a newly auto-created Notion database's
-#   id was never actually saved back to the study config, so the *next*
-#   upload would find no `notion_database_id` and create ANOTHER database.
-#   upload_study_result now reports what changed via `study_config_updates`
-#   in its result instead; `upload_runtime.py` (the host, which is allowed to
-#   import backend) persists it after this call returns.
 
 
 def _strip_dashes(value: str) -> str:

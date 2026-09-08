@@ -3,6 +3,7 @@ import json
 import threading
 import time
 import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +66,8 @@ def _load_config_unchecked(config_file: Path) -> dict[str, Any]:
 
 
 def save_config(config_file: Path, config_data: dict[str, Any]) -> None:
-    atomic_write_json(config_file, config_data, ensure_ascii=False)
+    with _STUDY_SAVE_LOCK:
+        atomic_write_json(config_file, config_data, ensure_ascii=False)
 
 
 # normalize_study_id moved to shared/study_identifiers.py (Phase 2.2): plugin
@@ -115,11 +117,67 @@ def list_studies(studies_dir: Path) -> list[dict[str, Any]]:
 
 
 def save_study(studies_dir: Path, config_data: dict[str, Any]) -> None:
-    studies_dir.mkdir(parents=True, exist_ok=True)
-    study_id = config_data.get("study_id", "Unbenannte Studie").strip()
-    safe_id = _normalize_study_id(study_id)
-    file_path = studies_dir / f"{safe_id}.study-runner"
-    save_config(file_path, config_data)
+    with _STUDY_SAVE_LOCK:
+        studies_dir.mkdir(parents=True, exist_ok=True)
+        study_id = config_data.get("study_id", "Unbenannte Studie").strip()
+        safe_id = _normalize_study_id(study_id)
+        file_path = studies_dir / f"{safe_id}.study-runner"
+        save_config(file_path, config_data)
+
+
+def patch_study_plugin_settings(
+    config_file: Path,
+    studies_dir: Path,
+    *,
+    study_id: str,
+    plugin_key: str,
+    expected_settings: dict[str, Any],
+    updates: dict[str, str],
+    defaults: dict[str, Any],
+) -> bool:
+    """Merge a destination's discoveries without restoring an old session config.
+
+    The caller validates the permitted fields. A changed destination wins over
+    queued work, while unrelated edits and the active study selection survive.
+    Values already applied by an earlier attempt are accepted for idempotence.
+    """
+    if not study_id.strip() or not updates:
+        return False
+    with _STUDY_SAVE_LOCK:
+        active = load_config(config_file) if config_file.is_file() else None
+        same_active_study = (
+            active is not None
+            and normalize_study_id(str(active.get("study_id") or "")) == normalize_study_id(study_id)
+        )
+        try:
+            latest = active if same_active_study else load_study(studies_dir, study_id)
+        except FileNotFoundError:
+            return False  # A completed upload must not recreate a deleted study.
+        if normalize_study_id(str(latest.get("study_id") or "")) != normalize_study_id(study_id):
+            return False
+        selection = ((latest.get("study_settings") or {}).get("plugins") or {}).get(plugin_key)
+        if not isinstance(selection, dict) or not isinstance(selection.get("settings"), dict):
+            return False
+        current_settings = {**defaults, **selection["settings"]}
+        for key in current_settings.keys() | expected_settings.keys():
+            current = current_settings.get(key)
+            if current != expected_settings.get(key) and (key not in updates or current != updates[key]):
+                return False
+        if all(current_settings.get(key) == value for key, value in updates.items()):
+            return False
+
+        patched = deepcopy(latest)
+        patched["study_settings"]["plugins"][plugin_key]["settings"].update(updates)
+        if same_active_study:
+            save_active_study(
+                config_file,
+                studies_dir,
+                patched,
+                expected_revision=study_config_revision(latest),
+            )
+        else:
+            save_study(studies_dir, patched)
+        return True
 
 
 def save_active_study(
@@ -288,9 +346,10 @@ def load_study(studies_dir: Path, study_id: str) -> dict[str, Any]:
 
 
 def delete_study(studies_dir: Path, study_id: str) -> bool:
-    deleted = False
-    for file_path in _study_paths_for_id(studies_dir, study_id):
-        if file_path.exists():
-            file_path.unlink()
-            deleted = True
-    return deleted
+    with _STUDY_SAVE_LOCK:
+        deleted = False
+        for file_path in _study_paths_for_id(studies_dir, study_id):
+            if file_path.exists():
+                file_path.unlink()
+                deleted = True
+        return deleted

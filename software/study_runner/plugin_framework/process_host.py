@@ -20,7 +20,7 @@ import time
 import uuid
 from typing import Any, Mapping
 
-from study_runner.shared.software_root import find_software_root
+from study_runner.shared.runtime_mode import get_project_base_dir, is_frozen
 
 from .plugin_api import Plugin, PluginContext
 
@@ -194,6 +194,8 @@ class PluginProcessRuntime:
         with self._lock:
             if self._process is process:
                 self._process = None
+                self._last_exit_code = process.returncode
+                self._last_exit_at = time.time()
 
     def _ensure_started(self) -> None:
         with self._lock:
@@ -206,7 +208,7 @@ class PluginProcessRuntime:
             # a driver needs on PYTHONPATH is the root that makes `study_runner`
             # importable, which is the root above this file. A plugin folder may
             # sit at any depth (and moves in 1.0), so it is the wrong anchor.
-            software_root = str(find_software_root(Path(__file__)))
+            software_root = str(get_project_base_dir())
             existing_pythonpath = env.get("PYTHONPATH", "")
             env["PYTHONPATH"] = os.pathsep.join(
                 item for item in (software_root, existing_pythonpath) if item
@@ -261,12 +263,18 @@ class PluginProcessRuntime:
     def _command(self) -> list[str]:
         entrypoint = str(self.runtime_config.get("entrypoint") or "driver.py")
         driver_path = (self.directory / entrypoint).resolve()
-        if not driver_path.is_relative_to(self.directory) or not driver_path.is_file():
+        if not driver_path.is_relative_to(self.directory):
+            raise PluginProcessError(
+                f"Plugin '{self.key}' driver entrypoint escapes its directory: {entrypoint}"
+            )
+        if is_frozen():
+            # Python modules live in the bundle's import archive; driver.py is
+            # not a data file. The executable dispatches to the bundled module.
+            return [sys.executable, "--plugin-driver", self.key]
+        if not driver_path.is_file():
             raise PluginProcessError(
                 f"Plugin '{self.key}' driver entrypoint is missing: {entrypoint}"
             )
-        if bool(getattr(sys, "frozen", False)):
-            return [sys.executable, "--plugin-driver", self.key]
         return [sys.executable, "-u", str(driver_path)]
 
     def _read_stream(self, process: subprocess.Popen[str], source: str, stream: Any) -> None:

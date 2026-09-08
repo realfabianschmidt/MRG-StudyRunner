@@ -29,13 +29,10 @@ def _imports_cleanly_without(modules: tuple[str, ...], blocked: str) -> subproce
 import sys
 
 class _Blocker:
-    def find_module(self, name, path=None):
+    def find_spec(self, name, path=None, target=None):
         if name == {blocked!r} or name.startswith({blocked!r} + "."):
-            return self
+            raise ImportError("Blocked architecture dependency: " + name)
         return None
-
-    def load_module(self, name):
-        raise ImportError("No module named " + repr(name))
 
 sys.meta_path.insert(0, _Blocker())
 for name in {modules!r}:
@@ -51,6 +48,14 @@ print("ok")
 
 
 class AreaBoundaryTests(unittest.TestCase):
+    def test_import_blocker_rejects_the_forbidden_module_and_its_children(self) -> None:
+        """A passing isolation test is meaningful only if its blocker works."""
+        for module, blocked in (("fractions", "fractions"), ("xml.etree.ElementTree", "xml.etree")):
+            with self.subTest(module=module, blocked=blocked):
+                result = _imports_cleanly_without((module,), blocked)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Blocked architecture dependency: " + blocked, result.stderr)
+
     def test_recording_does_not_need_the_web_application(self) -> None:
         """Reading or writing a session must not construct the Flask app."""
         result = _imports_cleanly_without(

@@ -1,111 +1,229 @@
-"""Host-side persistence of what a destination plugin discovered mid-upload.
-
-A destination plugin runs inside its own `driver.py` subprocess and may not
-import `backend` (docs/architecture-1.0-umbau.md invariant #2), so it cannot
-save something like an auto-created Notion database id back to the study
-config itself. `_persist_study_config_updates` is the host-side half: it
-takes the flat updates a plugin reports in its result and does what
-`notion_upload.adapter._persist_study_database_id` used to do in-process --
-merge, canonicalize, save both the active config and the study's own file.
-
-See test_notion_upload.py::test_auto_created_database_is_reported_as_a_study_config_update
-for the plugin-side half of this split.
-"""
+"""Destination discoveries preserve study edits and survive queue replay."""
 from __future__ import annotations
 
+from contextlib import nullcontext
+from copy import deepcopy
+import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.backend.services.delivery.upload_runtime import _persist_study_config_updates
+from study_runner.backend.services.delivery.upload_runtime import _plugin_executor
+from study_runner.backend.services.delivery.upload_jobs_service import UploadJobError, UploadJobService
+from study_runner.backend.services.studies.study_config_service import (
+    StudyRevisionConflict, delete_study, load_config, load_study,
+    save_active_study, study_config_revision, study_transaction_path,
+)
+from study_runner.plugin_framework.plugin_api import Plugin
+from study_runner.contracts.manifest import PluginManifestError, validate_and_normalize_manifest
+
+
+def normalize_manifest(payload):
+    return validate_and_normalize_manifest(payload, directory_name="notion_upload")
 
 
 class FakeApp:
-    def __init__(self, config: dict) -> None:
-        self.config = config
-
-
-class PersistStudyConfigUpdatesTests(unittest.TestCase):
-    def test_flat_updates_are_merged_and_canonicalized(self) -> None:
-        app = FakeApp(
-            {
-                "CONFIG_FILE": Path("active.study-runner"),
-                "SAVED_STUDIES_DIR": Path("studies"),
-            }
-        )
-        payload = {
-            "config_data": {
-                "study_id": "Notion Metadata",
-                "study_settings": {
-                    "notion_enabled": True,
-                    "plugins": {
-                        "notion": {
-                            "enabled": True,
-                            "required": False,
-                            "settings": {"parent_page_id": "parent-1"},
-                        }
-                    },
-                },
-            }
+    def __init__(self, root: Path) -> None:
+        self.config = {
+            "BASE_DIR": root, "DATA_DIR": root / "data",
+            "CONFIG_FILE": root / "active.study-runner", "SAVED_STUDIES_DIR": root / "studies",
+            "LOCAL_SECRETS_FILE": root / "local_secrets.json",
+            "LOCAL_SECRETS": {"notion": {"api_key": "LOCAL_SECRET_MUST_NOT_BE_CHECKPOINTED"}},
         }
 
-        with (
-            patch("study_runner.backend.services.delivery.upload_runtime.save_config") as save_config,
-            patch("study_runner.backend.services.delivery.upload_runtime.save_study") as save_study,
-        ):
-            _persist_study_config_updates(
-                app,
-                payload,
-                "notion",
-                {"notion_database_id": "created-db", "notion_data_source_id": "created-source"},
+    def app_context(self):
+        return nullcontext()
+
+
+def study(study_id: str = "Study A", parent: str = "parent-1") -> dict:
+    return {
+        "study_id": study_id,
+        "questions": [{"type": "text", "prompt": "Original scientific question"}],
+        "study_settings": {"plugins": {"notion": {
+            "enabled": True, "required": False,
+            "settings": {"parent_page_id": parent},
+        }}},
+    }
+
+
+def settings(config: dict) -> dict:
+    return config["study_settings"]["plugins"]["notion"]["settings"]
+
+
+class UploadTargetPersistenceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.app = FakeApp(Path(self.temporary.name))
+        self.queued = {
+            "config_data": study(),
+            "result_payload": {"session_id": "session-1", "answers": {"question-1": "original"}},
+            "saved_output": {"card_summary": {"schema": "study-runner/card-summary/v1", "cards": []}},
+        }
+        self.original = deepcopy(self.queued)
+        self.save(study())
+
+    def save(self, config: dict) -> str:
+        return save_active_study(self.app.config["CONFIG_FILE"], self.app.config["SAVED_STUDIES_DIR"], config)
+
+    def executor(self, handler):
+        plugin = Plugin(key="notion", label="Notion", category="storage", config_key="notion", publish_destination=handler)
+        return _plugin_executor(self.app, plugin, "notion")
+
+    def discovered(self, *_args):
+        return {"ok": True, "study_config_updates": {"database_id": "created-db", "data_source_id": "created-source"}}
+
+    def test_patches_latest_revision_preserving_edits_and_cas(self) -> None:
+        edited = study()
+        edited["questions"][0]["prompt"] = "Newer question"
+        settings(edited)["unrelated_extension"] = "queued-value"
+        settings(self.queued["config_data"])["unrelated_extension"] = "queued-value"
+        self.original = deepcopy(self.queued)
+        previous_revision = self.save(edited)
+        self.executor(self.discovered)(self.queued)
+        active = load_config(self.app.config["CONFIG_FILE"])
+        self.assertEqual(active["questions"], edited["questions"])
+        self.assertEqual(settings(active)["unrelated_extension"], "queued-value")
+        self.assertEqual(settings(active)["database_id"], "created-db")
+        self.assertEqual(active, load_study(self.app.config["SAVED_STUDIES_DIR"], "Study A"))
+        self.assertEqual(self.queued, self.original)
+        marker = json.loads(study_transaction_path(self.app.config["CONFIG_FILE"]).read_text())
+        self.assertEqual(marker["status"], "committed")
+        self.assertEqual(marker["revision"], study_config_revision(active))
+        with self.assertRaises(StudyRevisionConflict):
+            save_active_study(
+                self.app.config["CONFIG_FILE"], self.app.config["SAVED_STUDIES_DIR"], edited,
+                expected_revision=previous_revision,
             )
 
-        save_config.assert_called_once()
-        persisted = save_config.call_args.args[1]
-        settings = persisted["study_settings"]
-        # The flat fields this function receives must not leak into the
-        # canonical form -- only the plugin's own settings sub-tree.
-        self.assertNotIn("notion_database_id", settings)
-        self.assertNotIn("notion_data_source_id", settings)
-        self.assertEqual(
-            settings["plugins"]["notion"]["settings"],
-            {
-                "parent_page_id": "parent-1",
-                "database_id": "created-db",
-                "data_source_id": "created-source",
-            },
-        )
-        self.assertEqual(save_config.call_args.args[0], app.config["CONFIG_FILE"])
-        save_study.assert_called_once_with(app.config["SAVED_STUDIES_DIR"], persisted)
+    def test_background_upload_never_switches_another_active_study(self) -> None:
+        edited = study()
+        edited["questions"][0]["prompt"] = "Archived newer question"
+        self.save(edited)
+        self.save(study("Study B"))
+        active_before = self.app.config["CONFIG_FILE"].read_bytes()
+        self.executor(self.discovered)(self.queued)
+        self.assertEqual(self.app.config["CONFIG_FILE"].read_bytes(), active_before)
+        archived = load_study(self.app.config["SAVED_STUDIES_DIR"], "Study A")
+        self.assertEqual(archived["questions"], edited["questions"])
+        self.assertEqual(settings(archived)["database_id"], "created-db")
 
-    def test_missing_config_data_is_a_silent_no_op(self) -> None:
-        app = FakeApp({"CONFIG_FILE": Path("active.study-runner"), "SAVED_STUDIES_DIR": Path("studies")})
+    def test_operator_target_changes_win_over_old_queue(self) -> None:
+        for changed in ({"parent_page_id": "new-parent"}, {"database_id": "operator-db"}):
+            with self.subTest(changed=changed):
+                edited = study()
+                settings(edited).update(changed)
+                self.save(edited)
+                before = self.app.config["CONFIG_FILE"].read_bytes()
+                self.executor(self.discovered)(self.queued)
+                self.assertEqual(self.app.config["CONFIG_FILE"].read_bytes(), before)
 
-        with (
-            patch("study_runner.backend.services.delivery.upload_runtime.save_config") as save_config,
-            patch("study_runner.backend.services.delivery.upload_runtime.save_study") as save_study,
-        ):
-            _persist_study_config_updates(app, {}, "notion", {"notion_database_id": "x"})
+    def test_deleted_archive_is_not_recreated(self) -> None:
+        self.save(study("Study B"))
+        delete_study(self.app.config["SAVED_STUDIES_DIR"], "Study A")
+        self.executor(self.discovered)(self.queued)
+        with self.assertRaises(FileNotFoundError):
+            load_study(self.app.config["SAVED_STUDIES_DIR"], "Study A")
 
-        save_config.assert_not_called()
-        save_study.assert_not_called()
+    def test_replay_after_partial_failure_reuses_target_and_keeps_snapshot_bytes(self) -> None:
+        calls: list[dict] = []
 
-    def test_a_save_failure_is_logged_not_raised(self) -> None:
-        """An upload that already succeeded must not fail the whole job
-        because the config-refresh convenience write failed."""
-        app = FakeApp({"CONFIG_FILE": Path("active.study-runner"), "SAVED_STUDIES_DIR": Path("studies")})
-        payload = {"config_data": {"study_settings": {}}}
+        def publish(_context, payload):
+            calls.append(deepcopy(payload))
+            if not settings(payload["config_data"]).get("database_id"):
+                return {"ok": False, "error": "Network failed after database creation", "study_config_updates": {"database_id": "durable-db"}}
+            return {"ok": True}
 
-        with patch(
-            "study_runner.backend.services.delivery.upload_runtime.save_config",
-            side_effect=OSError("disk full"),
-        ):
-            _persist_study_config_updates(app, payload, "notion", {"notion_database_id": "x"})  # must not raise
+        service = UploadJobService(self.app.config["DATA_DIR"], executors={"notion": self.executor(publish)}, clock=lambda: 1000)
+        for job_id in ("first", "second"):
+            service.enqueue(kind="notion", study_id="Study A", participant_id="participant", session_id=job_id, label="Notion", payload=self.queued, job_id=job_id)
+        payload_path = service.payload_dir / "first.json"
+        snapshot_bytes = payload_path.read_bytes()
+        service.process_due_jobs_once(limit=1)
+        self.assertEqual(service.counts()["queued"], 2)
+        self.assertEqual(payload_path.read_bytes(), snapshot_bytes)
+        replay = UploadJobService(self.app.config["DATA_DIR"], executors={"notion": self.executor(publish)}, clock=lambda: 2000)
+        replay.process_due_jobs_once()
+        self.assertEqual(replay.counts()["done"], 2)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual([settings(call["config_data"]).get("database_id") for call in calls], [None, "durable-db", "durable-db"])
+        for call in calls:
+            self.assertEqual(call["config_data"]["questions"], self.original["config_data"]["questions"])
+            self.assertEqual(call["result_payload"], self.original["result_payload"])
+            self.assertEqual(call["saved_output"], self.original["saved_output"])
+        self.assertEqual(self.queued, self.original)
+        target = next((self.app.config["DATA_DIR"] / "upload_targets").glob("*.json"))
+        self.assertEqual(json.loads(target.read_text()), {"schema": "study-runner/upload-target/v1", "settings": {"database_id": "durable-db"}})
+
+    def test_different_target_does_not_inherit_an_old_discovery(self) -> None:
+        self.executor(self.discovered)(self.queued)
+        other = deepcopy(self.queued)
+        settings(other["config_data"])["parent_page_id"] = "different-parent"
+        publish = Mock(return_value={"ok": True})
+        self.executor(publish)(other)
+        self.assertNotIn("database_id", settings(publish.call_args.args[1]["config_data"]))
+
+    def test_failed_study_refresh_does_not_lose_durable_target(self) -> None:
+        with patch("study_runner.backend.services.delivery.upload_runtime.patch_study_plugin_settings", side_effect=OSError("study locked")):
+            self.assertTrue(self.executor(self.discovered)(self.queued)["ok"])
+        publish = Mock(return_value={"ok": True})
+        self.executor(publish)(self.queued)
+        self.assertEqual(settings(publish.call_args.args[1]["config_data"])["database_id"], "created-db")
+        self.assertEqual(settings(load_config(self.app.config["CONFIG_FILE"]))["database_id"], "created-db")
+
+    def test_invalid_updates_cannot_change_study_or_create_checkpoint(self) -> None:
+        before = self.app.config["CONFIG_FILE"].read_bytes()
+        for updates in ({"parent_page_id": "unapproved"}, {"database_id": {"nested": "value"}}, {"database_id": ""}, {"database_id": "x" * 4097}, ["database_id"]):
+            with self.subTest(updates=updates):
+                with self.assertRaises(UploadJobError):
+                    self.executor(Mock(return_value={"ok": True, "study_config_updates": updates}))(self.queued)
+                self.assertEqual(self.app.config["CONFIG_FILE"].read_bytes(), before)
+                self.assertFalse(list((self.app.config["DATA_DIR"] / "upload_targets").glob("*.json")))
+
+    def test_checkpoint_failure_does_not_mark_queue_job_done(self) -> None:
+        service = UploadJobService(self.app.config["DATA_DIR"], executors={"notion": self.executor(self.discovered)})
+        service.enqueue(kind="notion", study_id="Study A", participant_id="p", session_id="s", label="Notion", payload=self.queued, job_id="job")
+        with patch("study_runner.backend.services.delivery.upload_runtime.atomic_write_json", side_effect=OSError("disk full")):
+            service.process_due_jobs_once()
+        self.assertEqual(service.counts()["done"], 0)
+        self.assertTrue((service.payload_dir / "job.json").is_file())
+
+    def test_corrupt_checkpoint_blocks_publish_instead_of_creating_another_target(self) -> None:
+        self.executor(self.discovered)(self.queued)
+        checkpoint = next((self.app.config["DATA_DIR"] / "upload_targets").glob("*.json"))
+        checkpoint.write_text('{"schema":"invalid"}', encoding="utf-8")
+        publish = Mock(return_value={"ok": True})
+        with self.assertRaises(UploadJobError):
+            self.executor(publish)(self.queued)
+        publish.assert_not_called()
+
+
+class DestinationDiscoveryManifestTests(unittest.TestCase):
+    def test_discovered_fields_must_be_declared_string_settings(self) -> None:
+        manifest = json.loads((PROJECT_ROOT / "study_runner/plugins/notion_upload/manifest.json").read_text())
+        for invalid in ({"type": "number"}, {}, "invalid"):
+            with self.subTest(invalid=invalid):
+                manifest["settings"]["study"]["database_id"] = invalid
+                with self.assertRaisesRegex(PluginManifestError, "declared study string"):
+                    normalize_manifest(manifest)
+
+    def test_discovery_allowlist_is_explicit_and_validated(self) -> None:
+        manifest = json.loads((PROJECT_ROOT / "study_runner/plugins/notion_upload/manifest.json").read_text())
+        self.assertEqual(normalize_manifest(manifest)["capability_config"]["upload_destination"]["discovered_settings"], ["database_id", "data_source_id"])
+        capability = manifest["capabilities"]["upload_destination"]
+        for invalid in ("database_id", ["database_id", "database_id"], ["nested.field"], [42], [{}]):
+            with self.subTest(invalid=invalid):
+                capability["discovered_settings"] = invalid
+                with self.assertRaises(PluginManifestError):
+                    normalize_manifest(manifest)
+        capability.pop("discovered_settings")
+        self.assertEqual(normalize_manifest(manifest)["capability_config"]["upload_destination"]["discovered_settings"], [])
 
 
 if __name__ == "__main__":

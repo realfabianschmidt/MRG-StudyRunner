@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import sys
 import tempfile
 import time
 import unittest
@@ -176,6 +178,49 @@ class PluginProcessRuntimeTests(unittest.TestCase):
                 return lines
             time.sleep(0.02)
         self.fail(f"Timed out waiting for output: {expected}")
+
+
+class PackagedPluginProcessTests(unittest.TestCase):
+    def test_frozen_launch_needs_neither_source_root_markers_nor_driver_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary).resolve() / "_internal"
+            plugin_dir = bundle / "study_runner" / "plugins" / "fixture"
+            plugin_dir.mkdir(parents=True)
+            executable = str(bundle.parent / "study-runner-server.exe")
+            runtime = PluginProcessRuntime({"plugin_key": "fixture"}, plugin_dir)
+            process = MagicMock()
+            process.poll.return_value = None
+            with (
+                patch.object(sys, "frozen", True, create=True),
+                patch.object(sys, "_MEIPASS", str(bundle), create=True),
+                patch.object(sys, "executable", executable),
+                patch("study_runner.plugin_framework.process_host.subprocess.Popen", return_value=process) as spawn,
+                patch("study_runner.plugin_framework.process_host.threading.Thread.start"),
+            ):
+                runtime._ensure_started()
+
+            self.assertFalse((bundle / "server.py").exists())
+            self.assertFalse((plugin_dir / "driver.py").exists())
+            self.assertEqual(spawn.call_args.args[0], [executable, "--plugin-driver", "fixture"])
+            self.assertEqual(spawn.call_args.kwargs["env"]["PYTHONPATH"].split(os.pathsep)[0], str(bundle))
+            self.assertEqual(spawn.call_args.kwargs["cwd"], str(plugin_dir))
+
+    def test_source_launch_still_rejects_a_missing_driver(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, patch.object(sys, "frozen", False, create=True):
+            runtime = PluginProcessRuntime({"plugin_key": "fixture"}, Path(temporary))
+            with self.assertRaisesRegex(PluginProcessError, "entrypoint is missing"):
+                runtime._command()
+
+    def test_entrypoint_cannot_escape_the_plugin_directory_in_either_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = PluginProcessRuntime(
+                {"plugin_key": "fixture", "runtime": {"entrypoint": "../driver.py"}},
+                Path(temporary),
+            )
+            for frozen in (False, True):
+                with self.subTest(frozen=frozen), patch.object(sys, "frozen", frozen, create=True):
+                    with self.assertRaisesRegex(PluginProcessError, "escapes its directory"):
+                        runtime._command()
 
 
 class PluginConsoleRouteTests(unittest.TestCase):

@@ -55,6 +55,10 @@ class SessionJournalStore:
         self.data_dir = Path(data_dir)
         self.root = self.data_dir / "runtime" / "session-journals"
         self._clock = clock
+        # The runtime is the single journal writer. Share the existing path
+        # lock across store instances; cache only the position of unchanged
+        # files, never the authoritative session state.
+        self._append_positions: dict[Path, tuple[int, int, int]] = {}
 
     def journal_path(self, stream: str, session_id: Any) -> Path:
         normalized_stream = _stream(stream)
@@ -77,9 +81,7 @@ class SessionJournalStore:
         record = {
             "schema": JOURNAL_SCHEMA,
             "record_id": str(uuid.uuid4()),
-            # ``time_ns`` supplies a process-independent replay order even in
-            # tests (and deployments) whose injected scientific clock is
-            # fixed. UUID remains the deterministic tie breaker.
+            # Retained as a legacy observation, not a replay ordering key.
             "order_ns": time.time_ns(),
             "recorded_at_epoch": float(self._clock()),
             "stream": normalized_stream,
@@ -89,9 +91,29 @@ class SessionJournalStore:
             "event": str(event or "state_updated").strip() or "state_updated",
             "snapshot": deepcopy(snapshot),
         }
-        encoded = _canonical_json(record) + b"\n"
         path = self.journal_path(normalized_stream, normalized_session_id)
-        _append_fsynced(path, encoded)
+        with atomic_path_lock(path):
+            stamp = _file_stamp(path)
+            cached = self._append_positions.get(path)
+            if cached is not None and cached[:2] == stamp:
+                count = cached[2]
+            else:
+                records, valid_length = _read_journal_prefix(
+                    path, expected_stream=normalized_stream,
+                    expected_session_id=normalized_session_id,
+                )
+                count = len(records)
+                if path.is_file() and valid_length < path.stat().st_size:
+                    # A torn, unacknowledged tail must not become a corrupt
+                    # interior line when recording resumes after a restart.
+                    with path.open("r+b") as handle:
+                        handle.truncate(valid_length)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+            record["sequence"] = count + 1
+            encoded = _canonical_json(record) + b"\n"
+            _append_fsynced(path, encoded)
+            self._append_positions[path] = (*_file_stamp(path), count + 1)
         return deepcopy(record)
 
     def records(
@@ -120,9 +142,8 @@ class SessionJournalStore:
             records = _read_journal(path, expected_stream=normalized_stream)
             for record in records:
                 session_id = _session_id(record.get("session_id"))
-                previous = latest.get(session_id)
-                if previous is None or _record_order(record) > _record_order(previous):
-                    latest[session_id] = record
+                # One file per session/stream, in physical append order.
+                latest[session_id] = record
         return latest
 
     def archive_session(
@@ -176,10 +197,20 @@ class SessionJournalStore:
         with atomic_path_lock(archive_path):
             if archive_path.is_file():
                 existing = _read_json_object(archive_path)
+                acceptable_hashes = {payload["source_sha256"]}
+                if all("sequence" not in record for value in streams.values() for record in value["records"]):
+                    # Already sealed 0.7 archives used wall-clock sorting.
+                    # Preserve those immutable bytes if their exact source
+                    # records still match; new archives use append order.
+                    legacy_digest = hashlib.sha256()
+                    for stream, value in streams.items():
+                        legacy_digest.update(stream.encode("ascii") + b"\0")
+                        legacy_digest.update(_canonical_json(sorted(value["records"], key=_record_order)))
+                    acceptable_hashes.add(legacy_digest.hexdigest())
                 if (
                     existing.get("schema") != ARCHIVE_SCHEMA
                     or existing.get("session_id") != normalized_session_id
-                    or existing.get("source_sha256") != payload["source_sha256"]
+                    or existing.get("source_sha256") not in acceptable_hashes
                 ):
                     raise SessionJournalArchiveConflictError(
                         "session journal archive already exists for different source content"
@@ -219,6 +250,11 @@ def _append_fsynced(path: Path, encoded: bytes) -> None:
     with atomic_path_lock(path):
         existed = path.exists()
         path.parent.mkdir(parents=True, exist_ok=True)
+        if existed and path.stat().st_size:
+            with path.open("rb") as handle:
+                handle.seek(-1, os.SEEK_END)
+                if handle.read(1) not in (b"\n", b"\r"):
+                    encoded = b"\n" + encoded
         descriptor = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
         try:
             view = memoryview(encoded)
@@ -240,18 +276,49 @@ def _read_journal(
     expected_stream: str,
     expected_session_id: str | None = None,
 ) -> list[dict[str, Any]]:
+    with atomic_path_lock(path):
+        return _read_journal_prefix(
+            path, expected_stream=expected_stream,
+            expected_session_id=expected_session_id,
+        )[0]
+
+
+def _file_stamp(path: Path) -> tuple[int, int]:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return (0, 0)
+    return stat.st_mtime_ns, stat.st_size
+
+
+def _read_journal_prefix(
+    path: Path,
+    *,
+    expected_stream: str,
+    expected_session_id: str | None = None,
+) -> tuple[list[dict[str, Any]], int]:
     if not Path(path).is_file():
-        return []
+        return [], 0
     raw = Path(path).read_bytes()
     lines = raw.splitlines(keepends=True)
     records: list[dict[str, Any]] = []
+    valid_length = 0
+    sequenced = False
     for index, raw_line in enumerate(lines):
         content = raw_line.rstrip(b"\r\n")
         if not content:
+            valid_length += len(raw_line)
             continue
         try:
             record = json.loads(content.decode("utf-8"))
             _validate_record(record, expected_stream, expected_session_id)
+            if "sequence" in record:
+                sequence = record["sequence"]
+                if type(sequence) is not int or sequence != len(records) + 1:
+                    raise ValueError("journal sequence does not match append order")
+                sequenced = True
+            elif sequenced:
+                raise ValueError("journal sequence missing after sequenced records")
         except (UnicodeDecodeError, ValueError, TypeError, KeyError) as error:
             is_torn_tail = index == len(lines) - 1 and not raw_line.endswith((b"\n", b"\r"))
             if is_torn_tail:
@@ -260,8 +327,8 @@ def _read_journal(
                 f"invalid durable session journal record {path}:{index + 1}: {error}"
             ) from error
         records.append(record)
-    records.sort(key=_record_order)
-    return records
+        valid_length += len(raw_line)
+    return records, valid_length
 
 
 def _validate_record(

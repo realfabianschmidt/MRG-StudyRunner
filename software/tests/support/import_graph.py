@@ -31,9 +31,10 @@ PACKAGE_ROOT_NAME = "study_runner"
 
 @dataclass(frozen=True)
 class ImportEdge:
-    """One `import` / `from ... import ...` statement, resolved to an
-    absolute dotted module path exactly as Python would resolve it at
-    runtime -- relative imports included.
+    """A dependency of an import statement, including relative imports.
+
+    A from-import depends on its base package and may load a named submodule.
+    Both edges are reported when that submodule exists in the source tree.
 
     `names` holds the specific names pulled in by a `from X import a, b`
     statement (empty for a plain `import X`). Needed to tell "this file
@@ -67,10 +68,7 @@ def module_area(dotted_module: str) -> str | None:
     identical (exactly two segments). Callers that need that distinction
     (e.g. deciding whether an imported name is a real *area*) must intersect
     the result against their own known-directory set, the way
-    `file_area` below does with real filesystem information. In this
-    codebase that already happens naturally: nothing treats an `edge.area`
-    result as ground truth without checking it against an actual
-    `study_runner/<name>/` directory first.
+    `file_area` below does with real filesystem information.
     """
     parts = dotted_module.split(".")
     if len(parts) < 2 or parts[0] != PACKAGE_ROOT_NAME:
@@ -143,7 +141,14 @@ def _resolve_relative(*, own_package: str, level: int, module: str | None) -> st
 
 
 def iter_imports(path: Path, *, package_root: Path) -> Iterator[ImportEdge]:
-    """Yield every import statement in `path`, at any nesting depth."""
+    """Yield dependencies at every nesting depth without importing any code.
+
+    For ``from study_runner import backend``, checking only the base package
+    misses the backend dependency. Resolve named modules against the source
+    tree, while retaining ordinary imported attributes in the base edge's
+    ``names``. A package can shadow a submodule with an attribute at runtime;
+    conservatively include the existing submodule in that ambiguous case.
+    """
     # utf-8-sig tolerates a leading BOM (at least one file in this tree has
     # one); plain utf-8 makes ast.parse raise on it instead of on anything
     # meaningful.
@@ -157,13 +162,23 @@ def iter_imports(path: Path, *, package_root: Path) -> Iterator[ImportEdge]:
                 yield ImportEdge(file=path, lineno=node.lineno, imported_module=alias.name)
         elif isinstance(node, ast.ImportFrom):
             names = tuple(alias.name for alias in node.names)
-            if node.level == 0:
-                if node.module:
-                    yield ImportEdge(file=path, lineno=node.lineno, imported_module=node.module, names=names)
+            resolved = (
+                _resolve_relative(own_package=own_package, level=node.level, module=node.module)
+                if node.level
+                else node.module
+            )
+            if not resolved:
                 continue
-            resolved = _resolve_relative(own_package=own_package, level=node.level, module=node.module)
-            if resolved:
-                yield ImportEdge(file=path, lineno=node.lineno, imported_module=resolved, names=names)
+            yield ImportEdge(file=path, lineno=node.lineno, imported_module=resolved, names=names)
+            if resolved != PACKAGE_ROOT_NAME and not resolved.startswith(PACKAGE_ROOT_NAME + "."):
+                continue
+            for name in names:
+                if name == "*":
+                    continue
+                child = f"{resolved}.{name}"
+                child_path = package_root.joinpath(*child.split("."))
+                if child_path.with_suffix(".py").is_file() or child_path.is_dir():
+                    yield ImportEdge(file=path, lineno=node.lineno, imported_module=child)
 
 
 def iter_python_files(root: Path) -> Iterator[Path]:

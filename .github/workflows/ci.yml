@@ -65,6 +65,9 @@ jobs:
       - name: Run Python tests
         run: python -m pytest software
 
+      - name: Check architecture structure baseline
+        run: python tools/measure_structure.py --check
+
       - name: Run source-release contract tests
         run: python -m unittest -v release_tools.tests.test_build_source_release
 
@@ -119,13 +122,13 @@ jobs:
         run: python -m unittest -v tests.test_hybrid_recording_worker.NativeCoreSmokeTests
 
   packaging-smoke:
-    name: Packaging smoke test (plugin-free bundle)
+    name: Packaging smoke test (fixture plugin RPC)
     runs-on: ubuntu-24.04
     # PyInstaller is not built by the release workflow either (see
     # docs/architecture-1.0-umbau.md, trap T5) -- this is the only place a
     # packaging break (a bad `datas` mapping, a missing hidden import, a moved
     # frontend path) gets caught before it reaches an operator's machine.
-    # A plugin-free tree needs no BrainBit SDKs or DeepFace weights
+    # A fixture-only tree needs no BrainBit SDKs or DeepFace weights
     # (release_tools/pyinstaller/study_runner_server_common.py:
     # common_binaries/common_datas both short-circuit without a matching
     # manifest), so this runs on a plain Linux runner with no extra setup.
@@ -150,17 +153,19 @@ jobs:
             -r software/requirements.txt \
             -r release_tools/pyinstaller/requirements-build.txt
 
-      - name: Empty the plugins directory
-        # Keeps the bundle to what every checkout can build: no hardware SDKs,
-        # no DeepFace weights. common_datas()/common_binaries() both handle an
-        # empty plugin tree explicitly (see test_pyinstaller_common.py).
+      - name: Stage the harmless plugin fixture
+        # Keep the manifest/discovery/child-process path in the real bundle,
+        # without importing hardware SDKs or provisioning DeepFace weights.
         run: |
           mv software/study_runner/plugins software/study_runner/plugins.disabled
           mkdir software/study_runner/plugins
           cp software/study_runner/plugins.disabled/__init__.py software/study_runner/plugins/
+          cp -R software/tests/fixtures/packaging_probe software/study_runner/plugins/packaging_probe
 
       - name: Build the PyInstaller onedir bundle
         run: python release_tools/build_python_onedir.py
 
       - name: Run the bundled self-check
+        env:
+          STUDY_RUNNER_SELF_CHECK_PLUGIN: packaging_probe
         run: ./software/dist/study-runner-server/study-runner-server --self-check

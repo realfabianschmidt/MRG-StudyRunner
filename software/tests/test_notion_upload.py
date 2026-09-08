@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -11,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.backend.services.studies.validation import validate_and_normalize_config
-from study_runner.plugins.notion_upload import adapter
+from study_runner.plugins.notion_upload import adapter, plugin
 
 
 class NotionParticipantMetadataTests(unittest.TestCase):
@@ -160,7 +163,7 @@ class NotionParticipantMetadataTests(unittest.TestCase):
         # _ensure_database strips dashes from the id Notion returns.
         self.assertEqual(db_id, "createddbid")
         self.assertEqual(study_settings["notion_database_id"], "createddbid")
-        self.assertEqual(updates, {"notion_database_id": "createddbid"})
+        self.assertEqual(updates, {"database_id": "createddbid"})
 
     def test_canonical_answer_format_ignores_embedded_ram_biomarkers(self) -> None:
         lines = adapter._format_answer_details(
@@ -365,6 +368,54 @@ class NotionParticipantMetadataTests(unittest.TestCase):
         self.assertIn("mean=0.25", rendered)
         self.assertNotIn("12345", rendered)
         self.assertNotIn("98765", rendered)
+
+
+class NotionPublishContractTests(unittest.TestCase):
+    def payload(self):
+        return {
+            "config_data": {"study_id": "Study A", "study_settings": {"plugins": {
+                "notion": {"enabled": True, "settings": {"parent_page_id": "parent-1"}},
+            }}},
+            "result_payload": {"session_id": "session-1", "participant_id": "p1", "answers": {}},
+            "saved_output": {},
+        }
+
+    def client(self):
+        return SimpleNamespace(
+            databases=SimpleNamespace(create=Mock(return_value={
+                "id": "created-db", "data_sources": [{"id": "source-1"}],
+            })),
+            data_sources=SimpleNamespace(query=Mock(return_value={"results": []})),
+            pages=SimpleNamespace(
+                create=Mock(return_value={"id": "participant-page"}),
+                retrieve=Mock(return_value={"properties": {}}), update=Mock(),
+            ),
+            blocks=SimpleNamespace(children=SimpleNamespace(
+                list=Mock(return_value={"results": [], "has_more": False}),
+                append=Mock(return_value={"results": [{"id": "session-toggle"}]}),
+            )),
+        )
+
+    def test_real_publish_adapter_participant_path_reports_created_target(self):
+        payload = self.payload()
+        original = deepcopy(payload)
+        client = self.client()
+        with patch.object(adapter, "get_client", return_value=client):
+            result = plugin._publish(SimpleNamespace(hardware_config={}), payload)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["study_config_updates"], {"database_id": "createddb", "data_source_id": "source-1"})
+        self.assertEqual(client.data_sources.query.call_args.kwargs["data_source_id"], "source-1")
+        client.pages.create.assert_called_once()
+        self.assertEqual(payload, original)
+
+    def test_failure_after_target_creation_returns_discoveries_for_retry(self):
+        client = self.client()
+        client.pages.create.side_effect = OSError("connection interrupted")
+        with patch.object(adapter, "get_client", return_value=client):
+            result = plugin._publish(SimpleNamespace(hardware_config={}), self.payload())
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["study_config_updates"], {"database_id": "createddb", "data_source_id": "source-1"})
+        self.assertIn("connection interrupted", result["error"])
 
 
 if __name__ == "__main__":

@@ -162,7 +162,8 @@ def create_app() -> Flask:
     configure_finalization(app)
     register_routes(app)
     _install_cache_policy(app)
-    app.config["TRIAL_EVENT_SERVICE"].resume_pending(stop_trial_session)
+    if not is_background_disabled():
+        app.config["TRIAL_EVENT_SERVICE"].resume_pending(stop_trial_session)
     return app
 
 

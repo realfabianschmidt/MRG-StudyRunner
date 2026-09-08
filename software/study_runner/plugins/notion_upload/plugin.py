@@ -88,10 +88,6 @@ def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
         hardware_config=payload.get("hardware_config") or context.hardware_config,
         saved_output=payload.get("saved_output") or {},
         config_data=config_data,
-        # Finalization already committed an immutable per-session config
-        # snapshot. The adapter's legacy retry refresh expects flat fields and
-        # would discard this private v3 projection.
-        is_retry=False,
     )
 
 

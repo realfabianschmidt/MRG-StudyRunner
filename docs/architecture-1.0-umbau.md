@@ -1,5 +1,7 @@
 # Architecture 1.0 Rebuild — Working State
 
+Shared continuation notes and current ownership: [Claude/Codex handoff](architecture-1.0-handoff.md).
+
 This is the shared working document for the 1.0 architecture rebuild. Two agents
 (Claude Code and Codex) work on it in parallel, so **this file is the single
 source of truth for what is done, what is in progress, and who owns which
@@ -23,12 +25,12 @@ approved deviations, implementation progress and acceptance evidence.
    verified way this rebuild breaks silently — meaning CI stays green and the
    damage shows up weeks later on a field machine.
 
-Status, 2026-09-08: **Phase 0 merged to `main` (`a1f39d9`); Phase 1
-implemented, verification repairs open; Phase 2 largely implemented, not complete.**
-The reviewed rebuild is `feature/architecture-1.0` at `c557cd2`, worktree
-`C:\SR-1.0`. Approved corrections are being prepared on
-`fix/architecture-review` in the main workspace's `.tmp/v1-review` worktree,
-then integrated into the rebuild branch. Phase 3 has not started.
+Status, 2026-09-08: **Phase 0 merged to `main` (`a1f39d9`); Phase 1 and
+Phase 2 implemented, including approved repairs R1-R5.**
+The shared rebuild is `feature/architecture-1.0`, worktree `C:\SR-1.0`.
+Corrections were prepared on `fix/architecture-review`; see the tracked handoff
+for integration and verification evidence. Phase 3 has not started. Next is
+preflight (5b), brought forward before directory moves.
 Version stays `0.7.0` until Phase 4. The copy on `main` is a foundation snapshot
 with a pointer here, not a second independently maintained progress checklist.
 
@@ -72,7 +74,7 @@ repair the foundations before further broad restructuring. The original
 
 ### Immediate repair packages
 
-- [ ] **R1 — Upload correctness.** Repair both Notion call signatures. Exercise
+- [x] **R1 — Upload correctness.** Repair both Notion call signatures. Exercise
   the real publish-to-adapter path with a fake destination. A destination
   reports a narrow allowed settings patch; the host merges into the latest
   matching study under the existing save lock/revision transaction. Never
@@ -80,22 +82,22 @@ repair the foundations before further broad restructuring. The original
   destination identity independently of subsequent upload success and reuse it
   across retries/older queued jobs for the same study and destination settings.
   Preserve the queued scientific configuration as immutable session evidence.
-- [ ] **R2 — Effective architecture checks.** Replace the ineffective Python 3.12
+- [x] **R2 — Effective architecture checks.** Replace the ineffective Python 3.12
   import blocker, add a negative control, resolve `from package import module`
   and relative equivalents, and run the structure check in CI. Keep host/worker
   boundaries visible after they share the `data_core` parent. Structural baseline
   changes need an explained checkpoint; a field-name denylist is only a tripwire,
   not proof of timing semantics.
-- [ ] **R3 — Packaged runtime.** Resolve frozen resources without requiring a
+- [x] **R3 — Packaged runtime.** Resolve frozen resources without requiring a
   source checkout or physical Python entry scripts. Run a bundled harmless
   plugin through its process protocol. Self-check always overrides the data
   directory, prevents background runtime work and restores its environment.
   Source tests and a plugin-free bundle alone cannot demonstrate plugin startup.
-- [ ] **R4 — Durable journal order.** Recovery follows append order/a durable
+- [x] **R4 — Durable journal order.** Recovery follows append order/a durable
   sequence, never wall-clock ordering. Preserve old journals, account for
   restarts and torn tails, and test backwards/forwards clock jumps. Do not claim
   that this audit-journal fix implements the recording checkpoint protocol below.
-- [ ] **R5 — Finish Phase 2.4 before moves.** Extract manifest normalization and
+- [x] **R5 — Finish Phase 2.4 before moves.** Extract manifest normalization and
   its pure dependency closure into `contracts`, remove the two remaining known
   violations, then require an empty allowlist. Temporary re-export modules have
   explicit removal work in Phase 4; they are not the final package contract.
@@ -428,7 +430,7 @@ fixtures plus `tools/make_timeline_fixture.py` in the same commit.
       - No 0.7.x fix is needed before the rebuild — the assumptions above
         are already stable across the versions checked.
 
-### Phase 1 — Invariant harness (branch) — **implemented; R2 verification repairs open**
+### Phase 1 — Invariant harness (branch) — **implemented and repaired**
 
 - [x] **1.1** AST-based import walker at `software/tests/support/import_graph.py`
       (`ImportEdge`, `iter_imports`, `iter_python_files`, `module_area`,
@@ -531,17 +533,12 @@ isolation.) One doc-drift catch along the way: `test_file_guide.py` correctly
 went red for the new `tools/measure_structure.py` having no guide entry —
 exactly the mechanism it exists for, not a bug.
 
-### Phase 2 — Break the import edges in place (branch, zero moves) — **largely implemented; R1–R5 open**
+### Phase 2 — Break the import edges in place (branch, zero moves) — **implemented and repaired**
 
-Break the import edges before directory moves. Completion requires the remaining
-validator extraction and verified checks; the current two exceptions are not a
-completed invariant.
-
-All 19 known violations resolved except 2 (`recording/{markers,clock_diagnostics}.py`
-→ `plugin_framework.plugin_catalog`), deliberately deferred to Phase 4 (see
-2.4). Cycle count: **6 → 0**. Zero directory moves — everything under
-`study_runner/{backend,plugin_framework,plugins,recording,recording_worker}/`
-is exactly where it was; only `shared/` grew.
+Import edges are broken before directory moves. R5 completes the validator
+extraction and the known-violation allowlist is empty. Cycle count: **6 to 0**.
+Zero directory moves: existing runtime packages remain in place; `shared/` and
+`contracts/` hold the extracted dependency closures.
 
 - [x] **2.1** `is_frozen` / `get_app_mode` / `get_project_base_dir` moved to
       new `shared/runtime_mode.py`; `runtime_config.py` re-exports them for
@@ -617,8 +614,7 @@ is exactly where it was; only `shared/` grew.
         The `request_study_config` capability this step's plan text
         mentioned was **not needed**: it would only have served the now-
         deleted dead code path
-- [ ] **2.4** Split into a cheap half and an expensive half; only did the
-      cheap one here.
+- [x] **2.4** Extract dependency utilities and pure manifest validation.
       - **`ensure_requirements` → `shared/dependency_utils.py`.** Fully
         self-contained (stdlib + `shared.runtime_mode`), so the whole file
         moved rather than splitting it. `plugin_framework/dependency_utils.py`
@@ -626,22 +622,11 @@ is exactly where it was; only `shared/` grew.
         `recording/{markers,clock_diagnostics}.py` now import it from
         `shared` directly. Killed 2 of the 4 remaining `plugin_framework`
         edges.
-      - **`validate_and_normalize_manifest` → `contracts`: deliberately NOT
-        done here.** Traced its dependency closure: ~15 helper functions
-        (`_normalize_capabilities`, `_normalize_streams`,
-        `_normalize_process_runtime`, `_normalize_ui_*`, `_required_*`, ...)
-        spanning roughly lines 84–1695 of `plugin_catalog.py` — the large
-        majority of its 1709 lines, not a clean single-function extraction.
-        Moving the function without its closure would just recreate the same
-        edge one level down (`contracts` importing `plugin_framework` for the
-        15 helpers), which invariant #3 forbids just as much. Correctly
-        splitting a file this size, this central to plugin discovery, needs
-        the kind of test coverage and time Phase 4 (the actual directory
-        move) budgets for — not a Phase 2 in-place edge break. Left as 2
-        `KNOWN_VIOLATIONS` entries with this reasoning inline, explicitly
-        deferred in the original implementation. Approved correction: complete
-        this extraction as R5 before Phase 4; no substantive extraction hidden
-        inside a mechanical move
+      - **`validate_and_normalize_manifest` lives in `contracts/manifest.py`.**
+        R5 moves the complete pure helper closure; discovery stays in the framework.
+        Recording imports contracts directly. All nine comparison manifests
+        normalize identically. The two remaining known violations are removed.
+        Existing public reexports remain until the explicit Phase 4 migration.
 - [x] **2.5** Broke the host↔worker cycle. Landed in `shared/`, not
       `recording/contract/`: a subpackage nested under `recording/` would
       still match `study_runner.recording` as a dotted prefix and violate the
@@ -829,17 +814,14 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 0 (complete, merged) | Claude Code | `main` | 2026-09-07 |
-| Phase 1 (implemented; R2 reopens verification) | Claude Code | `feature/architecture-1.0` | 2026-09-07 |
-| Phase 2 (largely implemented; R1–R5 open) | Claude Code | `feature/architecture-1.0` | 2026-09-07 |
-| Review integration, docs, R4 and R5 | Codex | `fix/architecture-review` | 2026-09-08 |
-| R1 upload adapters, upload runtime, study config saves and tests | Codex upload agent | `fix/architecture-review` | 2026-09-08 |
-| R2 import harness, structure tool, CI verify job | Codex boundary agent | `fix/architecture-review` | 2026-09-08 |
-| R3 packaged startup, self-check, packaging smoke job and tests | Codex packaging agent | `fix/architecture-review` | 2026-09-08 |
+| Next package 5b | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+
+Completed: Claude implemented Phases 0-2; Codex completed R1-R5 and the shared
+handoff on 2026-09-08. No delegated agent remains active.
 
 Rules:
 - **Moves and tree-wide import rewrites are serial.** Approved R1–R4 repairs
-  may run in parallel under the disjoint ownership above. One integrator owns
+  may run in parallel after explicitly claiming disjoint file ownership. One integrator owns
   the document and commits; concurrent agents do not stage or commit each
   other's files. CI edits are separated by job and coordinated
 - **`contracts/` is not frozen** — every Phase 5 package needs to write to it.
@@ -922,6 +904,7 @@ the Flask-free subprocess import of `data_core`.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-09-08 | Complete R1-R5 and checkpoint structural baseline | Explicit contracts/generic upload checkpoint dependencies raise cross-package edges 147 to 151; framework LOC 3924 to 2603, contracts 1376; cycles remain 0 and largest module remains 2283 LOC. All metric gates remain enabled. |
 | 2026-09-08 | User approved review package R1–R5 and requirements/ownership corrections; documentation updated before implementation | Restore trustworthy gates and fix concrete upload/recovery regressions before broad restructuring |
 | 2026-09-08 | Prepare repairs in `.tmp/v1-review` on `fix/architecture-review`, then integrate into the existing rebuild branch | Existing `C:\SR-1.0` is outside this session's writable workspace; the additional worktree isolates development from operator data |
 | 2026-09-08 | Keep session state separate from finalization/publication job states | Matches initial §10; publication failure does not invalidate an intact scientific seal |

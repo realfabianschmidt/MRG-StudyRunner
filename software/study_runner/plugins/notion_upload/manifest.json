@@ -36,6 +36,7 @@
       "publish_on_attention": false,
       "republish_on_degraded": false,
       "purge_verified_sources": false,
+      "discovered_settings": ["database_id", "data_source_id"],
       "legacy": {
         "enabled_field": "notion_enabled",
         "settings": {
