@@ -37,8 +37,9 @@ see Phase 3 section); **only 3.4 remains in Phase 3**, then Phase 5 in full
 `mrg` CLI and the extension SDK, rather than trim it against
 CONTRIBUTING.md's "keep it simple" guidance). **Phase 5's first two
 packages 5e (journal/XDF event-id comparison), 5d (stream contracts +
-timing provenance) and 5a (session lifecycle) are also complete** — see
-Phase 5 section. Next: 5c, then 5h, 5i, 5g, 5j, 5f in that order (3.4 is a written,
+timing provenance), 5a (session lifecycle) and 5c (live quality/timing
+journals) are also complete** — see Phase 5 section. Next: 5h, then 5i,
+5g, 5j, 5f in that order (3.4 is a written,
 not-yet-implemented design plan, see Phase 3 section — it can land
 whenever convenient, it blocks nothing in Phase 5).
 The shared rebuild is `feature/architecture-1.0`, worktree `C:\SR-1.0`.
@@ -1114,12 +1115,83 @@ history.
       independently so one failure never hides another. 38 new/extended
       tests, full suite 807 passed/4 skipped, structure baseline rewritten
       as a deliberate checkpoint (152 edges, cycles still 0).
-- [ ] **5c** `quality.jsonl` + `timing.jsonl` during recording. **Not merely a
-      relocation**: `recording_quality.py:8-15` imports `markers` (→
+- [x] **5c** `quality.jsonl` + `timing.jsonl` during recording. **Not merely a
+      relocation**: `recording_quality.py` imports `markers` (→
       `plugin_framework`) and reads plugin manifests, so moving it into the
       worker violates invariant #2. Its signatures also consume fully parsed XDF
       artifacts, while live QC needs streaming counters. Needs its own data
-      model, and must come after 2.5 and 5e
+      model, and must come after 2.5 and 5e (both done).
+
+      The one sentence that shaped the whole design (target doc §9):
+      "Qualität entsteht **während** der Aufnahme in `quality.jsonl`, nicht
+      erst bei der Finalisierung. Eine abgebrochene Session hinterlässt
+      sonst kein QC." Everything below follows from *an aborted session must
+      still leave evidence*.
+
+      **The counters largely already existed** — `StreamRuntimeState` in
+      `data_core/worker/lsl_recording.py` already tracked sample counts,
+      first/last timestamps, clock offsets, reconnects and errors. They just
+      lived in memory and were only ever exposed through `status()`. What
+      was missing was a durable journal of them, thresholds that turn a
+      number into an *event*, and the derived metrics (gaps, timestamp
+      regressions, jitter, effective rate) nobody computed live.
+
+      New `contracts/quality_journal.py` (pure, dependency-free so the
+      detached worker can use it without importing anything host-side):
+      record schemas, the versioned quality profile (§9: "Schwellenwerte
+      stehen in einem versionierten Qualitätsprofil" — versioned so a later,
+      stricter profile cannot silently re-judge old sessions),
+      `StreamQualityObserver` (running aggregates only, never the samples,
+      so describing a recording never costs memory proportional to its
+      length), and `WallClockJumpDetector` (§6: an NTP correction or DST
+      change must be on record, because the session's UTC anchors came from
+      the clock that moved).
+
+      New `data_core/worker/session_journals.py`: one append-only writer per
+      worker process, shared by every recorder because the journals are
+      session-scoped while recorders are per plugin. Durability follows the
+      recording's own rhythm rather than inventing a second one — lines are
+      fsynced on the same checkpoint tick that already flushes XDF data
+      durably, so a crash loses at most the same window of evidence as of
+      data. Promising more would mean fsyncing every line and slowing the
+      ingest loop down to protect its own commentary. A journal write can
+      never break a recording: an unwritable disk is swallowed, because
+      these files are evidence *about* the session, not part of it.
+
+      Wired in at three points: the ingest loop folds each pulled chunk into
+      its stream's observer and journals any events; `_checkpoint_loop`
+      writes periodic summaries on the durable-flush tick; `freeze()` writes
+      final totals after the drain, so a cleanly frozen session ends with
+      real counts rather than the last tick's. The worker runtime writes the
+      session's two UTC anchors (§6 allows wall time *only* as one anchor at
+      start and one at end) and runs clock-jump detection on its existing
+      one-second monitor tick. `quality.jsonl`/`timing.jsonl` land at the
+      session root (§8's layout) and are picked up automatically by the
+      artifact manifest's glob, so they are checksummed like every other
+      session artifact.
+
+      **A real numerical bug, caught by my own test rather than shipped:**
+      the first draft computed jitter as `E[x²] − E[x]²`, which cancels
+      catastrophically for sample intervals — tiny numbers that barely
+      differ. It reported **1.3 ns of jitter on a perfectly even stream**,
+      false precision in exactly the number a researcher reads as timing
+      quality. Replaced with Welford's online algorithm; a synthetic even
+      250 Hz stream on a realistic large LSL clock now reports 3 ps, which
+      is the float representation of the timestamps themselves rather than
+      the algorithm.
+
+      **Deliberately out of scope, with reasons rather than silence:**
+      queue utilisation and drops under saturation belong to 5h, which
+      introduces the bounded queues in the first place — reporting on a
+      queue that does not exist yet would be inventing a number; and
+      continuous free-storage monitoring is a different concern from ingest
+      observation (5b already refuses to *start* without a plausible
+      reserve). Both are named in the module's own docstring so the
+      boundary is visible where someone would look for the missing metric.
+
+      19 new tests (`test_quality_journal.py`). Full suite **870 passed,
+      4 skipped**; JS 27 passed; structure baseline rewritten as a
+      checkpoint.
 - [x] **5d** Stream contracts: freeze at start, persist as
       `stream-contracts.json`, write into the XDF header, define timing-delay
       provenance. Operator decision 2026-09-08: do both the mechanical
@@ -1293,12 +1365,12 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 5c (quality.jsonl + timing.jsonl) — next active package; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+| Phase 5h (recording checkpoints + bounded ingest) — next active package; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`
 (commits `dec0908`..`2d40c4a`), Phase 3 items 3.1/3.2/3.3/3.5, and Phase 5
-items 5e, 5d and 5a on 2026-09-08; Codex completed R1-R5 and the remaining
+items 5e, 5d, 5a and 5c on 2026-09-08; Codex completed R1-R5 and the remaining
 Phase 4 packages on 2026-09-08. No package is currently owned.
 
 Rules:

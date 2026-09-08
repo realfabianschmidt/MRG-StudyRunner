@@ -14,9 +14,15 @@ from typing import Any, Mapping, Sequence
 
 from study_runner.data_core.contract.worker_protocol import WorkerCommand
 from study_runner.data_core.contract.recording_lease import RecordingLeaseStore
+from study_runner.contracts.quality_journal import (
+    OBSERVATION_WALL_CLOCK_ANCHOR,
+    WallClockJumpDetector,
+    timing_record,
+)
 from study_runner.shared.atomic_io import atomic_write_json
 
 from .core import NativeXdfCore
+from .session_journals import SessionJournalWriter
 from .lsl_recording import (
     BackupRecorder,
     LslSourceRecorder,
@@ -62,6 +68,22 @@ class RecordingWorkerRuntime:
         self.lsl_versions = lsl_version_info(self.pylsl)
         self.cache = ProjectionCache()
         self._wall_clock = wall_clock
+        # Package 5c: one journal writer per session, shared by every
+        # recorder, because the journals are session-scoped while recorders
+        # are per plugin. The session's single UTC anchor at start is
+        # written here -- target doc §6 allows wall time only as one anchor
+        # at start and one at end, never as a duration.
+        self.journals = SessionJournalWriter(self.session_dir)
+        self._clock_jump_detector = WallClockJumpDetector()
+        self.journals.append_timing(
+            timing_record(
+                observation=OBSERVATION_WALL_CLOCK_ANCHOR,
+                monotonic=time.monotonic(),
+                anchor="session_start",
+                wall_clock_epoch=float(wall_clock()),
+                session_id=self.session_id,
+            )
+        )
         self._lease_lock = threading.RLock()
         self._lease_until_epoch = wall_clock() + float(lease_seconds)
         self._lock = threading.RLock()
@@ -248,6 +270,7 @@ class RecordingWorkerRuntime:
                     streams=raw_streams,
                     cache=self.cache,
                     pylsl_module=self.pylsl,
+                    journals=self.journals,
                 )
                 self._sources[plugin_key] = recorder
                 self._source_configs[plugin_key] = config
@@ -350,6 +373,18 @@ class RecordingWorkerRuntime:
             if isinstance(backup_result, Mapping) and backup_result.get("last_error"):
                 failures.append(f"derived_backup: {backup_result['last_error']}")
             self._log("recording_frozen", reason=reason, failures=failures)
+            # The session's second and last UTC anchor (target doc §6).
+            self.journals.append_timing(
+                timing_record(
+                    observation=OBSERVATION_WALL_CLOCK_ANCHOR,
+                    monotonic=time.monotonic(),
+                    anchor="session_end",
+                    wall_clock_epoch=float(self._wall_clock()),
+                    session_id=self.session_id,
+                    reason=reason,
+                )
+            )
+            self.journals.flush(durable=True)
             result = {
                 "reason": reason,
                 "sources": source_results,
@@ -548,15 +583,30 @@ class RecordingWorkerRuntime:
                 except Exception:
                     pass
             self._write_attention("python_worker_exit_before_freeze")
+        # An unexpected exit is exactly the case 5c exists for: whatever
+        # quality evidence this session produced must survive it.
+        self.journals.close()
 
     def close_monitor(self) -> None:
         self._monitor_stop.set()
         if threading.current_thread() is not self._monitor_thread:
             self._monitor_thread.join(timeout=2.0)
+        self.journals.close()
 
     def _monitor(self) -> None:
         while not self._monitor_stop.wait(1.0):
             try:
+                # Recording never depends on wall time -- that is why every
+                # duration uses the monotonic clock -- but an NTP correction
+                # or a DST change still has to be on record, because the
+                # session's UTC anchors came from the clock that moved
+                # (target doc §6).
+                jump = self._clock_jump_detector.observe(
+                    monotonic=time.monotonic(),
+                    wall=float(self._wall_clock()),
+                )
+                if jump is not None:
+                    self.journals.append_quality(jump)
                 if self._generation_was_replaced():
                     self.freeze(reason="superseded_worker_generation")
                     self.shutdown_event.set()

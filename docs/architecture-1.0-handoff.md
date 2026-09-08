@@ -174,12 +174,46 @@ the derivation now falls back to that marker.
 baseline rewritten as a checkpoint. See the working plan's 5a entry for the
 full account, including the mapping table.
 
-**Next task:** 5c (`quality.jsonl` + `timing.jsonl` written *during*
-recording, not at finalization). 3.4 remains a written, unimplemented design
-plan (see above) -- it blocks nothing in Phase 5 and can land whenever
-convenient. Order for the rest of Phase 5:
-5c -> 5h -> 5i -> 5g -> 5j -> 5f. Claim the package in the working plan
-before editing.
+## 5c complete -- 2026-09-08
+
+`quality.jsonl` and `timing.jsonl` written *while* recording, so an aborted
+session still leaves QC behind -- that sentence from target doc §9 shaped
+the whole design.
+
+The counters largely existed already (`StreamRuntimeState` tracked sample
+counts, timestamps, clock offsets, reconnects) but lived only in memory.
+What was missing: a durable journal, thresholds that turn a number into an
+event, and the derived metrics nobody computed live (gaps, timestamp
+regressions, jitter, effective rate). New `contracts/quality_journal.py`
+(pure, so the detached worker needs nothing host-side): schemas, the
+versioned quality profile, `StreamQualityObserver` (running aggregates
+only, never samples), `WallClockJumpDetector`. New
+`data_core/worker/session_journals.py`: one append-only writer per worker
+process, fsynced on the same checkpoint tick that already flushes XDF data
+durably -- a crash loses at most the same window of evidence as of data. A
+journal write can never break a recording; an unwritable disk is swallowed.
+
+**A real numerical bug caught by the new tests, not shipped:** jitter was
+first computed as `E[x²] - E[x]²`, which cancels catastrophically for
+sample intervals and reported 1.3 ns of jitter on a perfectly even stream
+-- false precision in exactly the number a researcher reads as timing
+quality. Replaced with Welford's algorithm (now 3 ps on a synthetic even
+250 Hz stream, which is the timestamps' own float representation).
+
+Out of scope by decision, named in the module docstring: queue utilisation
+belongs to 5h which introduces the queues, and continuous free-storage
+monitoring is not ingest observation (5b already gates the start).
+
+19 new tests; full suite **870 passed, 4 skipped**; JS 27 passed; structure
+baseline rewritten. See the working plan's 5c entry for the full account.
+
+**Next task:** 5h (recording checkpoints and bounded ingest -- write ->
+durable flush -> committed segment position -> journal fsync -> ack; per
+stream queue limits and writer isolation; fault injection at every commit
+boundary). 3.4 remains a written, unimplemented design plan (see above) --
+it blocks nothing in Phase 5. Order for the rest of Phase 5:
+5h -> 5i -> 5g -> 5j -> 5f. Claim the package in the working plan before
+editing.
 
 ## Shared location and coordination
 

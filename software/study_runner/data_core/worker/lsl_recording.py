@@ -18,8 +18,14 @@ from study_runner.data_core.contract.backup_projection import BackupProjection, 
 # preflight needs them too and may not import this module. Re-exported here
 # so existing worker-side callers keep working unchanged.
 from study_runner.data_core.contract.lsl_dependency import lsl_version_info, require_pylsl
+from study_runner.contracts.quality_journal import (
+    OBSERVATION_CLOCK_OFFSET,
+    StreamQualityObserver,
+    timing_record,
+)
 
 from .core import NativeXdfCore, NativeXdfWriter
+from .session_journals import SessionJournalWriter
 
 
 BOUNDARY_INTERVAL_SECONDS = 10.0
@@ -203,6 +209,7 @@ class LslSourceRecorder:
         cache: ProjectionCache,
         pylsl_module: Any,
         clock: Callable[[], float] = time.monotonic,
+        journals: SessionJournalWriter | None = None,
     ) -> None:
         if not plugin_key.strip():
             raise ValueError("plugin_key is required")
@@ -226,6 +233,18 @@ class LslSourceRecorder:
         self._drain_until_monotonic = 0.0
         self._lock = threading.RLock()
         self._states = [StreamRuntimeState(spec=spec, stream_id=index + 1) for index, spec in enumerate(specs)]
+        # Package 5c: quality is observed as samples arrive, so an aborted
+        # session still leaves evidence behind. One observer per stream,
+        # holding running aggregates only -- never the samples themselves.
+        self._journals = journals
+        self._observers = {
+            spec.key: StreamQualityObserver(
+                plugin_key=plugin_key,
+                stream_key=spec.key,
+                nominal_rate_hz=spec.nominal_rate_hz,
+            )
+            for spec in specs
+        }
         self._primary_index = primary_indexes[0] if primary_indexes else 0
         self._threads: list[threading.Thread] = []
         self._checkpoint_thread: threading.Thread | None = None
@@ -301,6 +320,7 @@ class LslSourceRecorder:
                         state.last_sample_monotonic = received
                         state.last_error = None
                         self._readiness.notify_all()
+                    self._observe_quality(state, timestamps, received)
                     if (
                         self._drain_requested.is_set()
                         and time.monotonic() >= self._drain_until_monotonic
@@ -322,6 +342,19 @@ class LslSourceRecorder:
                         with self._lock:
                             state.clock_offsets.append((local_time - correction, correction))
                             state.last_clock_error = None
+                        # The same observation the XDF carries, also in
+                        # timing.jsonl: readable without parsing XDF, and
+                        # present even if this session never merges.
+                        self._append_timing(
+                            timing_record(
+                                observation=OBSERVATION_CLOCK_OFFSET,
+                                monotonic=now,
+                                plugin_key=self.plugin_key,
+                                stream_key=state.spec.key,
+                                lsl_local_clock=local_time,
+                                correction_seconds=correction,
+                            )
+                        )
                     except Exception as error:
                         # Clock-offset diagnostics may be temporarily
                         # unavailable while sample transport remains healthy.
@@ -441,6 +474,39 @@ class LslSourceRecorder:
             )
         return str(raw_xml)
 
+    def _observe_quality(
+        self,
+        state: StreamRuntimeState,
+        timestamps: Sequence[float],
+        received: float,
+    ) -> None:
+        """Fold one chunk into this stream's observer and journal its events.
+
+        Runs outside the state lock: the observer belongs to one stream, and
+        one recorder thread owns that stream, so there is nothing to
+        contend with -- and journal writes must never widen a lock the
+        ingest loop holds.
+        """
+        observer = self._observers.get(state.spec.key)
+        if observer is None:
+            return
+        for event in observer.observe_chunk(timestamps, monotonic=received):
+            self._append_quality(event)
+
+    def _append_quality(self, record: Mapping[str, Any]) -> None:
+        if self._journals is not None:
+            self._journals.append_quality(record)
+
+    def _append_timing(self, record: Mapping[str, Any]) -> None:
+        if self._journals is not None:
+            self._journals.append_timing(record)
+
+    def _write_quality_summaries(self, now: float) -> None:
+        for state in self._states:
+            observer = self._observers.get(state.spec.key)
+            if observer is not None and observer.sample_count:
+                self._append_quality(observer.summary(monotonic=now))
+
     def _checkpoint_loop(self) -> None:
         next_boundary = self._clock() + BOUNDARY_INTERVAL_SECONDS
         next_flush = self._clock() + DURABLE_FLUSH_INTERVAL_SECONDS
@@ -452,6 +518,12 @@ class LslSourceRecorder:
                     next_boundary += BOUNDARY_INTERVAL_SECONDS
                 if now >= next_flush:
                     self._writer.flush(durable=True)
+                    # Quality evidence is made durable on the same tick as
+                    # the data it describes, so a crash loses at most the
+                    # same window of both.
+                    self._write_quality_summaries(now)
+                    if self._journals is not None:
+                        self._journals.flush(durable=True)
                     next_flush += DURABLE_FLUSH_INTERVAL_SECONDS
             except Exception as error:
                 with self._lock:
@@ -528,6 +600,11 @@ class LslSourceRecorder:
         finally:
             if self._closed:
                 self._writer.destroy()
+        # Final totals after the drain, so a cleanly frozen session's journal
+        # ends with the real counts rather than the last periodic tick's.
+        self._write_quality_summaries(self._clock())
+        if self._journals is not None:
+            self._journals.flush(durable=True)
         return self.status()
 
     @staticmethod

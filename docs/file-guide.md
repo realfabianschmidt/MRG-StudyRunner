@@ -35,6 +35,7 @@ Edit-safety legend:
 | `software/study_runner/contracts/plugin_api.py` | Dependency-light runtime context and plugin protocol shared by server, framework, and extension subprocesses | no |
 | `software/study_runner/contracts/stream_contract.py` | Turns one manifest-declared stream contract into `desc/study_runner` XDF header fields; every LSL-producing module calls it before creating its outlet | no |
 | `software/study_runner/contracts/session_lifecycle.py` | The one explicit session state (`IDLE`/`PREFLIGHT`/`RECORDING`/`FINALIZING`/`SEALED`/`WITHDRAWN`/`FAILED`), derived from the recording plan and finalization job that own the detail, plus the allowed transitions | no |
+| `software/study_runner/contracts/quality_journal.py` | Streaming quality counters (gaps, timestamp regressions, jitter, effective rate), wall-clock jump detection, and the versioned quality profile whose thresholds turn a number into an event | careful |
 
 ## Apps server - HTTP routes (`software/study_runner/apps/server/routes/`)
 
@@ -146,6 +147,7 @@ Edit-safety legend:
 | `application.py` | Authenticated loopback command server with leases, generation fencing, and durable command replay | no |
 | `core.py` | Checked `ctypes` binding for the stable C ABI exposed by `xdf_core` | no |
 | `lsl_recording.py` | Threaded LSL inlet capture, validated stream headers, bounded drain, and backup projection | no |
+| `session_journals.py` | Appends `quality.jsonl`/`timing.jsonl` while recording and fsyncs them on the same checkpoint tick as the XDF data, so an aborted session still leaves quality evidence | no |
 | `runtime.py` | Session lifecycle, segment control, merge orchestration, and worker health state | no |
 
 The audited native XDF writer lives in `software/recording_worker/native/`.
