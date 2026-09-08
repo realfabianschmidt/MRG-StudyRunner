@@ -20,6 +20,7 @@ from study_runner.data_core.contract.backup_projection import BackupProjection, 
 from study_runner.data_core.contract.lsl_dependency import lsl_version_info, require_pylsl
 from study_runner.contracts.quality_journal import (
     OBSERVATION_CLOCK_OFFSET,
+    IngestBacklogMonitor,
     StreamQualityObserver,
     timing_record,
 )
@@ -34,6 +35,14 @@ DURABLE_FLUSH_INTERVAL_SECONDS = 5.0
 RESOLVE_TIMEOUT_SECONDS = 0.5
 PULL_TIMEOUT_SECONDS = 0.25
 CLOCK_OFFSET_INTERVAL_SECONDS = 5.0
+# Seconds of data an LSL inlet may buffer before it discards the oldest.
+# Passed to StreamInlet as max_buflen; kept as a named constant because 5h
+# needs the same number to say how full that buffer is getting.
+INLET_BUFFER_SECONDS = 360
+# pylsl reads max_buflen as seconds for a rated stream and as hundreds of
+# samples for an irregular one, so the capacity of a marker stream's buffer
+# is this many samples regardless of how rarely markers arrive.
+IRREGULAR_INLET_BUFFER_SAMPLES = INLET_BUFFER_SECONDS * 100
 DRAIN_GRACE_SECONDS = 0.35
 DRAIN_STOP_JOIN_TIMEOUT_SECONDS = 0.65
 ABORT_JOIN_TIMEOUT_SECONDS = 0.25
@@ -197,6 +206,14 @@ class StreamRuntimeState:
         }
 
 
+def _inlet_capacity_samples(nominal_rate_hz: float) -> int:
+    """How many samples this stream's inlet buffer holds before it drops."""
+    rate = float(nominal_rate_hz or 0.0)
+    if rate <= 0 or not math.isfinite(rate):
+        return IRREGULAR_INLET_BUFFER_SAMPLES
+    return max(1, int(INLET_BUFFER_SECONDS * rate))
+
+
 def _relative_to_session(target: Path, session_root: Path | None) -> str:
     """Segment path relative to the session, or its name when unrelatable."""
     if session_root is None:
@@ -261,6 +278,18 @@ class LslSourceRecorder:
                 plugin_key=plugin_key,
                 stream_key=spec.key,
                 nominal_rate_hz=spec.nominal_rate_hz,
+            )
+            for spec in specs
+        }
+        # Package 5h: the inlet buffer is the only bound in the ingest path,
+        # and it drops the oldest samples when it fills. Watching it lets a
+        # recorder that cannot keep up say so instead of leaving a gap that
+        # reads as the sensor's fault.
+        self._backlog = {
+            spec.key: IngestBacklogMonitor(
+                plugin_key=plugin_key,
+                stream_key=spec.key,
+                capacity_samples=_inlet_capacity_samples(spec.nominal_rate_hz),
             )
             for spec in specs
         }
@@ -354,6 +383,7 @@ class LslSourceRecorder:
                     continue
                 now = self._clock()
                 if now >= next_clock_offset:
+                    self._observe_backlog(state, inlet, now)
                     try:
                         correction = float(inlet.time_correction(timeout=0.1))
                         local_time = float(self._pylsl.local_clock())
@@ -418,7 +448,7 @@ class LslSourceRecorder:
         info = matches[0]
         inlet = self._pylsl.StreamInlet(
             info,
-            max_buflen=360,
+            max_buflen=INLET_BUFFER_SECONDS,
             max_chunklen=0,
             recover=True,
             processing_flags=0,
@@ -512,6 +542,28 @@ class LslSourceRecorder:
         for event in observer.observe_chunk(timestamps, monotonic=received):
             self._append_quality(event)
 
+    def _observe_backlog(self, state: StreamRuntimeState, inlet: Any, now: float) -> None:
+        """Journal when this stream's inlet buffer starts or stops filling up.
+
+        Checked on the clock-offset tick rather than every pull: the reading
+        is a cheap call, but the ingest loop's job is to move samples, and a
+        buffer that fills over minutes does not need to be sampled at kHz.
+
+        Any failure here is swallowed. Not being able to ask how full a
+        buffer is must never end a recording -- the same rule the rest of
+        the observation machinery follows.
+        """
+        monitor = self._backlog.get(state.spec.key)
+        available = getattr(inlet, "samples_available", None)
+        if monitor is None or not callable(available):
+            return
+        try:
+            event = monitor.observe(available(), monotonic=now)
+        except Exception:
+            return
+        if event is not None:
+            self._append_quality(event)
+
     def _append_quality(self, record: Mapping[str, Any]) -> None:
         if self._journals is not None:
             self._journals.append_quality(record)
@@ -523,8 +575,16 @@ class LslSourceRecorder:
     def _write_quality_summaries(self, now: float) -> None:
         for state in self._states:
             observer = self._observers.get(state.spec.key)
-            if observer is not None and observer.sample_count:
-                self._append_quality(observer.summary(monotonic=now))
+            if observer is None or not observer.sample_count:
+                continue
+            summary = observer.summary(monotonic=now)
+            monitor = self._backlog.get(state.spec.key)
+            if monitor is not None:
+                # Carried even when no backlog event ever fired: "the buffer
+                # never went past 2% full" is the evidence that the machine
+                # kept up, and it is only available while recording.
+                summary["details"]["peak_fill_ratio"] = round(monitor.peak_fill_ratio, 4)
+            self._append_quality(summary)
 
     def _write_checkpoint(self, now: float, *, reason: str) -> bool:
         """Record how far this recorder's data is known to be on disk.

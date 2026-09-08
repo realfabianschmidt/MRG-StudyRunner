@@ -52,6 +52,10 @@ DEFAULT_QUALITY_PROFILE: dict[str, Any] = {
     # Wall clock moving by more than this against the monotonic clock over
     # the same interval is an NTP correction or a manual change, not drift.
     "clock_jump_seconds": 1.0,
+    # 5h. Share of the transport's bounded buffer that may sit unread before
+    # the recorder says it is falling behind. A quarter full is early enough
+    # to act on and high enough that ordinary burstiness does not trip it.
+    "backlog_fill_ratio": 0.25,
 }
 
 # Quality event names. `summary` is periodic and always emitted; the rest
@@ -61,6 +65,9 @@ EVENT_GAP = "gap"
 EVENT_TIMESTAMP_REGRESSION = "timestamp_regression"
 EVENT_CLOCK_JUMP = "clock_jump"
 EVENT_SUMMARY = "summary"
+# 5h. The recorder is falling behind the sensor and the transport's bounded
+# buffer is filling. Emitted once when it starts and once when it clears.
+EVENT_INGEST_BACKLOG = "ingest_backlog"
 # 5h. Written by the *host* during recovery, not by the ingest loop: the
 # process that could have described its own last seconds is the one that
 # died. See contracts/recording_checkpoint.py for what "confirmed" means.
@@ -262,6 +269,90 @@ class StreamQualityObserver:
             stream_key=self.stream_key,
             profile_version=self.profile_version,
             **details,
+        )
+
+
+class IngestBacklogMonitor:
+    """Watch how full the transport's bounded buffer is getting (5h).
+
+    There is no queue of our own to bound: samples go from the pull
+    straight into the writer. The bound that exists is the LSL inlet's own
+    buffer, and it is the dangerous kind -- when it fills, LSL **discards
+    the oldest samples without telling anyone**. Downstream that loss looks
+    exactly like a transport stall, so 5c would report it as a gap and
+    quietly blame the sensor for something the recorder did.
+
+    This monitor exists to tell those two apart. It reports how full the
+    buffer is *before* it overflows, which turns "data vanished" into "the
+    machine could not keep up, here is how close it came".
+
+    Reported as a fill ratio rather than a sample count so that regular and
+    irregular streams -- whose buffers are sized in different units -- are
+    judged by one rule and read on one scale.
+    """
+
+    def __init__(
+        self,
+        *,
+        plugin_key: str,
+        stream_key: str,
+        capacity_samples: int,
+        profile: Mapping[str, Any] | None = None,
+    ) -> None:
+        self.plugin_key = str(plugin_key)
+        self.stream_key = str(stream_key)
+        self.capacity_samples = max(0, int(capacity_samples))
+        self._profile = dict(profile or DEFAULT_QUALITY_PROFILE)
+        self._elevated = False
+        self.peak_fill_ratio = 0.0
+
+    def observe(self, available_samples: int, *, monotonic: float) -> dict[str, Any] | None:
+        """Fold in one buffer reading; return an event on a state change.
+
+        Deliberately edge-triggered: one event when the backlog starts and
+        one when it clears. A level-triggered version would write a line
+        every few seconds for the whole episode, and a journal that floods
+        during exactly the minutes an operator most needs to read it is
+        worse than no journal.
+        """
+        if self.capacity_samples <= 0:
+            return None
+        try:
+            available = max(0, int(available_samples))
+        except (TypeError, ValueError):
+            return None
+        ratio = available / self.capacity_samples
+        self.peak_fill_ratio = max(self.peak_fill_ratio, ratio)
+        threshold = float(self._profile.get("backlog_fill_ratio") or 0.0)
+        if threshold <= 0:
+            return None
+        if ratio >= threshold and not self._elevated:
+            self._elevated = True
+            return self._event(monotonic, available, ratio, cleared=False)
+        if ratio < threshold and self._elevated:
+            self._elevated = False
+            return self._event(monotonic, available, ratio, cleared=True)
+        return None
+
+    def _event(
+        self,
+        monotonic: float,
+        available: int,
+        ratio: float,
+        *,
+        cleared: bool,
+    ) -> dict[str, Any]:
+        return quality_record(
+            event=EVENT_INGEST_BACKLOG,
+            monotonic=monotonic,
+            plugin_key=self.plugin_key,
+            stream_key=self.stream_key,
+            profile_version=int(self._profile.get("version") or QUALITY_PROFILE_VERSION),
+            cleared=cleared,
+            buffered_samples=available,
+            capacity_samples=self.capacity_samples,
+            fill_ratio=round(ratio, 4),
+            peak_fill_ratio=round(self.peak_fill_ratio, 4),
         )
 
 

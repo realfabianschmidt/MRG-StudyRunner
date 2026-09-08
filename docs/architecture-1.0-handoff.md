@@ -207,13 +207,59 @@ monitoring is not ingest observation (5b already gates the start).
 19 new tests; full suite **870 passed, 4 skipped**; JS 27 passed; structure
 baseline rewritten. See the working plan's 5c entry for the full account.
 
-**Next task:** 5h (recording checkpoints and bounded ingest -- write ->
-durable flush -> committed segment position -> journal fsync -> ack; per
-stream queue limits and writer isolation; fault injection at every commit
-boundary). 3.4 remains a written, unimplemented design plan (see above) --
-it blocks nothing in Phase 5. Order for the rest of Phase 5:
-5h -> 5i -> 5g -> 5j -> 5f. Claim the package in the working plan before
-editing.
+## 5h complete (Claude, 2026-09-08)
+
+Commit `0f7a2ba` plus this one. Confirmed prefix + bounded ingest.
+
+The gap 5h actually closed: the worker already flushed durably every five
+seconds and recovery already preserved a crashed generation's segment, but
+nothing recorded *where those flushes fell*. So "how much reached the disk"
+answered "everything up to some flush, then an unknown amount more" -- and
+an unknown amount nobody wrote down is indistinguishable from no loss.
+
+New `contracts/recording_checkpoint.py`. The commit order carries the
+guarantee: write -> `flush(durable=True)` -> append checkpoint -> fsync the
+checkpoint. The claim's fsync follows the data's flush, so a surviving
+checkpoint is a promise about the data beneath it. `append_checkpoint`
+returns whether its fsync succeeded, because a lost checkpoint would turn an
+honest "unknown tail" into a false "all present". On recovery
+`report_unconfirmed_tail` writes the boundary into `quality.jsonl` *before*
+the replacement generation starts; a cleanly frozen generation writes a
+`freeze` checkpoint and produces no event at all.
+
+**Read this before touching bounded ingest again:** the target doc asks for
+per-stream queue limits, but there is no internal queue -- `pull_chunk`
+writes straight into the native writer under its own `RLock`, which is also
+what already isolates streams from each other. The real bound is the LSL
+inlet buffer (360 s), and it silently discards the oldest samples when full,
+which downstream is indistinguishable from a sensor stall. New
+`IngestBacklogMonitor` watches its fill ratio and emits `ingest_backlog`
+edge-triggered (once on entry, once on clearing -- level-triggering would
+flood the journal during exactly the minutes worth reading);
+`peak_fill_ratio` rides along in every summary as positive evidence. A
+marker-priority scheduler was deliberately not built: CONTRIBUTING.md §10,
+and `peak_fill_ratio` will now surface the contention if it is ever real.
+
+**Two silently-useless tests found and fixed:** the unwritable-directory
+tests used an invented absolute path, which on Windows resolves under the
+current drive and is creatable -- they passed without exercising a failure.
+Use a child of a regular file instead; that cannot be a directory anywhere.
+
+Full suite **893 passed, 4 skipped**; structure baseline rewritten. Plain-
+language explanation of 5a/5c/5d/5h for non-coders now lives in
+`docs/how-recording-quality-works.md` (per CONTRIBUTING.md §8); keep it in
+step when these algorithms change.
+
+**Next task:** 5i (withdrawal workflow -- stop writers, cancel pending
+finalization and publication, then delete raw/derived data and journal
+copies through a replayable operation; cover already sealed sessions and
+interrupted deletion; record what happens to already published destinations
+without claiming external deletion you cannot evidence). 5a already defined
+`WITHDRAWN_MARKER` and the transitions into `WITHDRAWN` from every state, so
+5i writes into a settled contract rather than inventing one. 3.4 remains a
+written, unimplemented design plan (see above) -- it blocks nothing in
+Phase 5. Order for the rest of Phase 5: 5i -> 5g -> 5j -> 5f. Claim the
+package in the working plan before editing.
 
 ## Shared location and coordination
 

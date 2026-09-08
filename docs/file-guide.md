@@ -36,7 +36,7 @@ Edit-safety legend:
 | `software/study_runner/contracts/stream_contract.py` | Turns one manifest-declared stream contract into `desc/study_runner` XDF header fields; every LSL-producing module calls it before creating its outlet | no |
 | `software/study_runner/contracts/session_lifecycle.py` | The one explicit session state (`IDLE`/`PREFLIGHT`/`RECORDING`/`FINALIZING`/`SEALED`/`WITHDRAWN`/`FAILED`), derived from the recording plan and finalization job that own the detail, plus the allowed transitions | no |
 | `software/study_runner/contracts/recording_checkpoint.py` | The confirmed-prefix contract: how far a segment is *known* to be on disk, written by the worker after each durable flush and read by the host during recovery to name the unconfirmed tail | careful |
-| `software/study_runner/contracts/quality_journal.py` | Streaming quality counters (gaps, timestamp regressions, jitter, effective rate), wall-clock jump detection, and the versioned quality profile whose thresholds turn a number into an event | careful |
+| `software/study_runner/contracts/quality_journal.py` | Streaming quality counters (gaps, timestamp regressions, jitter, effective rate), wall-clock jump detection, ingest-backlog monitoring against the transport's bounded buffer, and the versioned quality profile whose thresholds turn a number into an event | careful |
 
 ## Apps server - HTTP routes (`software/study_runner/apps/server/routes/`)
 

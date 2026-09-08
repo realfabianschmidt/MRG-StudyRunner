@@ -19,6 +19,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from study_runner.contracts.quality_journal import (
     EVENT_CLOCK_JUMP,
     EVENT_GAP,
+    EVENT_INGEST_BACKLOG,
+    IngestBacklogMonitor,
     EVENT_SUMMARY,
     EVENT_TIMESTAMP_REGRESSION,
     QUALITY_JOURNAL_SCHEMA,
@@ -179,6 +181,59 @@ class SessionJournalWriterTests(unittest.TestCase):
             journals.append_quality({"event": "late"})
             lines = (session / QUALITY_JOURNAL_FILENAME).read_text(encoding="utf-8").splitlines()
             self.assertEqual(len(lines), 1)
+
+
+class IngestBacklogMonitorTests(unittest.TestCase):
+    """Package 5h: telling "we fell behind" apart from "the sensor stalled"."""
+
+    def _monitor(self, capacity: int = 1000) -> IngestBacklogMonitor:
+        return IngestBacklogMonitor(
+            plugin_key="fixture",
+            stream_key="values",
+            capacity_samples=capacity,
+        )
+
+    def test_an_empty_buffer_is_not_an_event(self) -> None:
+        self.assertIsNone(self._monitor().observe(0, monotonic=1.0))
+
+    def test_crossing_the_threshold_reports_how_full_the_buffer_is(self) -> None:
+        monitor = self._monitor(capacity=1000)
+        event = monitor.observe(300, monotonic=2.0)  # 30%, threshold is 25%
+        self.assertIsNotNone(event)
+        self.assertEqual(event["event"], EVENT_INGEST_BACKLOG)
+        self.assertEqual(event["details"]["buffered_samples"], 300)
+        self.assertEqual(event["details"]["capacity_samples"], 1000)
+        self.assertAlmostEqual(event["details"]["fill_ratio"], 0.3)
+        self.assertFalse(event["details"]["cleared"])
+
+    def test_a_sustained_backlog_does_not_flood_the_journal(self) -> None:
+        """Edge-triggered: the minutes you most need to read must stay legible."""
+        monitor = self._monitor()
+        self.assertIsNotNone(monitor.observe(300, monotonic=1.0))
+        self.assertIsNone(monitor.observe(400, monotonic=2.0))
+        self.assertIsNone(monitor.observe(900, monotonic=3.0))
+
+    def test_recovery_is_reported_once(self) -> None:
+        monitor = self._monitor()
+        monitor.observe(300, monotonic=1.0)
+        cleared = monitor.observe(10, monotonic=2.0)
+        self.assertTrue(cleared["details"]["cleared"])
+        self.assertIsNone(monitor.observe(5, monotonic=3.0))
+
+    def test_the_peak_is_remembered_even_when_the_backlog_clears(self) -> None:
+        monitor = self._monitor()
+        monitor.observe(900, monotonic=1.0)
+        monitor.observe(0, monotonic=2.0)
+        self.assertAlmostEqual(monitor.peak_fill_ratio, 0.9)
+
+    def test_a_stream_with_no_known_capacity_is_never_judged(self) -> None:
+        monitor = IngestBacklogMonitor(
+            plugin_key="fixture", stream_key="values", capacity_samples=0
+        )
+        self.assertIsNone(monitor.observe(10_000, monotonic=1.0))
+
+    def test_an_unreadable_buffer_count_is_ignored_rather_than_guessed(self) -> None:
+        self.assertIsNone(self._monitor().observe(None, monotonic=1.0))
 
 
 class SummarizeQualityJournalTests(unittest.TestCase):

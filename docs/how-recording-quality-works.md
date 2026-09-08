@@ -5,8 +5,9 @@ quality of a recording, how it keeps track of time, and what the words in
 `quality.jsonl`, `timing.jsonl` and the session browser actually mean.
 
 It is written for people who run studies, not for programmers. There is no
-code in it. If you want the code, `study_runner/contracts/quality_journal.py`
-and `study_runner/contracts/session_lifecycle.py` carry the same
+code in it. If you want the code, `study_runner/contracts/quality_journal.py`,
+`study_runner/contracts/session_lifecycle.py` and
+`study_runner/contracts/recording_checkpoint.py` carry the same
 explanations next to the implementation.
 
 ---
@@ -261,7 +262,76 @@ it, the example study shipped with the application reported itself as
 
 ---
 
-## 6. Journals never stop a recording
+## 6. How much of the recording is actually on the disk
+
+When a program writes a file, the data does not go to the disk right away.
+The operating system holds it in memory for a while and writes it out when
+convenient. That is normally a good thing — it is why computers are fast —
+but it means that after a power cut, "the program wrote it" and "it is on
+the disk" are two different statements.
+
+Study Runner therefore pushes the recording all the way to the physical
+disk every few seconds, and — this is the part that is new — **writes down
+where it got to**. Those notes go into `checkpoints.jsonl`.
+
+The order matters more than anything else here:
+
+1. Samples are written.
+2. The data is forced onto the disk.
+3. A checkpoint is written saying "everything up to here is on the disk".
+4. That checkpoint is itself forced onto the disk.
+
+Because step 4 happens after step 2, a checkpoint that survives a crash is
+a promise that the data underneath it survived too. If the order were
+reversed, a surviving checkpoint could vouch for samples that never landed
+— which is worse than having no checkpoints at all, because it would be a
+confident false statement instead of an honest gap.
+
+### The unconfirmed tail
+
+Everything recorded *after* the last surviving checkpoint is the
+**unconfirmed tail**. It is usually fine: the operating system very
+probably wrote it. But "very probably" is not a claim this project makes
+about scientific data.
+
+So when a crashed recording is resumed, Study Runner writes an
+`unconfirmed_tail` entry into `quality.jsonl` naming the segment, the last
+confirmed sample count for each sensor, and when that confirmation was
+made. It is a **boundary, not a loss** — it tells you where to look, and it
+turns the previously invisible question ("how much of the last few seconds
+made it?") into something written down.
+
+A recording that stops normally writes a closing checkpoint after the file
+is fully on disk, so it confirms the whole segment and produces no warning
+at all. This is deliberate: a warning that also fires on healthy sessions
+is one people learn to ignore.
+
+### When the computer cannot keep up
+
+Sensor data arrives into a holding buffer, and the recorder empties it. If
+the recorder cannot empty it fast enough — a slow disk, an overloaded
+machine, too many sensors at once — the buffer fills, and the transport
+layer then **silently discards the oldest data**.
+
+That loss is genuinely invisible at the point it happens. Downstream it
+shows up as a gap in the measurements, which looks exactly like a sensor
+that stopped sending. The recorder would then report the sensor's fault for
+something the computer did.
+
+So the buffer's fill level is watched directly. When it passes a quarter
+full, a note is written saying how full it is and how much it can hold;
+when it drops back, another note says it cleared. Only those two — a note
+every few seconds throughout a bad episode would flood the file during
+precisely the minutes you most need to read it.
+
+The highest level ever reached is also recorded in every summary, even when
+nothing was ever flagged. "The buffer never went past 2% full" is the
+positive evidence that the machine kept up, and it can only be observed
+while recording — never reconstructed afterwards.
+
+---
+
+## 7. Journals never stop a recording
 
 If the quality journal cannot be written — the disk filled, the folder
 became read-only, a permission changed — **the recording continues**. The
@@ -279,7 +349,7 @@ clean stop or a crash of the application alone costs nothing.
 
 ---
 
-## 7. What you can check yourself
+## 8. What you can check yourself
 
 Open a session folder. If `quality.jsonl` is there:
 
@@ -288,6 +358,8 @@ Open a session folder. If `quality.jsonl` is there:
   before the one preceding it.
 - **No `clock_jump` lines** — the system clock behaved for the whole
   session.
+- **No `ingest_backlog` lines** — the computer kept up with the sensors.
+- **No `unconfirmed_tail` lines** — nothing crashed mid-recording.
 - **The `summary` lines** carry the running totals per stream. The last one
   for each stream is that stream's final tally.
 

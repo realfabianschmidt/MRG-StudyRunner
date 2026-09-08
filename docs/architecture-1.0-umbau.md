@@ -37,8 +37,9 @@ see Phase 3 section); **only 3.4 remains in Phase 3**, then Phase 5 in full
 `mrg` CLI and the extension SDK, rather than trim it against
 CONTRIBUTING.md's "keep it simple" guidance). **Phase 5's first two
 packages 5e (journal/XDF event-id comparison), 5d (stream contracts +
-timing provenance), 5a (session lifecycle) and 5c (live quality/timing
-journals) are also complete** — see Phase 5 section. Next: 5h, then 5i,
+timing provenance), 5a (session lifecycle), 5c (live quality/timing
+journals) and 5h (recording checkpoints + bounded ingest) are also
+complete** — see Phase 5 section. Next: 5i, then
 5g, 5j, 5f in that order (3.4 is a written,
 not-yet-implemented design plan, see Phase 3 section — it can land
 whenever convenient, it blocks nothing in Phase 5).
@@ -155,10 +156,10 @@ into RuntimeCore.
 
 | Initial requirement | Work package | Required evidence |
 |---|---|---|
-| §2, §8 durable acquisition | 5h checkpoints/recovery | Inject failure before/after data flush and journal commit; recover only confirmed prefix; report gaps |
+| §2, §8 durable acquisition | 5h checkpoints/recovery ✅ | Inject failure before/after data flush and journal commit; recover only confirmed prefix; report gaps |
 | §6 honest timing | 5d timing contract + 5c live observations | Source/receive/LSL clocks distinguished; delay provenance required including `unknown`; detect clock jumps |
 | §7 journal/LSL event parity | 5e | Identical IDs, replay deduplication and persisted mismatch evidence |
-| §8 bounded queues/writer isolation | 5h | Saturate one stream without silently losing/blocking unrelated streams; record drops |
+| §8 bounded queues/writer isolation | 5h ✅ (see the package note: no internal queue exists; the LSL inlet buffer is the real bound and is now observed) | Saturate one stream without silently losing/blocking unrelated streams; record drops |
 | §9 preflight and versioned QC | 5b, 5c | Disk reserve, required stream, clock plausibility failures; versioned thresholds |
 | §10 lifecycle/seal | 5a | Transition table; sealing requires verified artifacts; upload failure preserves seal |
 | §10 withdrawal | 5i | Stop writers/jobs; repeatable deletion of raw, derived and runtime journal copies; destination disposition recorded |
@@ -1325,12 +1326,70 @@ history.
       `validation.py`'s semantics exactly; report the incompatibility for a scope
       decision. Do not silently remove cards from the approved 1.0 scope
 
-- [ ] **5h** Recording checkpoints and bounded ingest. Write → durable data
-      flush → committed segment position/sample counts → journal fsync → ack.
-      Recovery admits only the confirmed prefix and journals unconfirmed tails
-      as gaps. Define per-stream queue limits, writer isolation and priority for
-      markers. Fault-injection tests cover every commit boundary; actual
+- [x] **5h** Recording checkpoints and bounded ingest (commits `0f7a2ba`,
+      this package's second commit). Two halves, both landed:
+
+      **Confirmed prefix.** New `contracts/recording_checkpoint.py` plus
+      `SessionJournalWriter.append_checkpoint`. The commit order is the
+      substance: write → `writer.flush(durable=True)` → append checkpoint →
+      fsync the checkpoint. The fsync of the *claim* follows the flush of the
+      *data*, so a checkpoint that survives a crash is a promise about the
+      data under it; reversed, a surviving checkpoint could vouch for samples
+      that never landed. `append_checkpoint` therefore returns whether its
+      fsync succeeded — a checkpoint is a claim about durability, and a
+      silently lost one would turn an honest "unknown tail" into a false
+      "all present". Checkpoints carry generation + segment relative path,
+      because a sample count only means something against the segment it was
+      counted in. `freeze()` writes a closing `reason: "freeze"` checkpoint
+      after `close(durable=True)`, confirming the whole segment.
+
+      **Recovery reporting.** `recording_runtime_support.report_unconfirmed_tail`
+      is called in `_reattach_or_recover` *before* the replacement generation
+      starts, so a failed start does not also lose the only record of the
+      previous segment's boundary. It writes `unconfirmed_tail` quality events
+      naming the last confirmed count/timestamp per stream. A generation that
+      closed with a `freeze` checkpoint produces **no** event — a warning that
+      fires on healthy sessions is one operators learn to ignore. A generation
+      with no surviving checkpoint at all still gets one event saying exactly
+      that, since "nothing confirmed" is the strongest form of the warning.
+
+      **Bounded ingest — what the doc asked for vs. what exists.** There is no
+      internal queue to bound: `pull_chunk` writes straight into the native
+      writer under the writer's own `RLock`, so streams are already isolated
+      from each other by that lock and no per-stream queue was ever introduced.
+      The bound that *does* exist is the LSL inlet's buffer
+      (`INLET_BUFFER_SECONDS = 360`), and it is the dangerous kind: when full,
+      LSL **discards the oldest samples without telling anyone**, and
+      downstream that loss is indistinguishable from a transport stall — 5c
+      would report it as a `gap` and blame the sensor for something the
+      recorder did. New `IngestBacklogMonitor` watches the buffer's fill ratio
+      (profile key `backlog_fill_ratio`, default 0.25) on the existing
+      clock-offset tick and emits `ingest_backlog` edge-triggered: once on
+      entry, once on clearing. Level-triggering would flood the journal during
+      exactly the minutes an operator needs to read it. `peak_fill_ratio` rides
+      along in every `summary`, so "the buffer never went past 2% full" is
+      recorded as positive evidence even when nothing fired.
+
+      **Deliberately not built:** a marker-priority scheduler. Markers already
+      have their own stream and their own thread, and the shared writer lock is
+      held only for the duration of one native write. A real priority scheduler
+      over that is the kind of machinery `CONTRIBUTING.md` §10 rules out, for a
+      contention problem that `peak_fill_ratio` will now make visible if it
+      ever actually occurs. Revisit with evidence, not in advance.
+
+      **Fault injection** at each commit boundary lives in
+      `test_hybrid_recording_worker.py::CheckpointCommitBoundaryTests`: a
+      failing data flush writes no checkpoint for that tick and stops the
+      recorder; a lost checkpoint leaves the earlier prefix intact rather than
+      retracting it; a recorder with no journals still records. Actual
       power-loss guarantees remain a platform/storage-specific release gate
+
+      **Two test holes closed on the way.** The unwritable-directory tests in
+      5c and 5h both used an invented absolute path (`/definitely/not/...`),
+      which on Windows resolves under the current drive and *is* creatable —
+      they passed while exercising no failure at all. Now a child of a regular
+      file, which cannot be a directory on any platform. Worth remembering for
+      any future "this path cannot be written" test
 - [ ] **5i** Withdrawal workflow. Stop writers, cancel pending finalization and
       publication, then delete raw/derived data and runtime/session/trial journal
       copies through a replayable operation. Cover already sealed sessions and
@@ -1365,7 +1424,7 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 5h (recording checkpoints + bounded ingest) — next active package; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+| Phase 5i (withdrawal workflow) — next active package; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -32,6 +33,13 @@ from study_runner.data_core.worker.lsl_recording import (
     ProjectionCache,
     StreamSpec,
 )
+from study_runner.contracts.recording_checkpoint import (
+    CHECKPOINT_JOURNAL_FILENAME,
+    confirmed_stream_positions,
+    last_checkpoint_for_generation,
+    read_checkpoints,
+)
+from study_runner.data_core.worker.session_journals import SessionJournalWriter
 from study_runner.data_core.worker.runtime import RecordingWorkerRuntime, sha256_file
 from study_runner.data_core.contract.worker_protocol import (
     WorkerCommand,
@@ -954,6 +962,115 @@ class LslSourceRecorderTests(unittest.TestCase):
             cache=ProjectionCache(),
             pylsl_module=pylsl,
         )
+
+
+class CheckpointCommitBoundaryTests(unittest.TestCase):
+    """Package 5h: fault injection at each step of the commit sequence.
+
+    The order is write -> durable data flush -> checkpoint -> fsync, and a
+    checkpoint means "everything under this is on disk". These tests kill
+    the sequence at each boundary and assert the surviving checkpoints
+    never claim more than that.
+    """
+
+    def _recorder_with_journals(self, core, pylsl, session: Path):
+        return LslSourceRecorder(
+            core,
+            plugin_key="fixture",
+            target_path=session / "raw" / "plugins" / "fixture" / "fixture.xdf",
+            streams=[
+                {
+                    "key": "values",
+                    "source_id": "study_runner.fixture",
+                    "type": "TEST",
+                    "nominal_rate_hz": 10,
+                    "channel_format": "float32",
+                    "channels": ["value"],
+                    "channel_units": ["arbitrary"],
+                }
+            ],
+            cache=ProjectionCache(),
+            pylsl_module=pylsl,
+            journals=SessionJournalWriter(session),
+            generation=2,
+            session_root=session,
+        )
+
+    def test_a_checkpoint_names_its_generation_and_segment(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            session = Path(temp_dir)
+            recorder = self._recorder_with_journals(_FakeCore(), _FakePylsl(), session)
+            recorder._states[0].sample_count = 120
+            recorder._states[0].last_timestamp = 1012.0
+            self.assertTrue(recorder._write_checkpoint(7.0, reason="periodic"))
+            recorder.abort()
+            # The journals are session-scoped and shared between recorders,
+            # so the worker runtime closes them, not one recorder's abort.
+            recorder._journals.close()
+
+            checkpoint = last_checkpoint_for_generation(
+                read_checkpoints(session / CHECKPOINT_JOURNAL_FILENAME), generation=2
+            )
+            self.assertEqual(
+                checkpoint["segment_relative_path"],
+                "raw/plugins/fixture/fixture.xdf",
+            )
+            position = confirmed_stream_positions(checkpoint)["fixture.values"]
+            self.assertEqual(position["sample_count"], 120)
+
+    def test_a_failed_data_flush_writes_no_checkpoint_for_that_tick(self) -> None:
+        """The claim must never outlive the thing it claims about."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            session = Path(temp_dir)
+            core = _FakeCore()
+
+            def failing_flush(**_kwargs):
+                raise OSError("disk full")
+
+            core.writer.flush = failing_flush
+            recorder = self._recorder_with_journals(core, _FakePylsl(), session)
+            recorder._states[0].sample_count = 50
+            # A clock that jumps past the flush deadline on the second read,
+            # so the loop reaches its flush branch immediately instead of
+            # waiting out a real interval.
+            ticks = iter([0.0, 10_000.0])
+            last = [0.0]
+
+            def clock() -> float:
+                last[0] = next(ticks, last[0] + 10_000.0)
+                return last[0]
+
+            recorder._clock = clock
+            recorder._checkpoint_loop()
+
+            self.assertIn("checkpoint failed", recorder._fatal_error or "")
+            self.assertEqual(read_checkpoints(session / CHECKPOINT_JOURNAL_FILENAME), [])
+            recorder.abort()
+            recorder._journals.close()
+
+    def test_a_lost_checkpoint_leaves_the_earlier_prefix_intact(self) -> None:
+        """Losing the newest claim must not retract the ones already made."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            session = Path(temp_dir)
+            recorder = self._recorder_with_journals(_FakeCore(), _FakePylsl(), session)
+            recorder._states[0].sample_count = 40
+            self.assertTrue(recorder._write_checkpoint(5.0, reason="periodic"))
+            recorder._journals.close()  # stands in for the process dying
+            recorder._states[0].sample_count = 900
+            self.assertFalse(recorder._write_checkpoint(10.0, reason="periodic"))
+            recorder.abort()
+
+            checkpoint = last_checkpoint_for_generation(
+                read_checkpoints(session / CHECKPOINT_JOURNAL_FILENAME), generation=2
+            )
+            position = confirmed_stream_positions(checkpoint)["fixture.values"]
+            self.assertEqual(position["sample_count"], 40)
+
+    def test_a_recorder_without_journals_still_records(self) -> None:
+        """Checkpointing is evidence, never a precondition for recording."""
+        recorder = LslSourceRecorderTests._recorder(_FakeCore(), _FakePylsl())
+        self.assertFalse(recorder._write_checkpoint(1.0, reason="periodic"))
+        recorder.abort()
 
 
 if __name__ == "__main__":
