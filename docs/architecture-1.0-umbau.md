@@ -1,10 +1,12 @@
 # Architecture 1.0 Rebuild — Working State
 
 > **Current implementation, 2026-09-08:** this `main` copy records the
-> Phase 0 foundation. Phases 1/2 and approved repairs R1-R5 are implemented
-> on `feature/architecture-1.0` at `f43cf1f`, in `C:\SR-1.0`.
+> Phase 0 foundation. Phases 1/2, approved repairs R1-R5, preflight, and the
+> Phase 4 directory move are implemented on `feature/architecture-1.0` at
+> `64e7ffd`, in `C:\SR-1.0`.
 > Continue with that checkout's `docs/architecture-1.0-umbau.md` and
-> `docs/architecture-1.0-handoff.md`. The next package is early preflight (5b).
+> `docs/architecture-1.0-handoff.md`. The next package is deferred Phase 3
+> compatibility/plugin contracts, then Phase 5c lifecycle and recovery.
 > [Shared Claude/Codex entry point](architecture-1.0-handoff.md).
 > The [versioned initial plan](architecture-1.0-initial.md) preserves the input;
 > approved deviations and acceptance evidence live on the development branch.
