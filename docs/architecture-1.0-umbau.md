@@ -292,7 +292,7 @@ rather than deleting it immediately keeps an operator-edited manifest loading.
 hand on the developer machine.
 
 `release_tools/tests/test_pyinstaller_common.py` pins exactly the strings a
-rename breaks (`"study_runner/frontend"`, `"study_runner.backend"`), but
+rename breaks (`"study_runner/apps/ui"`, `"study_runner.backend"`), but
 `ci.yml:68` runs only `release_tools.tests.test_build_source_release`, and
 `python -m pytest software` never reaches `release_tools/`. **The test is dark.**
 Turning it on is one line and it is the highest-value action available before
@@ -818,7 +818,7 @@ commit per category, derived from each manifest's `category`) → `apps/ui` →
       `hardware_settings_service.py` (now `runtime_core/settings/`) to need
       touching in the same or a fast-follow commit — see 4.12 and T7.
 - [ ] **4.8 `apps/ui`** — NOT STARTED. `frontend/` → `apps/ui/`. Watch for
-      hardcoded `study_runner/frontend/...` path literals in
+      hardcoded `study_runner/apps/ui/...` path literals in
       `backend/__init__.py`'s static-folder wiring, the PyInstaller specs,
       and JS test runner config (`node --test software/tests/js/*.test.mjs`
       itself doesn't reference the path, but check `WEB_INTERFACE_DIR` in
@@ -1149,3 +1149,8 @@ Checkpoint: 4.7 complete. All six built-ins now live below categorized
 resolver serves catalog, child drivers, UI assets, self-check and packaging.
 Cross-category candidates share the global conflict pass. Targeted evidence:
 84 Python, 4 packaging and 4 JavaScript tests passed. Next: 4.8 `apps/ui`.
+
+Checkpoint: 4.8 complete. `frontend` is now `apps/ui`; runtime data lookup,
+PyInstaller, source-release licences and JS/Python path contracts moved with it.
+HTTP paths did not change. Evidence: 73 targeted Python, 27 JavaScript and 25
+release/packaging tests passed. Next: 4.9 `apps/server`.

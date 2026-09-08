@@ -14,8 +14,8 @@ of these licenses themselves require:
 |---|---|---|
 | `App-LabRecorder-XDFWriter-LICENSE.txt` | `software/recording_worker/native/vendor/App-LabRecorder/LICENSE` | The vendored LabRecorder/XDFWriter sources and the adapted `xdfwriter_patched.cpp`/`.h` files (MIT) |
 | `BOOST_LICENSE_1_0.txt` | `software/recording_worker/native/vendor/BOOST_LICENSE_1_0.txt` | Portions of `xdfwriter/conversions.h` derived from a Boost-licensed portable archive implementation (Boost Software License 1.0) |
-| `Geist-LICENSE.txt` | `software/study_runner/frontend/vendor/geist/LICENSE` | The vendored Geist Sans/Mono font files (SIL Open Font License 1.1) |
-| `Iconoir-LICENSE.txt` | `software/study_runner/frontend/vendor/iconoir/LICENSE` | The vendored Iconoir icon set (MIT) |
+| `Geist-LICENSE.txt` | `software/study_runner/apps/ui/vendor/geist/LICENSE` | The vendored Geist Sans/Mono font files (SIL Open Font License 1.1) |
+| `Iconoir-LICENSE.txt` | `software/study_runner/apps/ui/vendor/iconoir/LICENSE` | The vendored Iconoir icon set (MIT) |
 
 Not third-party, kept out of this folder on purpose: the Materiability
 heading font (first-party, covered by `../LICENSE`) and

@@ -308,9 +308,9 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
         self.assertIsNone(registry.get_plugin(PLUGIN_KEY))
         for relative_path in (
             "study_runner/data_core/host/recording_runtime.py",
-            "study_runner/frontend/scripts/shared/plugin-catalog.js",
-            "study_runner/frontend/scripts/settings/study/study-settings-panel.js",
-            "study_runner/frontend/scripts/cards/card-stimulus.js",
+            "study_runner/apps/ui/scripts/shared/plugin-catalog.js",
+            "study_runner/apps/ui/scripts/settings/study/study-settings-panel.js",
+            "study_runner/apps/ui/scripts/cards/card-stimulus.js",
         ):
             self.assertNotIn(
                 PLUGIN_KEY,

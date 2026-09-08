@@ -20,7 +20,7 @@ class PyInstallerCommonTests(unittest.TestCase):
     def test_empty_plugin_tree_keeps_frontend_at_runtime_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            (root / "study_runner" / "frontend").mkdir(parents=True)
+            (root / "study_runner" / "apps" / "ui").mkdir(parents=True)
             (root / "study_runner" / "plugins").mkdir()
             (root / "study_content").mkdir()
             _touch_internal_recording_manifests(root)
@@ -29,7 +29,7 @@ class PyInstallerCommonTests(unittest.TestCase):
                 datas = common.common_datas(root)
 
             self.assertIn(
-                (str(root / "study_runner" / "frontend"), "study_runner/frontend"),
+                (str(root / "study_runner" / "apps" / "ui"), "study_runner/apps/ui"),
                 datas,
             )
             self.assertNotIn("study_runner/web", {destination for _source, destination in datas})
@@ -61,7 +61,7 @@ class PyInstallerCommonTests(unittest.TestCase):
         by the packaging-smoke CI job; pinned here so it cannot regress."""
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            (root / "study_runner" / "frontend").mkdir(parents=True)
+            (root / "study_runner" / "apps" / "ui").mkdir(parents=True)
             (root / "study_runner" / "plugins").mkdir()
             (root / "study_content").mkdir()
             _touch_internal_recording_manifests(root)
@@ -77,7 +77,7 @@ class PyInstallerCommonTests(unittest.TestCase):
     def test_missing_internal_recording_manifest_fails_the_build(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            (root / "study_runner" / "frontend").mkdir(parents=True)
+            (root / "study_runner" / "apps" / "ui").mkdir(parents=True)
             (root / "study_runner" / "plugins").mkdir()
             (root / "study_content").mkdir()
             # Deliberately do not create data_core/host/*.manifest.json.
@@ -88,7 +88,7 @@ class PyInstallerCommonTests(unittest.TestCase):
     def test_camera_assets_are_required_only_when_camera_plugin_is_present(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            (root / "study_runner" / "frontend").mkdir(parents=True)
+            (root / "study_runner" / "apps" / "ui").mkdir(parents=True)
             plugin = root / "study_runner" / "plugins" / "renamed_camera_folder"
             plugin.mkdir(parents=True)
             (root / "study_content").mkdir()

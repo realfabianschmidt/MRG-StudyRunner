@@ -39,7 +39,7 @@ from study_runner.runtime_core.delivery.upload_runtime import configure_upload_j
 
 
 BASE_DIR = get_project_base_dir()
-WEB_INTERFACE_DIR = BASE_DIR / "study_runner" / "frontend"
+WEB_INTERFACE_DIR = BASE_DIR / "study_runner" / "apps" / "ui"
 
 
 def _load_hardware_config(config_path: Path) -> dict:

@@ -161,3 +161,9 @@ resolver. Packaging scans categorized manifests and CI stages its harmless
 fixture under sensors. Targeted Python tests: 84 passed; packaging: 4 passed;
 targeted JavaScript: 4 passed. Cross-category conflict coverage added. Next:
 move `frontend` to `apps/ui`.
+
+Checkpoint: `frontend` moved to `apps/ui`; runtime and PyInstaller data targets,
+source-release licences and all browser-test imports follow the new path. Public
+HTTP routes are unchanged. Evidence: 73 targeted Python, 27 JavaScript and 25
+release/packaging tests passed. Next: move the Flask factory and routes to
+`apps/server`, retaining both promised entrypoints.

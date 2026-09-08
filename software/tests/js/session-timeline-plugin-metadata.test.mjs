@@ -7,8 +7,8 @@
  */
 import assert from 'node:assert/strict';
 
-import { renderSessionTimeline } from '../../study_runner/frontend/scripts/admin/session-timeline.js';
-import { configurePluginCatalog } from '../../study_runner/frontend/scripts/shared/plugin-catalog.js';
+import { renderSessionTimeline } from '../../study_runner/apps/ui/scripts/admin/session-timeline.js';
+import { configurePluginCatalog } from '../../study_runner/apps/ui/scripts/shared/plugin-catalog.js';
 
 const labels = {
   nothingRecorded: 'nothing',

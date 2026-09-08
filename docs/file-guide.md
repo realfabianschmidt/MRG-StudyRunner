@@ -212,7 +212,7 @@ recording code now, not plugins: `recording/markers.py` and
 | `nextcloud_upload/webdav_client.py` | The WebDAV client: uploads session files to a writable Nextcloud public share, checksum-first | careful |
 | `nextcloud_upload/driver.py` | API-v4 process entry point (`run_plugin_driver("nextcloud")`) | no |
 
-## Frontend (`software/study_runner/frontend/scripts/`)
+## Frontend (`software/study_runner/apps/ui/scripts/`)
 
 | File | Purpose | Edit? |
 |---|---|---|

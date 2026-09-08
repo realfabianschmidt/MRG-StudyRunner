@@ -5,7 +5,7 @@ import {
   finalizationStepLabel,
   pickFinalizationFocus,
   retryableSteps,
-} from '../../study_runner/frontend/scripts/shared/finalization-view-model.js';
+} from '../../study_runner/apps/ui/scripts/shared/finalization-view-model.js';
 
 const queued = {
   job_id: 'queued',

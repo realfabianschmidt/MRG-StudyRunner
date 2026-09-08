@@ -25,8 +25,8 @@ def software_root(spec_path: str) -> Path:
 def common_datas(root: Path) -> list[tuple[str, str]]:
     datas = [
         # runtime_config.get_project_base_dir() resolves to the PyInstaller
-        # extraction root, and backend/__init__.py appends study_runner/frontend.
-        (str(root / "study_runner" / "frontend"), "study_runner/frontend"),
+        # extraction root, and backend/__init__.py appends study_runner/apps/ui.
+        (str(root / "study_runner" / "apps" / "ui"), "study_runner/apps/ui"),
         (str(root / "study_content"), "study_content"),
     ]
     # markers.py and clock_diagnostics.py load these next to themselves at
