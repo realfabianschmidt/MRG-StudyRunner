@@ -93,13 +93,33 @@ unrelated `readiness_requirements` capability, bump to `api_version: 5`.
 **Not yet implemented or approved** — read the working plan before starting
 3.4's actual code changes.
 
-**Next task:** implement 3.4 per that plan (or revise it first if you
-disagree with the recommendation), then Phase 5 **in full** (operator
-decision, 2026-09-08: keep the complete target scope including `mrg` CLI 5f
-and the extension SDK 5j, rather than trim against CONTRIBUTING.md's "keep
-it simple" guidance — see the working plan's decision log). Order for
-Phase 5: 5e -> 5d -> 5a -> 5c -> 5h -> 5i -> 5g -> 5j -> 5f. Claim the
-package in the working plan before editing.
+## 5e complete — 2026-09-08
+
+Journal/XDF event-id comparison. Duplicate detection *within* the XDF marker
+stream already existed; what was missing was comparing the durable session
+journal's full event-id set against the XDF's, reported as a soft
+`quality_warnings` entry (`journal_xdf_event_id_mismatch`,
+`missing_from_xdf`/`extra_in_xdf`) rather than a hard failure -- operator
+decision, matches the target doc's §9 wording. New
+`card_summary_service.py::_journal_xdf_mismatches`, opt-in via
+`CardSummaryBuilder.build()`'s new `journal_event_ids` parameter (`None`
+skips it, every existing caller unchanged). New
+`FinalizationService._journal_event_ids()` reads the durable "trial" journal
+straight from disk (not a live `TrialEventService`, which will not exist
+after a server restart). **A real bug was caught by the new tests before
+shipping**, not after: the journal record's payload sits under a nested
+`"snapshot"` key, not the record's top level -- the first draft silently
+read nothing back, which would have flagged every real session's XDF
+markers as `extra_in_xdf`. Fixed before commit. 7 new tests; full suite
+**819 passed, 4 skipped**; JS 27 passed; structure baseline rewritten as a
+checkpoint. See the working plan's 5e entry for the full account.
+
+**Next task:** 5d (stream contracts frozen at start, persisted as
+`stream-contracts.json`, written into the XDF header). 3.4 remains a
+written, unimplemented design plan (see above) -- it blocks nothing in
+Phase 5 and can land whenever convenient. Order for the rest of Phase 5:
+5d -> 5a -> 5c -> 5h -> 5i -> 5g -> 5j -> 5f. Claim the package in the
+working plan before editing.
 
 ## Shared location and coordination
 

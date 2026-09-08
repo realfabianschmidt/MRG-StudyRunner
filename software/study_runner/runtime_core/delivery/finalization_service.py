@@ -20,7 +20,10 @@ import time
 from typing import Any, Callable, Mapping, Protocol
 
 from study_runner.data_core.host.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
-from study_runner.runtime_core.studies.session_journal_service import SessionJournalStore
+from study_runner.runtime_core.studies.session_journal_service import (
+    SessionJournalCorruptionError,
+    SessionJournalStore,
+)
 
 from .artifact_manifest_service import ArtifactManifestError, ArtifactManifestStore
 from study_runner.shared.atomic_io import atomic_write_json
@@ -825,16 +828,48 @@ class FinalizationService:
             required_marker_event_ids=[
                 str((context.submission.get("study_end_event") or {}).get("event_id") or "")
             ],
+            journal_event_ids=self._journal_event_ids(context.state["session_id"]),
         )
         for warning in summary.get("quality_warnings") or []:
             if isinstance(warning, Mapping):
-                rendered = f"{warning.get('code')}: {warning.get('event_id') or warning.get('message') or ''}".rstrip(": ")
+                detail = str(warning.get("event_id") or warning.get("message") or "")
+                direction = warning.get("direction")
+                if direction:
+                    detail = f"{detail} ({direction})"
+                rendered = f"{warning.get('code')}: {detail}".rstrip(": ")
             else:
                 rendered = str(warning)
             if rendered and rendered not in context.state["warnings"]:
                 context.state["warnings"].append(rendered)
         atomic_write_json(target, summary)
         return StepResult("done", {"card_count": summary["card_count"], "stream_count": summary["stream_count"]})
+
+    def _journal_event_ids(self, session_id: str) -> list[str] | None:
+        """The durable session-journal's own record of every event id.
+
+        Reads the "trial" stream's on-disk journal directly rather than a
+        live `TrialEventService` instance -- finalization must work after a
+        server restart, when no such instance for this session exists
+        anymore. Each appended record is a full snapshot (see
+        `session_journal_service.py`'s own docstring), so the newest one
+        already contains every event id ever recorded for this session.
+
+        Returns ``None`` (skip the comparison entirely) only when the
+        journal cannot be read at all; an empty list is a confirmed "this
+        session genuinely journaled nothing", a real fact worth comparing
+        against, not a reason to give up.
+        """
+        try:
+            records = self.session_journals.records("trial", session_id)
+        except SessionJournalCorruptionError:
+            # A quality *comparison* must not turn a corrupted-beyond-the-
+            # tolerated-torn-line journal into a finalization failure.
+            return None
+        if not records:
+            return []
+        snapshot = records[-1].get("snapshot")
+        events = snapshot.get("events") if isinstance(snapshot, Mapping) else None
+        return list(events.keys()) if isinstance(events, Mapping) else []
 
     def _write_result_manifest(self, context: FinalizationContext) -> StepResult:
         result = {

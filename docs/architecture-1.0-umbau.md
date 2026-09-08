@@ -35,7 +35,11 @@ already implemented pre-dating this rebuild, verified rather than built —
 see Phase 3 section); **only 3.4 remains in Phase 3**, then Phase 5 in full
 (operator decided 2026-09-08 to keep the complete target scope, including
 `mrg` CLI and the extension SDK, rather than trim it against
-CONTRIBUTING.md's "keep it simple" guidance).
+CONTRIBUTING.md's "keep it simple" guidance). **Phase 5's first package,
+5e (journal/XDF event-id comparison), is also complete** — see Phase 5
+section. Next: 5d, then 5a, 5c, 5h, 5i, 5g, 5j, 5f in that order (3.4 is
+a written, not-yet-implemented design plan, see Phase 3 section — it can
+land whenever convenient, it blocks nothing in Phase 5).
 The shared rebuild is `feature/architecture-1.0`, worktree `C:\SR-1.0`.
 Corrections were prepared on `fix/architecture-review`; see the tracked handoff
 for integration and verification evidence. **User-directed course change,
@@ -1063,8 +1067,57 @@ history.
       Define source, receive and LSL clock domains; require timing-delay
       provenance (`measured/datasheet/estimated/unknown`) and versioned QC
       thresholds before implementing live interpretation in 5c
-- [ ] **5e** Shared `event_id` across journal and LSL markers, dedup and compare
-      at finalization, mismatch is a quality event. ~70% of the substance exists
+- [x] **5e** Shared `event_id` across journal and LSL markers, dedup and
+      compare at finalization, mismatch is a quality event.
+      **Duplicate detection within the XDF marker stream already existed**
+      (`card_summary_service.py::_marker_event_times`); what was missing was
+      comparing the *durable session journal's* full event-id set against
+      the XDF's, and softening that from a hard failure into a quality
+      event per the operator's decision (2026-09-08, matching §9 of the
+      target doc: "kein stiller Datenverlust; Marker werden priorisiert,
+      aber nicht unrealistisch garantiert").
+
+      New `card_summary_service.py::_journal_xdf_mismatches`, opt-in via a
+      new `journal_event_ids` parameter on `CardSummaryBuilder.build()`
+      (`None` skips the comparison, preserving every existing caller
+      unchanged). Reports both directions as `quality_warnings` with code
+      `journal_xdf_event_id_mismatch`: `missing_from_xdf` (journaled but no
+      matching marker survived to the merged XDF) and `extra_in_xdf` (a
+      marker with no journal counterpart, e.g. a lost acknowledgement). The
+      one pre-existing hard check — a *required* terminal marker
+      (`study_end_event`) missing entirely — stays a hard `CardSummaryError`,
+      raised earlier in `build()`; the new comparison only ever adds
+      additional soft findings on top, never re-flags what already passed
+      that gate.
+
+      New `FinalizationService._journal_event_ids()` reads the durable
+      "trial" journal stream directly from disk via the existing
+      `SessionJournalStore` (already a `FinalizationService` dependency),
+      not a live `TrialEventService` instance — finalization must work
+      after a server restart, when no such instance for an old session
+      exists anymore. Each journal record is a full snapshot (see
+      `session_journal_service.py`'s own docstring), so the newest one
+      already contains every event id ever recorded for that session.
+      **Real bug caught by my own new test, not shipped**: the record's
+      payload sits under a nested `"snapshot"` key
+      (`session_journal_service.py::append`'s own record shape), not at the
+      record's top level — the first draft read `record.get("events")`
+      directly and silently got nothing back, which would have made every
+      real session's comparison spuriously flag every XDF marker as
+      `extra_in_xdf`. Fixed before commit by reading `record["snapshot"]["events"]`.
+
+      `FinalizationService._build_card_summary`'s existing warning-render
+      loop already forwarded `quality_warnings` into the job's public
+      `warnings` list; extended its one-line rendering to include
+      `direction` when present, so `missing_from_xdf` and `extra_in_xdf`
+      stay distinguishable in the short form, not just in the full
+      `card-summary.json`.
+
+      7 new tests (`test_card_summary_service.py`'s
+      `JournalXdfEventIdComparisonTests`, one finalization-level
+      integration test exercising the real on-disk journal read). Full
+      suite 819 passed/4 skipped (812 + 7 new), JS 27 passed, structure
+      baseline rewritten as a checkpoint (small, expected growth).
 - [ ] **5f** `mrg` CLI. Last. "the same local command API as the UI" **does not
       exist** — the UI speaks HTTPS to Flask. Either the CLI does TLS and auth,
       or a new IPC surface gets designed. `software/server.py` keeps working
@@ -1124,12 +1177,12 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 3.4 (capability contract merge to api_version 5) — next active package, then Phase 5 in full | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+| Phase 5d (stream contracts) — next active package; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`
-(commits `dec0908`..`2d40c4a`), and Phase 3 items 3.1/3.2/3.3/3.5 on
-2026-09-08; Codex completed R1-R5 and the remaining Phase 4 packages on
+(commits `dec0908`..`2d40c4a`), Phase 3 items 3.1/3.2/3.3/3.5, and Phase 5e
+on 2026-09-08; Codex completed R1-R5 and the remaining Phase 4 packages on
 2026-09-08. No package is currently owned.
 
 Rules:

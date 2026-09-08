@@ -245,5 +245,86 @@ class CardSummaryBuilderTests(unittest.TestCase):
                 CardSummaryBuilder(IncompatibleReader()).build(merged, [])
 
 
+class JournalXdfEventIdComparisonTests(unittest.TestCase):
+    """Package 5e: journal/XDF event id comparison is opt-in and soft.
+
+    See card_summary_service.py's own docstring on `_journal_xdf_mismatches`
+    for why a mismatch is a quality warning, never a hard failure -- the one
+    exception (a *required* terminal marker missing entirely) is covered by
+    test_recording_summary_never_falls_back_to_browser_epoch_without_markers
+    above, unrelated to this general comparison.
+    """
+
+    class MarkerReader:
+        def __init__(self, markers):
+            self._markers = markers
+
+        def read_streams(self, _path):
+            return [
+                {
+                    "stream_key": "markers",
+                    "timestamps": [float(index) for index in range(len(self._markers))],
+                    "samples": [{"event": f"marker|event_id={event_id}"} for event_id in self._markers],
+                }
+            ]
+
+    def _build(self, *, xdf_ids, journal_ids):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            merged = Path(temp_dir) / "session.xdf"
+            merged.write_bytes(b"fixture")
+            return CardSummaryBuilder(self.MarkerReader(xdf_ids)).build(
+                merged,
+                [],
+                journal_event_ids=journal_ids,
+            )
+
+    def test_no_journal_event_ids_means_no_comparison(self) -> None:
+        summary = self._build(xdf_ids=["marker-1"], journal_ids=None)
+        self.assertNotIn("quality_warnings", summary)
+
+    def test_matching_ids_produce_no_warnings(self) -> None:
+        summary = self._build(xdf_ids=["marker-1", "marker-2"], journal_ids=["marker-1", "marker-2"])
+        self.assertNotIn("quality_warnings", summary)
+
+    def test_journal_event_missing_from_xdf_is_a_soft_warning_not_a_failure(self) -> None:
+        summary = self._build(xdf_ids=["marker-1"], journal_ids=["marker-1", "marker-2"])
+        warnings = summary["quality_warnings"]
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0]["code"], "journal_xdf_event_id_mismatch")
+        self.assertEqual(warnings[0]["event_id"], "marker-2")
+        self.assertEqual(warnings[0]["direction"], "missing_from_xdf")
+
+    def test_xdf_marker_with_no_journal_counterpart_is_a_soft_warning(self) -> None:
+        summary = self._build(xdf_ids=["marker-1", "marker-2"], journal_ids=["marker-1"])
+        warnings = summary["quality_warnings"]
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0]["code"], "journal_xdf_event_id_mismatch")
+        self.assertEqual(warnings[0]["event_id"], "marker-2")
+        self.assertEqual(warnings[0]["direction"], "extra_in_xdf")
+
+    def test_empty_journal_is_a_confirmed_fact_not_skipped(self) -> None:
+        """An empty list is not None: it means the session genuinely
+        journaled nothing, which is itself worth comparing against."""
+        summary = self._build(xdf_ids=["marker-1"], journal_ids=[])
+        warnings = summary["quality_warnings"]
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0]["direction"], "extra_in_xdf")
+
+    def test_required_marker_already_checked_hard_is_not_also_a_soft_warning(self) -> None:
+        """The hard required-marker gate and the soft general comparison
+        must not both report the same terminal marker."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            merged = Path(temp_dir) / "session.xdf"
+            merged.write_bytes(b"fixture")
+            summary = CardSummaryBuilder(self.MarkerReader(["study-end-1"])).build(
+                merged,
+                [],
+                require_xdf_markers=True,
+                required_marker_event_ids=["study-end-1"],
+                journal_event_ids=["study-end-1"],
+            )
+        self.assertNotIn("quality_warnings", summary)
+
+
 if __name__ == "__main__":
     unittest.main()

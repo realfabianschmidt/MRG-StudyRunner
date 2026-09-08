@@ -99,6 +99,7 @@ class CardSummaryBuilder:
         client_clock_offset_ms: Any = None,
         require_xdf_markers: bool = False,
         required_marker_event_ids: Sequence[str] = (),
+        journal_event_ids: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         merged_path = Path(merged_xdf)
         if not merged_path.is_file():
@@ -123,6 +124,10 @@ class CardSummaryBuilder:
                 "Merged XDF is missing required terminal marker events: "
                 + ", ".join(missing_required)
             )
+        # Everything reaching here already proved required_ids exist in the
+        # XDF, so a general journal/XDF comparison never re-flags those --
+        # this only ever surfaces *additional* ids either side is missing.
+        mismatch_warnings = _journal_xdf_mismatches(marker_times.keys(), journal_event_ids)
         windows = _card_windows(
             card_events,
             client_clock_offset_ms=client_clock_offset_ms,
@@ -163,15 +168,17 @@ class CardSummaryBuilder:
             "source_stream_count": len(source_streams),
             "cards": cards,
         }
-        if duplicate_marker_ids:
-            result["quality_warnings"] = [
-                {
-                    "code": "duplicate_marker_event_id",
-                    "event_id": event_id,
-                    "message": "The marker event id occurs more than once; the first raw timestamp defined the card window.",
-                }
-                for event_id in sorted(duplicate_marker_ids)
-            ]
+        quality_warnings = [
+            {
+                "code": "duplicate_marker_event_id",
+                "event_id": event_id,
+                "message": "The marker event id occurs more than once; the first raw timestamp defined the card window.",
+            }
+            for event_id in sorted(duplicate_marker_ids)
+        ]
+        quality_warnings.extend(mismatch_warnings)
+        if quality_warnings:
+            result["quality_warnings"] = quality_warnings
         return result
 
 
@@ -538,6 +545,47 @@ def _marker_event_times(
                     else:
                         events[event_id] = float(timestamp)
     return events, duplicates
+
+
+def _journal_xdf_mismatches(
+    xdf_event_ids: Iterable[str],
+    journal_event_ids: Sequence[str] | None,
+) -> list[dict[str, Any]]:
+    """Compare the durable session journal against XDF markers.
+
+    Opt-in: ``None`` (the default) means the caller does not have a journal
+    event set to compare against, so this reports nothing rather than
+    treating every XDF marker as an unexplained extra. A mismatch is
+    reported as a quality warning, never a hard failure -- Package 5e
+    (docs/architecture-1.0-umbau.md): "kein stiller Datenverlust; Marker
+    werden priorisiert, aber nicht unrealistisch garantiert." The one
+    exception (a *required* terminal marker missing entirely) is still a
+    hard `CardSummaryError`, raised earlier in `build()` before this runs.
+    """
+    if journal_event_ids is None:
+        return []
+    xdf_ids = {str(event_id).strip() for event_id in xdf_event_ids if str(event_id).strip()}
+    journal_ids = {str(event_id).strip() for event_id in journal_event_ids if str(event_id).strip()}
+    warnings: list[dict[str, Any]] = []
+    for event_id in sorted(journal_ids - xdf_ids):
+        warnings.append(
+            {
+                "code": "journal_xdf_event_id_mismatch",
+                "event_id": event_id,
+                "direction": "missing_from_xdf",
+                "message": "This event was recorded in the session journal but has no matching XDF marker.",
+            }
+        )
+    for event_id in sorted(xdf_ids - journal_ids):
+        warnings.append(
+            {
+                "code": "journal_xdf_event_id_mismatch",
+                "event_id": event_id,
+                "direction": "extra_in_xdf",
+                "message": "This XDF marker has no matching event in the session journal.",
+            }
+        )
+    return warnings
 
 
 def _event_epochs(event: dict[str, Any], offset_ms: Any) -> tuple[float, float, str] | None:

@@ -187,6 +187,52 @@ class FinalizationServiceTests(unittest.TestCase):
             self.assertEqual(restarted.get(created["job_id"])["status"], "completed")
             self.assertEqual(restarted.process_due_jobs_once(), 0)
 
+    def test_journal_xdf_event_id_mismatch_surfaces_as_a_warning_not_a_failure(self) -> None:
+        """Package 5e end to end: the durable "trial" journal is read from
+        disk (not a live TrialEventService) and compared against the XDF
+        markers OneStreamReader fabricates. Adds one event id the journal
+        has but the XDF fixture does not, which must become a warning on
+        the completed job, not a finalization failure.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = self._service(root)
+            service.session_journals.append(
+                "trial",
+                SUBMISSION["session_id"],
+                "trial_state_updated",
+                {
+                    "version": 2,
+                    "events": {
+                        "card-1-shown": {"kind": "trial_marker"},
+                        "card-1-answered": {"kind": "trial_marker"},
+                        "study-end-session-1": {"kind": "study_end"},
+                        "card-2-shown": {"kind": "trial_marker"},
+                    },
+                },
+            )
+            created = service.commit_submission(SUBMISSION, config_data={"study_settings": {}}, recording_expected=True)
+            self.assertEqual(service.process_due_jobs_once(), 1)
+
+            completed = service.get(created["job_id"])
+            self.assertEqual(completed["status"], "completed")
+            self.assertTrue(
+                any("journal_xdf_event_id_mismatch" in warning for warning in completed["warnings"]),
+                completed["warnings"],
+            )
+            self.assertTrue(
+                any("card-2-shown" in warning and "missing_from_xdf" in warning for warning in completed["warnings"]),
+                completed["warnings"],
+            )
+
+            summary = json.loads((root / created["session_path"] / "card-summary.json").read_text(encoding="utf-8"))
+            mismatch = next(
+                warning
+                for warning in summary["quality_warnings"]
+                if warning["event_id"] == "card-2-shown"
+            )
+            self.assertEqual(mismatch["direction"], "missing_from_xdf")
+
     def test_durable_commit_survives_projection_write_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
