@@ -112,6 +112,13 @@ class StudySettingsContractTests(unittest.TestCase):
 
 
 class StudySettingsRoundTripTests(unittest.TestCase):
+    def test_planned_duration_round_trips_and_non_finite_values_fail(self) -> None:
+        settings = _validate_study_settings({"planned_session_duration_minutes": 45.5})
+        self.assertEqual(settings["planned_session_duration_minutes"], 45.5)
+        for value in (float("nan"), float("inf"), float("-inf"), 0, -1):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                _validate_study_settings({"planned_session_duration_minutes": value})
+
     def test_nextcloud_settings_survive_validation(self) -> None:
         settings = _validate_study_settings(
             {

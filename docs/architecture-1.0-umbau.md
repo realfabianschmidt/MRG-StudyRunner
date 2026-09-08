@@ -1160,3 +1160,10 @@ live under `apps/server`; both `software/server.py` and the permanent
 `study_runner/app_server.py` entrypoint remain. The old `backend` package is
 removed. Evidence: 80 targeted Python and 4 packaging tests passed. Next is the
 separate preflight UI/error-handling commit, then the Phase 4 tail sweep.
+
+Checkpoint: the separate 5b usability repair is complete. Planned duration is
+editable in study recording settings and remains the existing
+`study_settings.planned_session_duration_minutes` contract. Capacity blockers
+open/focus that setting; invalid UI values, invalid/non-finite stream rates and
+storage-query errors fail closed with useful messages. Evidence: 109 targeted
+Python and focused JavaScript tests passed; both locale files parse.

@@ -374,6 +374,11 @@
                 <label style="margin-bottom: 10px;" data-i18n="settings.sensorSelection">Sensor selection</label>
                 <div class="stimulus-toggle-list" id="study-plugin-sensor-options"></div>
               </div>
+              <div class="field">
+                <label for="study-planned-duration" data-i18n="studySettings.plannedDuration">Planned session duration (minutes)</label>
+                <input id="study-planned-duration" type="number" min="0.1" step="0.1" inputmode="decimal" data-i18n-placeholder="studySettings.plannedDurationPlaceholder" placeholder="For example: 45">
+                <small class="settings-hint" data-i18n="studySettings.plannedDurationHint">Required before recording so free storage can be checked. The data rate is estimated from the declared stream contract.</small>
+              </div>
               <div class="dashboard-actions">
                 <button class="btn-primary" id="btn-save-study-settings" type="button"><i class="iconoir-floppy-disk"></i> <span data-i18n="studySettings.saveButton">Save study settings</span></button>
               </div>

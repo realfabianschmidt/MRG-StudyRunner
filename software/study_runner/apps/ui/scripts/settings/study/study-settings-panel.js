@@ -15,7 +15,10 @@ import { t } from '../../shared/i18n.js';
 import { byId, escapeHtml, setText } from '../../shared/dom-utils.js';
 import { getJson, postJson } from '../../shared/api-client.js';
 import { activateShellPanel, bindShellNav, renderShellNav } from '../../shared/settings-shell.js';
-import { normalizeStudySettings } from '../../shared/study-settings.js';
+import {
+  normalizePlannedSessionDurationMinutes,
+  normalizeStudySettings,
+} from '../../shared/study-settings.js';
 import {
   PLUGIN_UI_SURFACES,
   getPluginCatalog,
@@ -99,6 +102,8 @@ function fillFields() {
   renderSensorPlugins(settings);
   renderDestinationPlugins(settings);
   set('study-progress-bar-enabled', settings.progress_bar_enabled);
+  const duration = byId('study-planned-duration');
+  if (duration) duration.value = settings.planned_session_duration_minutes ?? '';
   syncSensorControls();
   void refreshStudyPluginCredentialStates();
 }
@@ -444,6 +449,17 @@ function syncSensorControls() {
 
 /** Collect the fields this module owns and hand the save to the editor. */
 async function saveFromPanel() {
+  const durationInput = byId('study-planned-duration');
+  const durationRaw = String(durationInput?.value ?? '').trim();
+  const plannedDuration = normalizePlannedSessionDurationMinutes(durationRaw);
+  if (durationRaw && plannedDuration === null) {
+    callbacks.showToast?.(
+      t('studySettings.plannedDurationInvalid', 'Enter a positive number of minutes.'),
+      'error',
+    );
+    durationInput?.focus();
+    return;
+  }
   const sensorsEnabled = Boolean(byId('study-sensors-enabled')?.checked);
   const current = normalizeStudySettings(callbacks.getStudyConfig?.().study_settings);
   const plugins = { ...current.plugins };
@@ -480,6 +496,7 @@ async function saveFromPanel() {
     sensors,
     plugins,
     progress_bar_enabled: Boolean(byId('study-progress-bar-enabled')?.checked),
+    planned_session_duration_minutes: plannedDuration,
   });
   await callbacks.saveStudyConfig?.({
     successMessage: t('studySettings.saved', 'Study settings saved'),

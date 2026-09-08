@@ -195,9 +195,9 @@ class ParticipantLanguageTests(unittest.TestCase):
 
     def test_generic_core_has_no_active_camera_key_branch(self) -> None:
         core_paths = (
-            PROJECT_ROOT / "study_runner" / "backend" / "routes" / "helpers.py",
-            PROJECT_ROOT / "study_runner" / "backend" / "routes" / "admin.py",
-            PROJECT_ROOT / "study_runner" / "backend" / "routes" / "study.py",
+            PROJECT_ROOT / "study_runner" / "apps" / "server" / "routes" / "helpers.py",
+            PROJECT_ROOT / "study_runner" / "apps" / "server" / "routes" / "admin.py",
+            PROJECT_ROOT / "study_runner" / "apps" / "server" / "routes" / "study.py",
             PROJECT_ROOT / "study_runner" / "plugin_framework" / "registry.py",
         )
         for path in core_paths:
@@ -207,7 +207,7 @@ class ParticipantLanguageTests(unittest.TestCase):
                 self.assertNotIn("CAMERA_PREVIEW", text)
 
         compatibility_routes = _read(
-            PROJECT_ROOT / "study_runner" / "backend" / "routes" / "sensors.py"
+            PROJECT_ROOT / "study_runner" / "apps" / "server" / "routes" / "sensors.py"
         )
         self.assertIn("Deprecated fixed-key shim", compatibility_routes)
         self.assertIn('headers["Deprecation"] = "true"', compatibility_routes)

@@ -69,6 +69,13 @@ class PlannedDurationSecondsTests(unittest.TestCase):
             planned_duration_seconds({"study_settings": {"planned_session_duration_minutes": True}})
         )
 
+    def test_non_finite_duration_is_unknown(self) -> None:
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value):
+                self.assertIsNone(planned_duration_seconds(
+                    {"study_settings": {"planned_session_duration_minutes": value}}
+                ))
+
 
 class EstimatedAcquisitionBytesPerSecondTests(unittest.TestCase):
     def test_sums_channel_count_times_format_size_times_rate(self) -> None:
@@ -133,6 +140,29 @@ class EvaluateCapacityTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertTrue(result["known"])
         self.assertIn("bytes free", result["reason"])
+
+    def test_invalid_stream_rate_fails_closed(self) -> None:
+        streams = {"fixture": [{"channels": ["x"], "channel_format": "float32", "nominal_rate_hz": "invalid"}]}
+        result = evaluate_capacity(
+            target_dir=Path("unused"), streams_by_source=streams, backup_contract={},
+            config_data={"study_settings": {"planned_session_duration_minutes": 30}},
+        )
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["known"])
+        self.assertIn("stream rate is invalid", result["reason"])
+
+    def test_unreadable_disk_status_fails_closed(self) -> None:
+        with mock.patch(
+            "study_runner.data_core.host.recording_capacity.shutil.disk_usage",
+            side_effect=OSError("device unavailable"),
+        ):
+            result = evaluate_capacity(
+                target_dir=Path("missing"), streams_by_source=STREAMS, backup_contract=BACKUP,
+                config_data={"study_settings": {"planned_session_duration_minutes": 30}},
+            )
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["known"])
+        self.assertIn("free storage could not be read", result["reason"])
 
 
 if __name__ == "__main__":

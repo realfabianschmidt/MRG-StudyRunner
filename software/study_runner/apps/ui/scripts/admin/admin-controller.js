@@ -249,6 +249,14 @@ function readinessMessage(blocker) {
       .replace('{mode}', blocker.mode || '')
       .replace('{platform}', blocker.platform || '')
       .replace('{supported}', supportedModes),
+    recording_capacity_insufficient: t(
+      'readiness.recordingCapacityInsufficient',
+      'Recording storage cannot be confirmed. Set a planned session duration and check the target disk.',
+    ),
+    recording_clock_implausible: t(
+      'readiness.recordingClockImplausible',
+      'The system clock or local time service is not ready for recording.',
+    ),
   };
   if (String(blocker.code || '').endsWith('.credential_missing')) {
     return t('readiness.pluginCredentialMissing', '{plugin} is enabled, but no credential is available for this study.')
@@ -385,6 +393,10 @@ async function startLoadedStudyRun({ buttonId = 'btn-hub-start-study', goToDashb
       + `${readinessSummary(blockers)} `
       + t('readiness.blockedBody', 'Start is blocked until every required plugin and the recording infrastructure are ready.');
     showToast(message, 'error');
+    if (blockers.some((blocker) => blocker.code === 'recording_capacity_insufficient')) {
+      await openStudySettingsPanel('sensors');
+      byId('study-planned-duration')?.focus();
+    }
     return;
   }
 

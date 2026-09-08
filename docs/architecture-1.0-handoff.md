@@ -174,3 +174,11 @@ the latter delegates and still supports module execution. The obsolete backend
 package is gone. Evidence: 80 targeted route/server/architecture/self-check
 tests and 4 packaging tests passed. Next: preflight settings UI and defensive
 capacity errors in a separate behavior commit.
+
+Checkpoint: the study settings now expose planned session duration, preserve it
+through save/export/import normalization and focus that field when capacity
+blocks start. Invalid user values are rejected locally. Capacity evaluation now
+fails closed for non-finite/invalid rates and unreadable storage instead of
+raising. Localized capacity/clock explanations added. Evidence: 109 targeted
+Python tests and the focused JavaScript contract passed; locale JSON parses.
+Next: Phase 4 path sweep, file-guide validation, version and final gates.

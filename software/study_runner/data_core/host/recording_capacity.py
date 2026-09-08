@@ -21,6 +21,7 @@ the same as a passing check.
 from __future__ import annotations
 
 from pathlib import Path
+import math
 import shutil
 from typing import Any, Mapping
 
@@ -68,12 +69,16 @@ def estimated_acquisition_bytes_per_second(
             channel_count = len(channels) if isinstance(channels, list) else 0
             channel_format = str((stream or {}).get("channel_format") or "")
             rate_hz = float((stream or {}).get("nominal_rate_hz") or 0.0)
+            if not math.isfinite(rate_hz) or rate_hz < 0:
+                raise ValueError("stream nominal_rate_hz must be a finite non-negative number")
             bytes_per_sample = BYTES_PER_SAMPLE.get(channel_format, ESTIMATED_STRING_CHANNEL_BYTES)
             total += channel_count * bytes_per_sample * rate_hz
 
     backup_channels = backup_contract.get("channel_names") if isinstance(backup_contract, Mapping) else None
     backup_channel_count = len(backup_channels) if isinstance(backup_channels, list) else 0
     backup_rate_hz = float((backup_contract or {}).get("rate_hz") or 0.0)
+    if not math.isfinite(backup_rate_hz) or backup_rate_hz < 0:
+        raise ValueError("backup rate_hz must be a finite non-negative number")
     total += backup_channel_count * BYTES_PER_SAMPLE["double64"] * backup_rate_hz
     return total
 
@@ -88,7 +93,12 @@ def planned_duration_seconds(config_data: Mapping[str, Any]) -> float | None:
     settings = config_data.get("study_settings") if isinstance(config_data, Mapping) else None
     settings = settings if isinstance(settings, Mapping) else {}
     minutes = settings.get("planned_session_duration_minutes")
-    if isinstance(minutes, bool) or not isinstance(minutes, (int, float)) or minutes <= 0:
+    if (
+        isinstance(minutes, bool)
+        or not isinstance(minutes, (int, float))
+        or not math.isfinite(float(minutes))
+        or minutes <= 0
+    ):
         return None
     return float(minutes) * 60.0
 
@@ -114,9 +124,29 @@ def evaluate_capacity(
             ),
         }
 
-    bytes_per_second = estimated_acquisition_bytes_per_second(streams_by_source, backup_contract)
+    try:
+        bytes_per_second = estimated_acquisition_bytes_per_second(streams_by_source, backup_contract)
+    except (TypeError, ValueError, OverflowError) as error:
+        return {
+            "ok": False,
+            "known": False,
+            "thresholds_version": PREFLIGHT_THRESHOLDS_VERSION,
+            "reason": f"recording stream rate is invalid; storage capacity cannot be predicted: {error}",
+        }
     required_bytes = int(duration_seconds * bytes_per_second * CAPACITY_SAFETY_FACTOR) + MINIMUM_FREE_SPACE_RESERVE_BYTES
-    free_bytes = shutil.disk_usage(Path(target_dir)).free
+    try:
+        free_bytes = shutil.disk_usage(Path(target_dir)).free
+    except OSError as error:
+        return {
+            "ok": False,
+            "known": False,
+            "required_bytes": required_bytes,
+            "planned_duration_seconds": duration_seconds,
+            "estimated_bytes_per_second": bytes_per_second,
+            "reserve_bytes": MINIMUM_FREE_SPACE_RESERVE_BYTES,
+            "thresholds_version": PREFLIGHT_THRESHOLDS_VERSION,
+            "reason": f"free storage could not be read for {Path(target_dir)}: {error}",
+        }
     ok = free_bytes >= required_bytes
     return {
         "ok": ok,

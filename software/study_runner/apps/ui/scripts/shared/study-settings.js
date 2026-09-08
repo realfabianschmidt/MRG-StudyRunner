@@ -34,10 +34,11 @@ export function defaultStudySettings() {
 }
 
 /** Mirrors backend _optional_positive_minutes(): null means unset, never zero. */
-function normalizePlannedSessionDurationMinutes(value) {
+export function normalizePlannedSessionDurationMinutes(value) {
   if (value === null || value === undefined || value === '') {
     return null;
   }
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
   const minutes = Number(value);
   return Number.isFinite(minutes) && minutes > 0 ? minutes : null;
 }

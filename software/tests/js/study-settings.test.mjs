@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { normalizeStudySettings } from '../../study_runner/apps/ui/scripts/shared/study-settings.js';
+import {
+  normalizePlannedSessionDurationMinutes,
+  normalizeStudySettings,
+} from '../../study_runner/apps/ui/scripts/shared/study-settings.js';
 import { configurePluginCatalog } from '../../study_runner/apps/ui/scripts/shared/plugin-catalog.js';
 
 configurePluginCatalog({
@@ -31,6 +34,15 @@ configurePluginCatalog({
     capability_config,
   })),
 });
+
+assert.equal(normalizePlannedSessionDurationMinutes('45'), 45);
+assert.equal(normalizePlannedSessionDurationMinutes(''), null);
+assert.equal(normalizePlannedSessionDurationMinutes('0'), null);
+assert.equal(normalizePlannedSessionDurationMinutes('-1'), null);
+assert.equal(normalizePlannedSessionDurationMinutes('Infinity'), null);
+assert.equal(normalizePlannedSessionDurationMinutes('not-a-number'), null);
+assert.equal(normalizePlannedSessionDurationMinutes(true), null);
+assert.equal(normalizePlannedSessionDurationMinutes([]), null);
 
 const normalized = normalizeStudySettings({
   sensors_enabled: true,
