@@ -1,16 +1,32 @@
 """Trusted built-in extension roots, shared by discovery and driver startup."""
 from pathlib import Path
 import json
+import os
 
 CATEGORIES = ("sensors", "cards", "destinations", "outputs")
+
+# Lets a test register exactly one additional root for a synthetic fixture
+# plugin. Needed because `run_plugin_driver` (driver_runtime.py) runs in a
+# freshly spawned subprocess that never sees a parent test's monkeypatches --
+# an environment variable is the only channel that reaches it. Read only from
+# the environment, never from a request or manifest value, so this can never
+# become an attacker-controlled plugin path (CONTRIBUTING.md #1: "Never load
+# plugin paths, packages, or dependencies supplied by a web request").
+TEST_EXTRA_ROOT_PATH_ENV_VAR = "STUDY_RUNNER_TEST_EXTRA_EXTENSION_ROOT"
+TEST_EXTRA_ROOT_PACKAGE_ENV_VAR = "STUDY_RUNNER_TEST_EXTRA_EXTENSION_PACKAGE"
 
 
 def trusted_roots() -> tuple[tuple[Path, str], ...]:
     package = Path(__file__).resolve().parent.parent
-    return tuple(
+    roots = [
         (package / "extensions" / category, f"study_runner.extensions.{category}")
         for category in CATEGORIES
-    )
+    ]
+    extra_path = os.environ.get(TEST_EXTRA_ROOT_PATH_ENV_VAR, "").strip()
+    extra_package = os.environ.get(TEST_EXTRA_ROOT_PACKAGE_ENV_VAR, "").strip()
+    if extra_path and extra_package:
+        roots.append((Path(extra_path), extra_package))
+    return tuple(roots)
 
 
 def candidate_directories(root: Path) -> list[Path]:

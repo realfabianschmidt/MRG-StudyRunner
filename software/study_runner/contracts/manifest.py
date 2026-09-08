@@ -13,7 +13,10 @@ from typing import Any
 
 
 PLUGIN_API_VERSION = 4
-SUPPORTED_PLUGIN_API_VERSIONS = (3, 4)
+# v3 (in-process import via entry_point) removed in Phase 3.1
+# (docs/architecture-1.0-umbau.md) -- every shipped manifest was already
+# api_version 4 (process-host) before this narrowed.
+SUPPORTED_PLUGIN_API_VERSIONS = (4,)
 
 
 DEFAULT_POLL_INTERVAL_MS = 2_000
@@ -101,12 +104,19 @@ def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dic
     config_key = _required_key(payload, "config_key")
     version = _required_text(payload, "version")
     category = _required_text(payload, "category")
-    entry_point = _required_text(payload, "entry_point")
-    entry_match = ENTRY_POINT_PATTERN.fullmatch(entry_point)
-    if entry_match is None:
-        raise PluginManifestError("entry_point must use 'module:attribute' syntax")
-    if entry_match.group("module").startswith(".") or ".." in entry_match.group("module"):
-        raise PluginManifestError("entry_point must remain inside its plugin directory")
+    # Optional as of Phase 3.1 (docs/architecture-1.0-umbau.md): every
+    # supported api_version (4) loads through the process host via
+    # runtime.entrypoint, not this field. Kept validated-if-present rather
+    # than deleted outright so an operator-edited manifest that still
+    # carries it from before the rebuild keeps loading; the key itself is
+    # scheduled for removal from manifests a release later (T4).
+    entry_point = _optional_text(payload.get("entry_point"))
+    if entry_point:
+        entry_match = ENTRY_POINT_PATTERN.fullmatch(entry_point)
+        if entry_match is None:
+            raise PluginManifestError("entry_point must use 'module:attribute' syntax")
+        if entry_match.group("module").startswith(".") or ".." in entry_match.group("module"):
+            raise PluginManifestError("entry_point must remain inside its plugin directory")
 
     ui = payload.get("ui")
     if not isinstance(ui, dict):

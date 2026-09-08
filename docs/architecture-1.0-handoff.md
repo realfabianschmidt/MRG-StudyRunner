@@ -27,10 +27,47 @@ passed catalog discovery, UI/root routing, and child-process
 initialize/status/shutdown RPC. Disposable logs are under
 `.tmp/bundle-final/` in the main workspace.
 
-**Next task:** resume the deferred Phase 3 compatibility and plugin-contract
-work, then Phase 5c lifecycle and checkpoint recovery. Claim the package in the
-working plan before editing. The historical checkpoints below explain how this
-state was reached; their old “next” lines are superseded by this section.
+## Phase 3.1/3.3/3.5 complete — 2026-09-08
+
+`_import_plugin` (the v3 in-process import path) removed;
+`SUPPORTED_PLUGIN_API_VERSIONS` narrowed `(3, 4)` -> `(4,)`; `entry_point` is
+now optional. Two things this turned up that go beyond a mechanical version
+bump — **read the working plan's Phase 3 section for the full account, this
+is a summary**:
+
+1. `markers.py`/`clock_diagnostics.py` load their own `api_version: 3`
+   manifests at *module scope*, imported eagerly by
+   `apps/server/application.py` — narrowing the tuple without bumping these
+   two in the same commit would have broken `create_app()` entirely (T3,
+   caught for real, not just per the doc's warning). Both bumped to
+   `api_version: 4` with a `runtime` block that is schema formality only —
+   these two are host-process modules, never spawned as `driver.py`.
+2. `_validate_plugin_object` in `plugin_catalog.py` turned out to be dead
+   code for its only remaining caller (`build_process_plugin` derives every
+   handler it checks for directly from the same manifest) — removed, along
+   with the two tests that only ever exercised it.
+3. Three test files used a "synthetic plugin in a temp directory" pattern
+   that broke once any of them tried to invoke a live handler: v4 spawns a
+   real `driver.py` subprocess that resolves itself via
+   `extension_layout.trusted_roots()`, hardcoded to the real `extensions/`
+   tree, with no way for a spawned child to see a parent test's
+   monkeypatches. Added a test-only environment-variable seam
+   (`extension_layout.TEST_EXTRA_ROOT_PATH_ENV_VAR`/
+   `TEST_EXTRA_ROOT_PACKAGE_ENV_VAR`, read only from the environment — never
+   a request or manifest value) and a shared `tests/support/fixture_plugin.py`
+   helper; all three fixtures now go through the genuine v4 subprocess
+   pipeline instead of a synthetic stand-in.
+
+3.3 (doc wording) and 3.5 (one stale sentence in `extensions/README.md`) were
+both already smaller than the working plan estimated and are done. Full
+suite: **812 passed, 4 skipped** (two fewer than 814 from the dead-test
+removal in point 2, not a new gap).
+
+**Next task:** 3.2 (`upload_destination.legacy` migrate-and-write-forward),
+then 3.4 (merge `readiness`/`runtime_control`/`health` into one
+`api_version: 5` lifecycle contract — real design work, 3-5 days, touches
+all six plugins). Operator decision: finish Phase 3 fully before starting
+Phase 5. Claim the package in the working plan before editing.
 
 ## Shared location and coordination
 

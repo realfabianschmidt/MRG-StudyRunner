@@ -93,7 +93,7 @@ flag and never from a hard-coded plugin-key set.
 5. Add a fixture test proving discovery, settings, readiness, recording,
    backup projection, and card statistics without a core registry change.
 
-The former aggregate `plugin_manifests.json` is intentionally gone. API v3
+The former aggregate `plugin_manifests.json` is intentionally gone. Discovery
 reads only per-folder manifests. A top-level package without a manifest is
 reported as invalid; an intentional internal helper or compatibility shim must
 carry an explicit `.pluginignore` marker and is never imported by discovery.

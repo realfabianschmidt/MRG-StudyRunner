@@ -27,6 +27,10 @@ from unittest.mock import patch
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from support.fixture_plugin import write_driver_py
 
 from study_runner.plugin_framework import registry
 from study_runner.plugin_framework.plugin_catalog import PluginCatalog, discover_plugin_catalog
@@ -35,12 +39,15 @@ from study_runner.plugin_framework.plugin_catalog import PluginCatalog, discover
 PLUGIN_KEY = "fixture_vault"
 
 MANIFEST = {
-    "api_version": 3,
+    "api_version": 4,
     "plugin_key": PLUGIN_KEY,
     "version": "1.0.0",
     "category": "storage",
     "config_key": PLUGIN_KEY,
-    "entry_point": "plugin:PLUGIN",
+    "runtime": {
+        "entrypoint": "driver.py",
+        "protocol": "study-runner-stdio/v1",
+    },
     "ui": {
         "label": "Fixture Vault",
         "order": 999,
@@ -94,6 +101,7 @@ class FixtureDestinationCredentialTests(unittest.TestCase):
         (self.plugin_dir / "__init__.py").write_text("", encoding="utf-8")
         (self.plugin_dir / "manifest.json").write_text(json.dumps(MANIFEST), encoding="utf-8")
         (self.plugin_dir / "plugin.py").write_text(PLUGIN_PY, encoding="utf-8")
+        write_driver_py(self.plugin_dir, PLUGIN_KEY)
         sys.path.insert(0, str(self.root))
 
     def tearDown(self) -> None:

@@ -5,16 +5,18 @@ import datetime as dt
 import json
 import math
 from pathlib import Path
-import shutil
 import sys
 import unittest
-import uuid
 from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from support.fixture_plugin import FixturePluginRootMixin, write_driver_py
 
 from study_runner.data_core.host.artifacts import SessionIdentity
 from study_runner.data_core.host.coordinator import SegmentLedger
@@ -67,28 +69,8 @@ class _MergedFixtureReader:
         ]
 
 
-class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
-    def setUp(self) -> None:
-        parent = PROJECT_ROOT / ".tmp" / "fixture-plugin-blueprint"
-        parent.mkdir(parents=True, exist_ok=True)
-        self.root = parent / uuid.uuid4().hex
-        self.root.mkdir()
-        self.package_name = f"fixture_plugins_{self.root.name}"
-        self.package_dir = self.root / self.package_name
-        self.package_dir.mkdir()
-        (self.package_dir / "__init__.py").write_text("", encoding="utf-8")
-        sys.path.insert(0, str(self.root))
-
-    def tearDown(self) -> None:
-        root_text = str(self.root)
-        if root_text in sys.path:
-            sys.path.remove(root_text)
-        for module_name in list(sys.modules):
-            if module_name == self.package_name or module_name.startswith(
-                f"{self.package_name}."
-            ):
-                sys.modules.pop(module_name, None)
-        shutil.rmtree(self.root)
+class FixturePluginBlueprintAcceptanceTests(FixturePluginRootMixin, unittest.TestCase):
+    fixture_group_name = "fixture-plugin-blueprint"
 
     def test_new_sensor_folder_drives_the_generic_recording_blueprint(self) -> None:
         self._write_fixture_plugin()
@@ -402,12 +384,16 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
         plugin_dir.mkdir()
         (plugin_dir / "__init__.py").write_text("", encoding="utf-8")
         manifest = {
-            "api_version": 3,
+            "api_version": 4,
             "plugin_key": PLUGIN_KEY,
             "version": "1.0.0",
             "category": "biosignal",
             "config_key": PLUGIN_KEY,
-            "entry_point": "plugin:PLUGIN",
+            "runtime": {
+                "entrypoint": "driver.py",
+                "protocol": "study-runner-stdio/v1",
+                "sample_delivery": "declared_transport",
+            },
             "ui": {
                 "label": "Blueprint Sensor",
                 "description": "Temporary acceptance fixture for generic sensor integration.",
@@ -508,6 +494,7 @@ class FixturePluginBlueprintAcceptanceTests(unittest.TestCase):
             ")\n",
             encoding="utf-8",
         )
+        write_driver_py(plugin_dir, PLUGIN_KEY)
 
 
 if __name__ == "__main__":

@@ -30,7 +30,9 @@ and 5b (preflight) implemented, including approved repairs R1-R5. Phase 4
 (directory move) is complete.** The final packages are `extensions/*`,
 `apps/ui`, and `apps/server`; the old `plugins`, `frontend`, and `backend`
 packages are gone. Tail items 4.11-4.16 are complete and version is
-`1.0.0-dev`.
+`1.0.0-dev`. **Phase 3 items 3.1/3.3/3.5 also complete** (see Phase 3
+section for what each turned up); 3.2 and 3.4 remain, in that priority order
+per the operator's decision to finish Phase 3 before starting Phase 5.
 The shared rebuild is `feature/architecture-1.0`, worktree `C:\SR-1.0`.
 Corrections were prepared on `fix/architecture-review`; see the tracked handoff
 for integration and verification evidence. **User-directed course change,
@@ -691,17 +693,80 @@ Zero directory moves: existing runtime packages remain in place; `shared/` and
 
 ### Phase 3 — Legacy removal (branch)
 
-- [ ] **3.1** Remove `_import_plugin`; make `entry_point` optional — see [T4](#t4--entry_point-cannot-be-removed-before-the-v3-import-path) and [T3](#t3--narrowing-supported_plugin_api_versions-to-4-breaks-the-server)
+- [x] **3.1** Removed `_import_plugin` and `SUPPORTED_PLUGIN_API_VERSIONS`
+      narrowed from `(3, 4)` to `(4,)` — all six shipped manifests were
+      already `api_version: 4`, so the v3 in-process path was provably dead
+      before this landed, not just legacy-but-used. `entry_point` is now
+      optional (validated-if-present) rather than required, per T4; kept on
+      `markers.manifest.json`/`clock_diagnostics.manifest.json` as accurate
+      documentation of where `BUILT_IN` lives, since it's harmless and true.
+      **T3 caught for real, not just in theory**: `markers.py`/
+      `clock_diagnostics.py` load their own manifests at *module* scope with
+      `api_version: 3` still declared, and `apps/server/application.py`
+      imports both eagerly — narrowing the tuple without bumping these two
+      in the same commit would have made `create_app()` unimportable, exactly
+      as T3 predicted. Bumped both to `api_version: 4` with a `runtime` block
+      that is schema formality, not a real subprocess declaration (documented
+      in `markers.py`'s docstring) — these two are imported directly by the
+      host process and never spawned as `driver.py`, unlike every real
+      extension.
+      **Second, deeper finding, beyond T3/T4's own scope:** `_validate_plugin_object`
+      in `plugin_catalog.py` (the "does this Plugin object actually implement
+      the handler its manifest capability requires" check) turned out to be
+      dead code for its only remaining caller: `build_process_plugin` derives
+      every handler directly and unconditionally from the same manifest's own
+      `capabilities` set, so every one of that function's checks became a
+      tautology once v3's hand-written in-process `Plugin` objects (which
+      genuinely could omit a handler while still declaring the capability)
+      were the only thing that could ever trip it. Removed; two tests that
+      only ever exercised that dead path removed with it (git history has
+      them if this reasoning needs revisiting).
+      **Third finding: a whole test pattern needed real modernization, not a
+      version bump.** Three test files (`test_fixture_plugin_blueprint.py`,
+      `test_plugin_credentials_capability.py`,
+      `test_plugin_readiness_requirements_capability.py`) discover a
+      synthetic plugin from a temp directory and, in one case, actually
+      invoke a live handler through it — which for a real v4 plugin means
+      spawning `driver.py` as a subprocess that resolves itself via
+      `extension_layout.trusted_roots()`, hardcoded to the real
+      `extensions/{sensors,cards,destinations,outputs}` directories with no
+      injection seam. Added one: `TEST_EXTRA_ROOT_PATH_ENV_VAR`/
+      `TEST_EXTRA_ROOT_PACKAGE_ENV_VAR` in `extension_layout.py`, read only
+      from the environment (never a request or manifest value, so it can
+      never become an attacker-controlled plugin path per
+      CONTRIBUTING.md #1), which the child subprocess inherits since
+      `process_host.py` already does `env = os.environ.copy()`. New
+      `tests/support/fixture_plugin.py` (`FixturePluginRootMixin`,
+      `write_driver_py`) centralizes the temp-package + env-var + PYTHONPATH
+      wiring so all three (and any future one) share it instead of
+      re-deriving it. All three fixtures gained a real `driver.py` shim
+      (`run_plugin_driver(plugin_key)`, identical to
+      `tests/fixtures/packaging_probe/driver.py`) and now go through the
+      genuine v4 subprocess pipeline end to end, not a synthetic stand-in.
+      Full suite still green throughout (812 passed/4 skipped — two fewer
+      than before from the dead-test removal above, not a new gap).
 - [ ] **3.2** `upload_destination.legacy`: migrate and write forward (D3)
-- [ ] **3.3** Rename "legacy flat result folders" to "archival compatibility
-      surface" in the docs and pin with a fixture test. **Do not remove** (D2)
+- [x] **3.3** Renamed "legacy flat result folders" to "archival compatibility
+      surface" in `docs/plugin-recording-architecture.md` and
+      `docs/sensors-and-data.md`. The fixture test pinning the actual
+      behavior already existed since Phase 0.4
+      (`tests/test_legacy_flat_result_compat.py`) — this was wording-only.
+      **Do not remove** (D2)
 - [ ] **3.4** Merge capabilities `readiness` / `runtime_control` / `health` into
       one lifecycle contract, `api_version: 5`. This is a manifest-contract
       rewrite touching all six plugins, `study_readiness_service.py`,
       `plugin_health_poll_service.py` and the generic admin UI — **not a
-      removal**, despite where the target doc files it. 3–5 days
-- [ ] **3.5** Fix doc drift: `plugins/README.md` still claims "Every manifest
-      uses api_version: 3"
+      removal**, despite where the target doc files it. 3–5 days. Real
+      design work: the shape of the merged contract needs to be decided
+      before code is written, not derived mechanically from the three
+      existing ones.
+- [x] **3.5** Fixed doc drift: the file is `extensions/README.md` now (moved
+      in Phase 4.7) and already correctly said "api_version: 4" everywhere
+      except one leftover sentence ("API v3 reads only per-folder
+      manifests") describing the discovery model itself, not a specific
+      plugin's version — reworded to drop the now-doubly-stale version
+      number rather than bump it to a version that will itself go stale
+      again at 3.4.
 
 ### Phase 4 — Directory move (branch) — **complete**
 
@@ -961,12 +1026,13 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 3 compatibility/plugin contracts — next active package | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+| Phase 3.2/3.4 (legacy migration, capability contract merge) — next active package, in that order per operator decision | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
 
-Completed: Claude implemented Phases 0-2, 5b, and Phase 4 packages
+Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`
-(commits `dec0908`..`2d40c4a`) on 2026-09-08; Codex completed R1-R5 and the
-remaining Phase 4 packages on 2026-09-08. No package is currently owned.
+(commits `dec0908`..`2d40c4a`), and Phase 3 items 3.1/3.3/3.5 on 2026-09-08;
+Codex completed R1-R5 and the remaining Phase 4 packages on 2026-09-08. No
+package is currently owned.
 
 Rules:
 - **Moves and tree-wide import rewrites are serial.** Approved R1–R4 repairs
@@ -1053,6 +1119,8 @@ the Flask-free subprocess import of `data_core`.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-09-08 | Removed `_validate_plugin_object` from `plugin_catalog.py` in the same commit as 3.1's `_import_plugin` removal, rather than leaving it as a defensive check | It is dead code for its only remaining caller: `build_process_plugin` derives every handler it checks for directly and unconditionally from the same manifest's `capabilities` set, so the check is a tautology for anything build_process_plugin produces. It only ever caught anything for a hand-written v3 `Plugin` object, which could genuinely omit a handler while still declaring the capability — that possibility no longer exists |
+| 2026-09-08 | Added `TEST_EXTRA_ROOT_PATH_ENV_VAR`/`TEST_EXTRA_ROOT_PACKAGE_ENV_VAR` to `plugin_framework/extension_layout.py`, read only from the environment | Three tests discover a synthetic plugin from a temp directory and (in one case) invoke a live handler through it; v4's real path spawns `driver.py` as a subprocess that resolves itself via `trusted_roots()`, hardcoded to the real `extensions/*` directories with no prior injection seam — a spawned subprocess has no access to a parent test's monkeypatches, only its environment. Read only from the environment, never a request or manifest value, so it can never become an attacker-controlled plugin path (CONTRIBUTING.md #1) |
 | 2026-09-08 | Directory-move package boundaries for Phase 4: `contracts` gets `plugin_api.py`; `data_core/host` absorbs both old `recording/` and `backend/services/recording/`; `runtime_core` is exactly `studies`+`settings`+`delivery` | Matches D6/target package mapping; `data_core/host`'s merge specifically resolves the pre-1.0 split that existed only because `backend` importing `recording` eagerly at Flask-construction time was a real cycle risk before this package (with no Flask routes) existed |
 | 2026-09-08 | `recording_finalization_adapter.py` placed in `backend/services/delivery/` (now `runtime_core/delivery/`), not in `data_core/host/` alongside the rest of the old `backend/services/recording/` | It is the one file in that directory that imports RuntimeCore-side code (`finalization_service.py`); leaving it in `data_core/host` would have created a real `backend <-> data_core.host` import cycle (backend already imports data_core.host extensively) once the merge closed the loop. Moved to the allowed direction (RuntimeCore → DataCore) instead of redesigning the finalization/DataCore ownership split under a move commit — that split is real, deferred design work (see "Split scientific sealing out of the current delivery services..." above), not something to improvise while relocating files |
 | 2026-09-08 | New `shared/filename_sanitizer.py` for `sanitize_identifier_for_filename` | Needed by both `data_core/host/sensor_flush_service.py` and `backend/services/studies/results_service.py` (now `runtime_core/studies/`) after the Phase 4 merge; a pure, dependency-free helper neither area should own on the other's behalf |

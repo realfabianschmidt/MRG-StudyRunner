@@ -8,7 +8,6 @@ from __future__ import annotations
 from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
-import importlib
 import json
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Mapping
@@ -19,7 +18,6 @@ from study_runner.contracts.manifest import (
     CAPABILITY_ALIASES,
     DEFAULT_POLL_INTERVAL_MS,
     DEFAULT_REQUEST_TIMEOUT_MS,
-    ENTRY_POINT_PATTERN,
     PLUGIN_API_VERSION,
     SUPPORTED_PLUGIN_API_VERSIONS,
     UI_EXTENSION_SURFACES,
@@ -36,9 +34,6 @@ from study_runner.contracts.plugin_api import Plugin
 MANIFEST_FILENAME = "manifest.json"
 PLUGIN_IGNORE_FILENAME = ".pluginignore"
 DEFAULT_PACKAGE_NAME = "study_runner.extensions"
-# The framework and the plugins are sibling packages, so the trusted root is
-# resolved from this file rather than from the caller or the process directory.
-DEFAULT_PLUGINS_DIRECTORY = Path(__file__).resolve().parent.parent / "plugins"
 
 
 @dataclass(frozen=True)
@@ -119,7 +114,6 @@ def discover_plugin_catalog(
     plugins_dir: Path | None = None,
     *,
     package_name: str = DEFAULT_PACKAGE_NAME,
-    module_importer: Callable[[str], Any] = importlib.import_module,
 ) -> PluginCatalog:
     """Discover built-in plugins below one trusted plugins directory.
 
@@ -129,7 +123,6 @@ def discover_plugin_catalog(
     """
 
     roots = ((Path(plugins_dir).resolve(), package_name),) if plugins_dir is not None else trusted_roots()
-    packages = {root.resolve(): package for root, package in roots}
     candidates = [_read_candidate(path) for root, _ in roots for path in _plugin_directories(root)]
     _mark_duplicate_plugin_keys(candidates)
     _mark_duplicate_stream_ids(candidates)
@@ -142,13 +135,21 @@ def discover_plugin_catalog(
             continue
 
         try:
-            if int((candidate.manifest or {}).get("api_version") or 0) >= 4:
-                from .process_host import build_process_plugin
+            # Every candidate that reached this point already normalized
+            # cleanly (validate_and_normalize_manifest rejects anything
+            # outside SUPPORTED_PLUGIN_API_VERSIONS = (4,)), so the process
+            # host is the only path -- see Phase 3.1,
+            # docs/architecture-1.0-umbau.md, for the v3 in-process import
+            # path this replaced. No separate object-shape validation
+            # follows: build_process_plugin derives every handler directly
+            # and unconditionally from this same manifest's own capabilities
+            # set, so a "capability X requires handler X" check can never
+            # fail here by construction -- that check only ever caught
+            # anything for a hand-written v3 Plugin object, which could
+            # genuinely omit a handler while still declaring the capability.
+            from .process_host import build_process_plugin
 
-                plugin = build_process_plugin(candidate.manifest or {}, candidate.directory)
-            else:
-                plugin = _import_plugin(candidate, packages[candidate.directory.parent.resolve()], module_importer)
-            _validate_plugin_object(plugin, candidate.manifest or {})
+            plugin = build_process_plugin(candidate.manifest or {}, candidate.directory)
         except Exception as error:
             candidate.add_error(str(error))
             entries.append(_invalid_entry(candidate))
@@ -253,87 +254,6 @@ def _mark_conflicting_upload_destinations(candidates: list[_Candidate]) -> None:
                 "only one upload destination may declare purge_verified_sources: "
                 + keys
             )
-
-
-def _import_plugin(
-    candidate: _Candidate,
-    package_name: str,
-    module_importer: Callable[[str], Any],
-) -> Plugin:
-    manifest = candidate.manifest or {}
-    entry_point = str(manifest.get("entry_point") or "")
-    match = ENTRY_POINT_PATTERN.fullmatch(entry_point)
-    if match is None:
-        raise PluginManifestError("entry_point is invalid")
-    module_name = match.group("module")
-    attribute = match.group("attribute")
-    qualified_module = f"{package_name}.{candidate.directory.name}.{module_name}"
-    module = module_importer(qualified_module)
-    plugin = getattr(module, attribute, None)
-    if not isinstance(plugin, Plugin):
-        raise PluginManifestError(
-            f"entry_point {entry_point!r} did not expose an Plugin"
-        )
-    return plugin
-
-
-def _validate_plugin_object(plugin: Plugin, manifest: dict[str, Any]) -> None:
-    expected = (
-        ("key", "plugin_key", manifest.get("plugin_key")),
-        ("config_key", "config_key", manifest.get("config_key")),
-        ("category", "category", manifest.get("category")),
-        ("label", "ui.label", (manifest.get("ui") or {}).get("label")),
-    )
-    for attribute, manifest_field, value in expected:
-        if getattr(plugin, attribute) != value:
-            raise PluginManifestError(
-                f"plugin.{attribute} does not match manifest {manifest_field}"
-            )
-
-    capabilities = set(manifest.get("capabilities") or [])
-    if "health" in capabilities and plugin.get_status is None:
-        raise PluginManifestError("health capability requires plugin.get_status")
-    if "runtime_control" in capabilities:
-        actions = (
-            (plugin.can_start, plugin.start, "start"),
-            (plugin.can_stop, plugin.stop, "stop"),
-            (plugin.can_restart, plugin.restart, "restart"),
-        )
-        if not any(enabled for enabled, _handler, _name in actions):
-            raise PluginManifestError("runtime_control requires at least one enabled action")
-        for enabled, handler, name in actions:
-            if enabled and handler is None:
-                raise PluginManifestError(f"runtime_control enables {name} without a handler")
-    if "admin_actions" in capabilities and not callable(
-        getattr(plugin, "run_admin_action", None)
-    ):
-        raise PluginManifestError("admin_actions capability requires plugin.run_admin_action")
-    if "participant_actions" in capabilities and not callable(
-        getattr(plugin, "run_participant_action", None)
-    ):
-        raise PluginManifestError(
-            "participant_actions capability requires plugin.run_participant_action"
-        )
-    if "participant_ingest" in capabilities and not callable(
-        getattr(plugin, "ingest_participant", None)
-    ):
-        raise PluginManifestError(
-            "participant_ingest capability requires plugin.ingest_participant"
-        )
-    if "interval_summary" in capabilities and plugin.get_interval_summary is None:
-        raise PluginManifestError(
-            "interval_summary capability requires plugin.get_interval_summary"
-        )
-    if "sidecar_export" in capabilities and plugin.export_interval_samples is None:
-        raise PluginManifestError(
-            "sidecar_export capability requires plugin.export_interval_samples"
-        )
-    if "upload_destination" in capabilities and not callable(
-        getattr(plugin, "publish_destination", None)
-    ):
-        raise PluginManifestError(
-            "upload_destination capability requires plugin.publish_destination"
-        )
 
 
 def _validate_declared_ui_assets(directory: Path, manifest: dict[str, Any]) -> None:

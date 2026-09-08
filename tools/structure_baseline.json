@@ -10,19 +10,19 @@
     "apps": 0,
     "apps.server": 4294,
     "apps.ui": 0,
-    "contracts": 1515,
+    "contracts": 1525,
     "data_core": 16,
     "data_core.contract": 1223,
-    "data_core.host": 6039,
+    "data_core.host": 6045,
     "data_core.worker": 2037,
     "extensions": 0,
     "extensions.cards": 0,
     "extensions.destinations": 1607,
     "extensions.outputs": 154,
     "extensions.sensors": 8063,
-    "plugin_framework": 2468,
+    "plugin_framework": 2403,
     "runtime_core": 12205,
-    "shared": 482,
+    "shared": 478,
     "updates": 247
   }
 }

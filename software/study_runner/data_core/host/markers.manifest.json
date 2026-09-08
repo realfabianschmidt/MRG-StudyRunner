@@ -1,10 +1,14 @@
 {
-  "api_version": 3,
+  "api_version": 4,
   "plugin_key": "lsl",
   "version": "1.0.0",
   "category": "sync",
   "config_key": "lsl",
   "entry_point": "data_core.host.markers:BUILT_IN",
+  "runtime": {
+    "entrypoint": "driver.py",
+    "protocol": "study-runner-stdio/v1"
+  },
   "ui": {
     "label": "LSL markers",
     "description": "Irregular study and card event marker stream.",

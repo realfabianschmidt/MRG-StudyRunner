@@ -13,6 +13,12 @@ plugin manifests go through. That keeps the declared stream, its capabilities,
 and this module's own constants from a single source instead of two hand-kept
 copies -- but the manifest is never discovered from a directory scan and never
 imported through an entry point, because there is nothing here to remove.
+
+Its `api_version`/`runtime` block is schema formality, not a real subprocess
+declaration: the shared validator requires *some* `runtime` for api_version 4
+(the only version it now accepts, Phase 3.1), but this module is imported
+directly by `backend/__init__.py` in the host process and never spawned as
+`driver.py` -- there is no such file here, and nothing ever looks for one.
 """
 from __future__ import annotations
 

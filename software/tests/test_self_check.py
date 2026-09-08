@@ -88,8 +88,18 @@ class SelfCheckIsolationTests(unittest.TestCase):
                 self.assertEqual(self_check.main(), 1)
 
     def test_packaging_fixture_is_valid_without_importing_plugin_code_in_the_host(self) -> None:
+        """Phase 3.1 (docs/architecture-1.0-umbau.md) removed the v3
+        in-process import path this used to guard against directly
+        (``plugin_catalog.importlib``); v4 discovery only reads
+        ``manifest.json`` and checks that ``driver.py`` exists on disk, so
+        the isolation this proves now holds by construction rather than by
+        one specific avoided call. Patching the global ``importlib.import_module``
+        instead keeps the test meaningful as a regression guard: the plugin's
+        own code is only ever imported inside the spawned subprocess
+        (``driver_runtime.run_plugin_driver``), never here.
+        """
         fixture_root = Path(__file__).parent / "fixtures"
-        with patch("study_runner.plugin_framework.plugin_catalog.importlib.import_module", side_effect=AssertionError("host imported fixture")):
+        with patch("importlib.import_module", side_effect=AssertionError("host imported fixture")):
             catalog = discover_plugin_catalog(fixture_root)
         entries = [entry for entry in catalog.entries if entry.plugin_key == "packaging_probe"]
         self.assertEqual(len(entries), 1)

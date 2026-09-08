@@ -52,8 +52,9 @@ software/saved_results/
 
 The original pseudonymous participant ID is preserved in JSON. Sanitized path
 components, UTC start, and immutable session ID prevent collisions when one
-participant repeats a study. Old flat result folders are not moved and are not
-part of the canonical completed-session browser.
+participant repeats a study. Pre-1.0 flat result folders are an archival compatibility surface: they stay
+readable but are not moved and are not part of the canonical completed-session
+browser.
 
 `submission.json` is the atomic local participant commit. `result.json` is the
 published result view. `manifest.json` and `checksums.sha256` record provenance

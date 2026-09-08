@@ -412,8 +412,9 @@ saved_results/
 
 The original participant identifier remains in JSON. Path components are
 bounded and sanitized. UTC start plus immutable session ID prevents collisions.
-Legacy flat result folders are left untouched and are not part of the canonical
-session browser.
+Pre-1.0 flat result folders are an archival compatibility surface: they stay
+readable (fixture-pinned in `tests/test_legacy_flat_result_compat.py`) but are
+not part of the canonical session browser, and nothing writes that shape anymore.
 
 ## Timer And Event Journal
 

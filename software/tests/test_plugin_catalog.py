@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import shutil
 import sys
 import unittest
-import uuid
 from unittest.mock import ANY, patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from support.fixture_plugin import FixturePluginRootMixin, write_driver_py
 
 from study_runner.plugin_framework.plugin_catalog import (
     PluginManifestError,
@@ -43,12 +45,12 @@ def _manifest(plugin_key: str, *, source_id: str | None = None) -> dict:
             }
         ]
     return {
-        "api_version": 3,
+        "api_version": 4,
         "plugin_key": plugin_key,
         "version": "1.0.0",
         "category": "test",
         "config_key": plugin_key,
-        "entry_point": "plugin:PLUGIN",
+        "runtime": {"entrypoint": "driver.py", "protocol": "study-runner-stdio/v1"},
         "ui": {"label": plugin_key, "order": 1},
         "capabilities": capabilities,
         "streams": streams,
@@ -367,24 +369,8 @@ class PluginManifestTests(unittest.TestCase):
             validate_and_normalize_manifest(payload, directory_name="fixture")
 
 
-class PluginDiscoveryIsolationTests(unittest.TestCase):
-    def setUp(self) -> None:
-        temp_root = PROJECT_ROOT / ".tmp" / "plugin-catalog-tests"
-        temp_root.mkdir(parents=True, exist_ok=True)
-        self.root = temp_root / uuid.uuid4().hex
-        self.root.mkdir()
-        self.package_name = f"fixture_plugins_{self.root.name.replace('-', '_')}"
-        self.package_dir = self.root / self.package_name
-        self.package_dir.mkdir()
-        (self.package_dir / "__init__.py").write_text("", encoding="utf-8")
-        sys.path.insert(0, str(self.root))
-
-    def tearDown(self) -> None:
-        sys.path.remove(str(self.root))
-        for module_name in list(sys.modules):
-            if module_name == self.package_name or module_name.startswith(f"{self.package_name}."):
-                sys.modules.pop(module_name, None)
-        shutil.rmtree(self.root)
+class PluginDiscoveryIsolationTests(FixturePluginRootMixin, unittest.TestCase):
+    fixture_group_name = "plugin-catalog-tests"
 
     def _plugin_folder(self, folder: str, manifest: dict, source: str | None = None) -> Path:
         plugin_dir = self.package_dir / folder
@@ -397,6 +383,7 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
             f"category='test', config_key={manifest['config_key']!r}, get_status=lambda context: {{}})\n"
         )
         (plugin_dir / "plugin.py").write_text(plugin_source, encoding="utf-8")
+        write_driver_py(plugin_dir, manifest["plugin_key"])
         return plugin_dir
 
     def _discover(self):
@@ -490,6 +477,7 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
             plugin.mkdir()
             (plugin / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
             (plugin / "plugin.py").write_text("raise AssertionError('conflict imported')\n", encoding="utf-8")
+            write_driver_py(plugin, "duplicate")
         roots = ((first_root, self.package_name), (second_root, self.package_name))
 
         with patch("study_runner.plugin_framework.plugin_catalog.trusted_roots", return_value=roots):
@@ -498,19 +486,6 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
         self.assertFalse(catalog.plugins)
         self.assertEqual(len(catalog.invalid_entries), 2)
         self.assertTrue(all("duplicate plugin_key" in entry.errors[0] for entry in catalog.invalid_entries))
-
-    def test_missing_declared_handler_is_reported_without_crashing_discovery(self) -> None:
-        source = (
-            "from study_runner.contracts.plugin_api import Plugin\n"
-            "PLUGIN = Plugin(key='no_health', label='no_health', "
-            "category='test', config_key='no_health')\n"
-        )
-        self._plugin_folder("no_health", _manifest("no_health"), source)
-
-        catalog = self._discover()
-
-        self.assertFalse(catalog.plugins)
-        self.assertIn("health capability requires", catalog.invalid_entries[0].errors[0])
 
     def test_upload_destination_is_discovered_with_its_generic_handler(self) -> None:
         manifest = _manifest("fixture_export")
@@ -547,21 +522,6 @@ class PluginDiscoveryIsolationTests(unittest.TestCase):
 
         self.assertFalse(catalog.plugins)
         self.assertIn("declared UI asset does not exist", catalog.invalid_entries[0].errors[0])
-
-    def test_admin_action_capability_requires_one_generic_handler(self) -> None:
-        manifest = _manifest("admin_fixture")
-        manifest["capabilities"]["admin_actions"] = {
-            "actions": [{"key": "repair_runtime", "label": "Repair runtime"}]
-        }
-        self._plugin_folder("admin_fixture", manifest)
-
-        catalog = self._discover()
-
-        self.assertFalse(catalog.plugins)
-        self.assertIn(
-            "admin_actions capability requires",
-            catalog.invalid_entries[0].errors[0],
-        )
 
 
 class PublicCatalogTests(unittest.TestCase):
