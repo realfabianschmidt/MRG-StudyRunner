@@ -161,6 +161,39 @@ class SessionsRouteTests(unittest.TestCase):
         self.assertEqual(payload["streams"][0]["sample_count"], 3)
         self.assertNotIn("samples", payload["streams"][0])
         self.assertIn("derived/session.xdf", {item["name"] for item in payload["files"]})
+        # Package A1: no quality.jsonl exists for this fixture session, so
+        # the detail view must say "not measured", never a false "clean".
+        self.assertEqual(payload["quality_summary"]["recording_health"], "unknown")
+        self.assertEqual(payload["quality_summary"]["findings"], [])
+
+    def test_detail_surfaces_quality_findings_when_a_journal_exists(self) -> None:
+        (self.session_one / "quality.jsonl").write_text(
+            "\n".join(
+                json.dumps(record)
+                for record in [
+                    {"event": "gap", "stream_key": "eeg", "details": {"gap_seconds": 1.2}},
+                    {"event": "gap", "stream_key": "eeg", "details": {"gap_seconds": 1.4}},
+                    {
+                        "event": "summary",
+                        "stream_key": "eeg",
+                        "details": {"sample_count": 10, "peak_fill_ratio": 0.05},
+                    },
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        with patch.object(sessions_index_service, "_read_merged_streams", side_effect=self._fixture_streams):
+            response = self.client.get(
+                "/api/admin/sessions/study-a/p01",
+                query_string={"session_folder": self.session_one.name},
+            )
+
+        payload = response.get_json()
+        summary = payload["quality_summary"]
+        self.assertEqual(summary["recording_health"], "warnings")
+        self.assertEqual(summary["findings"], [{"kind": "gap", "stream_key": "eeg", "count": 2}])
+        self.assertTrue(summary["kept_up"])
 
     def test_signal_route_selects_canonical_session_and_bounds_payload(self) -> None:
         with patch.object(sessions_index_service, "_read_merged_streams", side_effect=self._fixture_streams):

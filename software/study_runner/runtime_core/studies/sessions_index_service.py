@@ -20,6 +20,7 @@ from study_runner.contracts.session_lifecycle import (
 )
 
 from .card_summary_service import CardSummaryError, PyXdfSampleReader
+from .session_quality_summary import summarize_session_quality
 
 
 DEFAULT_MAX_POINTS = 2000
@@ -89,6 +90,11 @@ def load_session(
         # Kept as an alias while the existing timeline component moves from
         # JSON-sidecar terminology to generic XDF streams.
         "sidecars": stream_metadata,
+        # Package A1: quality.jsonl (5c) and its unconfirmed-tail entries
+        # (5h) existed with no reader on the UI side. Only the detail view
+        # reads it -- the list view stays cheap, matching the existing split
+        # where _read_merged_streams/_stream_metadata are also detail-only.
+        "quality_summary": summarize_session_quality(session_root),
     }
 
 

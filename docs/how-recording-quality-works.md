@@ -382,7 +382,29 @@ clean stop or a crash of the application alone costs nothing.
 
 ---
 
-## 8. What you can check yourself
+## 8. Where this shows up without opening a file
+
+Reading `quality.jsonl` by hand is not the normal way to see this. The
+session list in the admin interface shows a **recording quality** summary
+for each session, boiled down to one of four words:
+
+- **Not measured** — this session was recorded before this measuring
+  existed, or its data was withdrawn. Not the same as "clean": nobody
+  looked, so nothing can be said either way.
+- **Clean** — a journal exists and nothing worth flagging happened.
+- **Warnings** — gaps, a clock jump, or a period where the computer fell
+  behind were recorded. Worth a look, not necessarily a problem.
+- **Needs attention** — a timestamp went backwards, or part of the
+  recording could not be confirmed as saved (see the section above). Look
+  at this one.
+
+Alongside the word, a short list names what was actually found — "3 gaps in
+*EEG*", for instance — so you do not have to guess what triggered the
+label. This is deliberately the *only* detail shown here: no chart, no raw
+jitter numbers, no list of every individual event. Anyone who wants that
+opens `quality.jsonl` itself, using the sections above to read it.
+
+## 9. What you can check yourself
 
 Open a session folder. If `quality.jsonl` is there:
 

@@ -562,6 +562,7 @@
         <div>
           <h1 id="session-detail-title" data-i18n="sessions.detailLoading">Loading ...</h1>
           <p id="session-detail-subtitle"></p>
+          <span class="status-pill" id="session-lifecycle-badge" hidden></span>
         </div>
         <button class="btn-secondary" id="btn-session-back" type="button">
           <i class="iconoir-home"></i> <span data-i18n="sessions.backToHub">Back to hub</span>
@@ -593,6 +594,12 @@
               <div class="settings-hint" id="session-files-hint"></div>
             </div>
           </div>
+        </article>
+
+        <article class="dashboard-card dashboard-card--wide" id="session-quality-card">
+          <div class="dashboard-card-title"><i class="iconoir-shield-check"></i> <span data-i18n="sessions.qualityTitle">Recording quality</span></div>
+          <span class="status-pill" id="session-quality-value"></span>
+          <ul class="session-quality-findings" id="session-quality-findings"></ul>
         </article>
 
         <article class="dashboard-card dashboard-card--wide">

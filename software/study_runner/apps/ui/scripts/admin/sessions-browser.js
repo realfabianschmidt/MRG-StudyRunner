@@ -133,6 +133,104 @@ function renderSessionSummary(session) {
   const files = Array.isArray(session.files) ? session.files : [];
   setText('session-files-value', String(files.length));
   setText('session-files-hint', '');
+
+  renderLifecycleBadge(session);
+  renderQualitySummary(session);
+}
+
+// Package A1/A2: session.lifecycle (5a) and session.quality_summary
+// (session_quality_summary.py, reading 5c/5h's journals) existed with no
+// reader in the UI at all. This is that reader - deliberately three things
+// (a badge, a health word, a short finding list), never a chart or raw
+// event dump. Detail lives in quality.jsonl itself; see
+// docs/how-recording-quality-works.md.
+const LIFECYCLE_LABEL_KEYS = {
+  IDLE: 'sessions.lifecycle.idle',
+  PREFLIGHT: 'sessions.lifecycle.preflight',
+  RECORDING: 'sessions.lifecycle.recording',
+  FINALIZING: 'sessions.lifecycle.finalizing',
+  SEALED: 'sessions.lifecycle.sealed',
+  WITHDRAWN: 'sessions.lifecycle.withdrawn',
+  FAILED: 'sessions.lifecycle.failed',
+};
+
+function renderLifecycleBadge(session) {
+  const badge = byId('session-lifecycle-badge');
+  if (!badge) return;
+  const lifecycle = String(session.lifecycle || '');
+  const labelKey = LIFECYCLE_LABEL_KEYS[lifecycle];
+  // SEALED is the ordinary, expected outcome for a completed session; a
+  // badge that fires on every session is one nobody reads. Only the
+  // exceptional states earn a badge here.
+  if (!labelKey || lifecycle === 'SEALED') {
+    setHidden('session-lifecycle-badge', true);
+    return;
+  }
+  badge.className = `status-pill status-pill--${lifecycle.toLowerCase()}`;
+  badge.textContent = t(labelKey, lifecycle);
+  setHidden('session-lifecycle-badge', false);
+}
+
+const HEALTH_LABEL_KEYS = {
+  clean: 'sessions.quality.clean',
+  warnings: 'sessions.quality.warnings',
+  attention: 'sessions.quality.attention',
+  unknown: 'sessions.quality.unknown',
+};
+
+function renderQualitySummary(session) {
+  const card = byId('session-quality-card');
+  const summary = session.quality_summary;
+  if (!card || !summary) {
+    setHidden('session-quality-card', true);
+    return;
+  }
+  setHidden('session-quality-card', false);
+
+  const health = String(summary.recording_health || 'unknown');
+  const pill = byId('session-quality-value');
+  if (pill) {
+    pill.className = `status-pill status-pill--${health}`;
+    pill.textContent = t(HEALTH_LABEL_KEYS[health] || HEALTH_LABEL_KEYS.unknown, health);
+  }
+
+  const list = byId('session-quality-findings');
+  if (list) {
+    const findings = Array.isArray(summary.findings) ? summary.findings : [];
+    list.innerHTML = findings
+      .map((finding) => `<li>${escapeHtml(formatQualityFinding(finding))}</li>`)
+      .join('');
+  }
+}
+
+// One finding -> one sentence. Kept next to the pill/badge rendering above
+// rather than in a separate module: this is the only place a finding's
+// shape (session_quality_summary.py's "kind" + details) is interpreted.
+function formatQualityFinding(finding) {
+  const streamKey = String(finding.stream_key || '');
+  switch (finding.kind) {
+    case 'gap':
+      return t('sessions.quality.finding.gap', '{count} gap(s) in {stream}')
+        .replace('{count}', String(finding.count))
+        .replace('{stream}', streamKey);
+    case 'timestamp_regression':
+      return t('sessions.quality.finding.timestampRegression', '{count} timestamp regression(s) in {stream}')
+        .replace('{count}', String(finding.count))
+        .replace('{stream}', streamKey);
+    case 'clock_jump':
+      return t('sessions.quality.finding.clockJump', 'System clock jumped by up to {seconds}s ({count}x)')
+        .replace('{seconds}', String(finding.max_drift_seconds))
+        .replace('{count}', String(finding.count));
+    case 'ingest_backlog':
+      return t('sessions.quality.finding.ingestBacklog', 'Computer briefly fell behind {stream} ({count}x)')
+        .replace('{stream}', streamKey)
+        .replace('{count}', String(finding.count));
+    case 'unconfirmed_tail':
+      return t('sessions.quality.finding.unconfirmedTail', 'The last moments of {stream} before a restart were not confirmed as saved')
+        .replace('{stream}', streamKey);
+    default:
+      return `${finding.kind}: ${streamKey}`;
+  }
 }
 
 function renderAnswerList(session) {

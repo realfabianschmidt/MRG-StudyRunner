@@ -291,13 +291,61 @@ done, explicit `retry(job_id=...)` refuses it.
 12 new tests; full suite **905 passed, 4 skipped**; structure baseline
 rewritten.
 
-**Next task:** 5g (card extensions). Note the standing decision of
-2026-09-07: this is the **highest data-corruption risk in the programme** --
-a generalisation of 13 already-working card types. Read that decision and the
-5g entry in the working plan before starting, and consider proposing a
-narrower scope to the owner rather than starting wide. Order for the rest of
-Phase 5: 5g -> 5j -> 5f. 3.4 remains a written, unimplemented design plan --
-it blocks nothing. Claim the package in the working plan before editing.
+## Package A: A1 and A2 complete (Claude, 2026-09-09)
+
+Audit before starting more Phase 5 capability found 5a/5c/5h/5i had built
+correct, tested machinery with **no reader anywhere**: `WithdrawalService`
+and `summarize_quality_journal` had zero callers; `quality.jsonl`,
+`checkpoints.jsonl` and the `lifecycle` field were written but never surfaced
+in the UI. CONTRIBUTING.md section 1 rules out unreachable structure
+regardless of correctness. Owner instruction: close this before 5g.
+
+New `runtime_core/studies/session_quality_summary.py` -- the first caller
+`summarize_quality_journal()` ever had. Wired into the existing
+`load_session()` return value as `quality_summary`, no new endpoint. Reduces
+`quality.jsonl` to a `recording_health` level, counted findings, and
+`kept_up`. **Read this before touching it:** `unknown` is a fourth health
+level distinct from `clean` -- a session with no journal (pre-5c) must not
+report `clean`, which would repeat the exact mistake 5a's lifecycle
+derivation was already written to avoid (an archived session reporting
+itself `IDLE`). Findings are structured dicts (`{"kind": "gap", ...}`), not
+English sentences -- the frontend already owns translation
+(`t(key, fallback).replace(...)`, see `sessions-browser.js`); baking text
+into Python here would duplicate and un-localize that.
+
+**A2** landed in the same pass: a dedicated full-width "Recording quality"
+panel in `admin.html` (not a 5th quarter-tile -- the existing 2x2
+`status-grid--row` CSS assumes an even tile count via
+`nth-last-child(-n+2)`, and a findings list needs more room than a
+quarter-tile hint anyway), plus a lifecycle badge next to the session title.
+Both reuse the existing generic `.status-pill` component with new
+intent-color modifier classes in `main.css` -- the same shared style the
+four existing status pills already use, not a second badge system.
+**`SEALED` deliberately shows no badge** (it is the expected outcome; a
+badge on every session is one nobody reads). Findings render via
+`formatQualityFinding()` in `sessions-browser.js` using the project's
+existing `t(key, fallback).replace('{placeholder}', ...)` pattern; new
+locale keys added to **both** `en.json` and `de.json` (key-set parity
+verified programmatically). No new JS unit test file: `sessions-browser.js`
+exports only its two entry points today with no existing internal-helper
+test coverage to extend consistently with.
+
+Full suite **919 passed, 4 skipped**; `node --test tests/js` 27 passed
+(unchanged); structure baseline rewritten. Full account, including the
+six-file cost table for a new card type and the `card-info.js` precedent,
+in the working plan's Package A / Phase 5g sections.
+
+**Next task:** A3 (withdrawal route + two-step-confirm button over the
+existing `WithdrawalService`). **Then Phase 5g in full scope** -- owner
+decision
+2026-09-09 overrides the earlier "propose narrowing" note below: cards
+become a real fourth extension type (5g.B5), not only the JS/validation
+cleanup. The working plan's rewritten 5g entry has the audited starting
+position (a registry already exists; only 3 of 6 things a new card type
+needs are genuine leaks) and the B1-B5 order with the hard stop preserved.
+Order for the rest of Phase 5: 5g -> 5j -> 5f. 3.4 remains a written,
+unimplemented design plan -- it blocks nothing. Claim the package in the
+working plan before editing.
 
 ## Shared location and coordination
 

@@ -82,6 +82,7 @@ Edit-safety legend:
 | `software/study_runner/runtime_core/studies/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
 | `software/study_runner/runtime_core/studies/results_service.py` | Builds answer details, slices biosignals per card, writes result files | no |
 | `software/study_runner/runtime_core/studies/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |
+| `software/study_runner/runtime_core/studies/session_quality_summary.py` | Reduces quality.jsonl (5c) and its unconfirmed-tail entries (5h) to a UI-sized health level and structured findings | careful |
 | `software/study_runner/runtime_core/studies/session_store.py` | Persistent, rehydrating registry of active tablet study sessions | no |
 | `software/study_runner/data_core/host/sensor_flush_service.py` | Periodic background export of live sensor history for crash recovery | no |
 | `software/study_runner/data_core/host/sensor_coordinator_service.py` | Central plugin lifecycle/status wrapper with manifest, backpressure, and timing diagnostics | careful |

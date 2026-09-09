@@ -2034,6 +2034,22 @@ body.admin::before { display: none; }
 .status-pill--unreachable,
 .status-pill--error { background: var(--neg-14);  color: var(--neg); }
 
+/* Package A2: session recording-health (session_quality_summary.py) and
+   session lifecycle (session_lifecycle.py) badges, reusing the same
+   generic .status-pill component and intent-color grouping as above
+   rather than inventing a second badge style. */
+.status-pill--clean,
+.status-pill--sealed { background: var(--pos-14);  color: var(--pos); }
+.status-pill--warnings,
+.status-pill--recording,
+.status-pill--finalizing,
+.status-pill--preflight { background: var(--warn-14); color: var(--warn); }
+.status-pill--attention,
+.status-pill--withdrawn { background: var(--neg-14);  color: var(--neg); }
+.status-pill--unknown,
+.status-pill--idle { background: var(--ink-08);       color: var(--ink-30); }
+
+
 @media (max-width: 760px) {
   .plugin-control-row {
     grid-template-columns: 1fr;
@@ -3853,6 +3869,28 @@ body.admin::before { display: none; }
   display: flex;
   flex-direction: column;
   gap: 0;
+}
+
+/* Package A2: recording-quality findings, one short line per issue.
+   Deliberately plain text, not a table - there are at most a handful of
+   entries and each is one sentence built client-side from a structured
+   finding (see session_quality_summary.py's "kind" + count/details). */
+.session-quality-findings {
+  list-style: none;
+  margin: var(--s-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.session-quality-findings li {
+  font-size: .8125rem;
+  color: var(--ink-70);
+}
+
+.session-quality-findings:empty {
+  display: none;
 }
 
 .session-answer-row {

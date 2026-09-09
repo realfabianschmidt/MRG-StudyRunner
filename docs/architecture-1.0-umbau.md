@@ -39,8 +39,14 @@ CONTRIBUTING.md's "keep it simple" guidance). **Phase 5's first two
 packages 5e (journal/XDF event-id comparison), 5d (stream contracts +
 timing provenance), 5a (session lifecycle), 5c (live quality/timing
 journals), 5h (recording checkpoints + bounded ingest) and 5i (withdrawal
-workflow) are also complete** — see Phase 5 section. Next:
-5g, 5j, 5f in that order (3.4 is a written,
+workflow) are also complete** — see Phase 5 section. **Package A (visibility
+before more capability) started 2026-09-09**: 5a/5c/5h/5i built correct
+machinery with no UI reader at all (`WithdrawalService` and
+`summarize_quality_journal` had zero callers) — see "Package A" below.
+**A1 and A2 complete.** Next: A3, then 5g in full (owner decision 2026-09-09:
+build through card extensions becoming a real fourth extension type,
+not only the JS/validation cleanup — see the rewritten 5g entry), then
+5j, 5f in that order (3.4 is a written,
 not-yet-implemented design plan, see Phase 3 section — it can land
 whenever convenient, it blocks nothing in Phase 5).
 The shared rebuild is `feature/architecture-1.0`, worktree `C:\SR-1.0`.
@@ -1313,18 +1319,165 @@ history.
       regardless (D5)
       Include read-only offline inspection and exclusive maintenance locking for
       recovery/sealing writes; never bypass a running runtime's ownership
-- [ ] **5g** Card extensions. **Only after Phase 4 is complete, never in
-      parallel.** 13 registered types across 14 files in
-      `frontend/scripts/cards/`, hand-written normalizers per type in
-      `validation.py` (~lines 848–1000 plus ~15 `type ==` branches), and
-      `participant/study-controller.js:5-8` reaches into four card modules **by
-      name** — the registry is not a complete abstraction today. Every existing
-      `.study-runner` encodes the current type strings.
-      Order: pilot `card-slider` completely → freeze the contract against it →
-      one golden fixture per card type → the remaining twelve.
-      **Hard stop after the pilot** if the contract cannot reproduce
-      `validation.py`'s semantics exactly; report the incompatibility for a scope
-      decision. Do not silently remove cards from the approved 1.0 scope
+## Package A — visibility before more capability (2026-09-09)
+
+Not a numbered Phase-5 package; a course correction. Auditing 5a/5c/5h/5i
+after they landed found five pieces of correct, tested machinery reachable
+by **nothing**: `WithdrawalService` and `summarize_quality_journal` had zero
+callers anywhere in the codebase, `quality.jsonl`/`checkpoints.jsonl` were
+written but never read back by the UI, and the `lifecycle` field 5a adds to
+every session summary was never rendered. `CONTRIBUTING.md` section 1 rules
+out structure with no reachable use — unreachable machinery is exactly that,
+independent of how correct it is. Owner instruction: close this before
+starting more Phase 5 capability.
+
+- [x] **A1** Quality summary reader. New
+      `runtime_core/studies/session_quality_summary.py` — the first caller
+      `summarize_quality_journal()` (`contracts/quality_journal.py`) ever
+      had. Reduces `quality.jsonl` to three UI-sized things: a
+      `recording_health` level (`clean`/`warnings`/`attention`/`unknown`),
+      counted findings (one per event kind + stream, not one line per raw
+      event), and `kept_up` (the positive evidence from `peak_fill_ratio`,
+      5h). Wired into the existing `load_session()` return value
+      (`sessions_index_service.py`) as `quality_summary` — no new endpoint.
+
+      **`unknown` is a fourth health level, not folded into `clean`.** A
+      session recorded before 5c existed has no journal to read, and
+      reporting that as `clean` would repeat the exact mistake 5a's own
+      lifecycle derivation had already been written to avoid (an archived
+      session with no finalization state reporting itself as `IDLE`).
+      "Never measured" and "measured, found nothing" are different claims;
+      only a journal that exists (even empty) earns `clean`.
+
+      **Findings are structured, not English sentences.** `{"kind": "gap",
+      "stream_key": "eeg", "count": 3}`, not "3 gaps in EEG" — the frontend
+      already has a translation layer (`t(key, fallback).replace(...)`,
+      see `sessions-browser.js`'s `moreHint`) and is the one place that
+      should own user-facing text. Baking English into the Python layer
+      would make it unlocalizable and duplicate that responsibility.
+
+      **`kept_up` and the `ingest_backlog` finding are derived from the
+      same computation**, never two independent thresholds that could
+      disagree with each other — pinned by its own test.
+
+      12 new tests (`test_session_quality_summary.py`) plus two in
+      `test_sessions_routes.py`. Full suite **918 passed, 4 skipped**;
+      structure baseline rewritten.
+
+- [x] **A2** Session detail page. Built as a dedicated full-width panel
+      ("Recording quality"), not a fifth quarter-tile in the existing 2x2
+      `status-grid--row` — that grid's CSS (`nth-last-child(-n+2)` clearing
+      the last row's border) assumes an even tile count, and a 5th tile
+      would have broken the row-border math for an odd one. A findings list
+      also needs more room than a quarter-tile's one-line hint allows.
+
+      New markup in `admin.html`: `#session-lifecycle-badge` (next to the
+      title) and `#session-quality-card` (its own article, between "What
+      was recorded" and "Timeline"). Both reuse the existing generic
+      `.status-pill` component with new intent-color modifier classes in
+      `main.css` (`--clean`/`--warnings`/`--attention`/`--unknown` for
+      health, `--sealed`/`--recording`/`--finalizing`/... for lifecycle,
+      `--failed` already existed and needed no new rule) — the same shared
+      style the four existing status pills already use, not a second badge
+      system.
+
+      **`SEALED` deliberately shows no badge.** It is the expected, ordinary
+      outcome for a completed session; a badge that fires on every session
+      is one nobody reads. Only the exceptional lifecycle states get one.
+
+      Findings render as one line each via a small per-`kind` switch in
+      `sessions-browser.js` (`formatQualityFinding`), using the project's
+      existing `t(key, fallback).replace('{placeholder}', value)` pattern
+      (see `moreHint`) — new locale keys added to **both** `en.json` and
+      `de.json` in the same commit (key-set parity verified). Deliberately
+      no chart, no raw jitter numbers, no journal viewer — three sentences,
+      not thirty numbers, per the owner's explicit warning against
+      over-detailing this UI.
+
+      No new JS unit tests: `sessions-browser.js` exports only its two entry
+      points today and has no existing unit-test coverage of its internal
+      rendering helpers (`sessionTags`, `formatDuration`, etc.) to extend
+      consistently with — adding a bespoke test harness for one new function
+      would be inconsistent structure, not a fix. Verified instead by the
+      Python-side route test asserting the exact `quality_summary` payload
+      shape, `node --test tests/js` (27 passed, unchanged), a syntax check,
+      and a DOM-id cross-reference between the new HTML/CSS/JS. Full suite
+      **919 passed, 4 skipped**.
+- [ ] **A3** Withdrawal route + button. `POST
+      /api/admin/sessions/<study>/<participant>/withdraw`, thin handler over
+      `WithdrawalService` (§5), with the `recording_stopper` callback wired
+      to the host recording runtime in `apps/server/application.py`. UI:
+      two-step confirmation (type the session name — irreversible, not a
+      single click). Withdrawn sessions already appear as tombstones with a
+      `WITHDRAWN` lifecycle (5i); `already_published` destinations must be
+      shown verbatim, never summarized into "handled".
+
+## Phase 5g — card extensions, full scope (owner decision 2026-09-09: build
+completely, including cards becoming a real fourth extension type — not
+only the JS/validation cleanup a narrower reading of the target doc would
+allow)
+
+Re-audited 2026-09-09, and the starting position is better than the target
+doc's own description assumes: a real registry already exists
+(`cards/index.js`: `CARDS`, `CARD_TYPES`, `defaultFor()`), and all 13
+modules already share one interface (`meta`, `defaultQuestion`,
+`renderStudy`, `renderEditor`, `collectConfig`, `collectAnswer`). The actual
+gap is narrower and precisely located:
+
+| # | What a new card type needs today | Should it? |
+|---|---|---|
+| 1 | `cards/card-X.js` | yes — correct |
+| 2 | `cards/index.js` registration | yes — correct |
+| 3 | `study-controller.js` `isAnswered()` (~1999–2032), 13 `type ==` branches | **no — leak** |
+| 4 | `study-controller.js:5-8` + bind sites 657/767/1024/1027, 4 named hook imports | **no — leak** |
+| 5 | `validation.py`, one normalize + one validate branch (22 branches total, two functions) | yes, but scattered |
+| 6 | `renderStudy`'s header (type tag + prompt + instruction), copied into all 12 modules | **no — leak** |
+
+`validation.py` is the **only** Python file that knows card type strings —
+no service, no route. And the project has already solved leak #6's problem
+once, for the editor side: `cards/card-info.js`'s own docstring says the
+shared editor frame existed "because it was copied into nine card modules,
+which is how they drifted out of order." The same extraction never happened
+for the participant side.
+
+Order, each stage independently useful and a valid stopping point if a
+later stage hits the hard stop below:
+
+- [ ] **5g.B1** Golden fixture per card type, normalized through
+      `validation.py`, output frozen. Does not exist today
+      (`test_validation.py` does not cover every type). The safety net
+      every later stage is checked against.
+- [ ] **5g.B2** Close the three JS leaks. `isAnswered()` becomes an optional
+      per-module export (`CARDS[type].isAnswered?.(q, i)`) with a sane
+      controller-side default, removing the 13 branches. The four behavior
+      hooks (`onInput`/`bindDrag`/`onClick`/`bindCardEvents`) resolve
+      through the registry instead of named imports. The header shared into
+      a common participant-side frame, following `card-info.js`'s already-
+      proven pattern. After this a card module is self-contained on the JS
+      side.
+- [ ] **5g.B3** `validation.py`'s 22 scattered `if question_type ==` branches
+      become one table, one entry per type, at one location. Semantics
+      unchanged — purely mechanical, verified against B1's fixtures at every
+      step.
+- [ ] **5g.B4** Contract test: for every type registered in `CARD_TYPES`,
+      assert the module exports are complete, the validation table has an
+      entry, and a golden fixture exists. Makes "the registry is a complete
+      abstraction" checkable, not just asserted. Plus a short "Adding a new
+      card type" section in `developer-guide.md`.
+- [ ] **5g.B5** Cards become real extensions: `extensions/cards/<type>/`
+      with a `manifest.json` (config/answer schema, defaults) and the
+      card's JS, delivered through the asset route that already exists for
+      plugin UI extensions (`/api/plugins/<key>/assets/<path>`,
+      `plugin_catalog.py`'s `_validate_declared_ui_assets`). The
+      `extensions/cards/` directory already exists (created empty by Phase
+      4) and is exactly where this lands. Only after B1–B4: B5 without that
+      safety net is the unguarded rewrite the target doc's hard stop exists
+      to prevent.
+
+**Hard stop, unchanged from the original plan:** if a card's contract
+cannot reproduce `validation.py`'s exact semantics at any stage, report the
+incompatibility for a scope decision. Never silently drop a card type from
+the approved 1.0 scope to make a stage "succeed."
 
 - [x] **5h** Recording checkpoints and bounded ingest (commits `0f7a2ba`,
       this package's second commit). Two halves, both landed:
@@ -1482,7 +1635,8 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 5g (card extensions) — next active package, highest data-corruption risk in the programme; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+| Package A3 (withdrawal route + two-step-confirm button) — next active package; A1/A2 complete | Claude | `feature/architecture-1.0` | 2026-09-09 |
+| Phase 5g (card extensions, full scope) — after A3, highest data-corruption risk in the programme; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`
