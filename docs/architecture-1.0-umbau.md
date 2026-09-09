@@ -1476,10 +1476,48 @@ for the participant side.
 Order, each stage independently useful and a valid stopping point if a
 later stage hits the hard stop below:
 
-- [ ] **5g.B1** Golden fixture per card type, normalized through
-      `validation.py`, output frozen. Does not exist today
-      (`test_validation.py` does not cover every type). The safety net
-      every later stage is checked against.
+- [x] **5g.B1** Golden fixture per card type, normalized through
+      `validation.py`, output frozen. New
+      `tests/support/card_type_fixtures.py` (data only) and
+      `tests/test_card_type_fixtures.py` (the checks). One minimal, realistic
+      author-written question per type in `ALLOWED_QUESTION_TYPES`, plus a
+      submitted answer for every type outside `NON_ANSWER_QUESTION_TYPES`.
+
+      **Frozen values are hand-audited against the source, not captured by
+      running the code and trusting it.** They were generated once from the
+      real `validate_and_normalize_config`/`validate_and_normalize_results`
+      output, then checked line-by-line against the `_validate_question_by_type`
+      and `_validate_answer_value` branches that produce them (participant-id's
+      full nested `fields` block against `PARTICIPANT_FIELD_DEFAULTS` +
+      `CONFIGURABLE_OPTION_DEFAULTS`; mood-meter/multi-slider/word-cloud's
+      defaulted fields against their branches directly) before being
+      committed as the frozen expectation. A test that only reruns the code
+      and compares it to itself proves nothing; this proves the frozen value
+      was correct on the day it was written, so a later diff means something.
+
+      **`stimulus` is deliberately excluded from the exact-match check's
+      `plugin_actions` key** (`STIMULUS_EXCLUDED_KEYS`). Real finding while
+      building this: `normalize_card_plugin_actions()` reads the *live
+      installed plugin registry* (`study_plugin_config._plugin_manifests()`),
+      so a stimulus card's normalized output is not a pure function of the
+      question data alone -- it silently depends on which plugins happen to
+      be installed. Pinning it exactly would make this fixture fail for
+      reasons that have nothing to do with card-type validation (a plugin
+      gaining a `card_actions_schema` field). Worth remembering for 5g.B5:
+      this coupling exists today and a card-as-extension design needs an
+      opinion about it, not silence.
+
+      **Fixture-set coverage is itself checked**, not just fixture content:
+      one test asserts every `ALLOWED_QUESTION_TYPES` member has a fixture
+      (catches a new card type shipping with no golden fixture), another
+      asserts the reverse (catches a stale fixture for a removed type), and
+      a third checks which types carry an `"answer"` key against
+      `NON_ANSWER_QUESTION_TYPES` exactly. Without these, the safety net
+      itself could silently stop covering what it claims to.
+
+      6 new tests, all passing on first run against the real code. Full
+      suite **928 passed, 4 skipped**; structure baseline unchanged (tests/
+      is outside `measure_structure.py`'s and `file-guide.md`'s scope).
 - [ ] **5g.B2** Close the three JS leaks. `isAnswered()` becomes an optional
       per-module export (`CARDS[type].isAnswered?.(q, i)`) with a sane
       controller-side default, removing the 13 branches. The four behavior
@@ -1668,7 +1706,7 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 5g.B1 (golden card fixtures) — next active package; Package A (A1/A2/A3) complete; highest data-corruption risk in the programme overall | Claude | `feature/architecture-1.0` | 2026-09-09 |
+| Phase 5g.B2 (close the three JS card-registry leaks) — next active package; 5g.B1 complete; 5g overall is the highest data-corruption risk in the programme | Claude | `feature/architecture-1.0` | 2026-09-09 |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`

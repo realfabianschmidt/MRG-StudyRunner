@@ -357,16 +357,43 @@ Full suite **922 passed, 4 skipped**; `node --test tests/js` 27 passed
 six-file cost table for a new card type and the `card-info.js` precedent,
 in the working plan's Package A / Phase 5g sections.
 
-**Next task: Phase 5g in full scope**, starting with **5g.B1** (golden
-fixture per card type through `validation.py`, output frozen -- the safety
-net every later stage checks against; does not exist today). Owner decision
-2026-09-09 overrides the earlier "propose narrowing" note below: cards
-become a real fourth extension type (5g.B5), not only the JS/validation
-cleanup. The working plan's rewritten 5g entry has the audited starting
-position (a registry already exists; only 3 of 6 things a new card type
-needs are genuine leaks) and the B1-B5 order with the hard stop preserved --
-read it before starting. Order for the rest of Phase 5: 5g -> 5j -> 5f. 3.4
-remains a written, unimplemented design plan -- it blocks nothing. Claim
+## 5g.B1 complete (Claude, 2026-09-09)
+
+New `tests/support/card_type_fixtures.py` (data) and
+`tests/test_card_type_fixtures.py` (checks): one golden question per type in
+`ALLOWED_QUESTION_TYPES`, plus a submitted answer for every type outside
+`NON_ANSWER_QUESTION_TYPES`, each run through the real
+`validate_and_normalize_config`/`_results` and compared to a frozen,
+hand-audited expected value -- not captured-and-trusted from the code's own
+output, which would prove nothing.
+
+**Read this before touching card-type validation:** `stimulus`'s
+`plugin_actions` output is excluded from the exact-match check.
+`normalize_card_plugin_actions()` reads the *live installed plugin
+registry*, so that field is not a pure function of the question data --
+pinning it would fail this fixture for reasons unrelated to card types (a
+plugin gaining a `card_actions_schema` field). This is a real coupling
+5g.B5 will need an opinion about, not an artifact of the test.
+
+Fixture-set coverage is checked, not just content: one test catches a new
+card type shipping with no fixture, another catches a stale fixture for a
+removed type, a third checks the answerable/non-answerable split against
+`NON_ANSWER_QUESTION_TYPES` exactly.
+
+6 new tests, full suite **928 passed, 4 skipped** (tests/ is outside
+`measure_structure.py` and `file-guide.md`'s scope, so neither needed
+updating).
+
+**Next task:** 5g.B2 -- close the three genuine JS leaks the audit found
+(`isAnswered()`'s 13 branches in `study-controller.js`, the four
+namely-imported behavior hooks, and the per-module copied `renderStudy`
+header). Follow the already-proven `card-info.js` extraction pattern for
+the header. Then 5g.B3 (the `validation.py` table, checked against B1's
+fixtures at every step), 5g.B4 (the contract test + docs), and only then
+5g.B5 (cards as real extensions) -- the working plan's rewritten 5g entry
+has the full order and the hard stop; read it before starting. Order for
+the rest of Phase 5: 5g -> 5j -> 5f. 3.4 remains a written, unimplemented
+design plan -- it blocks nothing. Claim
 the package in the working plan before editing.
 
 ## Shared location and coordination
