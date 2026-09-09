@@ -441,12 +441,46 @@ Full suite **933 passed, 4 skipped**; structure baseline rewritten (named
 functions cost a few more lines than compact `if` chains, which is the
 expected and worthwhile trade).
 
-**Next task:** 5g.B4 (contract test: for every type in `CARD_TYPES`, assert
-the module exports are complete, both `validation.py` tables have an entry,
-and a golden fixture exists; plus a short "Adding a new card type" section
-in `developer-guide.md`). Then only 5g.B5 (cards as real extensions) --
-the working plan's rewritten 5g entry has the full order and the hard stop;
-read it before starting. Order for the rest of Phase 5: 5g -> 5j -> 5f. 3.4
+## 5g.B4 complete (Claude, 2026-09-09)
+
+New `tests/test_card_registry_contract.py` (6 tests): `CARD_TYPES` (JS,
+read as text) cross-checked against `ALLOWED_QUESTION_TYPES` (Python),
+every card module's required exports, both `validation.py` dispatch
+tables, and the golden fixture set -- all four checked against the JS
+registry's own type list directly, not only against each other, so
+`ALLOWED_QUESTION_TYPES` itself drifting could not slip past every other
+check at once.
+
+**Deliberately no JS parser.** Reading JS source as text and matching with
+regexes was already an established pattern here (`test_web_ui.py`'s
+`WEB`/`_read` helpers, mirrored directly) -- a real parsing dependency for
+what plain regexes already answer would be new infrastructure for no new
+capability.
+
+New "Adding A Card Type" section in `developer-guide.md`, matching the
+existing "Adding A Recording Sensor" section's style: the three
+registration points, when the optional `isAnswered`/`bindInteractions`/
+`onInput`/`onClick` hooks are needed (dispatched generically -- never a new
+named import in `study-controller.js`), and the golden-fixture step this
+contract test now enforces.
+
+Full suite **939 passed, 4 skipped**; `node --test` unchanged at 39;
+structure baseline unaffected (new test file outside
+`measure_structure.py`'s scope).
+
+**Next task:** 5g.B5, the last and largest stage -- cards become real
+extensions: `extensions/cards/<type>/` with a `manifest.json` (config/
+answer schema, defaults) and the card's JS, delivered through the asset
+route that already exists for plugin UI extensions
+(`/api/plugins/<key>/assets/<path>`, `plugin_catalog.py`'s
+`_validate_declared_ui_assets`). The `extensions/cards/` directory already
+exists (created empty by Phase 4). Only attempt this now that B1-B4 give
+it a safety net: golden fixtures, self-contained JS modules, one dispatch
+table per side, and a contract test tying all three together. **Hard stop,
+unchanged since the original plan:** if a card's contract cannot reproduce
+`validation.py`'s exact semantics, report the incompatibility for a scope
+decision -- never silently drop a card type from the approved 1.0 scope to
+make a stage "succeed." Order for the rest of Phase 5: 5g -> 5j -> 5f. 3.4
 remains a written, unimplemented design plan -- it blocks nothing. Claim
 the package in the working plan before editing.
 

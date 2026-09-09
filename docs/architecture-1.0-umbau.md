@@ -45,8 +45,8 @@ machinery with no UI reader at all (`WithdrawalService` and
 `summarize_quality_journal` had zero callers) — see "Package A" below.
 **Package A (A1/A2/A3) complete. 5g in progress (owner decision 2026-09-09:
 build through card extensions becoming a real fourth extension type, not
-only the JS/validation cleanup); 5g.B1-B3 complete, next is 5g.B4**
-— see the rewritten 5g entry. Then 5g.B5, then
+only the JS/validation cleanup); 5g.B1-B4 complete, next is 5g.B5**
+— see the rewritten 5g entry. Then
 5j, 5f in that order (3.4 is a written,
 not-yet-implemented design plan, see Phase 3 section — it can land
 whenever convenient, it blocks nothing in Phase 5).
@@ -1614,11 +1614,33 @@ later stage hits the hard stop below:
       (named functions cost a few more lines than compact `if` chains —
       expected, and the trade for one lookup point per type instead of
       searching among thirteen branches).
-- [ ] **5g.B4** Contract test: for every type registered in `CARD_TYPES`,
-      assert the module exports are complete, the validation table has an
-      entry, and a golden fixture exists. Makes "the registry is a complete
-      abstraction" checkable, not just asserted. Plus a short "Adding a new
-      card type" section in `developer-guide.md`.
+- [x] **5g.B4** Contract test + docs. New
+      `tests/test_card_registry_contract.py` (6 tests): `CARD_TYPES` (JS)
+      read as text and cross-checked against `ALLOWED_QUESTION_TYPES`
+      (Python), every module's required exports
+      (`meta`/`defaultQuestion`/`renderStudy`/`renderEditor`/`collectConfig`/`collectAnswer`),
+      both `validation.py` dispatch tables, and the golden fixture set --
+      all four checked against the JS registry's own type list, not only
+      against each other, so a drift in `ALLOWED_QUESTION_TYPES` itself
+      could not slip past every other check simultaneously.
+
+      **No JS parser, on purpose.** Cross-language checking by reading JS
+      source as text and matching with regexes already existed in this
+      codebase (`test_web_ui.py`'s `WEB`/`_read` helpers, mirrored here
+      directly) — introducing a JS-parsing dependency for a check plain
+      regexes already answer would be new infrastructure for no new
+      capability, exactly what `CONTRIBUTING.md` section 1 warns against.
+
+      New "Adding A Card Type" section in `developer-guide.md`, matching
+      the existing "Adding A Recording Sensor" section's style: the three
+      registration points, when `isAnswered`/`bindInteractions`/`onInput`/`onClick`
+      are needed (and that they are dispatched generically — never a new
+      named import), and the golden-fixture step this contract test now
+      enforces.
+
+      Full suite **939 passed, 4 skipped**; `node --test` unchanged at 39;
+      structure baseline unaffected (new test file is outside
+      `measure_structure.py`'s scope).
 - [ ] **5g.B5** Cards become real extensions: `extensions/cards/<type>/`
       with a `manifest.json` (config/answer schema, defaults) and the
       card's JS, delivered through the asset route that already exists for
@@ -1790,7 +1812,7 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 5g.B4 (contract test + `developer-guide.md`) — next active package; 5g.B1-B3 complete; 5g overall is the highest data-corruption risk in the programme | Claude | `feature/architecture-1.0` | 2026-09-09 |
+| Phase 5g.B5 (cards become real extensions) — next active package; 5g.B1-B4 complete; 5g overall is the highest data-corruption risk in the programme | Claude | `feature/architecture-1.0` | 2026-09-09 |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`
