@@ -110,6 +110,21 @@ export function renderEditorToggle({ className, checked, label, title = '', disa
     </label>`;
 }
 
+/**
+ * The header every ordinary question card starts with on the participant
+ * side: a type tag, the prompt, and the optional instruction. Before this
+ * it was copied verbatim into nine card modules - the same drift risk the
+ * editor frame above already had, on the other side of the page, for the
+ * same reason (see this file's top comment). `stimulus` and `finish` are
+ * not ordinary questions and build their own layout instead.
+ */
+export function renderStudyHeader(q, { icon, tagKey, tagFallback, prompt }) {
+  return `
+    <div class="q-type-tag"><i class="iconoir-${escapeHtml(icon)}"></i> ${escapeHtml(t(tagKey, tagFallback))}</div>
+    <p class="q-prompt">${escapeHtml(prompt ?? q?.prompt ?? '')}</p>
+    ${renderCardInstruction(q)}`;
+}
+
 export function renderOptionalTag(q) {
   if (q?.required !== false) return '';
   return `<div class="q-optional-tag">${escapeHtml(t('study.optionalTag', 'optional'))}</div>`;

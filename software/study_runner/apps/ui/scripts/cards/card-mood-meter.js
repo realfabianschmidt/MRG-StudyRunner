@@ -1,7 +1,6 @@
 import { t } from '../shared/i18n.js';
-import { renderEditorToggle } from './card-info.js';
+import { renderEditorToggle, renderStudyHeader } from './card-info.js';
 import { escapeHtml } from '../shared/dom-utils.js';
-import { renderCardInstruction } from './card-info.js';
 
 export const meta = { type: 'mood-meter', icon: 'app-window', label: 'Mood Meter', pill: 'pill-mood-meter' };
 
@@ -104,9 +103,7 @@ export function renderStudy(q, i) {
   }).join('');
 
   return `
-    <div class="q-type-tag"><i class="iconoir-app-window"></i> ${escapeHtml(t('cards.moodMeter.tag', 'Mood'))}</div>
-    <p class="q-prompt">${escapeHtml(q.prompt)}</p>
-    ${renderCardInstruction(q)}
+    ${renderStudyHeader(q, { icon: 'app-window', tagKey: 'cards.moodMeter.tag', tagFallback: 'Mood' })}
     <div class="mm-grid" id="mm-grid-${i}">${tiles}</div>`;
 }
 
@@ -160,6 +157,11 @@ export function collectConfig(el) {
 export function collectAnswer(i) {
   const sel = getState(i).selected;
   return sel.size > 0 ? Array.from(sel) : null;
+}
+
+export function isAnswered(_question, questionIndex) {
+  const answer = collectAnswer(questionIndex);
+  return Array.isArray(answer) && answer.length > 0;
 }
 
 // Max number of selected words shown on an overview tile before "+N more".

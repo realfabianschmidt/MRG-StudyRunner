@@ -2,10 +2,6 @@ import { getJson, postJson as postJsonToServer } from '../shared/api-client.js';
 import { CARDS } from '../cards/index.js';
 import { renderInfoBottom, renderOptionalTag } from '../cards/card-info.js';
 import { escapeHtml } from '../shared/dom-utils.js';
-import { onInput as sliderInput } from '../cards/card-slider.js';
-import { bindDrag as rankBindDrag } from '../cards/card-ranking.js';
-import { onClick as moodMeterClick } from '../cards/card-mood-meter.js';
-import { bindCardEvents as bindWordCloudEvents } from '../cards/card-word-cloud.js';
 import { getStudyClientId, startStudyClientHeartbeat } from './study-client-heartbeat.js';
 import { initI18n, t } from '../shared/i18n.js';
 import { startDeadlineTimer, remainingWholeSeconds } from '../shared/deadline-timer.js';
@@ -654,7 +650,7 @@ function bindEvents() {
 
   const questionContainer = getElement('q-container');
   questionContainer.addEventListener('input', handleQuestionInput);
-  questionContainer.addEventListener('click', (event) => moodMeterClick(event));
+  questionContainer.addEventListener('click', (event) => dispatchCardHook('onClick', event));
   questionContainer.addEventListener('change', handleQuestionChange);
   questionContainer.addEventListener('ranking:changed', handleQuestionChange);
   questionContainer.addEventListener('wordcloud:changed', handleQuestionChange);
@@ -754,6 +750,23 @@ async function toggleStudyFullscreen() {
   await requestStudyFullscreen();
 }
 
+// Package 5g.B2: every card module's optional onInput/onClick hook, called
+// generically instead of importing specific hooks by name (the actual leak
+// that made adding a new interactive card type mean editing this file's
+// import list). Every distinct module is called unconditionally, matching
+// what the named imports did before - each hook already self-filters via
+// its own CSS selector, so calling one that does not apply is a cheap no-op.
+// participant-id is excluded: it is handled by its own explicit call below,
+// which guards against re-entering on the very "participantid:changed"
+// event its hash computation dispatches.
+function dispatchCardHook(hookName, event) {
+  const participantIdModule = CARDS['participant-id'];
+  for (const cardModule of new Set(Object.values(CARDS))) {
+    if (cardModule === participantIdModule) continue;
+    cardModule[hookName]?.(event);
+  }
+}
+
 function handleQuestionInput(event) {
   const target = event.target;
   const questionIndex = getQuestionIndexFromElement(target);
@@ -764,8 +777,8 @@ function handleQuestionInput(event) {
     markQuestionField(questionIndex, target.id || 'text');
   }
 
-  sliderInput(event);
-  
+  dispatchCardHook('onInput', event);
+
   if (event.type !== 'participantid:changed') {
     CARDS['participant-id']?.onInput(event);
   }
@@ -1019,13 +1032,7 @@ function buildQuestions(options = {}) {
     cardElement.innerHTML = renderOptionalTag(question) + cardModule.renderStudy(question, questionIndex) + renderInfoBottom(question);
     container.appendChild(cardElement);
 
-    if (question.type === 'ranking') {
-      const rankList = cardElement.querySelector('.rank-list');
-      if (rankList) rankBindDrag(rankList);
-    }
-    if (question.type === 'word-cloud') {
-      bindWordCloudEvents(cardElement, questionIndex);
-    }
+    cardModule.bindInteractions?.(cardElement, questionIndex);
   });
 
   const firstCard = getElement('card-q-0');
@@ -1983,56 +1990,29 @@ async function stopStudySensorSession(options = {}) {
   }
 }
 
+// Package 5g.B2: every branch here used to be a type check against one
+// card's own answer logic. Each card module now exports its own optional
+// isAnswered(question, questionIndex, context) - a type with nothing to
+// check (stimulus, finish) simply has no such export, and "no hook" means
+// "always answered" below. Adding a new interactive card type no longer
+// means editing this function at all.
 function isAnswered(questionIndex) {
   const question = (state.config.questions || [])[questionIndex];
   if (!question) {
     return true;
   }
-  if (question.type === 'stimulus') {
+  const cardModule = CARDS[question.type];
+  if (!cardModule?.isAnswered) {
     return true;
   }
   const cardElement = getElement(`card-q-${questionIndex}`);
   if (!cardElement) {
     return true;
   }
-
-  if (question.type === 'slider') {
-    return getTouchedFieldCount(questionIndex) >= 1;
-  }
-  if (question.type === 'multi-slider') {
-    return getTouchedFieldCount(questionIndex) >= (question.dimensions?.length || 0);
-  }
-  if (question.type === 'ranking') {
-    return getTouchedFieldCount(questionIndex) >= 1;
-  }
-  if (question.type === 'text') {
-    return (CARDS.text.collectAnswer(questionIndex) || '').trim().length > 0;
-  }
-  if (question.type === 'mood-meter') {
-    const answer = CARDS['mood-meter'].collectAnswer(questionIndex);
-    return Array.isArray(answer) && answer.length > 0;
-  }
-  if (question.type === 'word-cloud') {
-    const answer = CARDS['word-cloud'].collectAnswer(questionIndex);
-    return Array.isArray(answer) && answer.length > 0;
-  }
-  if (question.type === 'semantic') {
-    return cardElement.querySelectorAll('input[type="radio"]:checked').length >= (question.pairs?.length || 0);
-  }
-  if (question.type === 'choice') {
-    return Boolean(cardElement.querySelector('input[type="checkbox"]:checked'));
-  }
-  if (question.type === 'single' || question.type === 'likert') {
-    return Boolean(cardElement.querySelector('input[type="radio"]:checked'));
-  }
-  if (question.type === 'participant-id') {
-    return CARDS['participant-id'].collectAnswer() !== null;
-  }
-  if (question.type === 'finish') {
-    return true;
-  }
-
-  return true;
+  return cardModule.isAnswered(question, questionIndex, {
+    cardElement,
+    touchedFieldCount: getTouchedFieldCount(questionIndex),
+  });
 }
 
 function updateNavigation() {

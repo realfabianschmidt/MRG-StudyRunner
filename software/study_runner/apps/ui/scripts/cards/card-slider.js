@@ -1,6 +1,6 @@
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
-import { renderCardInstruction } from './card-info.js';
+import { renderStudyHeader } from './card-info.js';
 
 export const meta = { type:'slider', icon:'sliders-vertical', label:'Slider (VAS)', pill:'pill-slider' };
 
@@ -10,9 +10,7 @@ export const defaultQuestion = {
 
 export function renderStudy(q, i) {
   return `
-    <div class="q-type-tag"><i class="iconoir-control-slider"></i> ${escapeHtml(t('cards.slider.tag', 'Rating scale'))}</div>
-    <p class="q-prompt">${escapeHtml(q.prompt)}</p>
-    ${renderCardInstruction(q)}
+    ${renderStudyHeader(q, { icon: 'control-slider', tagKey: 'cards.slider.tag', tagFallback: 'Rating scale' })}
     <div class="vas-wrap">
       <div class="vas-track">
         <span class="vas-pole">${escapeHtml(q.label_min||'min')}</span>
@@ -48,6 +46,14 @@ export function collectConfig(el) {
 
 export function collectAnswer(i) {
   return Number.parseInt(document.getElementById(`q${i}`)?.value, 10) ?? 50;
+}
+
+// A slider defaults to a visible, plausible-looking value (50) whether or
+// not the participant ever touched it, so collectAnswer() alone cannot
+// tell "answered" from "untouched". touchedFieldCount is the controller's
+// own record of real interaction (see study-controller.js's markQuestionField).
+export function isAnswered(_question, _questionIndex, { touchedFieldCount }) {
+  return touchedFieldCount >= 1;
 }
 
 // Called by study-controller event listener

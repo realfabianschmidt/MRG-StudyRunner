@@ -1,7 +1,6 @@
 import { t } from '../shared/i18n.js';
-import { renderEditorToggle } from './card-info.js';
+import { renderEditorToggle, renderStudyHeader } from './card-info.js';
 import { escapeHtml } from '../shared/dom-utils.js';
-import { renderCardInstruction } from './card-info.js';
 
 // Field metadata: render kind, label, and (for choice fields) default options.
 // `configurable: true` fields expose an editable option list in the settings modal.
@@ -129,9 +128,7 @@ export function renderStudy(q, _i) {
     .join('');
 
   return `
-    <div class="q-type-tag"><i class="iconoir-user-badge-check"></i> ${escapeHtml(t('cards.participant.tag', 'Participant ID'))}</div>
-    <p class="q-prompt">${escapeHtml(prompt)}</p>
-    ${renderCardInstruction(q)}
+    ${renderStudyHeader(q, { icon: 'user-badge-check', tagKey: 'cards.participant.tag', tagFallback: 'Participant ID', prompt })}
     <div class="pid-card-body">
       <div class="pid-fields">
         ${activeFieldMarkup}
@@ -458,6 +455,10 @@ export function collectConfig(el) {
 
 export function collectAnswer() {
   return _computedId;
+}
+
+export function isAnswered() {
+  return collectAnswer() !== null;
 }
 
 export function collectMetadata() {

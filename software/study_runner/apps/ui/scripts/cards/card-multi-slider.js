@@ -1,6 +1,6 @@
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
-import { renderCardInstruction } from './card-info.js';
+import { renderStudyHeader } from './card-info.js';
 
 export const meta = { type: 'multi-slider', icon: 'sliders-vertical', label: 'Multi-Slider', pill: 'pill-multi-slider' };
 
@@ -40,9 +40,7 @@ export function renderStudy(q, i) {
   }).join('');
 
   return `
-    <div class="q-type-tag"><i class="iconoir-control-slider"></i> ${escapeHtml(t('cards.multiSlider.tag', 'Rating scales'))}</div>
-    <p class="q-prompt">${escapeHtml(q.prompt)}</p>
-    ${renderCardInstruction(q)}
+    ${renderStudyHeader(q, { icon: 'control-slider', tagKey: 'cards.multiSlider.tag', tagFallback: 'Rating scales' })}
     <div class="ms-stack">${rows}</div>`;
 }
 
@@ -93,6 +91,13 @@ export function collectAnswer(i, q) {
     result[dim.label] = el ? Number.parseInt(el.value, 10) : 0;
   });
   return result;
+}
+
+// Every dimension defaults to a plausible-looking 0, so this needs
+// touchedFieldCount (like the single slider) rather than collectAnswer()
+// alone: answered only once every dimension has actually been moved.
+export function isAnswered(question, _questionIndex, { touchedFieldCount }) {
+  return touchedFieldCount >= (question.dimensions?.length || 0);
 }
 
 // Admin editor: wire up add/remove buttons (called by admin controller after injecting editor HTML)

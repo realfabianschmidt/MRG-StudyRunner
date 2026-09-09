@@ -1,7 +1,6 @@
 import { t } from '../shared/i18n.js';
-import { renderEditorToggle } from './card-info.js';
+import { renderEditorToggle, renderStudyHeader } from './card-info.js';
 import { escapeHtml } from '../shared/dom-utils.js';
-import { renderCardInstruction } from './card-info.js';
 
 export const meta = { type: 'word-cloud', icon: 'chat-bubble', label: 'Word Cloud', pill: 'pill-word-cloud' };
 
@@ -41,9 +40,7 @@ export function renderStudy(q, i) {
     </button>`).join('');
 
   return `
-    <div class="q-type-tag"><i class="iconoir-chat-bubble"></i> ${escapeHtml(t('cards.wordCloud.tag', 'Word selection'))}</div>
-    <p class="q-prompt">${escapeHtml(q.prompt)}</p>
-    ${renderCardInstruction(q)}
+    ${renderStudyHeader(q, { icon: 'chat-bubble', tagKey: 'cards.wordCloud.tag', tagFallback: 'Word selection' })}
     <div class="wc-cloud" id="wc-cloud-${i}" data-multiple="${isMultiple}" role="group"
          aria-label="${escapeHtml(q.prompt)}">${chips}</div>
     <div class="wc-tray" id="wc-tray-${i}" aria-label="Selected words">
@@ -92,10 +89,15 @@ export function collectAnswer(i) {
   return sel.size > 0 ? Array.from(sel) : null;
 }
 
-// ── Interaction (delegated from study-controller via pointer events) ──────────
-// study-controller calls bindWordCloudEvents after rendering each card.
+export function isAnswered(_question, questionIndex) {
+  const answer = collectAnswer(questionIndex);
+  return Array.isArray(answer) && answer.length > 0;
+}
 
-export function bindCardEvents(cardEl, cardIndex) {
+// ── Interaction (delegated from study-controller via pointer events) ──────────
+// Called generically by study-controller after every card renders (see
+// its one bindInteractions(cardElement, questionIndex) call site).
+export function bindInteractions(cardEl, cardIndex) {
   const cloud = cardEl.querySelector(`#wc-cloud-${cardIndex}`);
   const tray  = cardEl.querySelector(`#wc-tray-${cardIndex}`);
   if (!cloud || !tray) return;

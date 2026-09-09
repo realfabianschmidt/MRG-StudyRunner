@@ -43,9 +43,10 @@ workflow) are also complete** — see Phase 5 section. **Package A (visibility
 before more capability) started 2026-09-09**: 5a/5c/5h/5i built correct
 machinery with no UI reader at all (`WithdrawalService` and
 `summarize_quality_journal` had zero callers) — see "Package A" below.
-**Package A (A1/A2/A3) complete.** Next: 5g in full (owner decision 2026-09-09:
-build through card extensions becoming a real fourth extension type,
-not only the JS/validation cleanup — see the rewritten 5g entry), then
+**Package A (A1/A2/A3) complete. 5g in progress (owner decision 2026-09-09:
+build through card extensions becoming a real fourth extension type, not
+only the JS/validation cleanup); 5g.B1 and 5g.B2 complete, next is 5g.B3**
+— see the rewritten 5g entry. Then 5g.B4, 5g.B5, then
 5j, 5f in that order (3.4 is a written,
 not-yet-implemented design plan, see Phase 3 section — it can land
 whenever convenient, it blocks nothing in Phase 5).
@@ -1518,14 +1519,65 @@ later stage hits the hard stop below:
       6 new tests, all passing on first run against the real code. Full
       suite **928 passed, 4 skipped**; structure baseline unchanged (tests/
       is outside `measure_structure.py`'s and `file-guide.md`'s scope).
-- [ ] **5g.B2** Close the three JS leaks. `isAnswered()` becomes an optional
-      per-module export (`CARDS[type].isAnswered?.(q, i)`) with a sane
-      controller-side default, removing the 13 branches. The four behavior
-      hooks (`onInput`/`bindDrag`/`onClick`/`bindCardEvents`) resolve
-      through the registry instead of named imports. The header shared into
-      a common participant-side frame, following `card-info.js`'s already-
-      proven pattern. After this a card module is self-contained on the JS
-      side.
+- [x] **5g.B2** Closed the three JS leaks, plus the header duplication.
+
+      **`isAnswered()`** (`study-controller.js`) went from 13 type branches
+      to: no question → answered; no `CARDS[type].isAnswered` export →
+      answered (this is what makes `stimulus`/`finish` need no special case
+      at all, unlike the old code); no rendered `cardElement` yet →
+      answered (preserved exactly, including for `participant-id`, which
+      the old code also gated on `cardElement` despite never reading it);
+      otherwise delegate to `cardModule.isAnswered(question, index, {
+      cardElement, touchedFieldCount })`. 11 modules now export it
+      (`participant-id`, `likert`, `semantic`, `choice`/`single`, `slider`,
+      `ranking`, `text`, `mood-meter`, `multi-slider`, `word-cloud`);
+      `stimulus`/`finish` correctly export none.
+
+      **The two named-import families were not the same shape and needed
+      different fixes.** `onInput`/`onClick` (slider, mood-meter) were
+      already called *unconditionally on every event*, self-filtering via a
+      CSS-class check inside each handler -- multi-slider's range inputs
+      reuse slider's `onInput` purely by sharing its `.js-slider-input`
+      class, with no type-based lookup at all. Scoping these to
+      `CARDS[currentQuestion.type]` would have silently broken that reuse.
+      Fixed instead with `dispatchCardHook(hookName, event)`: call every
+      *distinct* registered module's optional hook unconditionally
+      (`new Set(Object.values(CARDS))` dedupes the `single`/`choice`
+      alias), identical to what the named imports did. `participant-id`'s
+      `onInput` was already registry-based (`CARDS['participant-id']?.onInput(event)`,
+      not a named import) and has its own recursion guard against the
+      `participantid:changed` event it dispatches -- left untouched and
+      excluded from the generic dispatch rather than risk that guard.
+
+      `bindDrag`/`bindCardEvents` are different in kind: one-time setup
+      calls at a per-question render site that already has
+      `cardModule = CARDS[question.type]` in scope. These became one
+      `cardModule.bindInteractions?.(cardElement, questionIndex)` call.
+      `card-ranking.js` gained a thin `bindInteractions()` wrapper doing
+      the `.rank-list` lookup itself (moving that DOM knowledge into the
+      module that owns it); `card-word-cloud.js`'s `bindCardEvents` was
+      renamed directly to `bindInteractions` (its only caller, verified).
+
+      **Header duplication**: new `renderStudyHeader(q, { icon, tagKey,
+      tagFallback, prompt })` in `card-info.js`, following the file's own
+      documented precedent for the *editor* frame ("copied into nine card
+      modules, which is how they drifted out of order") -- same fix,
+      applied to the *participant* side, which had the identical problem
+      and no fix yet. Adopted by all 10 modules that share the exact
+      three-line pattern (tag + prompt + instruction); `stimulus` and
+      `finish` build genuinely different layouts and were correctly left
+      alone. One dead import (`escapeHtml` in `card-text.js`, unused once
+      its two calls moved into the shared header) caught and removed.
+
+      **New safety net**: `tests/js/card-is-answered.test.mjs` (12 tests) --
+      this refactor touched participant-facing logic that gates study
+      progression and had *zero* prior JS test coverage anywhere in the
+      codebase. No jsdom dependency exists in this project, so DOM access
+      is a minimal hand-rolled stub (`querySelector`/`querySelectorAll`
+      returning a fixed count), matching this test directory's existing
+      pure-logic-only style rather than introducing a new one. `node --test`
+      **39 passed** (27 prior + 12 new), unchanged Python suite (928 passed,
+      4 skipped) since this package touched no `.py` file.
 - [ ] **5g.B3** `validation.py`'s 22 scattered `if question_type ==` branches
       become one table, one entry per type, at one location. Semantics
       unchanged — purely mechanical, verified against B1's fixtures at every
@@ -1706,7 +1758,7 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 5g.B2 (close the three JS card-registry leaks) — next active package; 5g.B1 complete; 5g overall is the highest data-corruption risk in the programme | Claude | `feature/architecture-1.0` | 2026-09-09 |
+| Phase 5g.B3 (`validation.py`'s branches → one table) — next active package; 5g.B1/B2 complete; 5g overall is the highest data-corruption risk in the programme | Claude | `feature/architecture-1.0` | 2026-09-09 |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`

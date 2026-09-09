@@ -1,6 +1,6 @@
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
-import { renderCardInstruction } from './card-info.js';
+import { renderStudyHeader } from './card-info.js';
 
 export const meta = { type:'ranking', icon:'sort', label:'Ranking', pill:'pill-ranking' };
 
@@ -17,9 +17,7 @@ export function renderStudy(q, i) {
     </div>`).join('');
 
   return `
-    <div class="q-type-tag"><i class="iconoir-sort"></i> ${escapeHtml(t('cards.ranking.tag', 'Ordering'))}</div>
-    <p class="q-prompt">${escapeHtml(q.prompt)}</p>
-    ${renderCardInstruction(q)}
+    ${renderStudyHeader(q, { icon: 'sort', tagKey: 'cards.ranking.tag', tagFallback: 'Ordering' })}
     <div class="rank-list" id="rl${i}">${itemsHtml}</div>`;
 }
 
@@ -46,11 +44,26 @@ export function collectAnswer(questionIndex) {
   return [...(list?.children || [])].map(el => el.querySelector('.rank-text').textContent);
 }
 
+// The initial order is a plausible-looking ranking whether or not the
+// participant ever dragged an item, so - like the slider - this needs the
+// controller's own touched-field record rather than collectAnswer() alone.
+export function isAnswered(_question, _questionIndex, { touchedFieldCount }) {
+  return touchedFieldCount >= 1;
+}
+
 function renumberItems(list) {
   [...list.querySelectorAll('.rank-item')].forEach((el, idx) => {
     const num = el.querySelector('.rank-num');
     if (num) num.textContent = `#${idx + 1}`;
   });
+}
+
+// Called generically by study-controller after every card renders (see
+// its one bindInteractions(cardElement, questionIndex) call site) - this
+// card's own module is what knows its interactive part lives in .rank-list.
+export function bindInteractions(cardElement) {
+  const list = cardElement.querySelector('.rank-list');
+  if (list) bindDrag(list);
 }
 
 export function bindDrag(list) {

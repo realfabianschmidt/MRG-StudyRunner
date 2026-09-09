@@ -1,6 +1,6 @@
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
-import { renderCardInstruction } from './card-info.js';
+import { renderStudyHeader } from './card-info.js';
 
 export const meta = { type:'semantic', icon:'arrows-horizontal', label:'Semantic', pill:'pill-semantic' };
 
@@ -23,9 +23,7 @@ export function renderStudy(q, i) {
       </div>`;
   });
   return `
-    <div class="q-type-tag"><i class="iconoir-expand-lines"></i> ${escapeHtml(t('cards.semantic.tag', 'Word pairs'))}</div>
-    <p class="q-prompt">${escapeHtml(q.prompt)}</p>
-    ${renderCardInstruction(q)}
+    ${renderStudyHeader(q, { icon: 'expand-lines', tagKey: 'cards.semantic.tag', tagFallback: 'Word pairs' })}
     ${pairsHtml}`;
 }
 
@@ -55,4 +53,8 @@ export function collectAnswer(i, q) {
     ans[`${pair[0]}_${pair[1]}`] = sel ? Number.parseInt(sel.value, 10) : null;
   });
   return ans;
+}
+
+export function isAnswered(question, _questionIndex, { cardElement }) {
+  return cardElement.querySelectorAll('input[type="radio"]:checked').length >= (question.pairs?.length || 0);
 }

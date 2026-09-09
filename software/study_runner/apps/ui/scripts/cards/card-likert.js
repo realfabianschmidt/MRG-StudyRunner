@@ -1,6 +1,6 @@
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
-import { renderCardInstruction } from './card-info.js';
+import { renderStudyHeader } from './card-info.js';
 
 export const meta = { type:'likert', icon:'list-select', label:'Likert scale', pill:'pill-likert' };
 
@@ -15,9 +15,7 @@ export function renderStudy(q, i) {
     opts += `<input type="radio" name="q${i}" value="${v}" id="q${i}v${v}"><label for="q${i}v${v}">${v}</label>`;
   }
   return `
-    <div class="q-type-tag"><i class="iconoir-list-select"></i> ${escapeHtml(t('cards.likert.tag', 'Rating scale'))}</div>
-    <p class="q-prompt">${escapeHtml(q.prompt)}</p>
-    ${renderCardInstruction(q)}
+    ${renderStudyHeader(q, { icon: 'list-select', tagKey: 'cards.likert.tag', tagFallback: 'Rating scale' })}
     <div class="likert-scale-row">
       <span class="likert-pole">${escapeHtml(q.label_min||'')}</span>
       <div class="likert-row">${opts}</div>
@@ -56,4 +54,8 @@ export function collectConfig(el) {
 export function collectAnswer(i) {
   const sel = document.querySelector(`input[name="q${i}"]:checked`);
   return sel ? Number.parseInt(sel.value, 10) : null;
+}
+
+export function isAnswered(_question, _questionIndex, { cardElement }) {
+  return Boolean(cardElement.querySelector('input[type="radio"]:checked'));
 }

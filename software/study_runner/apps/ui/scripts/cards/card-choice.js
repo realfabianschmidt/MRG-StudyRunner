@@ -1,6 +1,6 @@
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
-import { renderCardInstruction } from './card-info.js';
+import { renderStudyHeader } from './card-info.js';
 
 // Handles both 'choice' (multiple) and 'single'.
 // The current schema uses separate card types, so there is no extra toggle.
@@ -18,16 +18,15 @@ export function renderStudy(q, i) {
   const isMultiple = q.type === 'choice';
   const inputType = isMultiple ? 'checkbox' : 'radio';
   const icon = isMultiple ? 'multi-bubble' : 'circle';
-  const label = isMultiple ? t('cards.choice.tagMultiple', 'Multiple selection') : t('cards.choice.tagSingle', 'Single selection');
+  const tagKey = isMultiple ? 'cards.choice.tagMultiple' : 'cards.choice.tagSingle';
+  const tagFallback = isMultiple ? 'Multiple selection' : 'Single selection';
   let opts = '<div class="chips">';
   (q.options || []).forEach((opt, oi) => {
     opts += `<input type="${inputType}" name="q${i}" value="${escapeHtml(opt)}" id="q${i}o${oi}"><label for="q${i}o${oi}">${escapeHtml(opt)}</label>`;
   });
   opts += '</div>';
   return `
-    <div class="q-type-tag"><i class="iconoir-${icon}"></i> ${escapeHtml(label)}</div>
-    <p class="q-prompt">${escapeHtml(q.prompt)}</p>
-    ${renderCardInstruction(q)}
+    ${renderStudyHeader(q, { icon, tagKey, tagFallback })}
     ${opts}`;
 }
 
@@ -58,4 +57,9 @@ export function collectAnswer(i, q) {
   }
   const sel = document.querySelector(`input[name="q${i}"]:checked`);
   return sel ? sel.value : null;
+}
+
+export function isAnswered(question, _questionIndex, { cardElement }) {
+  const inputType = question.type === 'choice' ? 'checkbox' : 'radio';
+  return Boolean(cardElement.querySelector(`input[type="${inputType}"]:checked`));
 }

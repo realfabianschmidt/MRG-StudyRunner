@@ -384,16 +384,43 @@ removed type, a third checks the answerable/non-answerable split against
 `measure_structure.py` and `file-guide.md`'s scope, so neither needed
 updating).
 
-**Next task:** 5g.B2 -- close the three genuine JS leaks the audit found
-(`isAnswered()`'s 13 branches in `study-controller.js`, the four
-namely-imported behavior hooks, and the per-module copied `renderStudy`
-header). Follow the already-proven `card-info.js` extraction pattern for
-the header. Then 5g.B3 (the `validation.py` table, checked against B1's
-fixtures at every step), 5g.B4 (the contract test + docs), and only then
-5g.B5 (cards as real extensions) -- the working plan's rewritten 5g entry
-has the full order and the hard stop; read it before starting. Order for
-the rest of Phase 5: 5g -> 5j -> 5f. 3.4 remains a written, unimplemented
-design plan -- it blocks nothing. Claim
+## 5g.B2 complete (Claude, 2026-09-09)
+
+Closed the three genuine JS leaks the 5g.B1 audit found, plus the header
+duplication. Read the working plan's rewritten 5g.B2 entry for the full
+account; the two things most likely to bite someone touching this again:
+
+`onInput`/`onClick` (slider, mood-meter) were already called
+*unconditionally on every event* before this, self-filtering via a CSS
+class inside each handler -- multi-slider's range inputs work today only
+because they share slider's `.js-slider-input` class, with **no type-based
+lookup at all**. Scoping dispatch to `CARDS[currentQuestion.type]` would
+have silently broken that. Fixed with `dispatchCardHook()`: call every
+distinct registered module's optional hook unconditionally, matching the
+old named-import behaviour exactly. `bindDrag`/`bindCardEvents` are a
+different shape (one-time per-question setup, not per-event) and became
+one `cardModule.bindInteractions?.(cardElement, questionIndex)` call at the
+existing render site instead.
+
+`participant-id`'s `onInput` was already registry-based and carries its
+own recursion guard against the `participantid:changed` event it
+dispatches -- left untouched and explicitly excluded from the generic
+dispatch rather than risk that guard.
+
+New `tests/js/card-is-answered.test.mjs` (12 tests): this refactor touched
+participant-facing logic gating study progression with *zero* prior JS
+coverage anywhere. No jsdom in this project, so a minimal hand-rolled
+`querySelector`/`querySelectorAll` stub stands in, matching the existing
+pure-logic test style rather than adding a new one. `node --test` **39
+passed** (27 prior + 12 new); Python suite unchanged (928 passed, 4
+skipped -- this package touched no `.py` file).
+
+**Next task:** 5g.B3 (the `validation.py` table, checked against B1's
+fixtures at every step), then 5g.B4 (the contract test + docs), and only
+then 5g.B5 (cards as real extensions) -- the working plan's rewritten 5g
+entry has the full order and the hard stop; read it before starting. Order
+for the rest of Phase 5: 5g -> 5j -> 5f. 3.4 remains a written,
+unimplemented design plan -- it blocks nothing. Claim
 the package in the working plan before editing.
 
 ## Shared location and coordination
