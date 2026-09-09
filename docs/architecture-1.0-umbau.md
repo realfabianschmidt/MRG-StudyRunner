@@ -45,8 +45,10 @@ machinery with no UI reader at all (`WithdrawalService` and
 `summarize_quality_journal` had zero callers) — see "Package A" below.
 **Package A (A1/A2/A3) complete. 5g in progress (owner decision 2026-09-09:
 build through card extensions becoming a real fourth extension type, not
-only the JS/validation cleanup); 5g.B1-B4 complete, next is 5g.B5**
-— see the rewritten 5g entry. Then
+only the JS/validation cleanup); 5g.B1-B4 complete. 5g.B5 redesigned
+2026-09-09 from a declarative schema to process-isolated card extensions
+reusing the existing plugin-framework — in progress, rollout order slider
+→ stimulus → remaining 11 types** — see the rewritten 5g entry. Then
 5j, 5f in that order (3.4 is a written,
 not-yet-implemented design plan, see Phase 3 section — it can land
 whenever convenient, it blocks nothing in Phase 5).
@@ -1641,20 +1643,72 @@ later stage hits the hard stop below:
       Full suite **939 passed, 4 skipped**; `node --test` unchanged at 39;
       structure baseline unaffected (new test file is outside
       `measure_structure.py`'s scope).
-- [ ] **5g.B5** Cards become real extensions: `extensions/cards/<type>/`
-      with a `manifest.json` (config/answer schema, defaults) and the
-      card's JS, delivered through the asset route that already exists for
-      plugin UI extensions (`/api/plugins/<key>/assets/<path>`,
-      `plugin_catalog.py`'s `_validate_declared_ui_assets`). The
-      `extensions/cards/` directory already exists (created empty by Phase
-      4) and is exactly where this lands. Only after B1–B4: B5 without that
-      safety net is the unguarded rewrite the target doc's hard stop exists
-      to prevent.
+- [ ] **5g.B5** Cards become real extensions — **redesigned 2026-09-09,
+      before implementation started** (see the decision-log entry below).
+      The original scope ("`extensions/cards/<type>/` with a `manifest.json`
+      declaring a config/answer schema") turned out to have no clean
+      implementation: a schema expressive enough to reproduce all 13
+      types' exact semantics (including `stimulus`'s live-plugin-registry
+      coupling) would be a large, novel, risky validation engine; a
+      schema that does *not* drive validation is a second, undriven copy
+      of `validation.py` — exactly the drift risk B1–B4 exist to remove.
+      Raised to the owner as a hard-stop-triggering finding before writing
+      any code, per the standing instruction below.
 
-**Hard stop, unchanged from the original plan:** if a card's contract
-cannot reproduce `validation.py`'s exact semantics at any stage, report the
-incompatibility for a scope decision. Never silently drop a card type from
-the approved 1.0 scope to make a stage "succeed."
+      **Revised design, owner-directed**: cards become genuine
+      process-isolated extensions reusing the *existing* API-v4
+      plugin-framework (`plugin_framework/process_host.py`,
+      `driver_runtime.py`, `contracts/manifest.py`) exactly as
+      sensors/destinations/outputs do today — not a declarative schema,
+      not a second process framework. Python functions stay authoritative
+      for config normalization and answer validation; they move behind a
+      small executable contract (`card_defaults`/`card_normalize`/
+      `card_validate_answer`) dispatched over the same
+      `study-runner-stdio/v1` protocol every other extension already uses.
+      `extension_layout.CATEGORIES` already lists `"cards"` — discovery
+      needs no changes.
+
+      Key points carried into implementation (full design in the approved
+      plan; summarized here so a resuming agent does not have to
+      reconstruct it):
+      - `stimulus`'s live-registry coupling (`normalize_card_plugin_actions`)
+        stays host-side — the host resolves currently-installed plugins'
+        `card_actions_schema` data and passes it as explicit input on the
+        `card_normalize` payload, rather than an extension importing
+        `runtime_core`/rediscovering the registry itself.
+      - A real, confirmed gap found during design and fixed generically
+        (benefits every extension type, not only cards): a timed-out RPC
+        in `PluginProcessRuntime.request()` never terminated the hung
+        process — only a real process exit triggered the existing bounded
+        auto-restart (`MAX_RESTARTS = 3`). Fixed by terminating on timeout,
+        which routes the hang through the *existing* restart machinery
+        rather than inventing a second one.
+      - Card defaults stay authoritative in Python (`get_card_defaults`),
+        checked byte-for-byte against each extension's `card.js`
+        `defaultQuestion` by a contract test — not fetched live over the
+        network on every editor interaction, which would have been a real
+        UX regression for no one's benefit.
+      - Rollout order: host-side plumbing proven on `slider` first, then
+        `stimulus` as the one type needing host-supplied extra input, then
+        the remaining 11 types mechanically.
+      - Acceptance criterion: a new card type is one
+        `extensions/cards/<key>/` directory, added with **no** card-specific
+        import or branch in `process_host.py`, `driver_runtime.py`,
+        `study-controller.js`, or `validation.py`'s entry points.
+
+      Deliberate tension with `CONTRIBUTING.md` §7 ("extend the existing
+      simple path instead of building a second system next to it"): process
+      isolation for card validation is a real expansion of that "simple
+      path." Accepted for the same reason the 5f/5j scope tension with
+      §1/§10 was accepted on 2026-09-08 — explicit, detailed owner
+      direction, not an oversight.
+
+**Hard stop, exercised once already (2026-09-09) and still standing:** if a
+card's contract cannot reproduce `validation.py`'s exact semantics at any
+stage, report the incompatibility for a scope decision rather than forcing
+a stage to "succeed." That is exactly what happened with the original
+declarative-schema scope above, and it is why the design changed instead of
+being pushed through. It applies again at each of the three rollout steps.
 
 - [x] **5h** Recording checkpoints and bounded ingest (commits `0f7a2ba`,
       this package's second commit). Two halves, both landed:
@@ -1812,7 +1866,7 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 5g.B5 (cards become real extensions) — next active package; 5g.B1-B4 complete; 5g overall is the highest data-corruption risk in the programme | Claude | `feature/architecture-1.0` | 2026-09-09 |
+| Phase 5g.B5 step 1 (host-side plumbing + `slider` extension, per the redesigned architecture) — active; 5g.B1-B4 complete; 5g overall is the highest data-corruption risk in the programme | Claude | `feature/architecture-1.0` | 2026-09-09 |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`
@@ -1905,6 +1959,7 @@ the Flask-free subprocess import of `data_core`.
 
 | Date | Decision | Reason |
 |---|---|---|
+| 2026-09-09 | 5g.B5 redesigned from a declarative card config/answer schema to genuine process-isolated card extensions reusing the existing API-v4 plugin-framework, before any 5g.B5 code was written | Design work on the original scope found no clean implementation: a schema expressive enough to reproduce all 13 card types' exact semantics (including `stimulus`'s live-plugin-registry coupling) would be a large, novel, risky validation engine; a schema that does not drive validation is a second, undriven copy of `validation.py`, exactly the drift risk 5g.B1-B4 exist to remove. Raised to the owner as a hard-stop finding per the standing 5g hard-stop clause; owner supplied the revised architecture directly (process isolation via the existing plugin-framework, an executable contract instead of a schema, `stimulus`'s registry coupling kept host-side, a generic timeout-triggers-restart fix for a real gap the design work surfaced). Accepted despite tension with `CONTRIBUTING.md` §7 ("extend the existing simple path instead of building a second system next to it") for the same reason the 5f/5j scope tension with §1/§10 was accepted on 2026-09-08 — explicit, detailed owner direction |
 | 2026-09-08 | Keep the full Phase 5 target scope (including `mrg` CLI 5f and the extension SDK 5j) rather than trim it against `CONTRIBUTING.md` §1/§10 ("no structure for a hypothetical future need", "no heavy framework just to look architecturally clean") | Operator-directed after the tension was raised explicitly: the target document (`MRG_Recorder_Core_Architektur_1.0.md`) is the deliberate, current decision on functional scope. `CONTRIBUTING.md`'s other rules (clear names, thin handlers, why-comments, validate at every boundary) still apply in full to *how* each package gets built — only the scope question itself was in play, not the quality bar |
 | 2026-09-08 | 3.2 (`upload_destination.legacy` migrate-and-write-forward) closed as verification-only, no code change | Traced the full persist call chain and found `normalize_study_settings_plugins`/`_remove_legacy_destination_fields` already migrate and strip every legacy flat field before any save, confirmed by two already-passing tests. This predates the 1.0 rebuild; 3.2 was not new work, just unverified until now |
 | 2026-09-08 | Removed `_validate_plugin_object` from `plugin_catalog.py` in the same commit as 3.1's `_import_plugin` removal, rather than leaving it as a defensive check | It is dead code for its only remaining caller: `build_process_plugin` derives every handler it checks for directly and unconditionally from the same manifest's `capabilities` set, so the check is a tautology for anything build_process_plugin produces. It only ever caught anything for a hand-written v3 `Plugin` object, which could genuinely omit a handler while still declaring the capability — that possibility no longer exists |

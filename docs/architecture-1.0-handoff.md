@@ -468,21 +468,57 @@ Full suite **939 passed, 4 skipped**; `node --test` unchanged at 39;
 structure baseline unaffected (new test file outside
 `measure_structure.py`'s scope).
 
-**Next task:** 5g.B5, the last and largest stage -- cards become real
-extensions: `extensions/cards/<type>/` with a `manifest.json` (config/
-answer schema, defaults) and the card's JS, delivered through the asset
-route that already exists for plugin UI extensions
-(`/api/plugins/<key>/assets/<path>`, `plugin_catalog.py`'s
-`_validate_declared_ui_assets`). The `extensions/cards/` directory already
-exists (created empty by Phase 4). Only attempt this now that B1-B4 give
-it a safety net: golden fixtures, self-contained JS modules, one dispatch
-table per side, and a contract test tying all three together. **Hard stop,
-unchanged since the original plan:** if a card's contract cannot reproduce
-`validation.py`'s exact semantics, report the incompatibility for a scope
-decision -- never silently drop a card type from the approved 1.0 scope to
-make a stage "succeed." Order for the rest of Phase 5: 5g -> 5j -> 5f. 3.4
-remains a written, unimplemented design plan -- it blocks nothing. Claim
-the package in the working plan before editing.
+## 5g.B5 redesigned before implementation (Claude, 2026-09-09)
+
+The hard stop fired on the first attempt. The originally-scoped B5
+("`extensions/cards/<type>/` with a declarative config/answer schema") has
+no clean implementation: a schema expressive enough to reproduce all 13
+types' exact semantics (including `stimulus`'s live-plugin-registry
+coupling) would be a large, novel, risky validation engine; a schema that
+does not drive validation is a second, undriven copy of `validation.py` --
+exactly the drift risk B1-B4 exist to remove. Reported to the owner before
+writing any code, per the hard-stop clause. Full design and reasoning in
+the working plan's rewritten 5g.B5 entry and decision log
+(2026-09-09 row) -- read both before continuing this package.
+
+**Revised architecture, owner-directed**: cards become genuine
+process-isolated extensions reusing the *existing* API-v4 plugin-framework
+(`process_host.py`, `driver_runtime.py`, `contracts/manifest.py`) exactly
+like sensors/destinations/outputs -- not a schema, not a second process
+framework. `validation.py`'s functions stay authoritative; they move
+behind three new wire operations (`card_defaults`/`card_normalize`/
+`card_validate_answer`) over the existing `study-runner-stdio/v1`
+protocol. `extension_layout.CATEGORIES` already includes `"cards"` -- zero
+discovery changes needed.
+
+**Read before touching this**: `stimulus`'s `normalize_card_plugin_actions`
+stays host-side by design -- the host resolves live plugin manifests and
+passes the data explicitly on the `card_normalize` payload; the extension
+itself must never import `runtime_core` or rediscover the registry.
+Design work also surfaced a real, previously-unknown gap applying to
+*every* extension type, not just cards: `PluginProcessRuntime.request()`
+never terminates a hung process on timeout -- only a real process exit
+triggers the existing bounded auto-restart. Fixed generically (terminate
+on timeout, so the hang routes through the existing restart machinery)
+rather than papering over it with a card-only workaround.
+
+Rollout order: host-side plumbing proven on `slider` first, `stimulus`
+second (the one type needing host-supplied extra input), remaining 11
+types last. Card defaults stay Python-authoritative, checked against each
+extension's `card.js` by a contract test rather than fetched live (would
+have added editor latency for no benefit). Acceptance criterion: a new
+card type is one `extensions/cards/<key>/` directory, no card-specific
+import or branch added to core files.
+
+**Next task:** implement rollout step 1 (host-side plumbing +
+`extensions/cards/slider/`, full B1 fixture passing unmodified through the
+real spawned process, the timeout/restart fix with its fault-injection
+test). **Hard stop still standing**: if a card's contract cannot reproduce
+`validation.py`'s exact semantics at any of the three rollout steps,
+report it again rather than forcing the step to "succeed." Order for the
+rest of Phase 5: 5g -> 5j -> 5f. 3.4 remains a written, unimplemented
+design plan -- it blocks nothing. Claim the package in the working plan
+before editing.
 
 ## Shared location and coordination
 
