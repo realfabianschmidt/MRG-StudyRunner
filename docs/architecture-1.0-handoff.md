@@ -415,12 +415,39 @@ pure-logic test style rather than adding a new one. `node --test` **39
 passed** (27 prior + 12 new); Python suite unchanged (928 passed, 4
 skipped -- this package touched no `.py` file).
 
-**Next task:** 5g.B3 (the `validation.py` table, checked against B1's
-fixtures at every step), then 5g.B4 (the contract test + docs), and only
-then 5g.B5 (cards as real extensions) -- the working plan's rewritten 5g
-entry has the full order and the hard stop; read it before starting. Order
-for the rest of Phase 5: 5g -> 5j -> 5f. 3.4 remains a written,
-unimplemented design plan -- it blocks nothing. Claim
+## 5g.B3 complete (Claude, 2026-09-09)
+
+`validation.py`'s scattered `if question_type ==` branches became two
+dicts, `_QUESTION_NORMALIZERS` (13 entries) and `_ANSWER_VALIDATORS` (10 --
+`ALLOWED_QUESTION_TYPES` minus `NON_ANSWER_QUESTION_TYPES`), each pointing
+at a function moved verbatim out of its `if` body. Both dispatchers are now
+four lines: look up, call, raise if absent.
+
+**B1's fixtures earned their keep here**: `test_validation.py` and
+`test_card_type_fixtures.py` passed against the new dispatch on the first
+run, unmodified -- proof this genuinely changed nothing, on a refactor that
+touched all 22 branches.
+
+Read before adding a card type: `choice`/`single`/`ranking` deliberately
+share one config-normalizer function (`_normalize_options_question`) rather
+than three near-identical ones -- pinned by a dedicated test
+(`test_validation_dispatch_tables.py`) so that sharing stays a choice, not
+an accident. That same file also asserts both tables are complete sets
+against `ALLOWED_QUESTION_TYPES`/`NON_ANSWER_QUESTION_TYPES`, so a type
+added to the registry without a table entry fails a direct assertion
+instead of a confusing runtime `ValidationError`.
+
+Full suite **933 passed, 4 skipped**; structure baseline rewritten (named
+functions cost a few more lines than compact `if` chains, which is the
+expected and worthwhile trade).
+
+**Next task:** 5g.B4 (contract test: for every type in `CARD_TYPES`, assert
+the module exports are complete, both `validation.py` tables have an entry,
+and a golden fixture exists; plus a short "Adding a new card type" section
+in `developer-guide.md`). Then only 5g.B5 (cards as real extensions) --
+the working plan's rewritten 5g entry has the full order and the hard stop;
+read it before starting. Order for the rest of Phase 5: 5g -> 5j -> 5f. 3.4
+remains a written, unimplemented design plan -- it blocks nothing. Claim
 the package in the working plan before editing.
 
 ## Shared location and coordination

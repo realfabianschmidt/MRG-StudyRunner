@@ -45,8 +45,8 @@ machinery with no UI reader at all (`WithdrawalService` and
 `summarize_quality_journal` had zero callers) — see "Package A" below.
 **Package A (A1/A2/A3) complete. 5g in progress (owner decision 2026-09-09:
 build through card extensions becoming a real fourth extension type, not
-only the JS/validation cleanup); 5g.B1 and 5g.B2 complete, next is 5g.B3**
-— see the rewritten 5g entry. Then 5g.B4, 5g.B5, then
+only the JS/validation cleanup); 5g.B1-B3 complete, next is 5g.B4**
+— see the rewritten 5g entry. Then 5g.B5, then
 5j, 5f in that order (3.4 is a written,
 not-yet-implemented design plan, see Phase 3 section — it can land
 whenever convenient, it blocks nothing in Phase 5).
@@ -1578,10 +1578,42 @@ later stage hits the hard stop below:
       pure-logic-only style rather than introducing a new one. `node --test`
       **39 passed** (27 prior + 12 new), unchanged Python suite (928 passed,
       4 skipped) since this package touched no `.py` file.
-- [ ] **5g.B3** `validation.py`'s 22 scattered `if question_type ==` branches
-      become one table, one entry per type, at one location. Semantics
-      unchanged — purely mechanical, verified against B1's fixtures at every
-      step.
+- [x] **5g.B3** `validation.py`'s scattered `if question_type ==` branches
+      became two dictionaries: `_QUESTION_NORMALIZERS` (13 entries, one per
+      `ALLOWED_QUESTION_TYPES` member) and `_ANSWER_VALIDATORS` (10 entries,
+      `ALLOWED_QUESTION_TYPES` minus `NON_ANSWER_QUESTION_TYPES`). Each
+      branch's body became its own named function
+      (`_normalize_<type>_question` / `_validate_<type>_answer`), moved
+      verbatim — no logic rewritten, only lifted out of an `if` and given a
+      name. `_validate_question_by_type`/`_validate_answer_value` are now
+      four-line dispatchers: look up the type, call the function, raise if
+      absent.
+
+      **Purely mechanical, and B1's fixtures proved it**: `test_validation.py`
+      and `test_card_type_fixtures.py` (26 + 6 tests) passed against the new
+      dispatch on the first run, unmodified. That is the entire point of
+      building the fixtures before touching the branches — this refactor
+      carried real risk (22 branches touched) and produced zero surprises.
+
+      **One deliberate sharing preserved as one function, not thirteen**:
+      `choice`/`single`/`ranking` share `_normalize_options_question`
+      (an options list is their whole config shape) exactly as the original
+      `if question_type in {"choice", "single", "ranking"}:` branch did —
+      not split into three near-identical functions, which would have
+      re-introduced copy-paste drift risk for no benefit.
+
+      New `test_validation_dispatch_tables.py` (5 tests): checks the
+      *tables themselves* are complete sets against `ALLOWED_QUESTION_TYPES`/
+      `NON_ANSWER_QUESTION_TYPES`, and that the one deliberate sharing
+      stays exactly the three types it should — a future card type added to
+      the registry without a table entry now fails a direct assertion
+      instead of surfacing as a confusing `ValidationError` the first time
+      someone happens to exercise it.
+
+      Full suite **933 passed, 4 skipped**; structure baseline rewritten
+      (named functions cost a few more lines than compact `if` chains —
+      expected, and the trade for one lookup point per type instead of
+      searching among thirteen branches).
 - [ ] **5g.B4** Contract test: for every type registered in `CARD_TYPES`,
       assert the module exports are complete, the validation table has an
       entry, and a golden fixture exists. Makes "the registry is a complete
@@ -1758,7 +1790,7 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 5g.B3 (`validation.py`'s branches → one table) — next active package; 5g.B1/B2 complete; 5g overall is the highest data-corruption risk in the programme | Claude | `feature/architecture-1.0` | 2026-09-09 |
+| Phase 5g.B4 (contract test + `developer-guide.md`) — next active package; 5g.B1-B3 complete; 5g overall is the highest data-corruption risk in the programme | Claude | `feature/architecture-1.0` | 2026-09-09 |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`

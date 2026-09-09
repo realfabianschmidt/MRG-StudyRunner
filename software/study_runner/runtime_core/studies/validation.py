@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from ..studies.study_plugin_config import (
     PluginConfigError,
@@ -673,6 +673,163 @@ def _validate_card_events(
 # ============================================================
 #  3. ANSWER VALUES - one branch per card type
 # ============================================================
+def _validate_likert_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
+    return _normalize_integer(
+        answer,
+        field_name=f"Question {question_number} answer",
+        minimum=1,
+        maximum=int(question.get("scale", 7)),
+    )
+
+
+def _validate_semantic_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
+    expected_pairs = question.get("pairs", [])
+    if not isinstance(answer, dict):
+        raise ValidationError(f"Question {question_number} answer must be an object.")
+
+    normalized: dict[str, int] = {}
+    for pair in expected_pairs:
+        pair_key = f"{pair[0]}_{pair[1]}"
+        if pair_key not in answer:
+            raise ValidationError(f"Question {question_number} is missing a rating for {pair_key}.")
+        normalized[pair_key] = _normalize_integer(
+            answer.get(pair_key),
+            field_name=f"Question {question_number} answer for {pair_key}",
+            minimum=1,
+            maximum=7,
+        )
+
+    extra_keys = sorted(set(answer.keys()) - set(normalized.keys()))
+    if extra_keys:
+        raise ValidationError(
+            f"Question {question_number} contains unexpected semantic keys: {', '.join(extra_keys)}."
+        )
+    return normalized
+
+
+def _validate_choice_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
+    if not isinstance(answer, list):
+        raise ValidationError(f"Question {question_number} answer must be a list.")
+    options = question.get("options", [])
+    normalized = [_require_text(item, f"Question {question_number} answer") for item in answer]
+    if not normalized:
+        raise ValidationError(f"Question {question_number} needs at least one selected option.")
+    if len(set(normalized)) != len(normalized):
+        raise ValidationError(f"Question {question_number} contains duplicate selected options.")
+    invalid = [item for item in normalized if item not in options]
+    if invalid:
+        raise ValidationError(
+            f"Question {question_number} contains invalid options: {', '.join(invalid)}."
+        )
+    return normalized
+
+
+def _validate_single_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
+    selected = _require_text(answer, f"Question {question_number} answer")
+    if selected not in question.get("options", []):
+        raise ValidationError(f"Question {question_number} answer is not a valid option.")
+    return selected
+
+
+def _validate_ranking_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
+    if not isinstance(answer, list):
+        raise ValidationError(f"Question {question_number} ranking answer must be a list.")
+    normalized = [_require_text(item, f"Question {question_number} ranking item") for item in answer]
+    options = question.get("options", [])
+    if len(normalized) == len(options) and set(normalized) == set(options):
+        return normalized
+    raise ValidationError(
+        f"Question {question_number} ranking must contain each configured option exactly once."
+    )
+
+
+def _validate_slider_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
+    return _normalize_integer(
+        answer,
+        field_name=f"Question {question_number} answer",
+        minimum=0,
+        maximum=100,
+    )
+
+
+def _validate_text_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
+    return _require_text(answer, f"Question {question_number} answer")
+
+
+def _validate_mood_meter_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
+    if not isinstance(answer, list):
+        raise ValidationError(f"Question {question_number} answer must be a list.")
+    normalized = [_require_text(item, f"Question {question_number} word") for item in answer]
+    if not normalized:
+        raise ValidationError(f"Question {question_number} needs at least one selected word.")
+    if len(set(normalized)) != len(normalized):
+        raise ValidationError(f"Question {question_number} contains duplicate words.")
+    if question.get("allow_multiple") is False and len(normalized) != 1:
+        raise ValidationError(f"Question {question_number} allows exactly one selected word.")
+    return normalized
+
+
+def _validate_multi_slider_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
+    if not isinstance(answer, dict):
+        raise ValidationError(f"Question {question_number} answer must be an object.")
+    normalized: dict[str, int] = {}
+    dimensions = question.get("dimensions", [])
+    for dimension in dimensions:
+        label = _require_text(dimension.get("label"), f"Question {question_number} dimension label")
+        if label not in answer:
+            raise ValidationError(f"Question {question_number} is missing a value for {label}.")
+        normalized[label] = _normalize_integer(
+            answer.get(label),
+            field_name=f"Question {question_number} answer for {label}",
+            minimum=-100,
+            maximum=100,
+        )
+
+    extra_keys = sorted(set(answer.keys()) - set(normalized.keys()))
+    if extra_keys:
+        raise ValidationError(
+            f"Question {question_number} contains unexpected dimensions: {', '.join(extra_keys)}."
+        )
+    return normalized
+
+
+def _validate_word_cloud_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
+    if not isinstance(answer, list):
+        raise ValidationError(f"Question {question_number} answer must be a list.")
+    normalized = [_require_text(item, f"Question {question_number} word") for item in answer]
+    if not normalized:
+        raise ValidationError(f"Question {question_number} needs at least one selected word.")
+    if len(set(normalized)) != len(normalized):
+        raise ValidationError(f"Question {question_number} contains duplicate words.")
+    if question.get("allow_multiple") is False and len(normalized) != 1:
+        raise ValidationError(f"Question {question_number} allows exactly one selected word.")
+    invalid = [item for item in normalized if item not in question.get("words", [])]
+    if invalid:
+        raise ValidationError(
+            f"Question {question_number} contains invalid words: {', '.join(invalid)}."
+        )
+    return normalized
+
+
+# question_type -> its answer validator. One entry per member of
+# ALLOWED_QUESTION_TYPES outside NON_ANSWER_QUESTION_TYPES (checked by
+# test_validation_dispatch_tables.py, package 5g.B3) -- adding a new
+# answerable card type means adding one function and one line here, not
+# finding the right place to insert another `if` among ten others.
+_ANSWER_VALIDATORS: dict[str, Callable[..., Any]] = {
+    "likert": _validate_likert_answer,
+    "semantic": _validate_semantic_answer,
+    "choice": _validate_choice_answer,
+    "single": _validate_single_answer,
+    "ranking": _validate_ranking_answer,
+    "slider": _validate_slider_answer,
+    "text": _validate_text_answer,
+    "mood-meter": _validate_mood_meter_answer,
+    "multi-slider": _validate_multi_slider_answer,
+    "word-cloud": _validate_word_cloud_answer,
+}
+
+
 def _validate_answer_value(
     *,
     answer_key: str,
@@ -681,136 +838,10 @@ def _validate_answer_value(
     question_number: int,
 ) -> Any:
     question_type = question.get("type")
-
-    if question_type == "likert":
-        return _normalize_integer(
-            answer,
-            field_name=f"Question {question_number} answer",
-            minimum=1,
-            maximum=int(question.get("scale", 7)),
-        )
-
-    if question_type == "semantic":
-        expected_pairs = question.get("pairs", [])
-        if not isinstance(answer, dict):
-            raise ValidationError(f"Question {question_number} answer must be an object.")
-
-        normalized: dict[str, int] = {}
-        for pair in expected_pairs:
-            pair_key = f"{pair[0]}_{pair[1]}"
-            if pair_key not in answer:
-                raise ValidationError(f"Question {question_number} is missing a rating for {pair_key}.")
-            normalized[pair_key] = _normalize_integer(
-                answer.get(pair_key),
-                field_name=f"Question {question_number} answer for {pair_key}",
-                minimum=1,
-                maximum=7,
-            )
-
-        extra_keys = sorted(set(answer.keys()) - set(normalized.keys()))
-        if extra_keys:
-            raise ValidationError(
-                f"Question {question_number} contains unexpected semantic keys: {', '.join(extra_keys)}."
-            )
-        return normalized
-
-    if question_type == "choice":
-        if not isinstance(answer, list):
-            raise ValidationError(f"Question {question_number} answer must be a list.")
-        options = question.get("options", [])
-        normalized = [_require_text(item, f"Question {question_number} answer") for item in answer]
-        if not normalized:
-            raise ValidationError(f"Question {question_number} needs at least one selected option.")
-        if len(set(normalized)) != len(normalized):
-            raise ValidationError(f"Question {question_number} contains duplicate selected options.")
-        invalid = [item for item in normalized if item not in options]
-        if invalid:
-            raise ValidationError(
-                f"Question {question_number} contains invalid options: {', '.join(invalid)}."
-            )
-        return normalized
-
-    if question_type == "single":
-        selected = _require_text(answer, f"Question {question_number} answer")
-        if selected not in question.get("options", []):
-            raise ValidationError(f"Question {question_number} answer is not a valid option.")
-        return selected
-
-    if question_type == "ranking":
-        if not isinstance(answer, list):
-            raise ValidationError(f"Question {question_number} ranking answer must be a list.")
-        normalized = [_require_text(item, f"Question {question_number} ranking item") for item in answer]
-        options = question.get("options", [])
-        if len(normalized) == len(options) and set(normalized) == set(options):
-            return normalized
-        raise ValidationError(
-            f"Question {question_number} ranking must contain each configured option exactly once."
-        )
-
-    if question_type == "slider":
-        return _normalize_integer(
-            answer,
-            field_name=f"Question {question_number} answer",
-            minimum=0,
-            maximum=100,
-        )
-
-    if question_type == "text":
-        return _require_text(answer, f"Question {question_number} answer")
-
-    if question_type == "mood-meter":
-        if not isinstance(answer, list):
-            raise ValidationError(f"Question {question_number} answer must be a list.")
-        normalized = [_require_text(item, f"Question {question_number} word") for item in answer]
-        if not normalized:
-            raise ValidationError(f"Question {question_number} needs at least one selected word.")
-        if len(set(normalized)) != len(normalized):
-            raise ValidationError(f"Question {question_number} contains duplicate words.")
-        if question.get("allow_multiple") is False and len(normalized) != 1:
-            raise ValidationError(f"Question {question_number} allows exactly one selected word.")
-        return normalized
-
-    if question_type == "multi-slider":
-        if not isinstance(answer, dict):
-            raise ValidationError(f"Question {question_number} answer must be an object.")
-        normalized: dict[str, int] = {}
-        dimensions = question.get("dimensions", [])
-        for dimension in dimensions:
-            label = _require_text(dimension.get("label"), f"Question {question_number} dimension label")
-            if label not in answer:
-                raise ValidationError(f"Question {question_number} is missing a value for {label}.")
-            normalized[label] = _normalize_integer(
-                answer.get(label),
-                field_name=f"Question {question_number} answer for {label}",
-                minimum=-100,
-                maximum=100,
-            )
-
-        extra_keys = sorted(set(answer.keys()) - set(normalized.keys()))
-        if extra_keys:
-            raise ValidationError(
-                f"Question {question_number} contains unexpected dimensions: {', '.join(extra_keys)}."
-            )
-        return normalized
-
-    if question_type == "word-cloud":
-        if not isinstance(answer, list):
-            raise ValidationError(f"Question {question_number} answer must be a list.")
-        normalized = [_require_text(item, f"Question {question_number} word") for item in answer]
-        if not normalized:
-            raise ValidationError(f"Question {question_number} needs at least one selected word.")
-        if len(set(normalized)) != len(normalized):
-            raise ValidationError(f"Question {question_number} contains duplicate words.")
-        if question.get("allow_multiple") is False and len(normalized) != 1:
-            raise ValidationError(f"Question {question_number} allows exactly one selected word.")
-        invalid = [item for item in normalized if item not in question.get("words", [])]
-        if invalid:
-            raise ValidationError(
-                f"Question {question_number} contains invalid words: {', '.join(invalid)}."
-            )
-        return normalized
-
-    raise ValidationError(f"{answer_key} uses an unsupported question type: {question_type!r}.")
+    validator = _ANSWER_VALIDATORS.get(question_type)
+    if validator is None:
+        raise ValidationError(f"{answer_key} uses an unsupported question type: {question_type!r}.")
+    return validator(question=question, answer=answer, question_number=question_number)
 
 
 # ============================================================
@@ -835,6 +866,188 @@ def _validate_question(question_data: Any, question_index: int) -> dict[str, Any
     return normalized
 
 
+def _normalize_stimulus_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
+    try:
+        plugin_actions = normalize_card_plugin_actions(question_data)
+    except PluginConfigError as error:
+        raise ValidationError(f"Question {question_index} {error}") from error
+    return {
+        "type": "stimulus",
+        "title": _normalize_text(question_data.get("title"), default="Observe the material"),
+        "subtitle": _normalize_text(question_data.get("subtitle")),
+        "warmup_duration_ms": _normalize_integer(
+            question_data.get("warmup_duration_ms", 0),
+            field_name=f"Question {question_index} warm-up duration",
+            minimum=0,
+            maximum=3_600_000,
+        ),
+        "duration_ms": _normalize_integer(
+            question_data.get("duration_ms", 30_000),
+            field_name=f"Question {question_index} duration",
+            minimum=1_000,
+            maximum=3_600_000,
+        ),
+        "trigger_type": _normalize_trigger_type(
+            question_data.get("trigger_type", "timer"),
+            question_index=question_index,
+        ),
+        "trigger_content": _normalize_text(question_data.get("trigger_content")),
+        "plugin_actions": plugin_actions,
+    }
+
+
+def _normalize_participant_id_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
+    normalized = {
+        "type": "participant-id",
+        "prompt": _normalize_text(question_data.get("prompt")),
+        "fields": _validate_participant_fields(
+            question_data.get("fields"),
+            question_index,
+        ),
+    }
+    code_label = _normalize_text(question_data.get("code_label"))
+    if code_label:
+        normalized["code_label"] = code_label
+    return normalized
+
+
+def _normalize_finish_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
+    return {
+        "type": "finish",
+        "title": _normalize_text(question_data.get("title"), default="Thank you!"),
+        "prompt": _normalize_text(
+            question_data.get("prompt"),
+            default="Your answers have been saved.\nYou can now put the device down.",
+        ),
+    }
+
+
+def _normalize_likert_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
+    return {
+        "type": "likert",
+        "prompt": _normalize_text(question_data.get("prompt")),
+        "scale": _normalize_integer(
+            question_data.get("scale", 7),
+            field_name=f"Question {question_index} scale",
+            minimum=3,
+            maximum=11,
+        ),
+        "label_min": _normalize_text(question_data.get("label_min")),
+        "label_max": _normalize_text(question_data.get("label_max")),
+    }
+
+
+def _normalize_semantic_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
+    pairs = _normalize_pairs(question_data.get("pairs"), question_index)
+    if not pairs:
+        raise ValidationError(f"Question {question_index} needs at least one valid word pair.")
+    return {
+        "type": "semantic",
+        "prompt": _normalize_text(question_data.get("prompt")),
+        "pairs": pairs,
+    }
+
+
+def _normalize_options_question(
+    question_data: dict[str, Any], question_index: int, *, question_type: str
+) -> dict[str, Any]:
+    """Shared by choice/single/ranking: an options list, nothing else."""
+    options = _normalize_text_list(question_data.get("options"))
+    if not options:
+        raise ValidationError(f"Question {question_index} needs at least one option.")
+    return {
+        "type": question_type,
+        "prompt": _normalize_text(question_data.get("prompt")),
+        "options": options,
+    }
+
+
+def _normalize_slider_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
+    return {
+        "type": "slider",
+        "prompt": _normalize_text(question_data.get("prompt")),
+        "label_min": _normalize_text(question_data.get("label_min")),
+        "label_max": _normalize_text(question_data.get("label_max")),
+    }
+
+
+def _normalize_text_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
+    return {
+        "type": "text",
+        "prompt": _normalize_text(question_data.get("prompt")),
+    }
+
+
+def _normalize_mood_meter_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
+    word_lists = question_data.get("word_lists")
+    if word_lists is not None and not isinstance(word_lists, dict):
+        word_lists = None
+    return {
+        "type": "mood-meter",
+        "prompt": _normalize_text(question_data.get("prompt")),
+        "allow_multiple": _normalize_boolean(question_data.get("allow_multiple", True)),
+        "word_lists": word_lists,
+    }
+
+
+def _normalize_multi_slider_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
+    dims = question_data.get("dimensions")
+    if not isinstance(dims, list) or not dims:
+        raise ValidationError(f"Question {question_index} needs at least one dimension.")
+    normalized_dims = []
+    for d in dims:
+        if isinstance(d, dict) and d.get("label"):
+            normalized_dims.append({
+                "label": _normalize_text(d.get("label")),
+                "min_label": _normalize_text(d.get("min_label")),
+                "max_label": _normalize_text(d.get("max_label")),
+            })
+    if not normalized_dims:
+        raise ValidationError(f"Question {question_index} needs at least one valid dimension.")
+    return {
+        "type": "multi-slider",
+        "prompt": _normalize_text(question_data.get("prompt")),
+        "dimensions": normalized_dims,
+    }
+
+
+def _normalize_word_cloud_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
+    words = _normalize_text_list(question_data.get("words"))
+    if not words:
+        raise ValidationError(f"Question {question_index} needs at least one word.")
+    return {
+        "type": "word-cloud",
+        "prompt": _normalize_text(question_data.get("prompt")),
+        "words": words,
+        "allow_multiple": _normalize_boolean(question_data.get("allow_multiple", True)),
+    }
+
+
+# question_type -> its config normalizer. One entry per member of
+# ALLOWED_QUESTION_TYPES (checked by test_validation_dispatch_tables.py,
+# package 5g.B3) -- adding a new card type means adding one function and
+# one line here, not finding the right place among thirteen `if` branches.
+# choice/single/ranking share one function (an options list is their whole
+# shape); everything else is one function per type.
+_QUESTION_NORMALIZERS: dict[str, Callable[..., dict[str, Any]]] = {
+    "stimulus": _normalize_stimulus_question,
+    "participant-id": _normalize_participant_id_question,
+    "finish": _normalize_finish_question,
+    "likert": _normalize_likert_question,
+    "semantic": _normalize_semantic_question,
+    "choice": _normalize_options_question,
+    "single": _normalize_options_question,
+    "ranking": _normalize_options_question,
+    "slider": _normalize_slider_question,
+    "text": _normalize_text_question,
+    "mood-meter": _normalize_mood_meter_question,
+    "multi-slider": _normalize_multi_slider_question,
+    "word-cloud": _normalize_word_cloud_question,
+}
+
+_OPTIONS_QUESTION_TYPES = frozenset({"choice", "single", "ranking"})
+
+
 def _validate_question_by_type(question_data: Any, question_index: int) -> dict[str, Any]:
     if not isinstance(question_data, dict):
         raise ValidationError(f"Question {question_index} must be a JSON object.")
@@ -849,150 +1062,10 @@ def _validate_question_by_type(question_data: Any, question_index: int) -> dict[
             f"Question {question_index} uses an unknown type: {question_type!r}."
         )
 
-    if question_type == "stimulus":
-        try:
-            plugin_actions = normalize_card_plugin_actions(question_data)
-        except PluginConfigError as error:
-            raise ValidationError(f"Question {question_index} {error}") from error
-        return {
-            "type": "stimulus",
-            "title": _normalize_text(question_data.get("title"), default="Observe the material"),
-            "subtitle": _normalize_text(question_data.get("subtitle")),
-            "warmup_duration_ms": _normalize_integer(
-                question_data.get("warmup_duration_ms", 0),
-                field_name=f"Question {question_index} warm-up duration",
-                minimum=0,
-                maximum=3_600_000,
-            ),
-            "duration_ms": _normalize_integer(
-                question_data.get("duration_ms", 30_000),
-                field_name=f"Question {question_index} duration",
-                minimum=1_000,
-                maximum=3_600_000,
-            ),
-            "trigger_type": _normalize_trigger_type(
-                question_data.get("trigger_type", "timer"),
-                question_index=question_index,
-            ),
-            "trigger_content": _normalize_text(question_data.get("trigger_content")),
-            "plugin_actions": plugin_actions,
-        }
-
-    if question_type == "participant-id":
-        normalized = {
-            "type": "participant-id",
-            "prompt": _normalize_text(question_data.get("prompt")),
-            "fields": _validate_participant_fields(
-                question_data.get("fields"),
-                question_index,
-            ),
-        }
-        code_label = _normalize_text(question_data.get("code_label"))
-        if code_label:
-            normalized["code_label"] = code_label
-        return normalized
-
-    if question_type == "finish":
-        return {
-            "type": "finish",
-            "title": _normalize_text(question_data.get("title"), default="Thank you!"),
-            "prompt": _normalize_text(
-                question_data.get("prompt"),
-                default="Your answers have been saved.\nYou can now put the device down.",
-            ),
-        }
-
-    if question_type == "likert":
-        return {
-            "type": "likert",
-            "prompt": _normalize_text(question_data.get("prompt")),
-            "scale": _normalize_integer(
-                question_data.get("scale", 7),
-                field_name=f"Question {question_index} scale",
-                minimum=3,
-                maximum=11,
-            ),
-            "label_min": _normalize_text(question_data.get("label_min")),
-            "label_max": _normalize_text(question_data.get("label_max")),
-        }
-
-    if question_type == "semantic":
-        pairs = _normalize_pairs(question_data.get("pairs"), question_index)
-        if not pairs:
-            raise ValidationError(f"Question {question_index} needs at least one valid word pair.")
-        return {
-            "type": "semantic",
-            "prompt": _normalize_text(question_data.get("prompt")),
-            "pairs": pairs,
-        }
-
-    if question_type in {"choice", "single", "ranking"}:
-        options = _normalize_text_list(question_data.get("options"))
-        if not options:
-            raise ValidationError(f"Question {question_index} needs at least one option.")
-        return {
-            "type": question_type,
-            "prompt": _normalize_text(question_data.get("prompt")),
-            "options": options,
-        }
-
-    if question_type == "slider":
-        return {
-            "type": "slider",
-            "prompt": _normalize_text(question_data.get("prompt")),
-            "label_min": _normalize_text(question_data.get("label_min")),
-            "label_max": _normalize_text(question_data.get("label_max")),
-        }
-
-    if question_type == "text":
-        return {
-            "type": "text",
-            "prompt": _normalize_text(question_data.get("prompt")),
-        }
-
-    if question_type == "mood-meter":
-        word_lists = question_data.get("word_lists")
-        if word_lists is not None and not isinstance(word_lists, dict):
-            word_lists = None
-        return {
-            "type": "mood-meter",
-            "prompt": _normalize_text(question_data.get("prompt")),
-            "allow_multiple": _normalize_boolean(question_data.get("allow_multiple", True)),
-            "word_lists": word_lists,
-        }
-
-    if question_type == "multi-slider":
-        dims = question_data.get("dimensions")
-        if not isinstance(dims, list) or not dims:
-            raise ValidationError(f"Question {question_index} needs at least one dimension.")
-        normalized_dims = []
-        for d in dims:
-            if isinstance(d, dict) and d.get("label"):
-                normalized_dims.append({
-                    "label": _normalize_text(d.get("label")),
-                    "min_label": _normalize_text(d.get("min_label")),
-                    "max_label": _normalize_text(d.get("max_label")),
-                })
-        if not normalized_dims:
-            raise ValidationError(f"Question {question_index} needs at least one valid dimension.")
-        return {
-            "type": "multi-slider",
-            "prompt": _normalize_text(question_data.get("prompt")),
-            "dimensions": normalized_dims,
-        }
-
-    if question_type == "word-cloud":
-        words = _normalize_text_list(question_data.get("words"))
-        if not words:
-            raise ValidationError(f"Question {question_index} needs at least one word.")
-        return {
-            "type": "word-cloud",
-            "prompt": _normalize_text(question_data.get("prompt")),
-            "words": words,
-            "allow_multiple": _normalize_boolean(question_data.get("allow_multiple", True)),
-        }
-
-    raise ValidationError(f"Question {question_index} could not be validated.")
+    normalizer = _QUESTION_NORMALIZERS[question_type]
+    if question_type in _OPTIONS_QUESTION_TYPES:
+        return normalizer(question_data, question_index, question_type=question_type)
+    return normalizer(question_data, question_index)
 
 
 def _validate_study_settings(value: Any) -> dict[str, Any]:
