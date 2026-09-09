@@ -56,6 +56,11 @@ RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("extensions",), "study_runner.apps.server"),
     (("extensions",), "study_runner.data_core.host"),
     (("extensions",), "study_runner.data_core.worker"),
+    # Package 5g.B5: card extensions run in their own process, same as any
+    # sensor/destination/output, and must stay reachable through the same
+    # request/response contract -- never by importing the orchestration,
+    # participant-identity, or persistence code RuntimeCore owns.
+    (("extensions",), "study_runner.runtime_core"),
     (("data_core", "host"), "study_runner.data_core.worker"),
     (("data_core", "worker"), "study_runner.data_core.host"),
     (("data_core", "worker"), "study_runner.plugin_framework"),

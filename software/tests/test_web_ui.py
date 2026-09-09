@@ -48,7 +48,7 @@ class LocaleTests(unittest.TestCase):
 
         pattern = re.compile(r"""t\(\s*['"]([A-Za-z0-9_.]+)['"]""")
         sources = list((WEB / "scripts").rglob("*.js"))
-        sources += list((PROJECT_ROOT / "study_runner" / "plugins").rglob("ui/*.js"))
+        sources += list((PROJECT_ROOT / "study_runner" / "extensions").rglob("*.js"))
 
         used: set[str] = set()
         for path in sources:
@@ -232,10 +232,14 @@ class EditorFieldOrderTests(unittest.TestCase):
         Nine card modules used to carry a byte-identical copy, which is how the
         shared block ended up appended *after* each card's own fields.
         """
+        # Every match here is literally named card.js (one per extension
+        # folder) -- card-info.js is shared editor chrome and lives under
+        # apps/ui/scripts/cards/ instead, so it was never reachable by this
+        # glob and needs no exclusion.
         offenders = [
-            path.name
-            for path in sorted((WEB / "scripts" / "cards").glob("card-*.js"))
-            if path.name != "card-info.js" and 'class="qe-prompt"' in _read(path)
+            str(path.relative_to(PROJECT_ROOT))
+            for path in sorted((PROJECT_ROOT / "study_runner" / "extensions" / "cards").glob("*/card.js"))
+            if 'class="qe-prompt"' in _read(path)
         ]
         self.assertEqual(offenders, [])
 
@@ -247,7 +251,7 @@ class EditorFieldOrderTests(unittest.TestCase):
         self.assertNotIn("switch-row", info)
         self.assertNotIn("<small", info)
 
-        for path in sorted((WEB / "scripts" / "cards").glob("card-*.js")):
+        for path in sorted((PROJECT_ROOT / "study_runner" / "extensions" / "cards").glob("*/card.js")):
             with self.subTest(card=path.name):
                 self.assertNotIn('class="switch-row"', _read(path))
 

@@ -18,7 +18,7 @@ Edit-safety legend:
 | `software/study_runner/app_server.py` | Stable server import/module entrypoint delegating to `apps/server/application.py` | careful |
 | `software/study_runner/apps/server/application.py` | Wires up the Flask server: port check, HTTPS, startup banner, browser open | careful |
 | `software/study_runner/version.py` | The single version number of the app | yes |
-| `software/study_runner/self_check.py` | `server.py --self-check`: builds the app with hardware disabled and asserts static folder, study page, plugin discovery, and `/` all resolve, without starting the HTTP server | careful |
+| `software/study_runner/self_check.py` | `server.py --self-check`: checks the app without starting HTTP or hardware; packaging CI can also name harmless plugin/card keys to prove a real child RPC and declared card asset work in the bundle | careful |
 | `tools/study_runner_manager.py` | Standalone Install & Repair Wizard (downloads, verifies, installs releases) | no |
 | `tools/setup_recording_worker.py` | One-time source setup: verifies the toolchain, builds only the current native XDF core, runs CTest and the Python/PyXDF smoke test | no |
 | `tools/make_timeline_fixture.py` | Writes a synthetic completed session with a real multi-stream XDF, so the timeline can be seen without recording hardware | no |
@@ -37,6 +37,8 @@ Edit-safety legend:
 | `software/study_runner/contracts/session_lifecycle.py` | The one explicit session state (`IDLE`/`PREFLIGHT`/`RECORDING`/`FINALIZING`/`SEALED`/`WITHDRAWN`/`FAILED`), derived from the recording plan and finalization job that own the detail, plus the allowed transitions | no |
 | `software/study_runner/contracts/recording_checkpoint.py` | The confirmed-prefix contract: how far a segment is *known* to be on disk, written by the worker after each durable flush and read by the host during recovery to name the unconfirmed tail | careful |
 | `software/study_runner/contracts/quality_journal.py` | Streaming quality counters (gaps, timestamp regressions, jitter, effective rate), wall-clock jump detection, ingest-backlog monitoring against the transport's bounded buffer, and the versioned quality profile whose thresholds turn a number into an event | careful |
+| `software/study_runner/contracts/card_validation_primitives.py` | `CardValidationError` and the small `_normalize_*`/`_require_*` input primitives every card extension's driver imports; card semantics themselves live in the extensions, not here | no |
+| `software/study_runner/contracts/card_options.py` | Shared options-list normalization for choice/single/ranking cards | no |
 
 ## Apps server - HTTP routes (`software/study_runner/apps/server/routes/`)
 
@@ -69,7 +71,7 @@ Edit-safety legend:
 | `software/study_runner/shared/runtime_mode.py` | `is_frozen`/`get_app_mode`/`get_project_base_dir` shared by extensions, plugin framework, and runtime settings | no |
 | `software/study_runner/shared/study_identifiers.py` | `normalize_study_id` -- the one place a study's stable filename/credential key gets computed; re-exported from `study_config_service.py` | no |
 | `software/study_runner/shared/dependency_utils.py` | `ensure_requirements` -- shared by `data_core/host` and plugin framework without creating an area dependency | no |
-| `software/study_runner/shared/participant_fields.py` | `PARTICIPANT_FIELD_ORDER` -- shared by study validation and the Notion destination extension | no |
+| `software/study_runner/contracts/participant_fields.py` | Canonical participant-field order, defaults, and configurable options shared by study validation, the participant-id card, and destination extensions | no |
 | `software/study_runner/shared/filename_sanitizer.py` | `sanitize_identifier_for_filename` -- needed by both `runtime_core/studies` (results/recovery) and `data_core/host` (sensor flush), so it belongs to neither | no |
 | `software/study_runner/data_core/contract/recording_errors.py` | Typed recording/worker errors shared across the host/worker boundary | no |
 | `software/study_runner/data_core/contract/worker_protocol.py` | The authenticated, idempotent loopback wire protocol between host and worker | careful |
@@ -80,6 +82,7 @@ Edit-safety legend:
 | `software/study_runner/shared/system_clock_probe.py` | Package 5b preflight: system-clock plausibility bounds plus a per-platform time-sync-service check; no network access | careful |
 | `software/study_runner/data_core/host/recording_capacity.py` | Package 5b preflight: predicts required storage from the negotiated recording contract's declared stream rates (never disk throughput) against the study's planned duration | careful |
 | `software/study_runner/runtime_core/studies/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
+| `software/study_runner/runtime_core/studies/card_extension_bridge.py` | Package 5g.B5: dispatches `card_defaults`/`card_normalize`/`card_validate_answer` to the owning card extension's process, resolves host-supplied data (e.g. stimulus's `plugin_actions`), and turns a card process fault into `CardExtensionUnavailableError` (503) vs. an invalid answer into `CardValidationError` (400) | careful |
 | `software/study_runner/runtime_core/studies/results_service.py` | Builds answer details, slices biosignals per card, writes result files | no |
 | `software/study_runner/runtime_core/studies/sessions_index_service.py` | Scans completed results and builds bounded timeline envelopes | careful |
 | `software/study_runner/runtime_core/studies/session_quality_summary.py` | Reduces quality.jsonl (5c) and its unconfirmed-tail entries (5h) to a UI-sized health level and structured findings | careful |
@@ -190,10 +193,11 @@ recording code now, not extensions: `data_core/host/markers.py` and
 | `plugin_secrets.py` | Per-study credential storage and env/study/machine/legacy resolution used by the host and each extension subprocess | careful |
 | `adapter_utils.py` | Shared timestamps, locked state updates, and config-section lookup | careful |
 | `registry.py` | Manifest-driven plugin lookup, generic actions, interval summaries, and sidecar exports | careful |
-| `plugin_catalog.py` | Discovers plugin folders and validates manifests (v4 primary, v3 compatibility path) before dispatch | no |
+| `plugin_catalog.py` | Discovers trusted extension folders and validates API-v4 manifests before dispatch | no |
 | `extension_layout.py` | Defines trusted extension category roots shared by discovery, drivers, UI assets, and self-check | no |
 | `driver_runtime.py` | Runtime used by the single `driver.py` entry point every API-v4 plugin process runs | careful |
-| `process_host.py` | Host-side supervisor for API-v4 drivers: start/stop/restart, line-oriented console, reserved-prefix RPC | careful |
+| `process_host.py` | Host-side supervisor for API-v4 drivers: start/stop/restart, line-oriented console, reserved-prefix RPC; cards additionally get no app context and terminate their process on an RPC timeout, everyone else does not | careful |
+| `card_catalog.py` | Package 5g.B5: `card_bindings()` -- the manifest-driven `question_type -> (catalog entry, card_contract)` lookup every card-aware caller reads instead of a hardcoded type list; `QuestionTypes` is the live set view `ALLOWED_QUESTION_TYPES`/`NON_ANSWER_QUESTION_TYPES` wrap | careful |
 | `history_buffer.py` | Session-sized ring buffers + gap/truncation detection for all sensors | careful |
 | `dependency_utils.py` | Optional auto-install of Python packages sensors need | careful |
 | `__init__.py` (all) | Empty package markers | yes |
@@ -220,6 +224,31 @@ recording code now, not extensions: `data_core/host/markers.py` and
 | `nextcloud_upload/plugin.py` | Declares the hidden Nextcloud destination capability, publishes, and validates its own share-link setting | careful |
 | `nextcloud_upload/webdav_client.py` | The WebDAV client: uploads session files to a writable Nextcloud public share, checksum-first | careful |
 | `nextcloud_upload/driver.py` | API-v4 process entry point (`run_plugin_driver("nextcloud")`) | no |
+
+## Cards (`software/study_runner/extensions/cards/`)
+
+Package 5g.B5: every question/card type is a genuine, process-isolated API-v4
+plugin like any sensor or destination above, not a hardcoded type string.
+`participant-id`/`finish` are ordinary card extensions too -- but the
+mandatory bookends of every study, so a catalog with neither cannot author a
+*playable* study (see `tests/test_plugin_removability.py`'s module docstring
+for why that is accepted, not a regression).
+
+Twelve folders, one per extension (`choice` alone answers both `choice` and
+`single`); each one is the same four files:
+
+| File | Purpose | Edit? |
+|---|---|---|
+| `<extension>/manifest.json` | Declares `capabilities.card_contract`: `question_types`, `answerless_types`, and any `host_data` the extension needs from the host (e.g. stimulus's `plugin_actions`); `ui.extensions.card` names its JS entry point | careful |
+| `<extension>/driver.py` | API-v4 process entry point (`run_plugin_driver("<extension>")`) | no |
+| `<extension>/plugin.py` | Implements the executable card contract: `get_card_defaults`/`normalize_card_config`/`validate_card_answer`; imports only `contracts`, never `runtime_core` | careful |
+| `<extension>/card.js` | Renderer/editor module: `metaByType`, `configureCard`, `renderStudy`, `renderEditor`, `collectConfig`, `collectAnswer`, and the optional `isAnswered`/`bindInteractions` hooks; loaded on demand by `apps/ui/scripts/cards/index.js` | careful |
+
+Folders: `choice`, `finish`, `likert`, `mood_meter`, `multi_slider`,
+`participant_id`, `ranking`, `semantic`, `slider`, `stimulus`, `text`,
+`word_cloud` (`test_plugin_registry.py`'s `EXPECTED_CARD_PLUGIN_KEYS` freezes
+this list; folder, plugin key, and config key are the same string for every
+one, unlike the plugin table above).
 
 ## Frontend (`software/study_runner/apps/ui/scripts/`)
 
@@ -263,20 +292,8 @@ recording code now, not extensions: `data_core/host/markers.py` and
 | `extensions/sensors/camera_emotion/ui/dashboard.js` | Optional camera/emotion rich-status renderer loaded through the manifest extension hook | careful |
 | `participant/study-client-heartbeat.js` | Keeps the tablet visible on the dashboard | careful |
 | `shared/qr-code.js` | QR code rendering for the access card | no |
-| `cards/index.js` | Registers all card modules | careful |
-| `cards/card-slider.js` | Rating scale card (VAS) | careful |
-| `cards/card-likert.js` | Likert rating card | careful |
-| `cards/card-choice.js` | Single/multiple choice card (chips) | careful |
-| `cards/card-semantic.js` | Word-pair (semantic differential) card | careful |
-| `cards/card-ranking.js` | Drag-to-order ranking card | careful |
-| `cards/card-text.js` | Free-text answer card | careful |
-| `cards/card-word-cloud.js` | Word selection card | careful |
-| `cards/card-mood-meter.js` | Mood Meter quadrant card | careful |
-| `cards/card-multi-slider.js` | Multiple rating scales in one card | careful |
-| `cards/card-stimulus.js` | Stimulus card: warmup/active phases, sensor triggers | careful |
-| `cards/card-participant-id.js` | Participant identification card + field editor | careful |
-| `cards/card-info.js` | The shared editor frame: question text, instruction, note, toggle group | careful |
-| `cards/card-finish.js` | The final thank-you card | careful |
+| `cards/index.js` | Package 5g.B5: `loadCards()` fetches each installed card's `card.js` (`/api/plugins/<key>/assets/card.js`) and Python-authoritative defaults (`/api/plugins/<key>/card-defaults`) instead of a static import list; the 12 card modules themselves now live in `extensions/cards/<name>/card.js` | careful |
+| `cards/card-info.js` | The shared editor frame every card composes into: question text, instruction, note, toggle group | careful |
 
 Locales (`apps/ui/locales/en.json`, `de.json`) hold every UI string; both
 files must have identical keys (a test checks this). `web/vendor/`

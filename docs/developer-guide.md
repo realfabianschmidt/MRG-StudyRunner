@@ -218,37 +218,42 @@ not block the aggregate dashboard status request.
 
 ## Adding A Card Type
 
-A card type is registered in exactly three places. `test_card_registry_contract.py`
-(package 5g.B4) checks all three stay in sync, so a missing piece fails a
-test rather than surfacing as a silently-wrong question on the tablet.
+A card extension is one trusted directory under
+`software/study_runner/extensions/cards/<plugin_key>/`. Adding one must not add
+a named import, type list or special branch to the server, validation entry
+points or participant controller. Use a snake_case plugin key; question-type
+identifiers may retain their established spelling.
 
-1. **`apps/ui/scripts/cards/card-<type>.js`** implementing the shared
-   module interface: `meta`, `defaultQuestion`, `renderStudy`,
-   `renderEditor`, `collectConfig`, `collectAnswer`. Add `isAnswered(question,
-   questionIndex, { cardElement, touchedFieldCount })` if the card has a
-   default state that could pass for an answer (a slider defaulting to 50,
-   for example) -- without it the controller treats the type as always
-   answered. Add `bindInteractions(cardElement, questionIndex)` only if the
-   card needs one-time setup after it renders (drag handles, custom pointer
-   events); add `onInput`/`onClick` only if it needs a live, delegated
-   per-event hook. Both are optional and dispatched generically
-   (`study-controller.js`) -- never add a new named import there.
-2. **`apps/ui/scripts/cards/index.js`**: one entry in `CARDS` (the type
-   string) and one in `CARD_TYPES` (the "Add question" picker order).
-3. **`runtime_core/studies/validation.py`**: one function in
-   `_QUESTION_NORMALIZERS` for the config shape, and -- unless the type is
-   genuinely answer-less like `stimulus`/`finish` -- one in
-   `_ANSWER_VALIDATORS` for the submitted answer. Add the type string to
-   `ALLOWED_QUESTION_TYPES`, and to `NON_ANSWER_QUESTION_TYPES` only if it
-   has no stored answer.
+Create these four files:
 
-Then add a golden fixture: one entry in
-`tests/support/card_type_fixtures.py` (a minimal realistic question, its
-frozen normalized shape, and — unless answer-less — a submitted answer with
-its frozen normalized value). `test_card_type_fixtures.py` and
-`test_card_registry_contract.py` both check this exists; without it, a
-later refactor of `validation.py` has nothing to prove it changed nothing
-for the new type.
+1. `manifest.json` declares API version 4, category `card`, the runtime driver,
+   operation timeouts, UI order, `ui.extensions.card`, and `card.js` as an
+   asset. Its versioned `capabilities.card_contract` lists `question_types`,
+   `answerless_types`, and any explicit `host_data`. Duplicate question-type
+   providers make both providers invalid.
+2. `driver.py` calls `run_plugin_driver("<plugin_key>")`.
+3. `plugin.py` implements `get_card_defaults`, `normalize_card_config`, and,
+   for answerable types, `validate_card_answer`. Keep these operations
+   stateless. Import shared rules from `contracts`; do not import runtime
+   services or initialize hardware. Defaults returned here are authoritative.
+4. `card.js` exports `metaByType`, `configureCard`, `renderStudy`,
+   `renderEditor`, `collectConfig`, and `collectAnswer`. Optional
+   `isAnswered`, `bindInteractions`, `onInput`, and `onClick` hooks are
+   dispatched generically. Store defaults received by `configureCard()` and use
+   them for every fallback; do not author a second JavaScript default object.
+
+Add a golden fixture in `tests/support/card_type_fixtures.py` with a realistic
+question, frozen normalized config, and a submitted/frozen answer unless the
+type is answerless. Update the expected built-in extension-key test when adding
+a shipped built-in folder. A temporary or external test extension needs no core
+registration.
+
+The editor waits for an extension module and its Python defaults before it
+enables that picker option. The participant page loads the cards required by
+the study before rendering. A broken required card blocks the flow with a clear
+message; a broken unrelated card does not. Python workers isolate backend card
+failures, but loaded `card.js` files execute together in the browser, so card
+extensions must remain trusted code shipped with the application.
 
 ## Camera, Destinations, And Infrastructure
 

@@ -11,16 +11,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import * as slider from '../../study_runner/apps/ui/scripts/cards/card-slider.js';
-import * as multiSlider from '../../study_runner/apps/ui/scripts/cards/card-multi-slider.js';
-import * as ranking from '../../study_runner/apps/ui/scripts/cards/card-ranking.js';
-import * as choice from '../../study_runner/apps/ui/scripts/cards/card-choice.js';
-import * as likert from '../../study_runner/apps/ui/scripts/cards/card-likert.js';
-import * as semantic from '../../study_runner/apps/ui/scripts/cards/card-semantic.js';
-import * as participantId from '../../study_runner/apps/ui/scripts/cards/card-participant-id.js';
-import * as stimulus from '../../study_runner/apps/ui/scripts/cards/card-stimulus.js';
-import * as finish from '../../study_runner/apps/ui/scripts/cards/card-finish.js';
-import { CARDS } from '../../study_runner/apps/ui/scripts/cards/index.js';
+import { loadShippedCards } from './card-test-support.mjs';
+const CARDS = await loadShippedCards();
+const { slider, 'multi-slider': multiSlider, ranking, choice, likert, semantic, 'participant-id': participantId, stimulus, finish } = CARDS;
 
 // A cardElement stub that answers exactly one querySelector/querySelectorAll
 // call the way a real DOM element would for a fixed "checked" count.

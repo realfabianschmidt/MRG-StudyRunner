@@ -37,7 +37,10 @@ from study_runner.data_core.host.study_sensor_runtime import (
     normalize_session_overrides,
 )
 from study_runner.runtime_core.studies.trial_service import configure_runtime
-from study_runner.runtime_core.studies.validation import validate_and_normalize_config
+from study_runner.runtime_core.studies.validation import (
+    validate_and_normalize_config,
+    validate_and_normalize_study_settings,
+)
 
 # Internal marker/clock streams are mandatory recording providers, not
 # operator-toggleable integrations.
@@ -281,7 +284,13 @@ def _participant_study_run_state(client_id: str | None = None, study_id: str | N
 
 
 def _current_study_settings() -> dict:
-    return _current_config_data().get("study_settings", {})
+    # Deliberately not _current_config_data(): that validates every question,
+    # which means every installed card extension, just to reach this sibling
+    # key. Hardware/sensor-runtime state must stay available even when a
+    # study's questions do not validate (missing card, catalog mid-reload).
+    raw = load_config(current_app.config["CONFIG_FILE"])
+    study_settings = raw.get("study_settings") if isinstance(raw, dict) else None
+    return validate_and_normalize_study_settings(study_settings)
 
 
 def _session_overrides() -> dict[str, bool]:

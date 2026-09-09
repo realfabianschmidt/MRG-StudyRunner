@@ -62,7 +62,7 @@ def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
 
     The existing adapter still consumes its historic flat field names. They
     are projected only into this private attempt copy; persisted study files
-    remain canonical API-v3 plugin selections.
+    remain canonical manifest-backed plugin selections.
     """
 
     from . import adapter

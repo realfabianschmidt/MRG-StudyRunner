@@ -1,31 +1,37 @@
 # Architecture 1.0 - shared Claude/Codex handoff
 
-Updated: 2026-09-08. Read this file and [the working plan](architecture-1.0-umbau.md)
+Updated: 2026-09-09. Read this file and [the working plan](architecture-1.0-umbau.md)
 before continuing. Both are tracked repository files, accessible to either
 assistant through the local checkout; no private assistant memory is required.
 
 ## Current authoritative state
 
-Phase 4 is complete. Built-ins live in categorized `extensions`, the UI lives
-in `apps/ui`, and the Flask factory, routes, and runtime live in `apps/server`.
-The old `plugins`, `frontend`, and `backend` packages are gone; both promised
-server entrypoints remain. Stored known hardware paths migrate idempotently,
-while unknown custom paths are preserved. Planned session duration is editable,
-and invalid capacity inputs or an unreadable storage status fail closed with a
-useful blocker.
+Phase 4 and Phase 5g are complete. Built-ins live in categorized `extensions`,
+the UI lives in `apps/ui`, and the Flask factory, routes, and runtime live in
+`apps/server`. All 13 question types now come from 12 API-v4 card extensions;
+`choice` and `single` share one extension. Their manifests drive discovery,
+picker order, answerability, host-data needs and JavaScript asset loading.
 
-The final structure checkpoint records **235 visible package edges and 0
-cycles**. The earlier 152-edge baseline treated large `backend` and plugin
-packages as single areas; nested measurement now exposes the intended
-`apps.server` to `runtime_core` and host/worker/contract boundaries. No
-forbidden dependency was allowlisted. Version is `1.0.0-dev`.
+B5 keeps defaults, configuration normalization and answer validation in the
+card extensions' Python workers. Browser modules receive Python defaults once
+per catalog generation. Card workers stay lazy, receive no application context
+or secrets, and alone use timeout termination plus bounded recovery. Sensors,
+destinations and outputs keep their previous timeout behavior. A failed answer
+returns 400 for invalid input or 503 for worker unavailability and retains the
+results-recovery file. Backend process isolation does not isolate `card.js` in
+the browser; those modules remain trusted shipped code.
 
-Final evidence: **814 Python passed, 4 skipped; 27 JavaScript passed; 25
-release/packaging passed; structure and version checks passed.** A fresh real
-Windows onedir bundle containing only `extensions/outputs/packaging_probe`
-passed catalog discovery, UI/root routing, and child-process
-initialize/status/shutdown RPC. Disposable logs are under
-`.tmp/bundle-final/` in the main workspace.
+The structure checkpoint records **302 visible package edges and 0 cycles**.
+The increase is the reviewed set of card-to-contract/framework edges for 12 new
+extension packages; no dependency rule was weakened. B5 verification includes
+the full Python, JavaScript and release suites, source headless Chrome, and a
+real Windows PyInstaller onedir self-check of card discovery, child-process
+defaults and the declared asset. Final suites: **961 Python passed, 4 skipped;
+42 JavaScript passed; 25 release/packaging passed**. Normal startup launched
+**0** card workers.
+Cold loading all 12 used about **196 MiB aggregate RSS** and **1.5 seconds**;
+warm slider validation averaged about **0.21 ms per RPC**. The process count and
+memory cost are an accepted B5 limitation; lifecycle optimization is separate.
 
 ## Phase 3.1/3.3/3.5 complete — 2026-09-08
 
@@ -468,57 +474,33 @@ Full suite **939 passed, 4 skipped**; `node --test` unchanged at 39;
 structure baseline unaffected (new test file outside
 `measure_structure.py`'s scope).
 
-## 5g.B5 redesigned before implementation (Claude, 2026-09-09)
+## 5g.B5 complete (Claude/Codex, 2026-09-09)
 
-The hard stop fired on the first attempt. The originally-scoped B5
-("`extensions/cards/<type>/` with a declarative config/answer schema") has
-no clean implementation: a schema expressive enough to reproduce all 13
-types' exact semantics (including `stimulus`'s live-plugin-registry
-coupling) would be a large, novel, risky validation engine; a schema that
-does not drive validation is a second, undriven copy of `validation.py` --
-exactly the drift risk B1-B4 exist to remove. Reported to the owner before
-writing any code, per the hard-stop clause. Full design and reasoning in
-the working plan's rewritten 5g.B5 entry and decision log
-(2026-09-09 row) -- read both before continuing this package.
+The first declarative-schema design stopped because it could not express the
+existing semantics without either a second validation engine or a drifting
+description. The implemented design uses the existing API-v4 process framework
+and three stateless operations: `card_defaults`, `card_normalize`, and
+`card_validate_answer`.
 
-**Revised architecture, owner-directed**: cards become genuine
-process-isolated extensions reusing the *existing* API-v4 plugin-framework
-(`process_host.py`, `driver_runtime.py`, `contracts/manifest.py`) exactly
-like sensors/destinations/outputs -- not a schema, not a second process
-framework. `validation.py`'s functions stay authoritative; they move
-behind three new wire operations (`card_defaults`/`card_normalize`/
-`card_validate_answer`) over the existing `study-runner-stdio/v1`
-protocol. `extension_layout.CATEGORIES` already includes `"cards"` -- zero
-discovery changes needed.
+Twelve extension directories supply 13 question types. Discovery rejects
+duplicate providers and builds the live registry; core code has no per-card
+registration table or card-specific dispatch branch. `stimulus` declares its
+need for normalized plugin actions as host data. The host supplies only that
+explicit data, never the application context or secrets. Python defaults are
+fetched before cards become usable and cached for the catalog generation.
 
-**Read before touching this**: `stimulus`'s `normalize_card_plugin_actions`
-stays host-side by design -- the host resolves live plugin manifests and
-passes the data explicitly on the `card_normalize` payload; the extension
-itself must never import `runtime_core` or rediscover the registry.
-Design work also surfaced a real, previously-unknown gap applying to
-*every* extension type, not just cards: `PluginProcessRuntime.request()`
-never terminates a hung process on timeout -- only a real process exit
-triggers the existing bounded auto-restart. Fixed generically (terminate
-on timeout, so the hang routes through the existing restart machinery)
-rather than papering over it with a card-only workaround.
+Only a timed-out card worker is terminated. Recovery is tied to that process
+instance, observes the existing three-restart bound, and blocks ordinary calls
+during backoff. Structured errors separate invalid input from extension
+failure. Sensors, destinations and outputs retain their previous timeouts.
+Required browser modules fail closed with a useful message; unrelated broken
+cards remain isolated. Card JavaScript still shares the browser process and is
+therefore trusted code rather than a browser sandbox.
 
-Rollout order: host-side plumbing proven on `slider` first, `stimulus`
-second (the one type needing host-supplied extra input), remaining 11
-types last. Card defaults stay Python-authoritative, checked against each
-extension's `card.js` by a contract test rather than fetched live (would
-have added editor latency for no benefit). Acceptance criterion: a new
-card type is one `extensions/cards/<key>/` directory, no card-specific
-import or branch added to core files.
-
-**Next task:** implement rollout step 1 (host-side plumbing +
-`extensions/cards/slider/`, full B1 fixture passing unmodified through the
-real spawned process, the timeout/restart fix with its fault-injection
-test). **Hard stop still standing**: if a card's contract cannot reproduce
-`validation.py`'s exact semantics at any of the three rollout steps,
-report it again rather than forcing the step to "succeed." Order for the
-rest of Phase 5: 5g -> 5j -> 5f. 3.4 remains a written, unimplemented
-design plan -- it blocks nothing. Claim the package in the working plan
-before editing.
+The golden fixtures, real hangs and crashes, concurrency, recovery-file path,
+lazy startup, worker reuse, catalog caching, synthetic no-core-registration
+extension, source browser flow and packaged executable were exercised. See the
+working plan's checked B5 entry for final evidence and measured overhead.
 
 ## Shared location and coordination
 
@@ -532,8 +514,10 @@ before editing.
   requires separate worktrees and disjoint file ownership; never overwrite
   another assistant's unfinished files. Update these notes in every milestone
   commit with tests, remaining work and ownership.
-- `main` retains operator edits in `software/study_content/settings/study_config.json`
-  and `software/study_content/studies/Example Sensors Study.study-runner`.
+- The worktree retains operator edits in
+  `software/study_content/settings/hardware_settings.json`,
+  `software/study_content/settings/study_config.json`, and
+  `software/study_content/studies/Example Sensors Study.study-runner`.
   Preserve these; they do not belong in architecture commits.
 
 ## Completed and verified

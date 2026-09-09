@@ -43,12 +43,11 @@ workflow) are also complete** — see Phase 5 section. **Package A (visibility
 before more capability) started 2026-09-09**: 5a/5c/5h/5i built correct
 machinery with no UI reader at all (`WithdrawalService` and
 `summarize_quality_journal` had zero callers) — see "Package A" below.
-**Package A (A1/A2/A3) complete. 5g in progress (owner decision 2026-09-09:
-build through card extensions becoming a real fourth extension type, not
-only the JS/validation cleanup); 5g.B1-B4 complete. 5g.B5 redesigned
-2026-09-09 from a declarative schema to process-isolated card extensions
-reusing the existing plugin-framework — in progress, rollout order slider
-→ stimulus → remaining 11 types** — see the rewritten 5g entry. Then
+**Package A (A1/A2/A3) and 5g are complete. All 13 question types now
+come from 12 process-isolated card extensions discovered through the existing
+API-v4 plugin framework; `choice` and `single` deliberately share one
+extension. Package 5g.B5 completed 2026-09-09** — see the rewritten 5g entry.
+Then
 5j, 5f in that order (3.4 is a written,
 not-yet-implemented design plan, see Phase 3 section — it can land
 whenever convenient, it blocks nothing in Phase 5).
@@ -615,7 +614,7 @@ Zero directory moves: existing runtime packages remain in place; `shared/` and
       silently wasn't being exercised by any existing test
 - [x] **2.3** Two real, independent-of-the-rebuild bugs found while doing
       this, not just an import move:
-      - `PARTICIPANT_FIELD_ORDER` → new `shared/participant_fields.py`
+      - `PARTICIPANT_FIELD_ORDER` → new `contracts/participant_fields.py`
         (pure data, no dependency), re-exported from `validation.py`.
       - `notion_upload/adapter.py`'s `_refresh_config_for_retry` turned out
         to be **dead code**: it only ran when `upload_study_result`'s
@@ -1643,72 +1642,63 @@ later stage hits the hard stop below:
       Full suite **939 passed, 4 skipped**; `node --test` unchanged at 39;
       structure baseline unaffected (new test file is outside
       `measure_structure.py`'s scope).
-- [ ] **5g.B5** Cards become real extensions — **redesigned 2026-09-09,
-      before implementation started** (see the decision-log entry below).
-      The original scope ("`extensions/cards/<type>/` with a `manifest.json`
-      declaring a config/answer schema") turned out to have no clean
-      implementation: a schema expressive enough to reproduce all 13
-      types' exact semantics (including `stimulus`'s live-plugin-registry
-      coupling) would be a large, novel, risky validation engine; a
-      schema that does *not* drive validation is a second, undriven copy
-      of `validation.py` — exactly the drift risk B1–B4 exist to remove.
-      Raised to the owner as a hard-stop-triggering finding before writing
-      any code, per the standing instruction below.
+- [x] **5g.B5** Cards are real extensions — completed 2026-09-09
+      after the declarative-schema hard stop described below. All 13 question
+      types are supplied by 12 trusted `extensions/cards/<key>/` directories;
+      `choice` also supplies `single`. Each manifest declares a versioned
+      `card_contract`, question and answerless types, host-data requirements,
+      picker order and `card.js`. Duplicate or invalid providers never enter
+      the live question-type lookup.
 
-      **Revised design, owner-directed**: cards become genuine
-      process-isolated extensions reusing the *existing* API-v4
-      plugin-framework (`plugin_framework/process_host.py`,
-      `driver_runtime.py`, `contracts/manifest.py`) exactly as
-      sensors/destinations/outputs do today — not a declarative schema,
-      not a second process framework. Python functions stay authoritative
-      for config normalization and answer validation; they move behind a
-      small executable contract (`card_defaults`/`card_normalize`/
-      `card_validate_answer`) dispatched over the same
-      `study-runner-stdio/v1` protocol every other extension already uses.
-      `extension_layout.CATEGORIES` already lists `"cards"` — discovery
-      needs no changes.
+      Python remains the only source of card defaults, config normalization and
+      answer validation. The host calls `card_defaults`, `card_normalize` and
+      `card_validate_answer` through the existing `study-runner-stdio/v1`
+      driver. The browser fetches defaults once per catalog generation before
+      enabling an editor option or rendering a required participant card, then
+      gives a defensive copy to the extension module. There are no separately
+      authored JavaScript defaults. `stimulus` receives normalized installed
+      plugin actions as declared host data; the extension never imports runtime
+      services or receives application context or secrets.
 
-      Key points carried into implementation (full design in the approved
-      plan; summarized here so a resuming agent does not have to
-      reconstruct it):
-      - `stimulus`'s live-registry coupling (`normalize_card_plugin_actions`)
-        stays host-side — the host resolves currently-installed plugins'
-        `card_actions_schema` data and passes it as explicit input on the
-        `card_normalize` payload, rather than an extension importing
-        `runtime_core`/rediscovering the registry itself.
-      - A real, confirmed gap found during design and fixed generically
-        (benefits every extension type, not only cards): a timed-out RPC
-        in `PluginProcessRuntime.request()` never terminated the hung
-        process — only a real process exit triggered the existing bounded
-        auto-restart (`MAX_RESTARTS = 3`). Fixed by terminating on timeout,
-        which routes the hang through the *existing* restart machinery
-        rather than inventing a second one.
-      - Card defaults stay authoritative in Python (`get_card_defaults`),
-        checked byte-for-byte against each extension's `card.js`
-        `defaultQuestion` by a contract test — not fetched live over the
-        network on every editor interaction, which would have been a real
-        UX regression for no one's benefit.
-      - Rollout order: host-side plumbing proven on `slider` first, then
-        `stimulus` as the one type needing host-supplied extra input, then
-        the remaining 11 types mechanically.
-      - Acceptance criterion: a new card type is one
-        `extensions/cards/<key>/` directory, added with **no** card-specific
-        import or branch in `process_host.py`, `driver_runtime.py`,
-        `study-controller.js`, or `validation.py`'s entry points.
+      The browser imports declared card assets from the catalog. A missing
+      required module blocks that study with a clear message, while a broken
+      unrelated card does not stop usable cards. Backend worker isolation does
+      not isolate extension JavaScript: all loaded `card.js` modules execute in
+      the same browser page and therefore remain trusted shipped code.
 
-      Deliberate tension with `CONTRIBUTING.md` §7 ("extend the existing
-      simple path instead of building a second system next to it"): process
-      isolation for card validation is a real expansion of that "simple
-      path." Accepted for the same reason the 5f/5j scope tension with
-      §1/§10 was accepted on 2026-09-08 — explicit, detailed owner
-      direction, not an oversight.
+      Card RPC failures use structured `invalid_input` and
+      `extension_failure` kinds. Invalid input returns HTTP 400. A worker
+      timeout, malformed response, handler crash, process exit or exhausted
+      recovery returns HTTP 503 and never turns a failed answer into a saved,
+      skipped or empty success. Timeout termination and bounded restart apply
+      only to card workers. Each pending request is tied to the process instance
+      that received it, so a late timeout cannot kill a replacement. Sensor,
+      destination and output timeout behavior remains unchanged.
 
-**Hard stop, exercised once already (2026-09-09) and still standing:** if a
-card's contract cannot reproduce `validation.py`'s exact semantics at any
-stage, report the incompatibility for a scope decision rather than forcing
-a stage to "succeed." That is exactly what happened with the original
-declarative-schema scope above, and it is why the design changed instead of
-being pushed through. It applies again at each of the three rollout steps.
+      Final automated suites: **961 Python passed, 4 skipped; 42 JavaScript
+      passed; 25 release/packaging passed**. Acceptance evidence includes all
+      golden card fixtures through real child processes; a truly blocked
+      handler with another card and `/` still
+      responsive; late response, malformed envelope, exception, exit, recovery
+      lockout, three-restart exhaustion and successful recovery; result-recovery
+      preservation and later valid retry; lazy startup/status with zero card
+      workers; cached defaults and reused workers; a synthetic extension
+      discovered through its directory alone; 42 JavaScript checks; source
+      headless-Chrome editor add/save/reload plus participant preview; and a real
+      Windows PyInstaller onedir build whose self-check exercised discovery,
+      defaults RPC and the declared HTTP asset.
+
+      Measured on the development machine: normal startup launched **0** card
+      workers; cold loading all defaults launched **12** workers, took about
+      **1.5 seconds** and used about **196 MiB aggregate RSS**; warm slider
+      validation averaged about **0.21 ms per RPC**. The twelve-process memory
+      cost is accepted for B5. Shared-worker or idle-lifecycle optimization is a
+      separate architecture decision.
+
+**Hard stop, exercised on 2026-09-09:** when the original schema could not
+reproduce the existing semantics cleanly, implementation stopped for a scope
+decision. That rule remains for future card-contract changes: report a semantic
+incompatibility instead of forcing a migration to appear successful.
 
 - [x] **5h** Recording checkpoints and bounded ingest (commits `0f7a2ba`,
       this package's second commit). Two halves, both landed:
@@ -1866,13 +1856,13 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Phase 5g.B5 step 1 (host-side plumbing + `slider` extension, per the redesigned architecture) — active; 5g.B1-B4 complete; 5g overall is the highest data-corruption risk in the programme | Claude | `feature/architecture-1.0` | 2026-09-09 |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`
 (commits `dec0908`..`2d40c4a`), Phase 3 items 3.1/3.2/3.3/3.5, and Phase 5
 items 5e, 5d, 5a and 5c on 2026-09-08; Codex completed R1-R5 and the remaining
-Phase 4 packages on 2026-09-08. No package is currently owned.
+Phase 4 packages on 2026-09-08, then completed 5g.B5 on 2026-09-09 from
+Claude's partial implementation. No package is currently owned.
 
 Rules:
 - **Moves and tree-wide import rewrites are serial.** Approved R1–R4 repairs
@@ -1959,7 +1949,7 @@ the Flask-free subprocess import of `data_core`.
 
 | Date | Decision | Reason |
 |---|---|---|
-| 2026-09-09 | 5g.B5 redesigned from a declarative card config/answer schema to genuine process-isolated card extensions reusing the existing API-v4 plugin-framework, before any 5g.B5 code was written | Design work on the original scope found no clean implementation: a schema expressive enough to reproduce all 13 card types' exact semantics (including `stimulus`'s live-plugin-registry coupling) would be a large, novel, risky validation engine; a schema that does not drive validation is a second, undriven copy of `validation.py`, exactly the drift risk 5g.B1-B4 exist to remove. Raised to the owner as a hard-stop finding per the standing 5g hard-stop clause; owner supplied the revised architecture directly (process isolation via the existing plugin-framework, an executable contract instead of a schema, `stimulus`'s registry coupling kept host-side, a generic timeout-triggers-restart fix for a real gap the design work surfaced). Accepted despite tension with `CONTRIBUTING.md` §7 ("extend the existing simple path instead of building a second system next to it") for the same reason the 5f/5j scope tension with §1/§10 was accepted on 2026-09-08 — explicit, detailed owner direction |
+| 2026-09-09 | 5g.B5 completed as genuine process-isolated card extensions reusing the existing API-v4 plugin framework; only card workers terminate and recover after RPC timeout, and browser defaults are fetched from Python and cached per catalog generation | Design work on the original scope found no clean implementation: a schema expressive enough to reproduce all 13 card types' exact semantics (including `stimulus`'s live-plugin-registry coupling) would be a large, novel, risky validation engine; a schema that does not drive validation is a second, undriven copy of `validation.py`, exactly the drift risk 5g.B1-B4 exist to remove. Raised to the owner as a hard-stop finding per the standing 5g hard-stop clause; owner supplied the revised architecture directly (process isolation via the existing plugin-framework, an executable contract instead of a schema, `stimulus`'s registry coupling kept host-side, a card-only timeout-termination policy with instance-bound bounded recovery). Accepted despite tension with `CONTRIBUTING.md` §7 ("extend the existing simple path instead of building a second system next to it") for the same reason the 5f/5j scope tension with §1/§10 was accepted on 2026-09-08 — explicit, detailed owner direction |
 | 2026-09-08 | Keep the full Phase 5 target scope (including `mrg` CLI 5f and the extension SDK 5j) rather than trim it against `CONTRIBUTING.md` §1/§10 ("no structure for a hypothetical future need", "no heavy framework just to look architecturally clean") | Operator-directed after the tension was raised explicitly: the target document (`MRG_Recorder_Core_Architektur_1.0.md`) is the deliberate, current decision on functional scope. `CONTRIBUTING.md`'s other rules (clear names, thin handlers, why-comments, validate at every boundary) still apply in full to *how* each package gets built — only the scope question itself was in play, not the quality bar |
 | 2026-09-08 | 3.2 (`upload_destination.legacy` migrate-and-write-forward) closed as verification-only, no code change | Traced the full persist call chain and found `normalize_study_settings_plugins`/`_remove_legacy_destination_fields` already migrate and strip every legacy flat field before any save, confirmed by two already-passing tests. This predates the 1.0 rebuild; 3.2 was not new work, just unverified until now |
 | 2026-09-08 | Removed `_validate_plugin_object` from `plugin_catalog.py` in the same commit as 3.1's `_import_plugin` removal, rather than leaving it as a defensive check | It is dead code for its only remaining caller: `build_process_plugin` derives every handler it checks for directly and unconditionally from the same manifest's `capabilities` set, so the check is a tautology for anything build_process_plugin produces. It only ever caught anything for a hand-written v3 `Plugin` object, which could genuinely omit a handler while still declaring the capability — that possibility no longer exists |
@@ -2065,3 +2055,14 @@ and `1.0.0-dev` version checks passed. A fresh Windows onedir build with only
 the harmless packaging-probe extension passed UI/root resolution and its real
 child-process initialize/status/shutdown RPC. Phase 4 is closed; next is the
 deferred Phase 3 compatibility/plugin-contract work.
+
+## B5 completion decision — 2026-09-09
+
+Codex completed Claude's unfinished implementation, as explicitly requested by
+the owner. Card workers alone gain timeout termination/recovery; sensor and upload
+timeout behavior stays unchanged. Defaults are fetched from Python and cached in
+the browser, not independently authored in JavaScript. Card calls are stateless
+and never receive the application context or secrets. Discovery supplies the
+type registry; no handwritten per-card lists remain. The initial
+architecture proposal is historical; this decision supersedes the earlier B5
+notes about generic timeout termination and duplicate defaults.

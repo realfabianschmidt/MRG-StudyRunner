@@ -16,7 +16,7 @@ import {
   renderSettingsHubShell,
 } from '../settings/machine/machine-settings-panel.js';
 import { initializeStudySettingsPanel, openStudySettingsPanel } from '../settings/study/study-settings-panel.js';
-import { CARDS, CARD_TYPES, defaultFor } from '../cards/index.js';
+import { CARDS, CARD_TYPES, defaultFor, loadCards, assertCardsAvailable } from '../cards/index.js';
 import {
   collectInfo,
   renderEditorToggles,
@@ -128,6 +128,7 @@ async function init() {
       getJson('/api/config'),
       loadPluginCatalog(),
     ]);
+    await loadCards({ requiredTypes: [...(config.questions || []).map(q => q.type), 'participant-id', 'finish'] });
     state.studyRunState = config._runtime?.study_run_state || null;
     applyLoadedConfig(config);
     await loadRecentStudies();
@@ -141,7 +142,7 @@ async function init() {
     showToast(t('toast.studyLoaded', 'Study loaded'), 'info');
   } catch (error) {
     console.error('[admin] Could not load configuration:', error);
-    showToast(t('toast.loadFailed', 'Could not load the study'), 'error');
+    showToast(`${t('toast.loadFailed', 'Could not load the study')}: ${error.message}`, 'error');
   }
 }
 
@@ -156,6 +157,7 @@ function getCurrentStudyName() {
 }
 
 function applyLoadedConfig(config) {
+  assertCardsAvailable([...(config.questions || []).map(q => q.type), 'participant-id', 'finish']);
   config.study_settings = normalizeStudySettings(config.study_settings);
   ensureBookends(config.questions);
   state.config = config;

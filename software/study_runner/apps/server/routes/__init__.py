@@ -26,6 +26,7 @@ from flask import Flask, jsonify
 
 from study_runner.runtime_core.studies.trial_service import configure_runtime
 from study_runner.runtime_core.studies.validation import ValidationError
+from study_runner.runtime_core.studies.card_extension_bridge import CardExtensionUnavailableError
 from . import admin, branding, certificate, finalization, notion, pages, plugins, recovery, results, sensors, sessions, study, update, uploads
 
 
@@ -55,4 +56,8 @@ def register_routes(app: Flask) -> None:
 
     @app.errorhandler(ValidationError)
     def handle_validation_error(error: ValidationError):
-        return jsonify({"ok": False, "error": str(error)}), 400
+        return jsonify({"ok": False, "error": str(error), "error_code": "invalid_input"}), 400
+
+    @app.errorhandler(CardExtensionUnavailableError)
+    def handle_card_unavailable(error: CardExtensionUnavailableError):
+        return jsonify({"ok": False, "error": str(error), "error_code": "card_unavailable"}), 503

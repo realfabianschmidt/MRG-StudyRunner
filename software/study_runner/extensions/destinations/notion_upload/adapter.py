@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from study_runner.shared.dependency_utils import ensure_requirements
-from study_runner.shared.participant_fields import PARTICIPANT_FIELD_ORDER
+from study_runner.contracts.participant_fields import PARTICIPANT_FIELD_ORDER
 
 
 # Clients are cached by a hash of their API key, not by study id: two studies

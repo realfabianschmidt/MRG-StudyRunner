@@ -10,6 +10,8 @@ import time
 import uuid
 from pathlib import Path
 
+from study_runner.runtime_core.studies.card_extension_bridge import CardExtensionUnavailableError
+
 from flask import Blueprint, current_app, jsonify, request
 
 from study_runner.plugin_framework.registry import (
@@ -180,7 +182,7 @@ def save_results():
             recording_expected=_recording_expected(config_data),
             started_at_epoch=(tracked_session or {}).get("started_at_epoch"),
         )
-    except ValidationError:
+    except (ValidationError, CardExtensionUnavailableError):
         _write_results_recovery_file(result_payload)
         raise
     except SubmissionConflictError as error:

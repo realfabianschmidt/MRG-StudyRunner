@@ -37,6 +37,26 @@ EXPECTED_PLUGIN_MAPPING = {
     "nextcloud_upload": ("nextcloud", "nextcloud"),
 }
 
+# Package 5g.B5: every shipped card extension. Unlike the plugins above (whose
+# folder name predates and differs from their plugin key), a card's folder,
+# plugin_key and config_key are the same string. Listed explicitly rather than
+# read back from the registry, so a card that silently fails to register is
+# still caught here.
+EXPECTED_CARD_PLUGIN_KEYS = {
+    "choice",
+    "finish",
+    "likert",
+    "mood_meter",
+    "multi_slider",
+    "participant_id",
+    "ranking",
+    "semantic",
+    "slider",
+    "stimulus",
+    "text",
+    "word_cloud",
+}
+
 
 def _context() -> PluginContext:
     return PluginContext(
@@ -49,33 +69,44 @@ def _context() -> PluginContext:
 
 
 class PluginRegistryContractTests(unittest.TestCase):
+    def _verify_process_isolated(self, folder: str, category: str) -> tuple[str, str]:
+        module = importlib.import_module(
+            f"study_runner.extensions.{category}.{folder}.plugin"
+        )
+        plugin = module.PLUGIN
+        registered = PLUGINS_BY_KEY[plugin.key]
+        self.assertEqual(registered.key, plugin.key)
+        self.assertEqual(registered.config_key, plugin.config_key)
+        self.assertIsNot(
+            registered,
+            plugin,
+            f"{folder} must be represented by its isolated v4 process proxy",
+        )
+        return (plugin.key, plugin.config_key)
+
     def test_folder_plugin_key_and_config_key_mapping_is_explicit(self) -> None:
         actual = {}
         for folder in EXPECTED_PLUGIN_MAPPING:
             category = "sensors" if folder in {"brainbit", "camera_emotion", "mr60_mini_radar"} else (
                 "destinations" if folder in {"notion_upload", "nextcloud_upload"} else "outputs"
             )
-            module = importlib.import_module(
-                f"study_runner.extensions.{category}.{folder}.plugin"
-            )
-            plugin = module.PLUGIN
-            actual[folder] = (plugin.key, plugin.config_key)
-            registered = PLUGINS_BY_KEY[plugin.key]
-            self.assertEqual(registered.key, plugin.key)
-            self.assertEqual(registered.config_key, plugin.config_key)
-            self.assertIsNot(
-                registered,
-                plugin,
-                f"{folder} must be represented by its isolated v4 process proxy",
-            )
+            actual[folder] = self._verify_process_isolated(folder, category)
 
         self.assertEqual(actual, EXPECTED_PLUGIN_MAPPING)
+
+    def test_card_folder_plugin_key_and_config_key_mapping_is_explicit(self) -> None:
+        """Cards get the same isolated-process-proxy guarantee as any other plugin."""
+        actual = {
+            folder: self._verify_process_isolated(folder, "cards")
+            for folder in EXPECTED_CARD_PLUGIN_KEYS
+        }
+        self.assertEqual(actual, {key: (key, key) for key in EXPECTED_CARD_PLUGIN_KEYS})
 
     def test_registry_contains_each_documented_plugin_once(self) -> None:
         expected_keys = {
             plugin_key
             for plugin_key, _config_key in EXPECTED_PLUGIN_MAPPING.values()
-        }
+        } | EXPECTED_CARD_PLUGIN_KEYS
         registered_keys = [plugin.key for plugin in PLUGINS]
 
         self.assertEqual(set(registered_keys), expected_keys)
@@ -108,8 +139,16 @@ class PluginRegistryContractTests(unittest.TestCase):
                 self.assertGreaterEqual(manifest["backpressure"]["max_in_flight"], 1)
                 self.assertIsInstance(manifest["capabilities"], list)
                 self.assertEqual(manifest["api_version"], 4)
-                self.assertIn("health", manifest["capabilities"])
-                self.assertEqual(manifest["entry_point"], "plugin:PLUGIN")
+                # Cards have no hardware or connection to report health on;
+                # "health" is a peripheral-plugin capability (see the
+                # architecture-1.0 3.4 decision log for its retirement).
+                if manifest["category"] != "card":
+                    self.assertIn("health", manifest["capabilities"])
+                    # entry_point is v3 in-process-import legacy, parsed only so an
+                    # operator-edited pre-rebuild manifest still loads (contracts/
+                    # manifest.py, scheduled for removal at T4). Every card manifest
+                    # was written after v3 was removed, so none carries it.
+                    self.assertEqual(manifest["entry_point"], "plugin:PLUGIN")
                 self.assertEqual(manifest["runtime"]["entrypoint"], "driver.py")
                 self.assertEqual(
                     manifest["runtime"]["protocol"],

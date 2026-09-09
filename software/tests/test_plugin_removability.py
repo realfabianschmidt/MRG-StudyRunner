@@ -11,6 +11,18 @@ both are now real recording code instead -- see `recording/markers.py` and
 This test makes the promise executable for what is left, instead of assumed. It
 works on a flat copy of the real `extensions/*/` trees with one folder removed, so a
 regression here means an operator's plugin folder, not a fixture.
+
+Package 5g.B5 made cards real extensions under `extensions/cards/`, so they are
+swept into this file's per-plugin checks too, and the promise holds: removing
+any one card's folder leaves every other plugin's manifest valid and the
+internal recording plan untouched, same as any sensor/destination/output.
+The one exception is the *zero-catalog* edge case below -- `participant-id`
+and `finish` are the mandatory bookends of every study, so a catalog with
+neither installed cannot author a *playable* study. That is the same
+"necessity wearing a manifest" property `lsl_markers`/`clock_diagnostics` had
+(and it is why they no longer live under `extensions/`); cards stay real,
+process-isolated extensions regardless, because the isolation guarantee
+matters for participant-id/finish too, not just for peripheral hardware.
 """
 from __future__ import annotations
 
@@ -140,11 +152,15 @@ class PlugInAndPullOutTests(unittest.TestCase):
                 )
                 self.assertEqual(hardware_save.status_code, 200, hardware_save.get_data(as_text=True))
 
+                # Config I/O and study_settings (sensor/plugin overrides) do not
+                # depend on which cards are installed -- an uninstalled sensor
+                # referenced here is preserved opaquely, same as any other
+                # unrecognised plugin section.
                 study_save = client.post(
                     "/api/config",
                     json={
                         "study_id": "empty-plugin-study",
-                        "questions": [{"type": "participant-id"}, {"type": "finish"}],
+                        "questions": [],
                         "study_settings": {
                             "sensors_enabled": True,
                             "sensors": {"missing_sensor": True},
@@ -160,6 +176,25 @@ class PlugInAndPullOutTests(unittest.TestCase):
                 )
                 self.assertEqual(study_save.status_code, 200, study_save.get_data(as_text=True))
                 reloaded = client.get("/api/config").get_json()
+
+                # Package 5g.B5: participant-id/finish are card extensions now,
+                # not hardcoded types -- authoring a *playable* study needs at
+                # least those two installed, the same "necessity wearing a
+                # manifest" property lsl_markers/clock_diagnostics already had
+                # (see this file's module docstring). That is an accepted
+                # behavior change, not a regression, as long as the failure
+                # stays the same clean 400 every other missing card produces
+                # instead of a crash or a silent accept.
+                card_dependent_save = client.post(
+                    "/api/config",
+                    json={
+                        "study_id": "empty-plugin-study",
+                        "questions": [{"type": "participant-id"}, {"type": "finish"}],
+                        "study_settings": {"sensors_enabled": False},
+                    },
+                )
+                self.assertEqual(card_dependent_save.status_code, 400)
+                self.assertEqual(card_dependent_save.get_json()["error_code"], "invalid_input")
 
             self.assertEqual(
                 reloaded["study_settings"]["plugins"]["missing_sensor"]["settings"],

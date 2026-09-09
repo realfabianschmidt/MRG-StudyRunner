@@ -27,7 +27,7 @@ UI_VISIBILITY_AREAS = (
     "study_settings",
     "destination_settings",
 )
-UI_EXTENSION_SURFACES = ("dashboard", "participant")
+UI_EXTENSION_SURFACES = ("dashboard", "participant", "card")
 _UI_ASSET_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]*\.js$")
 _TIMELINE_CHANNEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _PLATFORM_TARGET_PATTERN = re.compile(r"^(?:default|[a-z][a-z0-9]*-[a-z0-9_]+)$")
@@ -75,9 +75,8 @@ ENTRY_POINT_PATTERN = re.compile(
     r"^(?P<module>[a-zA-Z_][a-zA-Z0-9_.]*):(?P<attribute>[a-zA-Z_][a-zA-Z0-9_]*)$"
 )
 
-# API v2 names are accepted while reading a manifest, but the public catalog
-# always exposes the API-v3 name.  This is intentionally one-way: new code has
-# one vocabulary while older in-tree fixtures can still fail gracefully.
+# Historic capability names are accepted while reading a manifest, but the
+# public API-v4 catalog always exposes one current vocabulary.
 CAPABILITY_ALIASES = {
     "status_poll": "health",
     "lsl_stream": "lsl_stream_provider",
@@ -87,7 +86,7 @@ CAPABILITY_ALIASES = {
 
 
 class PluginManifestError(ValueError):
-    """Raised when one built-in plugin manifest violates the v3 contract."""
+    """Raised when one built-in extension manifest violates the contract."""
 
 
 def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dict[str, Any]:
@@ -141,6 +140,11 @@ def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dic
         )
 
     capability_config = _normalize_capabilities(payload.get("capabilities"))
+    if "card_contract" in capability_config:
+        if category != "card" or set(capability_config) != {"card_contract"}:
+            raise PluginManifestError("A card extension must declare category card and only card_contract")
+        if "card" not in extensions:
+            raise PluginManifestError("A card extension must declare ui.extensions.card")
     settings = _normalize_settings(payload.get("settings"))
     streams = _normalize_streams(payload.get("streams"))
     _validate_capability_contracts(capability_config, streams, settings)
@@ -343,6 +347,10 @@ def _normalize_process_runtime(value: Any, *, api_version: int) -> dict[str, Any
         "publish",
         "shutdown",
         "validate_study_setting",
+        # Package 5g.B5: the executable card contract.
+        "card_defaults",
+        "card_normalize",
+        "card_validate_answer",
     }
     for operation, raw_timeout in raw_operation_timeouts.items():
         if operation not in supported_timeout_operations:
@@ -470,6 +478,8 @@ def _normalize_capability_config(name: str, config: dict[str, Any]) -> dict[str,
         return _normalize_upload_destination(config)
     if name == "credentials":
         return _normalize_credentials(config)
+    if name == "card_contract":
+        return _normalize_card_contract(config)
     return config
 
 
@@ -493,6 +503,30 @@ def _normalize_credentials(config: dict[str, Any]) -> dict[str, Any]:
     env_var = _optional_text(config.get("env_var")) or ""
     per_study = bool(config.get("per_study", False))
     return {"config_field": config_field, "env_var": env_var, "per_study": per_study}
+
+
+_QUESTION_TYPE_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
+
+
+def _normalize_card_contract(config: dict[str, Any]) -> dict[str, Any]:
+    allowed = {"version", "question_types", "answerless_types", "host_data"}
+    unexpected = sorted(set(config) - allowed)
+    if unexpected:
+        raise PluginManifestError("card_contract contains unsupported fields: " + ", ".join(unexpected))
+    if type(config.get("version")) is not int or config["version"] != 1:
+        raise PluginManifestError("card_contract.version must be 1")
+    types = config.get("question_types")
+    if not isinstance(types, list) or not types or any(
+        not isinstance(t, str) or not _QUESTION_TYPE_PATTERN.fullmatch(t) for t in types
+    ) or len(set(types)) != len(types):
+        raise PluginManifestError("card_contract.question_types must contain unique question type names")
+    answerless = config.get("answerless_types", [])
+    if not isinstance(answerless, list) or any(not isinstance(t, str) or t not in types for t in answerless) or len(set(answerless)) != len(answerless):
+        raise PluginManifestError("card_contract.answerless_types must be a unique subset of question_types")
+    host_data = config.get("host_data", [])
+    if not isinstance(host_data, list) or any(t != "plugin_actions" for t in host_data) or len(set(host_data)) != len(host_data):
+        raise PluginManifestError("card_contract.host_data supports only plugin_actions")
+    return {"version": 1, "question_types": list(types), "answerless_types": list(answerless), "host_data": list(host_data)}
 
 
 def _normalize_readiness_requirements(config: dict[str, Any]) -> dict[str, Any]:

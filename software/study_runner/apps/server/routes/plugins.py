@@ -19,6 +19,8 @@ from study_runner.plugin_framework.process_host import (
     get_process_runtime,
 )
 
+from study_runner.runtime_core.studies.card_extension_bridge import defaults_for_extension
+
 from .helpers import (
     _plugin_context,
     _request_json_object,
@@ -284,3 +286,9 @@ def plugin_participant_ingest(plugin_key: str, ingest_key: str):
         return jsonify({"ok": False, "error": str(error)}), 400
     except Exception as error:
         return jsonify({"ok": False, "error": str(error)}), 500
+
+
+@bp.route("/api/plugins/<plugin_key>/card-defaults")
+def card_defaults(plugin_key: str):
+    _require_installed_plugin(plugin_key)
+    return jsonify({"ok": True, "defaults": defaults_for_extension(plugin_key)})

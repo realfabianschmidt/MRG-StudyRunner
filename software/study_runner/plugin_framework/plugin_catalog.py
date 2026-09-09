@@ -125,6 +125,7 @@ def discover_plugin_catalog(
     roots = ((Path(plugins_dir).resolve(), package_name),) if plugins_dir is not None else trusted_roots()
     candidates = [_read_candidate(path) for root, _ in roots for path in _plugin_directories(root)]
     _mark_duplicate_plugin_keys(candidates)
+    _mark_duplicate_card_types(candidates)
     _mark_duplicate_stream_ids(candidates)
     _mark_conflicting_upload_destinations(candidates)
 
@@ -191,6 +192,8 @@ def _read_candidate(directory: Path) -> _Candidate:
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest = validate_and_normalize_manifest(payload, directory_name=directory.name)
+        candidate.manifest = manifest
+        candidate.plugin_key = str(manifest["plugin_key"])
         _validate_declared_ui_assets(directory, manifest)
         _validate_declared_driver(directory, manifest)
     except (OSError, json.JSONDecodeError, PluginManifestError) as error:
@@ -287,3 +290,15 @@ def _entry_sort_key(entry: PluginCatalogEntry) -> tuple[int, int, str]:
     if entry.manifest:
         order = int((entry.manifest.get("ui") or {}).get("order", order))
     return (0 if entry.status == "valid" else 1, order, entry.directory)
+
+
+def _mark_duplicate_card_types(candidates: list[_Candidate]) -> None:
+    providers: dict[str, list[_Candidate]] = {}
+    for candidate in candidates:
+        contract = ((candidate.manifest or {}).get("capability_config") or {}).get("card_contract") or {}
+        for question_type in contract.get("question_types", []):
+            providers.setdefault(question_type, []).append(candidate)
+    for question_type, matches in providers.items():
+        if len(matches) > 1:
+            for candidate in matches:
+                candidate.add_error(f"duplicate card question type: {question_type}")

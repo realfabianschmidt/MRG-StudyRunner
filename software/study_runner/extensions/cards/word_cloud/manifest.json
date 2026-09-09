@@ -1,0 +1,46 @@
+{
+  "api_version": 4,
+  "plugin_key": "word_cloud",
+  "config_key": "word_cloud",
+  "version": "1.0.0",
+  "category": "card",
+  "capabilities": {
+    "card_contract": {
+      "version": 1,
+      "question_types": [
+        "word-cloud"
+      ],
+      "answerless_types": [],
+      "host_data": []
+    }
+  },
+  "runtime": {
+    "entrypoint": "driver.py",
+    "protocol": "study-runner-stdio/v1",
+    "actions": [],
+    "trial_events": [],
+    "can_toggle": false,
+    "interactive_stdin": false,
+    "operation_timeouts_ms": {
+      "card_defaults": 500,
+      "card_normalize": 500,
+      "card_validate_answer": 500
+    }
+  },
+  "ui": {
+    "label": "word-cloud",
+    "order": 100,
+    "visibility": {
+      "dashboard": false,
+      "settings_hub": false,
+      "study_settings": false,
+      "destination_settings": false
+    },
+    "extensions": {
+      "card": "card.js"
+    },
+    "assets": [
+      "card.js"
+    ]
+  }
+}

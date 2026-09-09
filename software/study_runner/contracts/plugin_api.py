@@ -27,6 +27,22 @@ UploadDestinationHandler = Callable[["PluginContext", dict[str, Any]], dict[str,
 StudySettingValidator = Callable[[str, str], None]
 ConsoleLineHandler = Callable[["PluginContext", str], Any]
 
+# Package 5g.B5: the executable card contract. `question_type` is always
+# explicit, never inferred from the manifest alone, because one card
+# extension can serve more than one type (choice/single share a module the
+# same way they share a JS module and a validation.py function today).
+# `host_data` carries whatever the host must supply that an extension is
+# not allowed to look up itself -- e.g. stimulus's currently-installed
+# plugin action schemas -- and is always present, even if empty, so every
+# card extension's handler has one uniform signature to implement.
+CardDefaultsHandler = Callable[[str], dict[str, Any]]
+CardNormalizeHandler = Callable[
+    [str, dict[str, Any], int, dict[str, Any]], dict[str, Any]
+]
+CardAnswerValidator = Callable[
+    [str, dict[str, Any], Any, int], Any
+]
+
 
 @dataclass(frozen=True)
 class PluginContext:
@@ -134,6 +150,9 @@ class Plugin:
     publish_destination: UploadDestinationHandler | None = None
     validate_study_setting: StudySettingValidator | None = None
     handle_console_line: ConsoleLineHandler | None = None
+    get_card_defaults: CardDefaultsHandler | None = None
+    normalize_card_config: CardNormalizeHandler | None = None
+    validate_card_answer: CardAnswerValidator | None = None
     sidecar_sensor: str | None = None
     sidecar_filename_suffix: str | None = None
     sidecar_output_key: str | None = None

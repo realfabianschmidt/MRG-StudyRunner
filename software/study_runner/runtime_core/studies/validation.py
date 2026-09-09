@@ -3,9 +3,9 @@
 Table of contents (in file order):
 1. PUBLIC ENTRY POINTS   validate_and_normalize_config / _results / _trial_options
 2. RESULT PARTS          answers, participant metadata, answer/card events
-3. ANSWER VALUES         per-card-type answer validation (_validate_answer_value)
-4. QUESTIONS & SETTINGS  per-card-type config validation, study settings
-5. PRIMITIVES            _normalize_* / _require_* low-level helpers
+3. ANSWER VALUES         card-extension dispatch and result assembly
+4. QUESTIONS & SETTINGS  card-extension normalization and study settings
+5. SHARED CONTRACTS      participant vocabulary and validation primitives
 
 Everything raises ValidationError with an operator-readable message.
 """
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any
 
 from ..studies.study_plugin_config import (
     PluginConfigError,
@@ -24,66 +24,46 @@ from ..studies.study_plugin_config import (
 # tests and external validators. Unknown legacy keys are migrated instead of
 # being rejected against this tuple.
 from study_runner.data_core.host.study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
-from study_runner.shared.participant_fields import PARTICIPANT_FIELD_ORDER
+from study_runner.contracts.participant_fields import (
+    CHILDHOOD_AREA_OPTIONS,
+    CONFIGURABLE_OPTION_DEFAULTS,
+    PARTICIPANT_FIELD_ORDER,
+)
+from study_runner.contracts.card_validation_primitives import (
+    CardValidationError as ValidationError,
+    normalize_boolean,
+    normalize_float,
+    normalize_integer,
+    normalize_optional_integer,
+    normalize_text,
+    normalize_text_list,
+    require_text,
+)
+from study_runner.plugin_framework.card_catalog import QuestionTypes
+from .card_extension_bridge import normalize_card_config, validate_card_answer
+
+ALLOWED_QUESTION_TYPES = QuestionTypes()
+NON_ANSWER_QUESTION_TYPES = QuestionTypes(answerless=True)
 
 
-ALLOWED_QUESTION_TYPES = {
-    "stimulus",
-    "participant-id",
-    "finish",
-    "likert",
-    "semantic",
-    "choice",
-    "single",
-    "slider",
-    "ranking",
-    "text",
-    "mood-meter",
-    "multi-slider",
-    "word-cloud",
-}
+# Participant identity vocabulary is a dependency-free contract shared by
+# RuntimeCore, the participant-id card, and destination adapters. It is
+# imported above and re-exported here for existing callers.
 
-NON_ANSWER_QUESTION_TYPES = {"stimulus", "participant-id", "finish"}
-
-ALLOWED_TRIGGER_TYPES = {"timer", "image", "video", "audio", "html", "js"}
-
-# PARTICIPANT_FIELD_ORDER moved to shared/participant_fields.py (Phase 2.3):
-# the Notion plugin needs it too and may not import from backend. Imported
-# above and re-exported here so existing callers keep working unchanged.
-
-PARTICIPANT_FIELD_DEFAULTS = {
-    "first_name": {"enabled": True, "use_for_key": True, "store": False, "required": True},
-    "last_name": {"enabled": True, "use_for_key": True, "store": False, "required": True},
-    "age_group": {"enabled": True, "use_for_key": True, "store": True, "required": True},
-    "gender": {"enabled": False, "use_for_key": False, "store": True, "required": True},
-    "childhood_area": {"enabled": True, "use_for_key": True, "store": True, "required": True},
-    "childhood_nearest_city": {"enabled": True, "use_for_key": True, "store": True, "required": True},
-    "birth_place": {"enabled": False, "use_for_key": False, "store": True, "required": True},
-    "birth_date": {"enabled": False, "use_for_key": False, "store": True, "required": True},
-}
 
 # Fields whose allowed answers can be configured per study.
-AGE_GROUP_DEFAULT_OPTIONS = ["18-25", "26-35", "36-45", "46-60", "60+"]
-GENDER_DEFAULT_OPTIONS = ["Female", "Male", "Non-binary", "Prefer not to say"]
-CONFIGURABLE_OPTION_DEFAULTS = {
-    "age_group": AGE_GROUP_DEFAULT_OPTIONS,
-    "gender": GENDER_DEFAULT_OPTIONS,
-}
-CHILDHOOD_AREA_OPTIONS = {"urban", "rural"}
 
 
 # ============================================================
 #  1. PUBLIC ENTRY POINTS
 # ============================================================
-class ValidationError(ValueError):
-    """Raised when config or result payloads are incomplete or malformed."""
 
 
 def validate_and_normalize_config(config_data: Any) -> dict[str, Any]:
     if not isinstance(config_data, dict):
         raise ValidationError("The study configuration must be a JSON object.")
 
-    study_id = _require_text(config_data.get("study_id"), "Study ID")
+    study_id = require_text(config_data.get("study_id"), "Study ID")
     questions = config_data.get("questions", [])
     if not isinstance(questions, list):
         raise ValidationError("Questions must be a list.")
@@ -98,6 +78,21 @@ def validate_and_normalize_config(config_data: Any) -> dict[str, Any]:
     }
 
 
+def validate_and_normalize_study_settings(value: Any) -> dict[str, Any]:
+    """``study_settings`` alone, with no question/card validation.
+
+    Hardware/sensor-runtime callers only ever need this sibling key -- which
+    plugins a study enables and how -- never the question list. Routing them
+    through the full :func:`validate_and_normalize_config` would make every
+    hardware save depend on every installed card extension staying available
+    (Package 5g.B5: a study using ``participant-id``/``finish`` used to
+    validate for free because those types were hardcoded; both are now
+    ordinary card extensions like any other, so an uninstalled or failing
+    card must not block an unrelated hardware-config save).
+    """
+    return _validate_study_settings(value)
+
+
 def validate_and_normalize_results(
     result_payload: Any,
     study_config: dict[str, Any],
@@ -105,10 +100,10 @@ def validate_and_normalize_results(
     if not isinstance(result_payload, dict):
         raise ValidationError("The result payload must be a JSON object.")
 
-    participant_id = _require_text(result_payload.get("participant_id"), "Participant-ID")
+    participant_id = require_text(result_payload.get("participant_id"), "Participant-ID")
     timestamp_start = _require_iso_timestamp(result_payload.get("timestamp_start"), "Start timestamp")
     timestamp_end = _require_iso_timestamp(result_payload.get("timestamp_end"), "End timestamp")
-    submitted_study_id = _normalize_text(result_payload.get("study_id"))
+    submitted_study_id = normalize_text(result_payload.get("study_id"))
     if submitted_study_id and submitted_study_id != study_config["study_id"]:
         raise ValidationError("Submitted study_id does not match the active study configuration.")
 
@@ -140,7 +135,7 @@ def validate_and_normalize_results(
         card_events=card_events,
     )
 
-    submission_id = _normalize_text(result_payload.get("submission_id"))
+    submission_id = normalize_text(result_payload.get("submission_id"))
     if len(submission_id) > 200:
         raise ValidationError("submission_id must not exceed 200 characters.")
     study_end_event = _validate_study_end_event(result_payload.get("study_end_event"))
@@ -153,7 +148,7 @@ def validate_and_normalize_results(
         "timestamp_end": timestamp_end,
         # Tablet-vs-server clock offset (server = client + offset), used to
         # align client timestamps with server-clock sensor samples.
-        "client_clock_offset_ms": _normalize_float(
+        "client_clock_offset_ms": normalize_float(
             result_payload.get("client_clock_offset_ms"),
             field_name="client_clock_offset_ms",
             minimum=-10_000_000_000.0,
@@ -174,27 +169,27 @@ def _validate_study_end_event(value: Any) -> dict[str, Any]:
         return {}
     if not isinstance(value, dict):
         raise ValidationError("study_end_event must be a JSON object.")
-    event_id = _normalize_text(value.get("event_id"))
+    event_id = normalize_text(value.get("event_id"))
     if not event_id or len(event_id) > 200:
         raise ValidationError("study_end_event.event_id is required and must not exceed 200 characters.")
     sequence = value.get("sequence_number")
     return {
         "event_id": event_id,
-        "source_epoch_ms": _normalize_float(
+        "source_epoch_ms": normalize_float(
             value.get("source_epoch_ms"),
             field_name="study_end_event.source_epoch_ms",
             minimum=0.0,
             maximum=100_000_000_000_000.0,
             allow_none=True,
         ),
-        "source_monotonic_ms": _normalize_float(
+        "source_monotonic_ms": normalize_float(
             value.get("source_monotonic_ms"),
             field_name="study_end_event.source_monotonic_ms",
             minimum=0.0,
             maximum=100_000_000_000_000.0,
             allow_none=True,
         ),
-        "sequence_number": _normalize_integer(
+        "sequence_number": normalize_integer(
             sequence,
             field_name="study_end_event.sequence_number",
             minimum=0,
@@ -217,72 +212,72 @@ def validate_and_normalize_trial_options(payload: Any) -> dict[str, Any]:
         raise ValidationError(str(error)) from error
 
     return {
-        "client_trigger_ms": _normalize_float(
+        "client_trigger_ms": normalize_float(
             payload.get("client_trigger_ms"),
             field_name="client_trigger_ms",
             minimum=0.0,
             maximum=86_400_000.0,
             allow_none=True,
         ),
-        "clock_offset_ms": _normalize_float(
+        "clock_offset_ms": normalize_float(
             payload.get("clock_offset_ms"),
             field_name="clock_offset_ms",
             minimum=-3_600_000.0,
             maximum=3_600_000.0,
             allow_none=True,
         ),
-        "client_trigger_epoch_ms": _normalize_float(
+        "client_trigger_epoch_ms": normalize_float(
             payload.get("client_trigger_epoch_ms"),
             field_name="client_trigger_epoch_ms",
             minimum=0.0,
             maximum=10_000_000_000_000.0,
             allow_none=True,
         ),
-        "visual_onset_epoch_ms": _normalize_float(
+        "visual_onset_epoch_ms": normalize_float(
             payload.get("visual_onset_epoch_ms"),
             field_name="visual_onset_epoch_ms",
             minimum=0.0,
             maximum=10_000_000_000_000.0,
             allow_none=True,
         ),
-        "onset_uncertainty_ms": _normalize_float(
+        "onset_uncertainty_ms": normalize_float(
             payload.get("onset_uncertainty_ms"),
             field_name="onset_uncertainty_ms",
             minimum=0.0,
             maximum=86_400_000.0,
             allow_none=True,
         ),
-        "planned_start_epoch_ms": _normalize_float(
+        "planned_start_epoch_ms": normalize_float(
             payload.get("planned_start_epoch_ms"),
             field_name="planned_start_epoch_ms",
             minimum=0.0,
             maximum=10_000_000_000_000.0,
             allow_none=True,
         ),
-        "planned_deadline_epoch_ms": _normalize_float(
+        "planned_deadline_epoch_ms": normalize_float(
             payload.get("planned_deadline_epoch_ms"),
             field_name="planned_deadline_epoch_ms",
             minimum=0.0,
             maximum=10_000_000_000_000.0,
             allow_none=True,
         ),
-        "study_id": _normalize_text(payload.get("study_id")),
-        "participant_id": _normalize_text(payload.get("participant_id")),
-        "session_id": _normalize_text(payload.get("session_id")),
-        "client_id": _normalize_text(payload.get("client_id")),
-        "question_index": _normalize_optional_integer(
+        "study_id": normalize_text(payload.get("study_id")),
+        "participant_id": normalize_text(payload.get("participant_id")),
+        "session_id": normalize_text(payload.get("session_id")),
+        "client_id": normalize_text(payload.get("client_id")),
+        "question_index": normalize_optional_integer(
             payload.get("question_index"),
             field_name="question_index",
             minimum=0,
             maximum=10_000,
         ),
         "question_type": _normalize_question_type(payload.get("question_type")),
-        "phase": _normalize_text(payload.get("phase")),
-        "marker_event": _normalize_text(payload.get("marker_event") or payload.get("event")),
-        "event_id": _normalize_text(payload.get("event_id")),
-        "stop_event_id": _normalize_text(payload.get("stop_event_id")),
-        "stimulus_id": _normalize_text(payload.get("stimulus_id")),
-        "automatic_deadline": _normalize_boolean(payload.get("automatic_deadline", False)),
+        "phase": normalize_text(payload.get("phase")),
+        "marker_event": normalize_text(payload.get("marker_event") or payload.get("event")),
+        "event_id": normalize_text(payload.get("event_id")),
+        "stop_event_id": normalize_text(payload.get("stop_event_id")),
+        "stimulus_id": normalize_text(payload.get("stimulus_id")),
+        "automatic_deadline": normalize_boolean(payload.get("automatic_deadline", False)),
         "plugin_actions": plugin_actions,
     }
 
@@ -362,7 +357,7 @@ def _skipped_optional_questions(
 
 
 def _question_is_required(question: dict[str, Any]) -> bool:
-    return _normalize_boolean(question.get("required", True))
+    return normalize_boolean(question.get("required", True))
 
 
 def _validate_participant_metadata(
@@ -403,7 +398,7 @@ def _participant_field_is_required(questions: list[dict[str, Any]], field_key: s
         None,
     )
     field_config = ((participant_question or {}).get("fields") or {}).get(field_key) or {}
-    return _normalize_boolean(field_config.get("required", True))
+    return normalize_boolean(field_config.get("required", True))
 
 
 def _stored_participant_fields(questions: list[dict[str, Any]]) -> list[str]:
@@ -428,7 +423,7 @@ def _validate_participant_metadata_value(
     value: Any,
     configured_options: list[str] | None = None,
 ) -> str:
-    normalized = _require_text(value, f"participant_metadata {field_key}")
+    normalized = require_text(value, f"participant_metadata {field_key}")
 
     if field_key in CONFIGURABLE_OPTION_DEFAULTS:
         allowed = configured_options or CONFIGURABLE_OPTION_DEFAULTS[field_key]
@@ -476,7 +471,7 @@ def _validate_answer_events(
         if not isinstance(raw_event, dict):
             raise ValidationError("Each answer_event must be an object.")
 
-        question_index = _normalize_integer(
+        question_index = normalize_integer(
             raw_event.get("question_index"),
             field_name="answer_event question_index",
             minimum=0,
@@ -488,7 +483,7 @@ def _validate_answer_events(
 
         question = questions[question_index] if question_index < len(questions) else {}
         answer_key = raw_event.get("answer_key")
-        normalized_answer_key = _normalize_text(answer_key) if answer_key is not None else ""
+        normalized_answer_key = normalize_text(answer_key) if answer_key is not None else ""
         expected_answer_key = "" if question.get("type") == "participant-id" else f"q{question_index}"
         if normalized_answer_key != expected_answer_key:
             raise ValidationError(
@@ -498,7 +493,7 @@ def _validate_answer_events(
         normalized_events.append(
             {
                 "question_index": question_index,
-                "question_type": _normalize_text(raw_event.get("question_type")),
+                "question_type": normalize_text(raw_event.get("question_type")),
                 "answer_key": normalized_answer_key,
                 "shown_at": _require_iso_timestamp(raw_event.get("shown_at"), "answer_event shown_at"),
                 "answered_at": _require_iso_timestamp(raw_event.get("answered_at"), "answer_event answered_at"),
@@ -524,7 +519,7 @@ def _validate_card_events(
         if not isinstance(raw_event, dict):
             raise ValidationError("Each card_event must be an object.")
 
-        question_index = _normalize_integer(
+        question_index = normalize_integer(
             raw_event.get("question_index"),
             field_name="card_event question_index",
             minimum=0,
@@ -535,8 +530,8 @@ def _validate_card_events(
         seen_indexes.add(question_index)
 
         question = questions[question_index] if question_index < len(questions) else {}
-        expected_type = _normalize_text(question.get("type"))
-        question_type = _normalize_text(raw_event.get("question_type"), default=expected_type)
+        expected_type = normalize_text(question.get("type"))
+        question_type = normalize_text(raw_event.get("question_type"), default=expected_type)
         if expected_type and question_type and question_type != expected_type:
             raise ValidationError(
                 f"card_event for question index {question_index} has an unexpected question_type."
@@ -547,7 +542,7 @@ def _validate_card_events(
                 "question_index": question_index,
                 "question_type": question_type,
                 "shown_at": _require_iso_timestamp(raw_event.get("shown_at"), "card_event shown_at"),
-                "shown_at_server_epoch_ms": _normalize_float(
+                "shown_at_server_epoch_ms": normalize_float(
                     raw_event.get("shown_at_server_epoch_ms"),
                     field_name="card_event shown_at_server_epoch_ms",
                     minimum=0.0,
@@ -555,7 +550,7 @@ def _validate_card_events(
                     allow_none=True,
                 ),
                 "answered_at": _optional_iso_timestamp(raw_event.get("answered_at"), "card_event answered_at"),
-                "answered_at_server_epoch_ms": _normalize_float(
+                "answered_at_server_epoch_ms": normalize_float(
                     raw_event.get("answered_at_server_epoch_ms"),
                     field_name="card_event answered_at_server_epoch_ms",
                     minimum=0.0,
@@ -567,103 +562,103 @@ def _validate_card_events(
                 "active_ended_at": _optional_iso_timestamp(raw_event.get("active_ended_at"), "card_event active_ended_at"),
                 "server_start_received_at": _optional_iso_timestamp(raw_event.get("server_start_received_at"), "card_event server_start_received_at"),
                 "server_stop_received_at": _optional_iso_timestamp(raw_event.get("server_stop_received_at"), "card_event server_stop_received_at"),
-                "server_start_received_epoch_ms": _normalize_float(
+                "server_start_received_epoch_ms": normalize_float(
                     raw_event.get("server_start_received_epoch_ms"),
                     field_name="card_event server_start_received_epoch_ms",
                     minimum=0.0,
                     maximum=10_000_000_000_000.0,
                     allow_none=True,
                 ),
-                "server_stop_received_epoch_ms": _normalize_float(
+                "server_stop_received_epoch_ms": normalize_float(
                     raw_event.get("server_stop_received_epoch_ms"),
                     field_name="card_event server_stop_received_epoch_ms",
                     minimum=0.0,
                     maximum=10_000_000_000_000.0,
                     allow_none=True,
                 ),
-                "client_start_trigger_epoch_ms": _normalize_float(
+                "client_start_trigger_epoch_ms": normalize_float(
                     raw_event.get("client_start_trigger_epoch_ms"),
                     field_name="card_event client_start_trigger_epoch_ms",
                     minimum=0.0,
                     maximum=10_000_000_000_000.0,
                     allow_none=True,
                 ),
-                "visual_onset_epoch_ms": _normalize_float(
+                "visual_onset_epoch_ms": normalize_float(
                     raw_event.get("visual_onset_epoch_ms"),
                     field_name="card_event visual_onset_epoch_ms",
                     minimum=0.0,
                     maximum=10_000_000_000_000.0,
                     allow_none=True,
                 ),
-                "onset_uncertainty_ms": _normalize_float(
+                "onset_uncertainty_ms": normalize_float(
                     raw_event.get("onset_uncertainty_ms"),
                     field_name="card_event onset_uncertainty_ms",
                     minimum=0.0,
                     maximum=86_400_000.0,
                     allow_none=True,
                 ),
-                "client_stop_trigger_epoch_ms": _normalize_float(
+                "client_stop_trigger_epoch_ms": normalize_float(
                     raw_event.get("client_stop_trigger_epoch_ms"),
                     field_name="card_event client_stop_trigger_epoch_ms",
                     minimum=0.0,
                     maximum=10_000_000_000_000.0,
                     allow_none=True,
                 ),
-                "planned_start_epoch_ms": _normalize_float(
+                "planned_start_epoch_ms": normalize_float(
                     raw_event.get("planned_start_epoch_ms"),
                     field_name="card_event planned_start_epoch_ms",
                     minimum=0.0,
                     maximum=10_000_000_000_000.0,
                     allow_none=True,
                 ),
-                "planned_deadline_epoch_ms": _normalize_float(
+                "planned_deadline_epoch_ms": normalize_float(
                     raw_event.get("planned_deadline_epoch_ms"),
                     field_name="card_event planned_deadline_epoch_ms",
                     minimum=0.0,
                     maximum=10_000_000_000_000.0,
                     allow_none=True,
                 ),
-                "stimulus_id": _normalize_text(raw_event.get("stimulus_id")),
-                "start_event_id": _normalize_text(raw_event.get("start_event_id")),
-                "stop_event_id": _normalize_text(raw_event.get("stop_event_id")),
-                "shown_event_id": _normalize_text(raw_event.get("shown_event_id")),
-                "answered_event_id": _normalize_text(raw_event.get("answered_event_id")),
-                "prepare_failed": _normalize_boolean(raw_event.get("prepare_failed", False)),
-                "visibility_interrupted": _normalize_boolean(
+                "stimulus_id": normalize_text(raw_event.get("stimulus_id")),
+                "start_event_id": normalize_text(raw_event.get("start_event_id")),
+                "stop_event_id": normalize_text(raw_event.get("stop_event_id")),
+                "shown_event_id": normalize_text(raw_event.get("shown_event_id")),
+                "answered_event_id": normalize_text(raw_event.get("answered_event_id")),
+                "prepare_failed": normalize_boolean(raw_event.get("prepare_failed", False)),
+                "visibility_interrupted": normalize_boolean(
                     raw_event.get("visibility_interrupted", False)
                 ),
-                "visibility_interruption_count": _normalize_integer(
+                "visibility_interruption_count": normalize_integer(
                     raw_event.get("visibility_interruption_count", 0),
                     field_name="card_event visibility_interruption_count",
                     minimum=0,
                     maximum=10_000,
                 ),
-                "visibility_hidden_duration_ms": _normalize_float(
+                "visibility_hidden_duration_ms": normalize_float(
                     raw_event.get("visibility_hidden_duration_ms", 0),
                     field_name="card_event visibility_hidden_duration_ms",
                     minimum=0.0,
                     maximum=86_400_000.0,
                 ),
-                "warmup_callback_delay_ms": _normalize_float(
+                "warmup_callback_delay_ms": normalize_float(
                     raw_event.get("warmup_callback_delay_ms", 0),
                     field_name="card_event warmup_callback_delay_ms",
                     minimum=0.0,
                     maximum=86_400_000.0,
                 ),
-                "onset_callback_delay_ms": _normalize_float(
+                "onset_callback_delay_ms": normalize_float(
                     raw_event.get("onset_callback_delay_ms", 0),
                     field_name="card_event onset_callback_delay_ms",
                     minimum=0.0,
                     maximum=86_400_000.0,
                 ),
-                "deadline_callback_delay_ms": _normalize_float(
+                "deadline_callback_delay_ms": normalize_float(
                     raw_event.get("deadline_callback_delay_ms", 0),
                     field_name="card_event deadline_callback_delay_ms",
                     minimum=0.0,
                     maximum=86_400_000.0,
                 ),
-                "start_marker": _normalize_text(raw_event.get("start_marker")),
-                "stop_marker": _normalize_text(raw_event.get("stop_marker")),
+                "start_marker": normalize_text(raw_event.get("start_marker")),
+                "stop_marker": normalize_text(raw_event.get("stop_marker")),
             }
         )
 
@@ -673,175 +668,10 @@ def _validate_card_events(
 # ============================================================
 #  3. ANSWER VALUES - one branch per card type
 # ============================================================
-def _validate_likert_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
-    return _normalize_integer(
-        answer,
-        field_name=f"Question {question_number} answer",
-        minimum=1,
-        maximum=int(question.get("scale", 7)),
-    )
 
 
-def _validate_semantic_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
-    expected_pairs = question.get("pairs", [])
-    if not isinstance(answer, dict):
-        raise ValidationError(f"Question {question_number} answer must be an object.")
-
-    normalized: dict[str, int] = {}
-    for pair in expected_pairs:
-        pair_key = f"{pair[0]}_{pair[1]}"
-        if pair_key not in answer:
-            raise ValidationError(f"Question {question_number} is missing a rating for {pair_key}.")
-        normalized[pair_key] = _normalize_integer(
-            answer.get(pair_key),
-            field_name=f"Question {question_number} answer for {pair_key}",
-            minimum=1,
-            maximum=7,
-        )
-
-    extra_keys = sorted(set(answer.keys()) - set(normalized.keys()))
-    if extra_keys:
-        raise ValidationError(
-            f"Question {question_number} contains unexpected semantic keys: {', '.join(extra_keys)}."
-        )
-    return normalized
-
-
-def _validate_choice_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
-    if not isinstance(answer, list):
-        raise ValidationError(f"Question {question_number} answer must be a list.")
-    options = question.get("options", [])
-    normalized = [_require_text(item, f"Question {question_number} answer") for item in answer]
-    if not normalized:
-        raise ValidationError(f"Question {question_number} needs at least one selected option.")
-    if len(set(normalized)) != len(normalized):
-        raise ValidationError(f"Question {question_number} contains duplicate selected options.")
-    invalid = [item for item in normalized if item not in options]
-    if invalid:
-        raise ValidationError(
-            f"Question {question_number} contains invalid options: {', '.join(invalid)}."
-        )
-    return normalized
-
-
-def _validate_single_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
-    selected = _require_text(answer, f"Question {question_number} answer")
-    if selected not in question.get("options", []):
-        raise ValidationError(f"Question {question_number} answer is not a valid option.")
-    return selected
-
-
-def _validate_ranking_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
-    if not isinstance(answer, list):
-        raise ValidationError(f"Question {question_number} ranking answer must be a list.")
-    normalized = [_require_text(item, f"Question {question_number} ranking item") for item in answer]
-    options = question.get("options", [])
-    if len(normalized) == len(options) and set(normalized) == set(options):
-        return normalized
-    raise ValidationError(
-        f"Question {question_number} ranking must contain each configured option exactly once."
-    )
-
-
-def _validate_slider_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
-    return _normalize_integer(
-        answer,
-        field_name=f"Question {question_number} answer",
-        minimum=0,
-        maximum=100,
-    )
-
-
-def _validate_text_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
-    return _require_text(answer, f"Question {question_number} answer")
-
-
-def _validate_mood_meter_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
-    if not isinstance(answer, list):
-        raise ValidationError(f"Question {question_number} answer must be a list.")
-    normalized = [_require_text(item, f"Question {question_number} word") for item in answer]
-    if not normalized:
-        raise ValidationError(f"Question {question_number} needs at least one selected word.")
-    if len(set(normalized)) != len(normalized):
-        raise ValidationError(f"Question {question_number} contains duplicate words.")
-    if question.get("allow_multiple") is False and len(normalized) != 1:
-        raise ValidationError(f"Question {question_number} allows exactly one selected word.")
-    return normalized
-
-
-def _validate_multi_slider_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
-    if not isinstance(answer, dict):
-        raise ValidationError(f"Question {question_number} answer must be an object.")
-    normalized: dict[str, int] = {}
-    dimensions = question.get("dimensions", [])
-    for dimension in dimensions:
-        label = _require_text(dimension.get("label"), f"Question {question_number} dimension label")
-        if label not in answer:
-            raise ValidationError(f"Question {question_number} is missing a value for {label}.")
-        normalized[label] = _normalize_integer(
-            answer.get(label),
-            field_name=f"Question {question_number} answer for {label}",
-            minimum=-100,
-            maximum=100,
-        )
-
-    extra_keys = sorted(set(answer.keys()) - set(normalized.keys()))
-    if extra_keys:
-        raise ValidationError(
-            f"Question {question_number} contains unexpected dimensions: {', '.join(extra_keys)}."
-        )
-    return normalized
-
-
-def _validate_word_cloud_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
-    if not isinstance(answer, list):
-        raise ValidationError(f"Question {question_number} answer must be a list.")
-    normalized = [_require_text(item, f"Question {question_number} word") for item in answer]
-    if not normalized:
-        raise ValidationError(f"Question {question_number} needs at least one selected word.")
-    if len(set(normalized)) != len(normalized):
-        raise ValidationError(f"Question {question_number} contains duplicate words.")
-    if question.get("allow_multiple") is False and len(normalized) != 1:
-        raise ValidationError(f"Question {question_number} allows exactly one selected word.")
-    invalid = [item for item in normalized if item not in question.get("words", [])]
-    if invalid:
-        raise ValidationError(
-            f"Question {question_number} contains invalid words: {', '.join(invalid)}."
-        )
-    return normalized
-
-
-# question_type -> its answer validator. One entry per member of
-# ALLOWED_QUESTION_TYPES outside NON_ANSWER_QUESTION_TYPES (checked by
-# test_validation_dispatch_tables.py, package 5g.B3) -- adding a new
-# answerable card type means adding one function and one line here, not
-# finding the right place to insert another `if` among ten others.
-_ANSWER_VALIDATORS: dict[str, Callable[..., Any]] = {
-    "likert": _validate_likert_answer,
-    "semantic": _validate_semantic_answer,
-    "choice": _validate_choice_answer,
-    "single": _validate_single_answer,
-    "ranking": _validate_ranking_answer,
-    "slider": _validate_slider_answer,
-    "text": _validate_text_answer,
-    "mood-meter": _validate_mood_meter_answer,
-    "multi-slider": _validate_multi_slider_answer,
-    "word-cloud": _validate_word_cloud_answer,
-}
-
-
-def _validate_answer_value(
-    *,
-    answer_key: str,
-    question: dict[str, Any],
-    answer: Any,
-    question_number: int,
-) -> Any:
-    question_type = question.get("type")
-    validator = _ANSWER_VALIDATORS.get(question_type)
-    if validator is None:
-        raise ValidationError(f"{answer_key} uses an unsupported question type: {question_type!r}.")
-    return validator(question=question, answer=answer, question_number=question_number)
+def _validate_answer_value(*, answer_key: str, question: dict[str, Any], answer: Any, question_number: int) -> Any:
+    return validate_card_answer(question.get("type"), question, answer, question_number)
 
 
 # ============================================================
@@ -850,14 +680,14 @@ def _validate_answer_value(
 def _validate_question(question_data: Any, question_index: int) -> dict[str, Any]:
     normalized = _validate_question_by_type(question_data, question_index)
     if normalized.get("type") not in NON_ANSWER_QUESTION_TYPES:
-        normalized["required"] = _normalize_boolean(question_data.get("required", True))
+        normalized["required"] = normalize_boolean(question_data.get("required", True))
 
     # Optional per-question info text, shared by every card type. Only kept when set.
-    info_top = _normalize_text(question_data.get("info_top"))
+    info_top = normalize_text(question_data.get("info_top"))
     if not info_top and normalized.get("type") == "participant-id":
         # Migrate legacy participant-id privacy hint into the shared top callout.
-        info_top = _normalize_text(question_data.get("code_hint"))
-    info_bottom = _normalize_text(question_data.get("info_bottom"))
+        info_top = normalize_text(question_data.get("code_hint"))
+    info_bottom = normalize_text(question_data.get("info_bottom"))
     if info_top:
         normalized["info_top"] = info_top
     if info_bottom:
@@ -866,206 +696,13 @@ def _validate_question(question_data: Any, question_index: int) -> dict[str, Any
     return normalized
 
 
-def _normalize_stimulus_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
-    try:
-        plugin_actions = normalize_card_plugin_actions(question_data)
-    except PluginConfigError as error:
-        raise ValidationError(f"Question {question_index} {error}") from error
-    return {
-        "type": "stimulus",
-        "title": _normalize_text(question_data.get("title"), default="Observe the material"),
-        "subtitle": _normalize_text(question_data.get("subtitle")),
-        "warmup_duration_ms": _normalize_integer(
-            question_data.get("warmup_duration_ms", 0),
-            field_name=f"Question {question_index} warm-up duration",
-            minimum=0,
-            maximum=3_600_000,
-        ),
-        "duration_ms": _normalize_integer(
-            question_data.get("duration_ms", 30_000),
-            field_name=f"Question {question_index} duration",
-            minimum=1_000,
-            maximum=3_600_000,
-        ),
-        "trigger_type": _normalize_trigger_type(
-            question_data.get("trigger_type", "timer"),
-            question_index=question_index,
-        ),
-        "trigger_content": _normalize_text(question_data.get("trigger_content")),
-        "plugin_actions": plugin_actions,
-    }
-
-
-def _normalize_participant_id_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
-    normalized = {
-        "type": "participant-id",
-        "prompt": _normalize_text(question_data.get("prompt")),
-        "fields": _validate_participant_fields(
-            question_data.get("fields"),
-            question_index,
-        ),
-    }
-    code_label = _normalize_text(question_data.get("code_label"))
-    if code_label:
-        normalized["code_label"] = code_label
-    return normalized
-
-
-def _normalize_finish_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
-    return {
-        "type": "finish",
-        "title": _normalize_text(question_data.get("title"), default="Thank you!"),
-        "prompt": _normalize_text(
-            question_data.get("prompt"),
-            default="Your answers have been saved.\nYou can now put the device down.",
-        ),
-    }
-
-
-def _normalize_likert_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
-    return {
-        "type": "likert",
-        "prompt": _normalize_text(question_data.get("prompt")),
-        "scale": _normalize_integer(
-            question_data.get("scale", 7),
-            field_name=f"Question {question_index} scale",
-            minimum=3,
-            maximum=11,
-        ),
-        "label_min": _normalize_text(question_data.get("label_min")),
-        "label_max": _normalize_text(question_data.get("label_max")),
-    }
-
-
-def _normalize_semantic_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
-    pairs = _normalize_pairs(question_data.get("pairs"), question_index)
-    if not pairs:
-        raise ValidationError(f"Question {question_index} needs at least one valid word pair.")
-    return {
-        "type": "semantic",
-        "prompt": _normalize_text(question_data.get("prompt")),
-        "pairs": pairs,
-    }
-
-
-def _normalize_options_question(
-    question_data: dict[str, Any], question_index: int, *, question_type: str
-) -> dict[str, Any]:
-    """Shared by choice/single/ranking: an options list, nothing else."""
-    options = _normalize_text_list(question_data.get("options"))
-    if not options:
-        raise ValidationError(f"Question {question_index} needs at least one option.")
-    return {
-        "type": question_type,
-        "prompt": _normalize_text(question_data.get("prompt")),
-        "options": options,
-    }
-
-
-def _normalize_slider_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
-    return {
-        "type": "slider",
-        "prompt": _normalize_text(question_data.get("prompt")),
-        "label_min": _normalize_text(question_data.get("label_min")),
-        "label_max": _normalize_text(question_data.get("label_max")),
-    }
-
-
-def _normalize_text_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
-    return {
-        "type": "text",
-        "prompt": _normalize_text(question_data.get("prompt")),
-    }
-
-
-def _normalize_mood_meter_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
-    word_lists = question_data.get("word_lists")
-    if word_lists is not None and not isinstance(word_lists, dict):
-        word_lists = None
-    return {
-        "type": "mood-meter",
-        "prompt": _normalize_text(question_data.get("prompt")),
-        "allow_multiple": _normalize_boolean(question_data.get("allow_multiple", True)),
-        "word_lists": word_lists,
-    }
-
-
-def _normalize_multi_slider_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
-    dims = question_data.get("dimensions")
-    if not isinstance(dims, list) or not dims:
-        raise ValidationError(f"Question {question_index} needs at least one dimension.")
-    normalized_dims = []
-    for d in dims:
-        if isinstance(d, dict) and d.get("label"):
-            normalized_dims.append({
-                "label": _normalize_text(d.get("label")),
-                "min_label": _normalize_text(d.get("min_label")),
-                "max_label": _normalize_text(d.get("max_label")),
-            })
-    if not normalized_dims:
-        raise ValidationError(f"Question {question_index} needs at least one valid dimension.")
-    return {
-        "type": "multi-slider",
-        "prompt": _normalize_text(question_data.get("prompt")),
-        "dimensions": normalized_dims,
-    }
-
-
-def _normalize_word_cloud_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
-    words = _normalize_text_list(question_data.get("words"))
-    if not words:
-        raise ValidationError(f"Question {question_index} needs at least one word.")
-    return {
-        "type": "word-cloud",
-        "prompt": _normalize_text(question_data.get("prompt")),
-        "words": words,
-        "allow_multiple": _normalize_boolean(question_data.get("allow_multiple", True)),
-    }
-
-
-# question_type -> its config normalizer. One entry per member of
-# ALLOWED_QUESTION_TYPES (checked by test_validation_dispatch_tables.py,
-# package 5g.B3) -- adding a new card type means adding one function and
-# one line here, not finding the right place among thirteen `if` branches.
-# choice/single/ranking share one function (an options list is their whole
-# shape); everything else is one function per type.
-_QUESTION_NORMALIZERS: dict[str, Callable[..., dict[str, Any]]] = {
-    "stimulus": _normalize_stimulus_question,
-    "participant-id": _normalize_participant_id_question,
-    "finish": _normalize_finish_question,
-    "likert": _normalize_likert_question,
-    "semantic": _normalize_semantic_question,
-    "choice": _normalize_options_question,
-    "single": _normalize_options_question,
-    "ranking": _normalize_options_question,
-    "slider": _normalize_slider_question,
-    "text": _normalize_text_question,
-    "mood-meter": _normalize_mood_meter_question,
-    "multi-slider": _normalize_multi_slider_question,
-    "word-cloud": _normalize_word_cloud_question,
-}
-
-_OPTIONS_QUESTION_TYPES = frozenset({"choice", "single", "ranking"})
-
-
 def _validate_question_by_type(question_data: Any, question_index: int) -> dict[str, Any]:
     if not isinstance(question_data, dict):
         raise ValidationError(f"Question {question_index} must be a JSON object.")
-
-    question_type = _require_text(question_data.get("type"), f"Question {question_index} type")
-
-    if question_type == "choice" and question_data.get("multiple") is False:
-        question_type = "single"
-
+    question_type = require_text(question_data.get("type"), f"Question {question_index} type")
     if question_type not in ALLOWED_QUESTION_TYPES:
-        raise ValidationError(
-            f"Question {question_index} uses an unknown type: {question_type!r}."
-        )
-
-    normalizer = _QUESTION_NORMALIZERS[question_type]
-    if question_type in _OPTIONS_QUESTION_TYPES:
-        return normalizer(question_data, question_index, question_type=question_type)
-    return normalizer(question_data, question_index)
+        raise ValidationError(f"Question {question_index} uses an unknown type: {question_type!r}.")
+    return normalize_card_config(question_type, question_data, question_index)
 
 
 def _validate_study_settings(value: Any) -> dict[str, Any]:
@@ -1086,7 +723,7 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
     raw_sensors = migrated.get("sensors")
     plugins = _validate_plugin_study_settings(migrated["plugins"])
 
-    sensors_enabled = _normalize_boolean(migrated.get("sensors_enabled", True))
+    sensors_enabled = normalize_boolean(migrated.get("sensors_enabled", True))
     return {
         "sensors_enabled": sensors_enabled,
         "sensors": normalize_study_sensors(
@@ -1096,7 +733,7 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
             }
         ),
         "plugins": plugins,
-        "progress_bar_enabled": _normalize_boolean(migrated.get("progress_bar_enabled", False)),
+        "progress_bar_enabled": normalize_boolean(migrated.get("progress_bar_enabled", False)),
         "planned_session_duration_minutes": _optional_positive_minutes(
             migrated.get("planned_session_duration_minutes"),
             "study_settings.planned_session_duration_minutes",
@@ -1129,7 +766,7 @@ def _validate_plugin_study_settings(
             field_type = str(field.get("type") or "string")
             path = f"study_settings.plugins.{plugin_key}.settings.{name}"
             if field_type in {"string", "url", "choice"}:
-                value = _normalize_text(raw_value)
+                value = normalize_text(raw_value)
                 if field_type == "choice" and field.get("options") and value not in field["options"]:
                     raise ValidationError(
                         f"{path} must be one of: {', '.join(map(str, field['options']))}."
@@ -1138,7 +775,7 @@ def _validate_plugin_study_settings(
                     _validate_manifest_url(value, str(field.get("format") or ""), path, plugin_key, name)
                 settings[name] = value
             elif field_type == "boolean":
-                settings[name] = _normalize_boolean(raw_value)
+                settings[name] = normalize_boolean(raw_value)
             elif field_type == "number":
                 try:
                     value = float(raw_value)
@@ -1189,73 +826,6 @@ def _validate_manifest_url(
         raise ValidationError(f"{path} must be an HTTP(S) URL.")
 
 
-def _validate_participant_fields(value: Any, question_index: int) -> dict[str, dict[str, bool]]:
-    if value is None:
-        value = {}
-    if not isinstance(value, dict):
-        raise ValidationError(f"Question {question_index} participant fields must be an object.")
-
-    extra_keys = sorted(set(value.keys()) - set(PARTICIPANT_FIELD_ORDER))
-    if extra_keys:
-        raise ValidationError(
-            f"Question {question_index} participant fields contain unsupported entries: "
-            + ", ".join(extra_keys)
-            + "."
-        )
-
-    normalized: dict[str, dict[str, bool]] = {}
-    for field_key in PARTICIPANT_FIELD_ORDER:
-        defaults = PARTICIPANT_FIELD_DEFAULTS[field_key]
-        raw_field = value.get(field_key, {})
-        if raw_field is None:
-            raw_field = {}
-        if not isinstance(raw_field, dict):
-            raise ValidationError(
-                f"Question {question_index} participant field {field_key} must be an object."
-            )
-
-        enabled = _normalize_boolean(raw_field.get("enabled", defaults["enabled"]))
-        use_for_key = enabled and _normalize_boolean(
-            raw_field.get("use_for_key", defaults["use_for_key"])
-        )
-        store = enabled and _normalize_boolean(raw_field.get("store", defaults["store"]))
-        required = enabled and _normalize_boolean(raw_field.get("required", defaults["required"]))
-        if use_for_key and raw_field.get("required") is not None and not required:
-            raise ValidationError(
-                f"Question {question_index} participant field {field_key} cannot be optional because it is used for the anonymous code."
-            )
-        normalized[field_key] = {
-            "enabled": enabled,
-            "use_for_key": use_for_key,
-            "store": store,
-            "required": True if use_for_key else required,
-        }
-        if field_key in CONFIGURABLE_OPTION_DEFAULTS:
-            normalized[field_key]["options"] = _normalize_field_options(
-                raw_field.get("options"), field_key
-            )
-
-    if not any(field.get("enabled") and field.get("use_for_key") for field in normalized.values()):
-        raise ValidationError(
-            f"Question {question_index} participant fields need at least one field for key generation."
-        )
-
-    return normalized
-
-
-def _normalize_field_options(value: Any, field_key: str) -> list[str]:
-    defaults = CONFIGURABLE_OPTION_DEFAULTS[field_key]
-    if not isinstance(value, list):
-        return list(defaults)
-
-    cleaned: list[str] = []
-    for item in value:
-        text = _normalize_text(item)
-        if text and text not in cleaned:
-            cleaned.append(text)
-    return cleaned or list(defaults)
-
-
 def _participant_field_options(questions: list[dict[str, Any]], field_key: str) -> list[str]:
     participant_question = next(
         (question for question in questions if question.get("type") == "participant-id"),
@@ -1269,113 +839,9 @@ def _participant_field_options(questions: list[dict[str, Any]], field_key: str) 
     return list(CONFIGURABLE_OPTION_DEFAULTS.get(field_key, []))
 
 
-def _normalize_trigger_type(value: Any, question_index: int) -> str:
-    trigger_type = _normalize_text(value, default="timer")
-    if trigger_type not in ALLOWED_TRIGGER_TYPES:
-        raise ValidationError(
-            f"Question {question_index} uses an unknown trigger type: {trigger_type!r}."
-        )
-    return trigger_type
-
-
-def _normalize_pairs(value: Any, question_index: int) -> list[list[str]]:
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValidationError(f"Question {question_index} word pairs must be a list.")
-
-    pairs: list[list[str]] = []
-    for pair in value:
-        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
-            raise ValidationError(
-                f"Question {question_index} has an invalid word pair. Use exactly two entries."
-            )
-        left = _normalize_text(pair[0])
-        right = _normalize_text(pair[1])
-        if not left or not right:
-            raise ValidationError(
-                f"Question {question_index} has an empty word in one of its pairs."
-            )
-        pairs.append([left, right])
-    return pairs
-
-
 # ============================================================
 #  5. PRIMITIVES - low-level normalize/require helpers
 # ============================================================
-def _normalize_text_list(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValidationError("Options must be a list of text entries.")
-    return [entry for entry in (_normalize_text(item) for item in value) if entry]
-
-
-def _normalize_integer(
-    value: Any,
-    *,
-    field_name: str,
-    minimum: int,
-    maximum: int,
-) -> int:
-    try:
-        normalized = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValidationError(f"{field_name} must be a whole number.") from exc
-
-    if normalized < minimum or normalized > maximum:
-        raise ValidationError(f"{field_name} must be between {minimum} and {maximum}.")
-    return normalized
-
-
-def _normalize_optional_integer(
-    value: Any,
-    *,
-    field_name: str,
-    minimum: int,
-    maximum: int,
-) -> int | None:
-    if value in (None, ""):
-        return None
-    return _normalize_integer(value, field_name=field_name, minimum=minimum, maximum=maximum)
-
-
-def _normalize_float(
-    value: Any,
-    *,
-    field_name: str,
-    minimum: float,
-    maximum: float,
-    allow_none: bool = False,
-) -> float | None:
-    if value in (None, ""):
-        if allow_none:
-            return None
-        raise ValidationError(f"{field_name} is required.")
-
-    if isinstance(value, bool):
-        raise ValidationError(f"{field_name} must be a number.")
-
-    try:
-        normalized = float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValidationError(f"{field_name} must be a number.") from exc
-
-    if normalized < minimum or normalized > maximum:
-        raise ValidationError(f"{field_name} must be between {minimum} and {maximum}.")
-    return normalized
-
-
-def _normalize_boolean(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "off"}:
-            return False
-    return bool(value)
 
 
 def _optional_positive_minutes(value: Any, field_name: str) -> float | None:
@@ -1387,14 +853,8 @@ def _optional_positive_minutes(value: Any, field_name: str) -> float | None:
     return float(value)
 
 
-def _normalize_text(value: Any, default: str = "") -> str:
-    if value is None:
-        return default
-    return str(value).strip()
-
-
 def _normalize_question_type(value: Any) -> str:
-    normalized = _normalize_text(value)
+    normalized = normalize_text(value)
     if not normalized:
         return ""
     if normalized not in ALLOWED_QUESTION_TYPES:
@@ -1402,15 +862,8 @@ def _normalize_question_type(value: Any) -> str:
     return normalized
 
 
-def _require_text(value: Any, field_name: str) -> str:
-    normalized = _normalize_text(value)
-    if not normalized:
-        raise ValidationError(f"{field_name} is required.")
-    return normalized
-
-
 def _require_iso_timestamp(value: Any, field_name: str) -> str:
-    timestamp = _require_text(value, field_name)
+    timestamp = require_text(value, field_name)
     try:
         _parse_iso_timestamp(timestamp)
     except ValueError as exc:

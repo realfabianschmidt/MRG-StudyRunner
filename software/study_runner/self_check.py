@@ -1,9 +1,10 @@
 """Check a bundle's UI and optional fixture RPC in disposable storage.
 
 server.py --self-check never starts the HTTP server or real hardware.
-Packaging CI sets STUDY_RUNNER_SELF_CHECK_PLUGIN to the harmless plugin
-fixture staged into its bundle, so discovery alone cannot hide a broken child
-process launch. Ordinary self-checks do not initialize any discovered plugin.
+Packaging CI sets STUDY_RUNNER_SELF_CHECK_PLUGIN and optionally
+STUDY_RUNNER_SELF_CHECK_CARD to harmless staged extensions, so discovery alone
+cannot hide a broken child launch, defaults RPC, or asset route. Ordinary
+self-checks do not initialize any discovered extension.
 """
 from __future__ import annotations
 
@@ -37,16 +38,19 @@ def _isolated_environment(data_dir: str) -> Iterator[None]:
 
 def main() -> int:
     fixture_key = os.environ.get("STUDY_RUNNER_SELF_CHECK_PLUGIN", "").strip()
+    card_key = os.environ.get("STUDY_RUNNER_SELF_CHECK_CARD", "").strip()
     try:
         with tempfile.TemporaryDirectory(prefix="study-runner-self-check-") as data_dir:
             with _isolated_environment(data_dir):
+                if card_key:
+                    return _check_application(fixture_key, card_key)
                 return _check_application(fixture_key)
     except Exception as error:
         print(f"[SELF-CHECK] FAILED: {error}")
         return 1
 
 
-def _check_application(fixture_key: str) -> int:
+def _check_application(fixture_key: str, card_key: str = "") -> int:
     from study_runner.apps.server import create_app
     from study_runner.plugin_framework.plugin_catalog import discover_plugin_catalog
 
@@ -69,6 +73,11 @@ def _check_application(fixture_key: str) -> int:
             _check_plugin_process(app, catalog, fixture_key)
         except Exception as error:
             failures.append(f"plugin process check failed: {error}")
+    if card_key:
+        try:
+            _check_card_extension(app, catalog, card_key)
+        except Exception as error:
+            failures.append(f"card extension check failed: {error}")
 
     response = app.test_client().get("/")
     try:
@@ -122,6 +131,56 @@ def _check_plugin_process(app, catalog, fixture_key: str) -> None:
     if stopped["running"] or stopped["last_exit_code"] != 0:
         raise RuntimeError(f"fixture process did not exit cleanly: {stopped['last_exit_code']}")
     print(f"[SELF-CHECK] plugin {fixture_key}: initialize/status/shutdown RPC completed.")
+
+
+def _check_card_extension(app, catalog, card_key: str) -> None:
+    from study_runner.plugin_framework.process_host import get_process_runtime
+    from study_runner.runtime_core.studies.card_extension_bridge import defaults_for_extension
+
+    entries = [entry for entry in catalog.entries if entry.plugin_key == card_key]
+    if len(entries) != 1 or entries[0].status != "valid":
+        raise RuntimeError(f"expected one valid bundled card extension {card_key!r}")
+    entry = entries[0]
+    contract = (entry.manifest.get("capability_config") or {}).get("card_contract")
+    if not contract:
+        raise RuntimeError(f"{card_key!r} does not declare card_contract")
+
+    defaults = defaults_for_extension(card_key)
+    expected_types = contract["question_types"]
+    if list(defaults) != expected_types:
+        raise RuntimeError("card defaults do not match the declared question-type order")
+    if any(defaults[name].get("type") != name for name in expected_types):
+        raise RuntimeError("card defaults returned an invalid question type")
+    runtime = get_process_runtime(card_key)
+    if runtime is None or not runtime.snapshot()["running"]:
+        raise RuntimeError("card defaults did not execute in a supervised child process")
+    if runtime.snapshot()["pid"] == os.getpid():
+        raise RuntimeError("card defaults executed in the application process")
+
+    client = app.test_client()
+    defaults_response = client.get(f"/api/plugins/{card_key}/card-defaults")
+    try:
+        if defaults_response.status_code != 200:
+            raise RuntimeError(f"defaults HTTP route returned {defaults_response.status_code}")
+        if defaults_response.get_json().get("defaults") != defaults:
+            raise RuntimeError("defaults HTTP route changed the worker result")
+    finally:
+        defaults_response.close()
+
+    asset = entry.manifest["ui"]["extensions"]["card"]
+    asset_response = client.get(f"/api/plugins/{card_key}/assets/{asset}")
+    try:
+        if asset_response.status_code != 200:
+            raise RuntimeError(f"declared card asset returned {asset_response.status_code}")
+        if "javascript" not in str(asset_response.content_type):
+            raise RuntimeError(f"declared card asset has wrong content type: {asset_response.content_type}")
+        if b"configureCard" not in asset_response.data:
+            raise RuntimeError("declared card asset does not expose the card contract")
+    finally:
+        asset_response.close()
+
+    runtime.shutdown()
+    print(f"[SELF-CHECK] card {card_key}: discovery/defaults RPC/HTTP asset completed.")
 
 
 if __name__ == "__main__":

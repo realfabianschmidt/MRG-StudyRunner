@@ -34,10 +34,44 @@ LOG_ROTATE_BYTES = 10 * 1024 * 1024
 LOG_ROTATE_GENERATIONS = 3
 MAX_RESTARTS = 3
 STARTUP_TIMEOUT_MS = 5_000
+RESPONSE_ERROR_KINDS = frozenset({"invalid_input", "extension_failure"})
 
 
 class PluginProcessError(RuntimeError):
     """The plugin process could not complete a framework operation."""
+
+    def __init__(self, message: str, *, error_kind: str = "extension_failure") -> None:
+        super().__init__(message)
+        self.error_kind = error_kind
+
+
+def _validate_response_envelope(
+    response: Any,
+    *,
+    request_id: str,
+    plugin_key: str,
+) -> None:
+    malformed = f"Plugin '{plugin_key}' returned a malformed response."
+    if not isinstance(response, dict):
+        raise PluginProcessError(malformed)
+    if (
+        response.get("kind") != "response"
+        or response.get("id") != request_id
+        or type(response.get("ok")) is not bool
+    ):
+        raise PluginProcessError(malformed)
+    if response["ok"]:
+        if "result" not in response:
+            raise PluginProcessError(malformed)
+        return
+    error = response.get("error")
+    error_kind = response.get("error_kind")
+    if (
+        not isinstance(error, str)
+        or not error.strip()
+        or error_kind not in RESPONSE_ERROR_KINDS
+    ):
+        raise PluginProcessError(malformed)
 
 
 class ConsoleLockedError(PermissionError):
@@ -45,7 +79,8 @@ class ConsoleLockedError(PermissionError):
 
 
 class _PendingResponse:
-    def __init__(self) -> None:
+    def __init__(self, process: subprocess.Popen[str]) -> None:
+        self.process = process
         self.event = threading.Event()
         self.payload: dict[str, Any] | None = None
 
@@ -56,6 +91,17 @@ class PluginProcessRuntime:
         self.key = str(manifest["plugin_key"])
         self.directory = Path(directory).resolve()
         self.runtime_config = dict(manifest.get("runtime") or {})
+        # `manifest` here is always the *normalized* shape (registry.py /
+        # discover_plugin_catalog), where "capabilities" is a plain list of
+        # names and per-capability config lives separately under
+        # "capability_config". The raw manifest.json on disk declares
+        # "capabilities" as a {name: config} dict instead -- see
+        # driver_runtime.py's own card_contract lookup, which reads that raw
+        # file directly and treats the same key as a dict on purpose. Two
+        # different shapes under one key name; do not unify the check here
+        # with that one without checking which manifest each side actually has.
+        self.is_card = "card_contract" in (manifest.get("capabilities") or [])
+        self._recovering = False
         self._lock = threading.RLock()
         self._write_lock = threading.Lock()
         self._log_lock = threading.Lock()
@@ -81,6 +127,10 @@ class PluginProcessRuntime:
     # -- process lifecycle -------------------------------------------------
 
     def initialize(self, context: PluginContext) -> None:
+        if self.is_card:
+            # Only the host uses this path. No app context enters a card child.
+            self._log_path = Path(context.data_dir) / "runtime" / "plugin_logs" / f"{self.key}.log"
+            return
         self._context = context
         self._desired_running = True
         self._ensure_started()
@@ -116,7 +166,11 @@ class PluginProcessRuntime:
             if process is None or process.poll() is not None:
                 raise PluginProcessError(f"Plugin '{self.key}' is not running.")
         request_id = uuid.uuid4().hex
-        pending = _PendingResponse()
+        with self._lock:
+            process = self._process
+        if process is None or process.poll() is not None:
+            raise PluginProcessError(f"Plugin '{self.key}' is recovering.")
+        pending = _PendingResponse(process)
         with self._lock:
             self._pending[request_id] = pending
             first_operation = operation not in self._completed_operations
@@ -126,7 +180,7 @@ class PluginProcessRuntime:
         # without re-running its stateful initialize hook.
         with self._lock:
             context = self._context
-        if context is not None:
+        if context is not None and not self.is_card:
             request_payload["_context"] = _serialize_context(context)
         envelope = {
             "kind": "request",
@@ -135,7 +189,7 @@ class PluginProcessRuntime:
             "payload": request_payload,
         }
         try:
-            self._write_protocol(envelope)
+            self._write_protocol(envelope, expected_process=process)
             configured_timeout_ms = int(
                 timeout_ms
                 if timeout_ms is not None
@@ -151,20 +205,61 @@ class PluginProcessRuntime:
                 configured_timeout_ms = max(STARTUP_TIMEOUT_MS, configured_timeout_ms)
             timeout = max(0.05, float(configured_timeout_ms) / 1_000.0)
             if not pending.event.wait(timeout):
+                # Only stateless cards opt into termination on RPC timeout.
+                # Remove the waiter first so no late response can revive this call.
+                with self._lock:
+                    self._pending.pop(request_id, None)
+                if self.is_card and _start_if_needed:
+                    self._terminate_after_timeout(process, operation, timeout)
                 raise PluginProcessError(
                     f"Plugin '{self.key}' timed out during {operation} after {timeout:.3f}s."
                 )
             response = pending.payload or {}
-            if response.get("ok") is not True:
+            _validate_response_envelope(response, request_id=request_id, plugin_key=self.key)
+            if response["ok"] is not True:
                 raise PluginProcessError(
-                    str(response.get("error") or f"Plugin '{self.key}' failed during {operation}.")
+                    str(response.get("error") or f"Plugin '{self.key}' failed during {operation}."),
+                    error_kind=str(response.get("error_kind") or "extension_failure"),
                 )
+            if "result" not in response:
+                raise PluginProcessError(f"Plugin '{self.key}' returned a malformed response.")
             with self._lock:
                 self._completed_operations.add(operation)
+                if self.is_card and self._restart_count:
+                    # A card's restart budget must bound a genuine crash loop,
+                    # not accumulate forever across incidents that each
+                    # recovered cleanly -- otherwise three crashes spread over
+                    # a week permanently strands an otherwise healthy card.
+                    # This is a no-op whenever nothing has crashed yet.
+                    self._restart_count = 0
             return response.get("result")
         finally:
             with self._lock:
                 self._pending.pop(request_id, None)
+
+    def _terminate_after_timeout(self, process: subprocess.Popen[str], operation: str, timeout: float) -> None:
+        with self._lock:
+            if self._process is not process or process.poll() is not None:
+                return
+            # Close the admission gate before terminate() returns. Otherwise a
+            # concurrent request can still observe this live-but-doomed worker
+            # and bypass the supervisor's recovery backoff.
+            self._recovering = True
+        self._append_output("system", f"Terminating card worker after {operation} timed out ({timeout:.3f}s).")
+        try:
+            process.terminate()
+        except OSError:
+            return
+        # Never delay the failed request while waiting for a resistant child.
+        def finish_termination() -> None:
+            try:
+                process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+        threading.Thread(target=finish_termination, name=f"card-{self.key}-terminate", daemon=True).start()
 
     def shutdown(self) -> None:
         self.expire_console_unlock()
@@ -197,10 +292,17 @@ class PluginProcessRuntime:
                 self._last_exit_code = process.returncode
                 self._last_exit_at = time.time()
 
-    def _ensure_started(self) -> None:
+    def _ensure_started(self, *, _recovery: bool = False) -> None:
         with self._lock:
+            if self.is_card and not _recovery and self._recovering:
+                raise PluginProcessError(f"Card '{self.key}' is recovering; please retry shortly.")
             if self._process is not None and self._process.poll() is None:
                 return
+            if self.is_card and not _recovery:
+                if self._process is not None:
+                    raise PluginProcessError(f"Card '{self.key}' is recovering; please retry shortly.")
+                if self._restart_count >= MAX_RESTARTS and self._last_exit_code is not None:
+                    raise PluginProcessError(f"Card '{self.key}' exhausted recovery attempts; restart the application.")
             command = self._command()
             env = os.environ.copy()
             env["PYTHONUNBUFFERED"] = "1"
@@ -236,6 +338,7 @@ class PluginProcessRuntime:
                     f"Could not start plugin driver '{self.key}': {error}"
                 ) from error
             self._process = process
+            self._recovering = False
             self._desired_running = True
             self._last_exit_code = None
             self._completed_operations.clear()
@@ -284,7 +387,7 @@ class PluginProcessRuntime:
             for raw_line in iter(stream.readline, ""):
                 line = raw_line.rstrip("\r\n")
                 if source == "stdout" and line.startswith(PROTOCOL_PREFIX):
-                    if self._handle_protocol_line(line[len(PROTOCOL_PREFIX):]):
+                    if self._handle_protocol_line(line[len(PROTOCOL_PREFIX):], process=process):
                         continue
                 self._append_output(source, line)
         finally:
@@ -293,7 +396,7 @@ class PluginProcessRuntime:
             except Exception:
                 pass
 
-    def _handle_protocol_line(self, raw_json: str) -> bool:
+    def _handle_protocol_line(self, raw_json: str, *, process: subprocess.Popen[str] | None = None) -> bool:
         try:
             payload = json.loads(raw_json)
         except json.JSONDecodeError:
@@ -305,7 +408,7 @@ class PluginProcessRuntime:
             request_id = str(payload.get("id") or "")
             with self._lock:
                 pending = self._pending.get(request_id)
-            if pending is not None:
+            if pending is not None and (process is None or pending.process is process):
                 pending.payload = payload
                 pending.event.set()
             return True
@@ -342,14 +445,19 @@ class PluginProcessRuntime:
             self._process = None
             self._last_exit_code = int(exit_code)
             self._last_exit_at = time.time()
-            for pending in self._pending.values():
+            for request_id, pending in self._pending.items():
+                if pending.process is not process or pending.event.is_set():
+                    continue
                 pending.payload = {
                     "kind": "response",
+                    "id": request_id,
                     "ok": False,
                     "error": f"Plugin process exited with code {exit_code}.",
+                    "error_kind": "extension_failure",
                 }
                 pending.event.set()
             restart = self._desired_running and self._restart_count < MAX_RESTARTS
+            self._recovering = restart
             if restart:
                 self._restart_count += 1
         self._append_output("system", f"Plugin driver exited with code {exit_code}.")
@@ -381,8 +489,11 @@ class PluginProcessRuntime:
                     return
                 context = self._context
             try:
-                self._ensure_started()
-                if context is not None:
+                if self.is_card:
+                    self._ensure_started(_recovery=True)
+                else:
+                    self._ensure_started()
+                if context is not None and not self.is_card:
                     initialize_timeout = (
                         ((self.manifest.get("runtime") or {}).get("operation_timeouts_ms") or {}).get(
                             "initialize"
@@ -414,6 +525,7 @@ class PluginProcessRuntime:
                     return
                 with self._lock:
                     if not self._desired_running or self._restart_count >= MAX_RESTARTS:
+                        self._recovering = False
                         return
                     # Popen failed, so no waiter exists to account for another
                     # bounded attempt. Do that here and continue the loop.
@@ -554,14 +666,22 @@ class PluginProcessRuntime:
 
     # -- I/O helpers -------------------------------------------------------
 
-    def _write_protocol(self, payload: Mapping[str, Any]) -> None:
+    def _write_protocol(self, payload: Mapping[str, Any], *, expected_process: subprocess.Popen[str] | None = None) -> None:
+        # default=str (and no allow_nan=False) is deliberately lenient here:
+        # this is a host request, internal Python-to-Python traffic that no
+        # browser ever parses directly. A card *result* flowing the other way
+        # is stricter (driver_runtime.py's json.dumps(..., allow_nan=False)
+        # before it replies) because that value can end up in an HTTP JSON
+        # response, where a literal NaN/Infinity token is not valid JSON.
         encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
-        self._write_raw(PROTOCOL_PREFIX + encoded + "\n")
+        self._write_raw(PROTOCOL_PREFIX + encoded + "\n", expected_process=expected_process)
 
-    def _write_raw(self, value: str) -> None:
+    def _write_raw(self, value: str, *, expected_process: subprocess.Popen[str] | None = None) -> None:
         with self._write_lock:
             with self._lock:
                 process = self._process
+            if expected_process is not None and process is not expected_process:
+                raise PluginProcessError(f"Plugin '{self.key}' changed process during the request.")
             if process is None or process.poll() is not None or process.stdin is None:
                 raise PluginProcessError(f"Plugin '{self.key}' is not running.")
             try:
@@ -600,6 +720,8 @@ class PluginProcessRuntime:
 
     def _configure_log_path(self) -> None:
         context = self._context
+        if self.is_card:
+            return  # Set by host initialization; standalone validation has no disk log.
         root = Path(context.data_dir) if context is not None else self.directory
         self._log_path = root / "runtime" / "plugin_logs" / f"{self.key}.log"
 
@@ -704,10 +826,7 @@ def build_process_plugin(manifest: Mapping[str, Any], directory: Path) -> Plugin
                 {"field_name": field_name, "value": value},
             )
         except PluginProcessError as error:
-            message = str(error)
-            if message.startswith("ValueError: "):
-                message = message[len("ValueError: "):]
-            raise ValueError(message) from error
+            raise ValueError(str(error)) from error
 
     return Plugin(
         key=key,
@@ -721,7 +840,7 @@ def build_process_plugin(manifest: Mapping[str, Any], directory: Path) -> Plugin
         has_lsl="lsl_stream_provider" in capabilities,
         has_recording="recording_source" in capabilities,
         initialize=lambda context: runtime.initialize(context),
-        get_status=lambda context: call("status", context) or {},
+        get_status=(lambda context: runtime.snapshot(tail=0)) if runtime.is_card else (lambda context: call("status", context) or {}),
         start=(lambda context: call("start", context)) if "start" in actions else None,
         stop=(lambda context: call("stop", context)) if "stop" in actions else None,
         restart=(lambda context: call("restart", context)) if "restart" in actions else None,
@@ -759,6 +878,36 @@ def build_process_plugin(manifest: Mapping[str, Any], directory: Path) -> Plugin
         publish_destination=(
             lambda context, payload: call("publish", context, {"payload": payload}) or {}
         ) if "upload_destination" in capabilities else None,
+        # Package 5g.B5: the executable card contract. One capability
+        # ("card_contract") gates all three handlers, matching the pattern
+        # every other capability-gated handler group above already follows.
+        get_card_defaults=(
+            lambda question_type: runtime.request(
+                "card_defaults", {"question_type": question_type}
+            )
+        ) if "card_contract" in capabilities else None,
+        normalize_card_config=(
+            lambda question_type, question_data, question_index, host_data: runtime.request(
+                "card_normalize",
+                {
+                    "question_type": question_type,
+                    "question_data": question_data,
+                    "question_index": question_index,
+                    "host_data": host_data,
+                },
+            )
+        ) if "card_contract" in capabilities else None,
+        validate_card_answer=(
+            lambda question_type, question, answer, question_number: runtime.request(
+                "card_validate_answer",
+                {
+                    "question_type": question_type,
+                    "question": question,
+                    "answer": answer,
+                    "question_number": question_number,
+                },
+            )
+        ) if "card_contract" in capabilities else None,
         validate_study_setting=validate_study_setting if has_study_validator else None,
         sidecar_sensor=sidecar.get("sensor"),
         sidecar_filename_suffix=sidecar.get("filename_suffix"),

@@ -1,6 +1,6 @@
 import { getJson } from './api-client.js';
 
-let catalog = { api_version: 3, plugins: [], plugins_by_key: {}, invalid_plugins: [] };
+let catalog = { api_version: 4, plugins: [], plugins_by_key: {}, invalid_plugins: [] };
 let loading = null;
 let loaded = false;
 let extensionModules = new Map();
@@ -10,6 +10,7 @@ let catalogGeneration = 0;
 const EXTENSION_EXPORTS = Object.freeze({
   dashboard: 'renderDashboard',
   participant: 'createParticipantExtension',
+  card: 'configureCard',
 });
 const EXTENSION_LOAD_TIMEOUT_MS = 2000;
 
@@ -38,7 +39,7 @@ export function configurePluginCatalog(payload) {
     return order || String(left.plugin_key).localeCompare(String(right.plugin_key));
   });
   catalog = {
-    api_version: Number(payload?.api_version || 3),
+    api_version: Number(payload?.api_version || 4),
     plugins,
     plugins_by_key: Object.fromEntries(plugins.map((plugin) => [plugin.plugin_key, plugin])),
     invalid_plugins: Array.isArray(payload?.invalid_plugins) ? payload.invalid_plugins : [],
@@ -120,7 +121,7 @@ export function getPluginUiExtension(pluginOrKey, surface) {
   return extensionModules.get(`${pluginKey || ''}:${surface}`) || null;
 }
 
-function pluginUiAssetUrl(pluginOrKey, assetPath) {
+export function pluginUiAssetUrl(pluginOrKey, assetPath) {
   const pluginKey = typeof pluginOrKey === 'string'
     ? pluginOrKey
     : pluginOrKey?.plugin_key;
@@ -184,4 +185,13 @@ async function loadOnePluginUiExtension(plugin, surface, options = {}) {
   });
   extensionLoads.set(cacheKey, promise);
   return promise;
+}
+
+export function getPluginCatalogGeneration() { return catalogGeneration; }
+
+export function loadPluginUiExtension(plugin, surface, options = {}) {
+  if (!Object.prototype.hasOwnProperty.call(EXTENSION_EXPORTS, surface)) {
+    throw new Error(`Unsupported plugin UI extension surface: ${surface}`);
+  }
+  return loadOnePluginUiExtension(plugin, surface, options);
 }

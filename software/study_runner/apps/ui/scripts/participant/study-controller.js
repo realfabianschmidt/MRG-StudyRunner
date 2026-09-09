@@ -1,5 +1,5 @@
 import { getJson, postJson as postJsonToServer } from '../shared/api-client.js';
-import { CARDS } from '../cards/index.js';
+import { CARDS, loadCards } from '../cards/index.js';
 import { renderInfoBottom, renderOptionalTag } from '../cards/card-info.js';
 import { escapeHtml } from '../shared/dom-utils.js';
 import { getStudyClientId, startStudyClientHeartbeat } from './study-client-heartbeat.js';
@@ -145,7 +145,7 @@ async function init() {
     await activateStudyUiAfterAdminStart();
   } catch (error) {
     console.error('[study] Could not load configuration:', error);
-    showStudyNotice(t('study.loadFailed', 'The study could not be loaded. Please tell the study supervisor.'));
+    showStudyNotice(`${t('study.loadFailed', 'The study could not be loaded. Please tell the study supervisor.')} ${error.message}`);
   }
 
 }
@@ -155,6 +155,7 @@ async function loadStudyConfig() {
     getJson(`/api/config?client_id=${encodeURIComponent(getStudyClientId())}`),
     loadPluginCatalog(),
   ]);
+  await loadCards({ types: [...new Set((config.questions || []).map(q => q.type))] });
   state.config = config;
   state.studyRunState = state.config._runtime?.study_run_state || null;
   state.sensorRuntime = state.config._runtime?.sensor_runtime || {};

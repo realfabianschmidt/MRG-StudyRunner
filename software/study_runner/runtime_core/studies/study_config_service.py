@@ -21,7 +21,9 @@ class StudyRevisionConflict(ValueError):
     """A client tried to replace a study revision it did not load."""
 
 
-DEFAULT_STIMULUS_CARD: dict[str, Any] = {
+# Frozen input for migrating the pre-card stimulus_duration_ms field. Current
+# defaults come from the stimulus extension through card_defaults.
+LEGACY_STIMULUS_MIGRATION_TEMPLATE: dict[str, Any] = {
     "type": "stimulus",
     "title": "Observe the material",
     "subtitle": "Pay attention to all sensory impressions. The questionnaire will appear automatically.",
@@ -36,7 +38,7 @@ DEFAULT_STIMULUS_CARD: dict[str, Any] = {
 def normalize_config(config_data: dict[str, Any]) -> dict[str, Any]:
     """Migrate old config keys into the current card-based study structure."""
     if "stimulus_duration_ms" in config_data:
-        card = dict(DEFAULT_STIMULUS_CARD)
+        card = dict(LEGACY_STIMULUS_MIGRATION_TEMPLATE)
         card["duration_ms"] = config_data.pop("stimulus_duration_ms")
         questions = config_data.get("questions", [])
         if not any(q.get("type") == "stimulus" for q in questions):

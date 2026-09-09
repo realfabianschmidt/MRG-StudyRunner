@@ -58,7 +58,49 @@ def _manifest(plugin_key: str, *, source_id: str | None = None) -> dict:
     }
 
 
+def _card_manifest(plugin_key: str, question_type: str) -> dict:
+    payload = _manifest(plugin_key)
+    payload["category"] = "card"
+    payload["capabilities"] = {
+        "card_contract": {
+            "version": 1,
+            "question_types": [question_type],
+            "answerless_types": [],
+            "host_data": [],
+        }
+    }
+    payload["ui"]["extensions"] = {"card": "card.js"}
+    payload["ui"]["assets"] = ["card.js"]
+    return payload
+
+
 class PluginManifestTests(unittest.TestCase):
+    def test_card_contract_is_closed_and_normalized(self) -> None:
+        payload = _card_manifest("fixture_card", "fixture-card")
+        payload["capabilities"]["card_contract"].update(
+            {"answerless_types": ["fixture-card"], "host_data": ["plugin_actions"]}
+        )
+        manifest = validate_and_normalize_manifest(payload, directory_name="fixture_card")
+        self.assertEqual(
+            manifest["capability_config"]["card_contract"],
+            {
+                "version": 1,
+                "question_types": ["fixture-card"],
+                "answerless_types": ["fixture-card"],
+                "host_data": ["plugin_actions"],
+            },
+        )
+
+        for field, value, message in (
+            ("version", 2, "version must be 1"),
+            ("answerless_types", ["other"], "unique subset"),
+            ("host_data", ["secrets"], "supports only plugin_actions"),
+        ):
+            invalid = _card_manifest("fixture_card", "fixture-card")
+            invalid["capabilities"]["card_contract"][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(PluginManifestError, message):
+                validate_and_normalize_manifest(invalid, directory_name="fixture_card")
+
     def test_ui_visibility_defaults_every_supported_surface_to_visible(self) -> None:
         manifest = validate_and_normalize_manifest(
             _manifest("fixture"),
@@ -501,6 +543,20 @@ class PluginDiscoveryIsolationTests(FixturePluginRootMixin, unittest.TestCase):
         self.assertFalse(catalog.plugins)
         self.assertEqual(len(catalog.invalid_entries), 2)
         self.assertTrue(all("duplicate plugin_key" in entry.errors[0] for entry in catalog.invalid_entries))
+
+    def test_duplicate_card_question_types_isolate_every_provider(self) -> None:
+        first = self._plugin_folder("first_card", _card_manifest("first_card", "shared-card"))
+        second = self._plugin_folder("second_card", _card_manifest("second_card", "shared-card"))
+        for directory in (first, second):
+            (directory / "card.js").write_text("export function configureCard() {}\n", encoding="utf-8")
+
+        catalog = self._discover()
+
+        self.assertFalse(catalog.plugins)
+        self.assertEqual(len(catalog.invalid_entries), 2)
+        self.assertTrue(
+            all("duplicate card question type: shared-card" in entry.errors for entry in catalog.invalid_entries)
+        )
 
     def test_duplicate_stream_ids_isolate_both_plugins(self) -> None:
         self._plugin_folder("first", _manifest("first", source_id="same.source"))

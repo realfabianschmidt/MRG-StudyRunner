@@ -20,12 +20,12 @@
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
 
-const NON_ANSWER_QUESTION_TYPES = new Set(['participant-id', 'stimulus', 'finish']);
+import { isAnswerless, hidesSharedPrompt } from './index.js';
 
 // Cards that ask nothing, so there is no question text to write. Today this is
 // the same three types as above, but for a different reason - a card could
 // perfectly well have a prompt and no answer, so they stay separate.
-const PROMPTLESS_QUESTION_TYPES = new Set(['participant-id', 'stimulus', 'finish']);
+
 
 export function renderCardInstruction(q) {
   const text = String(q?.info_top ?? '').trim();
@@ -49,7 +49,7 @@ export function renderInfoBottom(q) {
  * prompt.
  */
 export function renderPromptField(q, placeholder) {
-  if (PROMPTLESS_QUESTION_TYPES.has(q?.type)) return '';
+  if (hidesSharedPrompt(q?.type)) return '';
   const hint = placeholder?.key
     ? t(placeholder.key, placeholder.fallback ?? '')
     : t('editor.enterQuestion', 'Enter question...');
@@ -61,7 +61,7 @@ export function renderPromptField(q, placeholder) {
 }
 
 export function renderInstructionField(q) {
-  if (PROMPTLESS_QUESTION_TYPES.has(q?.type)) return '';
+  if (hidesSharedPrompt(q?.type)) return '';
   const instruction = q?.info_top ?? q?.subtitle ?? '';
   return `
     <div class="field">
@@ -86,7 +86,7 @@ export function renderNoteField(q) {
  * its settings.
  */
 export function renderEditorToggles(q, extra = '') {
-  const required = NON_ANSWER_QUESTION_TYPES.has(q?.type) ? '' : renderEditorToggle({
+  const required = isAnswerless(q?.type) ? '' : renderEditorToggle({
     className: 'ci-required',
     checked: q?.required !== false,
     label: t('editor.requiredLabel', 'Required'),

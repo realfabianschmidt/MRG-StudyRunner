@@ -100,6 +100,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/finalization/<job_id>/open-folder"),
     ("GET", "/api/plugins/catalog"),
     ("GET", "/api/plugins/<plugin_key>/assets/<path:asset_path>"),
+    ("GET", "/api/plugins/<plugin_key>/card-defaults"),
     ("POST", "/api/plugins/<plugin_key>/participant/actions/<action_key>"),
     ("POST", "/api/plugins/<plugin_key>/participant/ingest/<ingest_key>"),
     ("POST", "/api/results"),

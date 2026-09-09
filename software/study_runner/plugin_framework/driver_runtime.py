@@ -10,6 +10,7 @@ import threading
 from typing import Any, Mapping
 
 from study_runner.contracts.plugin_api import Plugin, PluginContext
+from study_runner.contracts.card_validation_primitives import CardValidationError
 from .extension_layout import resolve_extension
 from .plugin_secrets import resolve_plugin_secret
 from .process_host import PROTOCOL_PREFIX
@@ -31,6 +32,23 @@ def run_plugin_driver(plugin_key: str) -> int:
         plugin = getattr(module, "PLUGIN", None)
         if not isinstance(plugin, Plugin):
             raise TypeError("plugin module does not expose PLUGIN")
+        directory = resolve_extension(normalized)[0]
+        # The raw manifest.json, not the normalized catalog shape: a child
+        # process reads its own file directly rather than importing the
+        # discovery machinery. Here "capabilities" is still the authored
+        # {name: config} dict; process_host.py (host side, normalized
+        # manifest) and card_catalog.py (capability_config, a different key
+        # entirely) each read a different shape for the same question -- see
+        # the comment on PluginProcessRuntime.is_card.
+        manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+        card_contract = (manifest.get("capabilities") or {}).get("card_contract")
+        if card_contract:
+            for name in ("get_card_defaults", "normalize_card_config"):
+                if not callable(getattr(plugin, name, None)):
+                    raise TypeError(f"Card extension is missing {name}")
+            if set(card_contract["question_types"]) - set(card_contract.get("answerless_types", [])):
+                if not callable(plugin.validate_card_answer):
+                    raise TypeError("Answerable card extension is missing validate_card_answer")
     except Exception as error:
         print(f"Could not load plugin '{normalized}': {error}", file=sys.stderr, flush=True)
         return 3
@@ -53,7 +71,20 @@ def run_plugin_driver(plugin_key: str) -> int:
             payload = request.get("payload")
             payload = payload if isinstance(payload, dict) else {}
             try:
-                if operation == "initialize":
+                if operation in {"card_defaults", "card_normalize", "card_validate_answer"}:
+                    question_type = payload.get("question_type")
+                    if not card_contract or question_type not in card_contract["question_types"]:
+                        raise RuntimeError("Card operation requested an undeclared question type")
+                    result = _dispatch_card(plugin, operation, payload)
+                    # Reject non-JSON data before the generic serializer can coerce it.
+                    json.dumps(result, allow_nan=False)
+                    if operation != "card_validate_answer" and (
+                        not isinstance(result, dict) or result.get("type") != question_type
+                    ):
+                        raise RuntimeError("Card returned an invalid configuration object")
+                elif operation == "shutdown" and card_contract:
+                    result, should_exit = None, True
+                elif operation == "initialize":
                     context = _context_from_payload(payload.get("context"))
                     if plugin.initialize:
                         plugin.initialize(context)
@@ -75,7 +106,15 @@ def run_plugin_driver(plugin_key: str) -> int:
                     result, should_exit = _dispatch(plugin, context, operation, payload)
                 _emit_response(request_id, ok=True, result=result)
             except Exception as error:
-                _emit_response(request_id, ok=False, error=f"{type(error).__name__}: {error}")
+                invalid_input = isinstance(error, CardValidationError) or (
+                    operation == "validate_study_setting" and isinstance(error, ValueError)
+                )
+                _emit_response(
+                    request_id,
+                    ok=False,
+                    error=str(error) if invalid_input else f"{type(error).__name__}: {error}",
+                    error_kind="invalid_input" if invalid_input else "extension_failure",
+                )
             if should_exit:
                 break
             continue
@@ -174,6 +213,23 @@ def _dispatch(
     raise RuntimeError(f"unsupported operation: {operation}")
 
 
+def _dispatch_card(plugin: Plugin, operation: str, payload: Mapping[str, Any]) -> Any:
+    question_type = payload["question_type"]
+    if operation == "card_defaults":
+        return plugin.get_card_defaults(question_type)
+    if operation == "card_normalize":
+        data, host_data, index = payload.get("question_data"), payload.get("host_data"), payload.get("question_index")
+        if not isinstance(data, dict) or not isinstance(host_data, dict) or type(index) is not int or index < 1:
+            raise RuntimeError("Malformed card normalization request")
+        return plugin.normalize_card_config(question_type, data, index, host_data)
+    question, number = payload.get("question"), payload.get("question_number")
+    if not isinstance(question, dict) or type(number) is not int or number < 1 or "answer" not in payload:
+        raise RuntimeError("Malformed card answer request")
+    if plugin.validate_card_answer is None:
+        raise RuntimeError("This card has no answer validator")
+    return plugin.validate_card_answer(question_type, question, payload["answer"], number)
+
+
 def _handle_console_line(plugin: Plugin, context: PluginContext, line: str) -> bool:
     if plugin.handle_console_line is not None:
         result = plugin.handle_console_line(context, line)
@@ -238,12 +294,14 @@ def _emit_response(
     ok: bool,
     result: Any = None,
     error: str | None = None,
+    error_kind: str = "extension_failure",
 ) -> None:
     payload: dict[str, Any] = {"kind": "response", "id": request_id, "ok": bool(ok)}
     if ok:
         payload["result"] = result
     else:
         payload["error"] = str(error or "plugin operation failed")
+        payload["error_kind"] = error_kind
     _emit(payload)
 
 
