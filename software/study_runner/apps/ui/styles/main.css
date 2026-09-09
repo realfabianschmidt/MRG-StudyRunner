@@ -1672,6 +1672,19 @@ body.admin::before { display: none; }
   box-shadow: 0 0 0 3px var(--accent-16);
 }
 
+/* Package A3: the one destructive confirm action in the app that must look
+   different from an ordinary save - reuses the same intent-color tokens as
+   the status pills rather than inventing a new palette. */
+.btn-primary--danger { background: var(--neg); }
+.btn-primary--danger:hover { background: var(--neg); filter: brightness(1.1); }
+.btn-primary--danger:disabled,
+.btn-primary--danger:disabled:hover {
+  background: var(--ink-14);
+  border-color: var(--ink-14);
+  color: var(--ink-55);
+  filter: none;
+}
+
 /* Secondary button */
 .btn-secondary {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2);
@@ -1692,6 +1705,12 @@ body.admin::before { display: none; }
   box-shadow: none;
   cursor: not-allowed;
 }
+
+/* Package A3: the trigger that opens the withdrawal-confirmation modal.
+   Lower emphasis than .btn-primary--danger (the modal's actual irreversible
+   commit) - this one only opens a dialog. */
+.btn-secondary--danger { border-color: var(--neg); color: var(--neg); }
+.btn-secondary--danger:hover { border-color: var(--neg); color: var(--neg); background: var(--neg-14); }
 
 /* -- Main preview area -- */
 .admin-main {
@@ -1766,6 +1785,11 @@ body.admin::before { display: none; }
   color: var(--ink-55);
   font-size: .92rem;
   line-height: 1.55;
+}
+.dashboard-hero-actions {
+  display: flex;
+  gap: var(--s-3);
+  flex-shrink: 0;
 }
 .dashboard-grid {
   display: grid;

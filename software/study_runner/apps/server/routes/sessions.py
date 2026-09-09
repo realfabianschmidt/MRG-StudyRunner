@@ -1,14 +1,16 @@
-"""Read-only completed-session browser and timeline endpoints."""
+"""Completed-session browser, timeline, and withdrawal endpoints."""
 from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
 
+from study_runner.runtime_core.delivery.withdrawal_service import WithdrawalError
 from study_runner.runtime_core.studies.sessions_index_service import (
     DEFAULT_MAX_POINTS,
     SessionNotFoundError,
     list_sessions,
     load_session,
     load_signal_samples,
+    resolve_session_root,
 )
 
 
@@ -66,6 +68,50 @@ def admin_session_signals(study_id: str, participant_id: str):
         return jsonify({"ok": False, "error": str(error)}), 400
     except SessionNotFoundError as error:
         return jsonify({"ok": False, "error": str(error)}), 404
+
+
+@bp.route("/api/admin/sessions/<study_id>/<participant_id>/withdraw", methods=["POST"])
+def admin_session_withdraw(study_id: str, participant_id: str):
+    """Withdraw one session's consent: delete its data, keep a tombstone.
+
+    Package A3/5i. Irreversible, so the client-side confirmation (typing the
+    session id) is repeated as a server-side check here rather than trusted
+    -- a UI safeguard alone is not a validated boundary (CONTRIBUTING.md
+    section on validating at every boundary). ``confirm_session_id`` must
+    match the session this URL actually resolves to.
+    """
+    payload = request.get_json(silent=True) or {}
+    try:
+        session_root, session_id = resolve_session_root(
+            current_app.config["DATA_DIR"],
+            study_id,
+            participant_id,
+            session_id=request.args.get("session_id"),
+            session_folder=request.args.get("session_folder"),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    except SessionNotFoundError as error:
+        return jsonify({"ok": False, "error": str(error)}), 404
+
+    confirmation = str(payload.get("confirm_session_id") or "").strip()
+    if confirmation != session_id:
+        return (
+            jsonify({"ok": False, "error": "confirm_session_id does not match this session."}),
+            400,
+        )
+
+    try:
+        state = current_app.config["WITHDRAWAL_SERVICE"].withdraw(
+            session_id=session_id,
+            session_root=session_root,
+            reason=str(payload.get("reason") or ""),
+            requested_by=str(payload.get("requested_by") or ""),
+        )
+    except WithdrawalError as error:
+        return jsonify({"ok": False, "error": str(error)}), 500
+
+    return jsonify({"ok": True, **state})
 
 
 def _optional_float(raw: str | None) -> float | None:

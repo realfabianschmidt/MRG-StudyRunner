@@ -5,9 +5,10 @@
  * lanes and answer markers; this module owns the data fetching, the answer
  * and file lists, and the marker popover.
  */
-import { getJson } from '../shared/api-client.js';
+import { getJson, postJson } from '../shared/api-client.js';
 import { t } from '../shared/i18n.js';
 import { byId, escapeHtml, formatDateTime, formatFileSize, setHidden, setText } from '../shared/dom-utils.js';
+import { createModal } from '../shared/modal.js';
 import { bindTimelineMarkers, renderSessionTimeline, updateStreamPoints } from './session-timeline.js';
 
 const MAX_HUB_ITEMS = 25;
@@ -25,6 +26,9 @@ export function initializeSessionsBrowser(options = {}) {
   initialized = true;
 
   byId('btn-session-back')?.addEventListener('click', () => callbacks.switchView?.('view-hub'));
+  byId('btn-session-withdraw')?.addEventListener('click', () => {
+    if (currentSession) void openWithdrawalModal(currentSession);
+  });
   refreshTimer = window.setInterval(() => {
     if (!document.hidden && byId('view-hub')?.classList.contains('active')) {
       void loadCompletedSessions();
@@ -231,6 +235,90 @@ function formatQualityFinding(finding) {
     default:
       return `${finding.kind}: ${streamKey}`;
   }
+}
+
+// Package A3: withdrawal is irreversible and deletes a participant's
+// recorded data, so the UI's own "type the session id" step is a genuine
+// safeguard against a misclick - not a substitute for the server-side
+// confirm_session_id check (apps/server/routes/sessions.py), which is the
+// actual validated boundary. Built with createModal() directly (like
+// plugin-console.js/upload-monitor.js) rather than confirmWithModal(),
+// which only offers a plain yes/no and cannot gate a button on typed input.
+async function openWithdrawalModal(session) {
+  const sessionId = String(session.session_id || '');
+  const modal = createModal({
+    title: t('sessions.withdraw.title', 'Withdraw consent'),
+    closeLabel: t('common.cancel', 'Cancel'),
+  });
+
+  modal.body.innerHTML = `
+    <p class="settings-hint">${escapeHtml(
+      t(
+        'sessions.withdraw.warning',
+        'This permanently deletes every recording, answer, and file for this session. It cannot be undone.',
+      ),
+    )}</p>
+    <p class="settings-hint">${escapeHtml(
+      t('sessions.withdraw.typeToConfirm', 'Type the session id "{id}" to confirm.').replace('{id}', sessionId),
+    )}</p>
+    <div class="field">
+      <input type="text" id="withdraw-confirm-input" autocomplete="off" spellcheck="false">
+    </div>
+    <p class="settings-hint" id="withdraw-error" hidden></p>
+    <div class="dashboard-actions confirm-modal-actions">
+      <button type="button" class="btn-secondary" data-withdraw-cancel>${escapeHtml(t('common.cancel', 'Cancel'))}</button>
+      <button type="button" class="btn-primary btn-primary--danger" data-withdraw-confirm disabled>
+        ${escapeHtml(t('sessions.withdraw.confirmButton', 'Delete this session'))}
+      </button>
+    </div>
+  `;
+
+  const input = modal.body.querySelector('#withdraw-confirm-input');
+  const confirmButton = modal.body.querySelector('[data-withdraw-confirm]');
+  const errorText = modal.body.querySelector('#withdraw-error');
+
+  input.addEventListener('input', () => {
+    confirmButton.disabled = input.value !== sessionId;
+  });
+  modal.body.querySelector('[data-withdraw-cancel]').addEventListener('click', () => modal.destroy());
+
+  confirmButton.addEventListener('click', async () => {
+    confirmButton.disabled = true;
+    setHidden('withdraw-error', true);
+    try {
+      const params = new URLSearchParams();
+      if (session.session_id) params.set('session_id', session.session_id);
+      if (session.session_folder) params.set('session_folder', session.session_folder);
+      const result = await postJson(
+        `/api/admin/sessions/${encodeURIComponent(session.study_id)}/${encodeURIComponent(session.participant_id)}/withdraw?${params.toString()}`,
+        { confirm_session_id: input.value },
+      );
+      modal.destroy();
+      const published = Array.isArray(result.already_published) ? result.already_published : [];
+      if (published.length) {
+        // Never summarized away: these destinations already have a copy
+        // this server cannot delete, and the operator must act on them.
+        const names = published.map((entry) => entry.kind || entry.job_id).join(', ');
+        callbacks.showToast?.(
+          t('sessions.withdraw.donePublished', 'Session withdrawn. Already uploaded to: {destinations} - remove it there manually.')
+            .replace('{destinations}', names),
+          'warning',
+        );
+      } else {
+        callbacks.showToast?.(t('sessions.withdraw.done', 'Session withdrawn.'), 'success');
+      }
+      callbacks.switchView?.('view-hub');
+      await loadCompletedSessions();
+    } catch (error) {
+      console.error('[sessions] Withdrawal failed:', error);
+      errorText.textContent = error.message || t('sessions.withdraw.failed', 'Withdrawal failed.');
+      setHidden('withdraw-error', false);
+      confirmButton.disabled = input.value !== sessionId;
+    }
+  });
+
+  modal.open();
+  input.focus();
 }
 
 function renderAnswerList(session) {

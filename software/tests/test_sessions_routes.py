@@ -195,6 +195,42 @@ class SessionsRouteTests(unittest.TestCase):
         self.assertEqual(summary["findings"], [{"kind": "gap", "stream_key": "eeg", "count": 2}])
         self.assertTrue(summary["kept_up"])
 
+    def test_withdraw_rejects_a_mismatched_confirmation(self) -> None:
+        """The UI's own confirm step is not trusted as the validated boundary."""
+        response = self.client.post(
+            "/api/admin/sessions/study-a/p01/withdraw",
+            query_string={"session_folder": self.session_one.name},
+            json={"confirm_session_id": "not-the-right-id"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.get_json()["ok"])
+        # Nothing was touched: a rejected confirmation must not partially run.
+        self.assertTrue((self.session_one / "result.json").is_file())
+
+    def test_withdraw_empties_the_session_and_leaves_a_tombstone(self) -> None:
+        response = self.client.post(
+            "/api/admin/sessions/study-a/p01/withdraw",
+            query_string={"session_folder": self.session_one.name},
+            json={"confirm_session_id": "session-1", "reason": "participant request"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["status"], "withdrawn")
+        self.assertFalse((self.session_one / "result.json").is_file())
+        self.assertTrue((self.session_one / "WITHDRAWN.json").is_file())
+
+        listed = {item["session_id"]: item for item in self.client.get("/api/admin/sessions").get_json()}
+        self.assertEqual(listed["session-1"]["lifecycle"], "WITHDRAWN")
+
+    def test_withdraw_of_an_unknown_session_is_a_404(self) -> None:
+        response = self.client.post(
+            "/api/admin/sessions/study-a/p01/withdraw",
+            query_string={"session_folder": "does-not-exist"},
+            json={"confirm_session_id": "session-1"},
+        )
+        self.assertEqual(response.status_code, 404)
+
     def test_signal_route_selects_canonical_session_and_bounds_payload(self) -> None:
         with patch.object(sessions_index_service, "_read_merged_streams", side_effect=self._fixture_streams):
             response = self.client.get(

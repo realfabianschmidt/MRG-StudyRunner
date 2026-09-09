@@ -884,7 +884,7 @@ class RecordingRuntimeTests(unittest.TestCase):
             plan = json.loads(plan_path.read_text(encoding="utf-8"))
             plan["status"] = "frozen"
             plan_path.write_text(json.dumps(plan), encoding="utf-8")
-            paths = runtime._find_paths("session-merge-recovery")
+            paths = runtime.find_paths("session-merge-recovery")
             self.assertIsNotNone(paths)
             source_starts_before = sum(
                 command["name"] == "start_recording_source" for command in FakeLauncher.commands

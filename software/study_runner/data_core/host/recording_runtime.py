@@ -912,7 +912,7 @@ class RecordingRuntimeService:
         atomic_write_json(paths.root / "recording-plan.json", plan)
 
     def refresh_lease(self, session_id: str) -> dict[str, Any] | None:
-        paths = self._find_paths(session_id)
+        paths = self.find_paths(session_id)
         if paths is None or not paths.recording_lease_file.is_file():
             return None
         with self._lock:
@@ -1248,7 +1248,16 @@ class RecordingRuntimeService:
         _validate_recording_contract_in_plan(plan)
         return plan
 
-    def _find_paths(self, session_id: str) -> ArtifactPaths | None:
+    def find_paths(self, session_id: str) -> ArtifactPaths | None:
+        """Resolve one session's on-disk paths from its id alone.
+
+        Checks the in-memory table of sessions this process actively
+        launched first, then falls back to a directory scan -- a session
+        from an earlier server run has no in-memory entry but is still a
+        real session on disk. Package A3 (withdrawal) is the second caller,
+        alongside ``refresh_lease``; both need "where does this session
+        live" without already holding an ``ArtifactPaths``.
+        """
         session_key = str(session_id or "").strip()
         root = self._active_paths.get(session_key)
         candidates: Iterable[Path]

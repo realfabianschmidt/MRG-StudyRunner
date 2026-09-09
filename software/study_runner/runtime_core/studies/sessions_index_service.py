@@ -255,6 +255,40 @@ def _canonical_session_roots(data_root: Path) -> list[Path]:
     return roots
 
 
+def resolve_session_root(
+    data_dir: Path,
+    study_id: str,
+    participant_id: str,
+    *,
+    session_id: str | None = None,
+    session_folder: str | None = None,
+) -> tuple[Path, str]:
+    """Find one session's folder and id, without ``load_session()``'s detail cost.
+
+    Package A3 (withdrawal route): the caller needs only "where does this
+    session live", not merged-stream metadata or a quality summary -- both
+    of which would also be wasted work, or fail outright, against a session
+    an earlier withdrawal attempt already partly emptied. Shares
+    ``_select_session``'s matching rules with ``load_session`` so a given
+    URL never resolves to two different sessions depending on which
+    function answered it.
+
+    Works for an already-withdrawn (tombstoned) session too: 5i's marker
+    fallback in ``_canonical_records`` keeps it selectable so a repeated or
+    resumed withdrawal request still finds the same folder.
+    """
+    data_root = Path(data_dir).resolve()
+    session_root, _result_file, payload = _select_session(
+        data_root,
+        study_id,
+        participant_id,
+        session_id=session_id,
+        session_folder=session_folder,
+    )
+    resolved_session_id = str(payload.get("session_id") or _identity(session_root).get("session_id") or "")
+    return session_root, resolved_session_id
+
+
 def _select_session(
     data_root: Path,
     study_id: str,

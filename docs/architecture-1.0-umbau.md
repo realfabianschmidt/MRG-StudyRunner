@@ -43,7 +43,7 @@ workflow) are also complete** — see Phase 5 section. **Package A (visibility
 before more capability) started 2026-09-09**: 5a/5c/5h/5i built correct
 machinery with no UI reader at all (`WithdrawalService` and
 `summarize_quality_journal` had zero callers) — see "Package A" below.
-**A1 and A2 complete.** Next: A3, then 5g in full (owner decision 2026-09-09:
+**Package A (A1/A2/A3) complete.** Next: 5g in full (owner decision 2026-09-09:
 build through card extensions becoming a real fourth extension type,
 not only the JS/validation cleanup — see the rewritten 5g entry), then
 5j, 5f in that order (3.4 is a written,
@@ -1403,14 +1403,47 @@ starting more Phase 5 capability.
       shape, `node --test tests/js` (27 passed, unchanged), a syntax check,
       and a DOM-id cross-reference between the new HTML/CSS/JS. Full suite
       **919 passed, 4 skipped**.
-- [ ] **A3** Withdrawal route + button. `POST
-      /api/admin/sessions/<study>/<participant>/withdraw`, thin handler over
-      `WithdrawalService` (§5), with the `recording_stopper` callback wired
-      to the host recording runtime in `apps/server/application.py`. UI:
-      two-step confirmation (type the session name — irreversible, not a
-      single click). Withdrawn sessions already appear as tombstones with a
-      `WITHDRAWN` lifecycle (5i); `already_published` destinations must be
-      shown verbatim, never summarized into "handled".
+- [x] **A3** Withdrawal route + button. `POST
+      /api/admin/sessions/<study>/<participant>/withdraw`, thin handler in
+      `sessions.py` over the existing `WithdrawalService` (5i) — no new
+      service, just its first caller. `recording_stopper` is wired in
+      `apps/server/__init__.py` as `_stop_recording_for_withdrawal`: it
+      freezes then shuts down the worker, catching its own internal errors
+      ("no active recording" is not a failure) rather than letting them
+      escape as a hard `WithdrawalError` that would need an operator.
+
+      **Promoted `RecordingRuntimeService._find_paths` to public
+      `find_paths`** rather than reaching into a private method across a
+      package boundary from `apps/server`. One new caller (this route's
+      resolution path) alongside the existing `refresh_lease`; the
+      docstring says why there are now two.
+
+      **New `sessions_index_service.resolve_session_root()`** rather than
+      reusing `load_session()`: the route needs only "which folder", and
+      `load_session()`'s XDF stream read would raise on a session an
+      earlier, interrupted withdrawal had already partly emptied — a
+      resumed withdrawal call must still resolve its target. Confirmed
+      working against a tombstoned session too, since 5i's marker fallback
+      in `_canonical_records` keeps a withdrawn session selectable.
+
+      **`confirm_session_id` is checked server-side**, not only in the
+      browser's two-step modal — a UI safeguard alone is not a validated
+      boundary. Mismatch is a 400 before anything runs.
+
+      **UI**: a `.btn-secondary--danger` trigger button plus a
+      `createModal()`-based dialog (not `confirmWithModal()`, which only
+      offers yes/no and cannot gate a button on typed input matching the
+      session id). `already_published` destinations are rendered verbatim
+      in the result toast, never summarized into "handled" — that list is
+      the one thing the operator must act on personally.
+
+      New `('POST', '.../withdraw')` route added to
+      `test_route_inventory.py`'s `EXPECTED_ROUTES` characterization set —
+      that test exists to catch *unintentional* surface changes, and this
+      one is intentional.
+
+      Full suite **922 passed, 4 skipped**; `node --test` 27 passed
+      unchanged; structure baseline rewritten.
 
 ## Phase 5g — card extensions, full scope (owner decision 2026-09-09: build
 completely, including cards becoming a real fourth extension type — not
@@ -1635,8 +1668,7 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| Package A3 (withdrawal route + two-step-confirm button) — next active package; A1/A2 complete | Claude | `feature/architecture-1.0` | 2026-09-09 |
-| Phase 5g (card extensions, full scope) — after A3, highest data-corruption risk in the programme; 3.4 remains a written, unimplemented design plan, independent of Phase 5 | Unassigned; claim here before editing | `feature/architecture-1.0` | Pending |
+| Phase 5g.B1 (golden card fixtures) — next active package; Package A (A1/A2/A3) complete; highest data-corruption risk in the programme overall | Claude | `feature/architecture-1.0` | 2026-09-09 |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`

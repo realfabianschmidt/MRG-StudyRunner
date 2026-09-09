@@ -291,7 +291,7 @@ done, explicit `retry(job_id=...)` refuses it.
 12 new tests; full suite **905 passed, 4 skipped**; structure baseline
 rewritten.
 
-## Package A: A1 and A2 complete (Claude, 2026-09-09)
+## Package A: A1, A2 and A3 complete (Claude, 2026-09-09)
 
 Audit before starting more Phase 5 capability found 5a/5c/5h/5i had built
 correct, tested machinery with **no reader anywhere**: `WithdrawalService`
@@ -330,22 +330,44 @@ verified programmatically). No new JS unit test file: `sessions-browser.js`
 exports only its two entry points today with no existing internal-helper
 test coverage to extend consistently with.
 
-Full suite **919 passed, 4 skipped**; `node --test tests/js` 27 passed
+**A3** landed in the same pass: `POST
+/api/admin/sessions/<study>/<participant>/withdraw`, a thin handler over the
+existing `WithdrawalService` (5i) -- its first caller. Two things worth
+knowing before touching this again:
+
+`RecordingRuntimeService._find_paths` was promoted to public `find_paths` --
+reaching into a private method across the `apps/server` <-> `data_core.host`
+boundary would have been worse than adding one line to its docstring
+explaining the second caller. New `sessions_index_service.resolve_session_root()`
+resolves "which folder" without `load_session()`'s full detail cost, which
+would also raise on a session an earlier interrupted withdrawal had already
+partly emptied -- a resumed withdrawal must still be able to find its
+target, and it is (5i's tombstone marker keeps a withdrawn session
+selectable in `_canonical_records`).
+
+`confirm_session_id` is checked server-side, not only in the browser's
+type-to-confirm modal -- a UI safeguard alone is not a validated boundary.
+`already_published` destinations are rendered verbatim in the result toast,
+never summarized into "handled". New route added to
+`test_route_inventory.py`'s `EXPECTED_ROUTES` (that characterization test
+exists to catch *unintentional* surface changes; this one is intentional).
+
+Full suite **922 passed, 4 skipped**; `node --test tests/js` 27 passed
 (unchanged); structure baseline rewritten. Full account, including the
 six-file cost table for a new card type and the `card-info.js` precedent,
 in the working plan's Package A / Phase 5g sections.
 
-**Next task:** A3 (withdrawal route + two-step-confirm button over the
-existing `WithdrawalService`). **Then Phase 5g in full scope** -- owner
-decision
+**Next task: Phase 5g in full scope**, starting with **5g.B1** (golden
+fixture per card type through `validation.py`, output frozen -- the safety
+net every later stage checks against; does not exist today). Owner decision
 2026-09-09 overrides the earlier "propose narrowing" note below: cards
 become a real fourth extension type (5g.B5), not only the JS/validation
 cleanup. The working plan's rewritten 5g entry has the audited starting
 position (a registry already exists; only 3 of 6 things a new card type
-needs are genuine leaks) and the B1-B5 order with the hard stop preserved.
-Order for the rest of Phase 5: 5g -> 5j -> 5f. 3.4 remains a written,
-unimplemented design plan -- it blocks nothing. Claim the package in the
-working plan before editing.
+needs are genuine leaks) and the B1-B5 order with the hard stop preserved --
+read it before starting. Order for the rest of Phase 5: 5g -> 5j -> 5f. 3.4
+remains a written, unimplemented design plan -- it blocks nothing. Claim
+the package in the working plan before editing.
 
 ## Shared location and coordination
 

@@ -25,6 +25,7 @@ from study_runner.runtime_core.settings.hardware_settings_service import (
 )
 from study_runner.data_core.host.recording_runtime import RecordingRuntimeService
 from study_runner.runtime_core.delivery.recording_finalization_adapter import RuntimeRecordingFinalizationAdapter
+from study_runner.runtime_core.delivery.withdrawal_service import WithdrawalService
 from study_runner.runtime_core.settings.secrets_service import load_local_secrets
 from study_runner.plugin_framework.plugin_secrets import resolve_plugin_secret
 from study_runner.data_core.host.sensor_coordinator_service import SensorCoordinator
@@ -158,6 +159,15 @@ def create_app() -> Flask:
         stop_producers=lambda context: _stop_finalization_producers(app, context),
     )
     configure_finalization(app)
+    app.config["WITHDRAWAL_SERVICE"] = WithdrawalService(
+        app.config["DATA_DIR"],
+        upload_jobs=app.config["UPLOAD_JOBS_SERVICE"],
+        # Reuses SESSION_STORE's own journal store rather than opening a
+        # second instance over the same files (SessionStore already
+        # constructs one; see session_store.py).
+        journal_store=app.config["SESSION_STORE"].journals,
+        recording_stopper=lambda session_id: _stop_recording_for_withdrawal(app, session_id),
+    )
     register_routes(app)
     _install_cache_policy(app)
     if not is_background_disabled():
@@ -226,3 +236,33 @@ def _stop_finalization_producers(app: Flask, _context) -> dict:
         from .routes.helpers import _stop_study_sensor_runtime
 
         return _stop_study_sensor_runtime()
+
+
+def _stop_recording_for_withdrawal(app: Flask, session_id: str) -> dict:
+    """Best-effort: end any recording still writing this session (package 5i/A3).
+
+    Consent can be withdrawn mid-recording, so this runs before anything is
+    deleted. Freeze closes the native writer the same way a normal study
+    completion does (footers, boundary, durable close); shutdown then tears
+    down the worker process. Internal failures are captured in the returned
+    dict rather than raised -- ``WithdrawalService`` treats a raised error
+    from this callable as a hard failure worth stopping the whole withdrawal
+    for, which "there was nothing recording" and "the freeze command itself
+    failed" are not.
+    """
+    recording_runtime: RecordingRuntimeService = app.config["RECORDING_RUNTIME_SERVICE"]
+    try:
+        paths = recording_runtime.find_paths(session_id)
+    except Exception as error:
+        return {"status": "lookup_failed", "error": f"{type(error).__name__}: {error}"}
+    if paths is None:
+        return {"status": "no_active_recording"}
+    try:
+        freeze_result = recording_runtime.freeze_worker(paths, command_id=f"withdraw-{session_id}")
+    except Exception as error:
+        freeze_result = {"error": f"{type(error).__name__}: {error}"}
+    try:
+        shutdown_result = recording_runtime.shutdown_worker(paths)
+    except Exception as error:
+        shutdown_result = {"error": f"{type(error).__name__}: {error}"}
+    return {"status": "stopped", "freeze": freeze_result, "shutdown": shutdown_result}

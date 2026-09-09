@@ -262,6 +262,12 @@ it, the example study shipped with the application reported itself as
 
 ### What happens when someone withdraws consent
 
+To withdraw a session, open it in the admin interface and use the
+**Withdraw consent** button on its detail page. You have to type the
+session's id to confirm — there is no accidental single click that deletes
+a participant's data, and this is checked again on the server, not only in
+the browser.
+
 Withdrawing consent deletes the session's data: the recordings, the results,
 the quality journals, the logs, and the separate copies of the trial-by-trial
 journal that live outside the session folder. It also stops any upload still

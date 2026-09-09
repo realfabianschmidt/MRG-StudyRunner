@@ -64,6 +64,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/admin/sessions"),
     ("GET", "/api/admin/sessions/<study_id>/<participant_id>"),
     ("GET", "/api/admin/sessions/<study_id>/<participant_id>/signals"),
+    ("POST", "/api/admin/sessions/<study_id>/<participant_id>/withdraw"),
     ("GET", "/api/admin/status"),
     ("GET", "/api/admin/study-readiness"),
     ("GET", "/api/admin/study-run"),
