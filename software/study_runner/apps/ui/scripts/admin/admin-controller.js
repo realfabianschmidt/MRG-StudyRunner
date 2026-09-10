@@ -8,7 +8,7 @@ import { initializeUploadMonitor } from './upload-monitor.js';
 import { initializeRecoveryPanel, loadRecoveryCandidates } from './recovery-panel.js';
 import { defaultStudySettings, normalizeStudySettings } from '../shared/study-settings.js';
 import { transitionToView } from '../shared/view-transition.js';
-import { confirmWithModal } from '../shared/modal.js';
+import { confirmWithModal, createModal } from '../shared/modal.js';
 import {
   initializeMachineSettingsPanel,
   isSettingsHubOpen,
@@ -27,7 +27,7 @@ import {
 } from '../cards/card-info.js';
 import { initI18n, setLanguage, getLanguage, t } from '../shared/i18n.js';
 import { createQrSvg } from '../shared/qr-code.js';
-import { escapeHtml, setText } from '../shared/dom-utils.js';
+import { byId, escapeHtml, setText } from '../shared/dom-utils.js';
 import { loadPluginCatalog, pluginByKey } from '../shared/plugin-catalog.js';
 
 const STUDY_RUN_POLL_INTERVAL_MS = 1500;
@@ -55,6 +55,7 @@ async function setupLanguage() {
         console.error('[admin] Could not switch language:', error);
       }
       markActive();
+      renderStudyRunState();
     });
   });
   markActive();
@@ -76,6 +77,7 @@ const state = {
   settingsHubStatus: null,
   settingsHubActiveTab: 'tablet',
   pluginSettings: {},
+  readiness: null,
 };
 
 
@@ -213,24 +215,65 @@ async function loadStudyReadiness() {
 }
 
 /**
- * The CTA chain: a marker next to the study name, and the route to the fix
- * highlighted at every step (hub -> editor -> the panel that owns the problem).
+ * Keep pre-run failures visible until the operator fixes them. The marker is
+ * still useful as a compact cue, while the panel carries the full explanation.
  */
+function currentReadinessBlockers() {
+  return state.readiness?.ready === false ? (state.readiness.blockers || []) : [];
+}
+
 function renderReadinessCta() {
-  const blockers = state.readiness?.ready === false ? (state.readiness.blockers || []) : [];
+  const blockers = currentReadinessBlockers();
+  const blocking = blockers.some((blocker) => blocker.blocking === true);
   const marker = $('hub-readiness-marker');
   if (marker) {
     marker.hidden = blockers.length === 0;
-    marker.title = blockers.length ? readinessSummary(blockers) : '';
+    marker.title = blockers.length ? readinessSummary(blockers, { includeDetails: true }) : '';
   }
+
+  const panel = $('hub-study-readiness');
+  if (panel) {
+    panel.hidden = blockers.length === 0;
+    panel.classList.toggle('is-blocking', blocking);
+  }
+  setText(
+    'hub-study-readiness-title',
+    blocking
+      ? t('readiness.blockedTitle', 'Study cannot start')
+      : t('readiness.warningTitle', 'Study needs attention'),
+  );
+  const list = $('hub-study-readiness-list');
+  if (list) list.innerHTML = readinessListMarkup(blockers);
+
   // Edit is the way to every fix, so it carries the call to action on the hub.
   $('btn-hub-editor')?.classList.toggle('is-cta', blockers.length > 0);
   // Inside the editor, the study settings button is the next step.
   $('btn-study-settings')?.classList.toggle('is-cta', blockers.length > 0);
 }
 
-function readinessSummary(blockers) {
-  return blockers.map((blocker) => readinessMessage(blocker)).join('\n');
+function readinessDetails(blocker) {
+  const message = readinessMessage(blocker);
+  return (Array.isArray(blocker?.details) ? blocker.details : [])
+    .map((detail) => String(detail || '').trim())
+    .filter((detail) => detail && detail !== message);
+}
+
+function readinessListMarkup(blockers, className = 'study-readiness-list-item') {
+  return blockers.map((blocker) => {
+    const details = readinessDetails(blocker);
+    const detailMarkup = details.length
+      ? `<ul class="study-readiness-details">${details.map((detail) => `<li>${escapeHtml(detail)}</li>`).join('')}</ul>`
+      : '';
+    return `<li class="${className}"><strong>${escapeHtml(readinessMessage(blocker))}</strong>${detailMarkup}</li>`;
+  }).join('');
+}
+
+function readinessSummary(blockers, { includeDetails = false } = {}) {
+  return blockers.map((blocker) => {
+    const lines = [readinessMessage(blocker)];
+    if (includeDetails) lines.push(...readinessDetails(blocker));
+    return lines.join('\n');
+  }).join('\n\n');
 }
 
 function readinessMessage(blocker) {
@@ -259,6 +302,10 @@ function readinessMessage(blocker) {
       'readiness.recordingClockImplausible',
       'The system clock or local time service is not ready for recording.',
     ),
+    recording_worker_unavailable: t(
+      'readiness.recordingWorkerUnavailable',
+      'The recording module is not installed or unavailable.',
+    ),
   };
   if (String(blocker.code || '').endsWith('.credential_missing')) {
     return t('readiness.pluginCredentialMissing', '{plugin} is enabled, but no credential is available for this study.')
@@ -273,6 +320,53 @@ function readinessMessage(blocker) {
       .replace('{plugin}', pluginLabel);
   }
   return messages[blocker.code] || blocker.code;
+}
+
+function readinessSettingsPanel(blockers) {
+  const blocker = blockers.find((entry) => entry.blocking === true) || blockers[0] || {};
+  if (blocker.destination) return 'destinations';
+  return ['sensors', 'participant', 'destinations', 'export'].includes(blocker.panel)
+    ? blocker.panel
+    : 'sensors';
+}
+
+async function openReadinessSettings(blockers = currentReadinessBlockers()) {
+  if (!blockers.length) return;
+  await openStudySettingsPanel(readinessSettingsPanel(blockers));
+  if (blockers.some((blocker) => blocker.code === 'recording_capacity_insufficient')) {
+    byId('study-planned-duration')?.focus();
+  }
+}
+
+function showBlockingReadinessDialog(blockers) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let modal;
+    const finish = (action) => {
+      if (settled) return;
+      settled = true;
+      modal.destroy();
+      resolve(action);
+    };
+    modal = createModal({
+      title: t('readiness.blockedTitle', 'Study cannot start'),
+      closeLabel: t('readiness.close', 'Close'),
+      onClose: () => finish('close'),
+    });
+    modal.body.innerHTML = `
+      <p class="settings-hint">${escapeHtml(t('readiness.blockedBody', 'Start is blocked until every required plugin and the recording infrastructure are ready.'))}</p>
+      <ul class="readiness-dialog-list">${readinessListMarkup(blockers, 'readiness-dialog-list-item')}</ul>
+      <div class="dashboard-actions confirm-modal-actions">
+        <button type="button" class="btn-secondary" data-readiness-close>${escapeHtml(t('readiness.close', 'Close'))}</button>
+        <button type="button" class="btn-primary" data-readiness-settings>${escapeHtml(t('readiness.openSettings', 'Open study settings'))}</button>
+      </div>`;
+    modal.body.querySelector('[data-readiness-close]')?.addEventListener('click', () => finish('close'));
+    modal.body.querySelector('[data-readiness-settings]')?.addEventListener('click', () => finish('settings'));
+    modal.open();
+    modal.body.querySelector('[data-readiness-settings]')?.focus();
+  }).then(async (action) => {
+    if (action === 'settings') await openReadinessSettings(blockers);
+  });
 }
 
 async function applyHubBranding() {
@@ -391,14 +485,7 @@ async function confirmAndStartFromEditor() {
 async function startLoadedStudyRun({ buttonId = 'btn-hub-start-study', goToDashboard = false } = {}) {
   if (state.readiness?.start_blocked === true) {
     const blockers = state.readiness.blockers || [];
-    const message = `${t('readiness.confirmTitle', 'This study is not fully set up:')} `
-      + `${readinessSummary(blockers)} `
-      + t('readiness.blockedBody', 'Start is blocked until every required plugin and the recording infrastructure are ready.');
-    showToast(message, 'error');
-    if (blockers.some((blocker) => blocker.code === 'recording_capacity_insufficient')) {
-      await openStudySettingsPanel('sensors');
-      byId('study-planned-duration')?.focus();
-    }
+    await showBlockingReadinessDialog(blockers);
     return;
   }
 
@@ -438,6 +525,14 @@ async function startLoadedStudyRun({ buttonId = 'btn-hub-start-study', goToDashb
     if (goToDashboard) await switchView('view-dashboard');
   } catch (error) {
     console.error('[admin] Could not start study run:', error);
+    if (error.status === 409 && error.payload?.readiness) {
+      state.readiness = error.payload.readiness;
+      renderStudyRunState();
+      if (state.readiness.start_blocked === true) {
+        await showBlockingReadinessDialog(state.readiness.blockers || []);
+        return;
+      }
+    }
     showToast(error.message || t('toast.studyStartFailed', 'Could not start the study'), 'error');
   } finally {
     if (button) {
@@ -516,6 +611,7 @@ function bindEvents() {
   $('btn-hub-editor').addEventListener('click', () => switchView('view-workspace'));
   $('btn-admin-dashboard').addEventListener('click', () => switchView('view-dashboard'));
   $('btn-hub-start-study')?.addEventListener('click', () => void startLoadedStudyRun());
+  $('btn-readiness-settings')?.addEventListener('click', () => void openReadinessSettings());
   $('btn-workspace-start')?.addEventListener('click', () => void confirmAndStartFromEditor());
   $('btn-hub-settings')?.addEventListener('click', () => void openSettingsHub());
   $('btn-create-shortcut')?.addEventListener('click', () => void createDesktopShortcut('btn-create-shortcut', 'shortcut-result'));

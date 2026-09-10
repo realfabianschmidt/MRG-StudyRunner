@@ -557,9 +557,23 @@ class PluginUiContractTests(unittest.TestCase):
         warning = admin.index("state.readiness?.ready === false", blocked)
         blocked_branch = admin[blocked:warning]
 
-        self.assertIn("showToast(message, 'error')", blocked_branch)
+        self.assertIn("await showBlockingReadinessDialog(blockers)", blocked_branch)
         self.assertIn("return;", blocked_branch)
-        self.assertNotIn("confirm(", blocked_branch)
+        self.assertNotIn("showToast(", blocked_branch)
+        self.assertNotIn("confirmWithModal(", blocked_branch)
+
+    def test_readiness_failures_are_persistent_and_survive_a_stale_precheck(self) -> None:
+        admin = _read(WEB / "scripts" / "admin" / "admin-controller.js")
+        admin_html = _read(WEB / "pages" / "admin.html")
+
+        self.assertIn('id="hub-study-readiness"', admin_html)
+        self.assertIn('id="hub-study-readiness-list"', admin_html)
+        self.assertIn('id="btn-readiness-settings"', admin_html)
+        self.assertIn("readinessListMarkup(blockers)", admin)
+        self.assertIn("Array.isArray(blocker?.details)", admin)
+        self.assertIn("error.status === 409 && error.payload?.readiness", admin)
+        self.assertIn("state.readiness = error.payload.readiness", admin)
+        self.assertIn("recording_worker_unavailable", admin)
 
     def test_stimulus_deadline_is_fixed_before_prepare_and_stop_does_not_wait(self) -> None:
         source = _read(WEB / "scripts" / "participant" / "study-controller.js")

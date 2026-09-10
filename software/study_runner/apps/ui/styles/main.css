@@ -4304,6 +4304,57 @@ body.admin::before { display: none; }
   cursor: help;
 }
 
+.study-readiness[hidden] {
+  display: none;
+}
+.study-readiness {
+  margin-bottom: var(--s-5);
+  padding: var(--s-4);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--r-md);
+  background: var(--warn-14);
+  color: var(--ink-70);
+}
+.study-readiness.is-blocking {
+  border-left-color: var(--neg);
+}
+.study-readiness-header {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--ink);
+}
+.study-readiness-header i {
+  color: var(--warn);
+  font-size: 1.15rem;
+}
+.study-readiness.is-blocking .study-readiness-header i {
+  color: var(--neg);
+}
+.study-readiness-list,
+.readiness-dialog-list {
+  margin: var(--s-3) 0;
+  padding-left: var(--s-5);
+}
+.study-readiness-list > li,
+.readiness-dialog-list > li {
+  margin-bottom: var(--s-3);
+}
+.study-readiness-list strong,
+.readiness-dialog-list strong {
+  color: var(--ink);
+}
+.study-readiness-details {
+  margin-top: var(--s-1);
+  padding-left: var(--s-4);
+  font: .72rem/1.45 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.study-readiness .btn-secondary {
+  width: 100%;
+  justify-content: center;
+}
+
 .is-cta {
   border-color: var(--warn) !important;
   background: var(--warn-14) !important;
