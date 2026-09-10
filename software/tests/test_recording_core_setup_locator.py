@@ -101,6 +101,16 @@ def write_stage(
 
 
 class RecordingCoreSetupTests(unittest.TestCase):
+    def test_supported_targets_include_macos_apple_silicon(self) -> None:
+        windows = setup.supported_target("Windows", "AMD64")
+        apple_silicon = setup.supported_target("Darwin", "arm64")
+
+        self.assertEqual(windows["platform_arch"], "windows-x64")
+        self.assertEqual(windows["library_name"], "xdf_core.dll")
+        self.assertEqual(apple_silicon["platform_arch"], "macos-arm64")
+        self.assertEqual(apple_silicon["library_name"], "libxdf_core.dylib")
+        self.assertEqual(apple_silicon["cmake_architecture"], "arm64")
+
     def test_vendored_upstream_matches_reviewed_lock(self) -> None:
         verified = setup.verify_upstream_sources()
 

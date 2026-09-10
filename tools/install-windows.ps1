@@ -43,7 +43,7 @@ function Invoke-WinGetInstall {
         [switch]$Force
     )
     Write-Host "Installing $PackageId with WinGet when missing..."
-    $ModeArguments = if ($Force) { @("--force") } else { @("--no-upgrade") }
+    [string[]]$ModeArguments = if ($Force) { @("--force") } else { @("--no-upgrade") }
     & winget install --id $PackageId --exact --source winget --disable-interactivity --accept-source-agreements --accept-package-agreements @ModeArguments @ExtraArguments
     Assert-LastCommandSucceeded "WinGet package $PackageId"
 }
@@ -137,12 +137,23 @@ if ($InstallSystemDependencies) {
     if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
         throw "WinGet is unavailable. Install or update Microsoft's App Installer, then run this script again: https://learn.microsoft.com/windows/package-manager/winget/"
     }
-    Invoke-WinGetInstall -PackageId "Python.Python.3.12"
+    Update-ProcessPath
+    try {
+        $null = Resolve-Python312
+        Write-Host "Python 3.12 x64 is already installed."
+    } catch {
+        Invoke-WinGetInstall -PackageId "Python.Python.3.12"
+        Update-ProcessPath
+    }
     if (-not $SkipRecordingCore) {
-        Invoke-WinGetInstall -PackageId "Kitware.CMake"
+        if (Get-Command cmake -ErrorAction SilentlyContinue) {
+            Write-Host "CMake is already installed."
+        } else {
+            Invoke-WinGetInstall -PackageId "Kitware.CMake"
+            Update-ProcessPath
+        }
         Install-VCToolsWorkload
     }
-    Update-ProcessPath
 }
 
 if (Test-Path -LiteralPath $VenvPath) {

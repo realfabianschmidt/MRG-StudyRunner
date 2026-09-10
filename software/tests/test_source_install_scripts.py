@@ -34,6 +34,9 @@ class SourceInstallScriptTests(unittest.TestCase):
             self.assertIn(required, script)
         self.assertIn("[switch]$InstallSystemDependencies", script)
         self.assertIn("[switch]$SkipRecordingCore", script)
+        self.assertIn("[string[]]$ModeArguments", script)
+        self.assertIn("$null = Resolve-Python312", script)
+        self.assertIn("if (Get-Command cmake -ErrorAction SilentlyContinue)", script)
 
     def test_macos_installer_has_official_toolchain_and_recording_gate(self) -> None:
         script = text("tools/install-macos.sh")
