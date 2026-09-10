@@ -1,8 +1,32 @@
 # Architecture 1.0 - shared Claude/Codex handoff
 
-Updated: 2026-09-09. Read this file and [the working plan](architecture-1.0-umbau.md)
+Updated: 2026-09-10. Read this file and [the working plan](architecture-1.0-umbau.md)
 before continuing. Both are tracked repository files, accessible to either
 assistant through the local checkout; no private assistant memory is required.
+
+## Development data directory (2026-09-10)
+
+The UI redesign work found five operator data files edited in-place in this
+worktree (`software/study_content/settings/{hardware_settings,study_config}.json`,
+both `Example *.study-runner` files) — including a real BrainBit MAC address
+and serial number. These were reset to their shipped defaults; do not edit
+`software/study_content/` directly again.
+
+Point development at an external data directory instead, per
+`docs/architecture-1.0-umbau.md`'s own "Development environment" section:
+
+```powershell
+$env:STUDY_RUNNER_DATA_DIR = "C:\StudyRunnerDev"
+$env:STUDY_RUNNER_PORT = "3100"
+$env:STUDY_RUNNER_NO_BROWSER = "1"
+$env:STUDY_RUNNER_DISABLE_HARDWARE = "1"   # mandatory, see T6
+```
+
+`runtime_config.py::initialize_runtime_storage` seeds `study_config.json`,
+`hardware_settings.json` and the example studies from `study_content/` into
+that external directory on first start — any device address entered afterward
+lives only there, never in the tracked tree. `git status` in this worktree
+should therefore stay clean going forward.
 
 ## Current authoritative state
 
