@@ -1,5 +1,5 @@
 {
-  "api_version": 4,
+  "api_version": 5,
   "plugin_key": "notion",
   "version": "1.0.0",
   "category": "storage",
@@ -46,7 +46,6 @@
         }
       }
     },
-    "readiness": {},
     "readiness_requirements": {
       "requires_secret": true,
       "requires_settings": ["parent_page_id", "database_id"],

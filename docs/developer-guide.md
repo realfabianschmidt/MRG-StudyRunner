@@ -96,7 +96,7 @@ The exported key must match `manifest.json`. Add defaults to
 `software/study_content/settings/hardware_settings.json` only for genuine
 machine state; per-study choices belong in the manifest's study schema.
 
-## Manifest API v4
+## Manifest API v5
 
 See `plugin-recording-architecture.md` for the full manifest contract and the
 `driver.py`/subprocess dispatch model. Every manifest includes identity,
@@ -137,9 +137,10 @@ Important capabilities are:
 - `lsl_stream_provider`
 - `recording_source`
 - `backup_projection`
-- `readiness`
-- `runtime_control`
-- `health`
+- `runtime_modes` (optional platform-mode support; renamed from `readiness` in
+  api_version 5 to stop colliding with the unrelated `readiness_requirements`)
+- `health` (gates whether the coordinator polls this plugin's status at all;
+  declare it only if there is something worth polling)
 - `machine_settings`
 - `study_settings`
 - `card_actions`

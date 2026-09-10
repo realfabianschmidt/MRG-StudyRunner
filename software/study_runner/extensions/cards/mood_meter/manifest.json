@@ -1,5 +1,5 @@
 {
-  "api_version": 4,
+  "api_version": 5,
   "plugin_key": "mood_meter",
   "config_key": "mood_meter",
   "version": "1.0.0",

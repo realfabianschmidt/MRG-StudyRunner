@@ -116,13 +116,13 @@ explicit `.pluginignore` marker.
 The public catalog is `GET /api/plugins/catalog`. Generic UI surfaces consume
 that response and must not maintain sensor-key lists.
 
-## Manifest API v4
+## Manifest API v5
 
 Every built-in manifest provides:
 
-- `api_version: 4`
+- `api_version: 5`
 - stable `plugin_key`, semantic `version`, `category`, and `entry_point`
-  (the `entry_point` field is vestigial for `api_version: 4`; a v4 plugin's
+  (the `entry_point` field is vestigial for `api_version: 4+`; a plugin's
   real process entry point is `runtime.entrypoint`, see below)
 - a `runtime` block: `entrypoint` (always `driver.py`), `protocol`
   (`study-runner-stdio/v1`), `interactive_stdin`, and its supported `modes`
@@ -141,10 +141,13 @@ terminal output surfaced through the admin diagnostics console. Inside that
 subprocess, `driver.py` calls `run_plugin_driver(plugin_key)`
 (`plugin_framework/driver_runtime.py`), which imports the plugin's own
 `plugin.py` and dispatches to it — so `plugin.py` is real, running business
-logic, just relocated into the child process rather than the host. A
-manifest with `api_version` below 4 still works through a compatibility path
-(`plugin_catalog.py`'s `_import_plugin`) that imports `entry_point` directly
-into the host process instead; no shipped plugin uses it today.
+logic, just relocated into the child process rather than the host. The
+in-process import compatibility path (`_import_plugin`, for a v3 manifest that
+imported `entry_point` directly into the host process) was removed in Phase
+3.1 once every shipped manifest reached `api_version: 4`
+(docs/architecture-1.0-umbau.md). Only `api_version: 5` validates today
+(`SUPPORTED_PLUGIN_API_VERSIONS`, `contracts/manifest.py`); an older manifest
+is rejected at discovery, not silently downgraded.
 
 The UI visibility contract is:
 
@@ -175,8 +178,7 @@ Supported capabilities include:
 - `lsl_stream_provider`
 - `recording_source`
 - `backup_projection`
-- `readiness`
-- `runtime_control`
+- `runtime_modes`
 - `health`
 - `machine_settings`
 - `study_settings`
@@ -186,16 +188,27 @@ Supported capabilities include:
 - `participant_ingest`
 - `upload_destination`
 
+`runtime_control` (a no-op fallback for `runtime.actions`) and the old
+`readiness` name were both retired in api_version 5 (Phase 3.4,
+docs/architecture-1.0-umbau.md): traced every call site first and found both
+had zero effect on the running app. `health` now has real teeth --
+`sensor_coordinator_service.py` polls a plugin's status only if it declares
+`health`, so a plugin with nothing worth polling (every card extension, for
+example) opts out entirely instead of costing a poll slot for a status
+nothing reads.
+
 Plugins whose runtime modes differ by operating system declare that support in
-the optional `readiness` capability instead of relying on plugin-key checks in
-the server or UI. `mode_setting` names the machine-setting field,
+the optional `runtime_modes` capability instead of relying on plugin-key
+checks in the server or UI (renamed from `readiness` in api_version 5 -- that
+name collided with the unrelated `readiness_requirements` capability, "is the
+operator's config complete"). `mode_setting` names the machine-setting field,
 `default_mode` defines its fallback, and `platform_modes` contains a mandatory
 `default` list plus exact overrides such as `macos-x64`. The generic readiness
-gate blocks an unsupported required mode and returns the supported alternatives
-to the admin UI.
+gate (`study_readiness_service.py`) blocks an unsupported required mode and
+returns the supported alternatives to the admin UI.
 
 ```json
-"readiness": {
+"runtime_modes": {
   "mode_setting": "worker_mode",
   "default_mode": "local_worker",
   "platform_modes": {

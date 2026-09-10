@@ -802,7 +802,11 @@ def build_process_plugin(manifest: Mapping[str, Any], directory: Path) -> Plugin
             _RUNTIMES[key] = runtime
     capabilities = set(manifest.get("capabilities") or [])
     runtime_config = dict(manifest.get("runtime") or {})
-    actions = set(runtime_config.get("actions") or (["start", "stop", "restart"] if "runtime_control" in capabilities else []))
+    # `runtime_control` (a capability that used to trigger this same default
+    # as a fallback) was retired in api_version 5 -- it was dead code in
+    # practice, since every plugin that declared it already set
+    # runtime.actions explicitly. runtime.actions is now the sole source.
+    actions = set(runtime_config.get("actions") or [])
     sidecar = dict(runtime_config.get("sidecar") or {})
 
     def call(operation: str, context: PluginContext, payload: Mapping[str, Any] | None = None) -> Any:

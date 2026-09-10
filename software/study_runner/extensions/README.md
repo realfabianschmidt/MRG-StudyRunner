@@ -23,7 +23,7 @@ stop other plugins or the server from loading.
 
 ## Manifest contract
 
-Every current manifest uses `api_version: 4` and declares identity, plugin version,
+Every current manifest uses `api_version: 5` and declares identity, plugin version,
 category, config key, `plugin:PLUGIN` entry point, UI metadata, settings
 schemas, timing limits, and capabilities. Important capability names are:
 
@@ -33,9 +33,14 @@ schemas, timing limits, and capabilities. Important capability names are:
 - `backup_projection`: declares numeric channels and a positive projection rate.
 - `acquisition_transport`: declares how samples reach LSL; browser sources also
   guarantee heartbeat, sequence, and source timestamps.
-- `readiness`, `runtime_control`, `health`, and `admin_actions`: lifecycle,
-  diagnostics, and generic manifest-declared operator actions.
-- `readiness_requirements`: distinct from `readiness` above - what a study
+- `runtime_modes`, `health`, and `admin_actions`: lifecycle, diagnostics, and
+  generic manifest-declared operator actions. `health` gates whether the
+  admin coordinator polls this plugin's status at all -- declare it only if
+  there's something worth polling. `runtime_modes` (renamed from `readiness`
+  in api_version 5; `runtime_control` was retired the same release, both
+  traced to have zero effect before the change) declares optional
+  platform-mode support.
+- `readiness_requirements`: distinct from `runtime_modes` above - what a study
   needs before this plugin can actually deliver results:
   `requires_secret`, `requires_settings` (a list; any one satisfies it), and
   `requires_machine_enabled`. `runtime_core/studies/study_readiness_service.py` checks every

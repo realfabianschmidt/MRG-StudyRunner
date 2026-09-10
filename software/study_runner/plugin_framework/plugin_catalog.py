@@ -138,7 +138,7 @@ def discover_plugin_catalog(
         try:
             # Every candidate that reached this point already normalized
             # cleanly (validate_and_normalize_manifest rejects anything
-            # outside SUPPORTED_PLUGIN_API_VERSIONS = (4,)), so the process
+            # outside SUPPORTED_PLUGIN_API_VERSIONS = (5,)), so the process
             # host is the only path -- see Phase 3.1,
             # docs/architecture-1.0-umbau.md, for the v3 in-process import
             # path this replaced. No separate object-shape validation

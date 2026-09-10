@@ -52,6 +52,15 @@ class SensorCoordinator:
 
         for plugin in iter_plugins():
             manifest = get_plugin_manifest(plugin.key)
+            # Phase 3.4 (api_version 5): `health` now gates polling instead of
+            # being declared with no effect. A plugin with nothing worth
+            # polling (e.g. a card extension, which only declares
+            # `card_contract` and is never shown on any admin surface -- see
+            # its manifest's `ui.visibility`) opts out entirely rather than
+            # costing a thread-pool slot every poll interval for a status
+            # nothing reads.
+            if "health" not in (manifest.get("capabilities") or {}):
+                continue
             status, coordinator = self._health_poller.snapshot(
                 plugin,
                 context,

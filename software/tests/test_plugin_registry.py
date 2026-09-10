@@ -138,7 +138,7 @@ class PluginRegistryContractTests(unittest.TestCase):
                 self.assertGreater(manifest["request_timeout_ms"], 0)
                 self.assertGreaterEqual(manifest["backpressure"]["max_in_flight"], 1)
                 self.assertIsInstance(manifest["capabilities"], list)
-                self.assertEqual(manifest["api_version"], 4)
+                self.assertEqual(manifest["api_version"], 5)
                 # Cards have no hardware or connection to report health on;
                 # "health" is a peripheral-plugin capability (see the
                 # architecture-1.0 3.4 decision log for its retirement).

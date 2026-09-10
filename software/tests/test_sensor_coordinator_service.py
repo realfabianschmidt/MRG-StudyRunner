@@ -5,7 +5,7 @@ import sys
 import threading
 import time
 import unittest
-from unittest.mock import call, patch
+from unittest.mock import Mock, call, patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -159,6 +159,38 @@ class SensorCoordinatorTests(unittest.TestCase):
             self.assertEqual(final["plugins"]["paced"]["coordinator"]["poll_count"], 2)
             with calls_lock:
                 self.assertEqual(calls, 2)
+        finally:
+            coordinator.close(wait=True)
+
+    def test_a_plugin_without_the_health_capability_is_never_polled(self) -> None:
+        # Phase 3.4 (api_version 5): `health` now gates polling instead of
+        # being declared with no effect. Card extensions only declare
+        # `card_contract` and must not cost a poll -- not even a "pending"
+        # placeholder entry in the status payload.
+        coordinator = SensorCoordinator(monotonic_clock=FakeClock(), wall_clock=lambda: 1000.0)
+        context = _context()
+        plugin = _plugin("no_health")
+        get_status = Mock(return_value={"status": "ok"})
+
+        try:
+            with (
+                patch(
+                    "study_runner.data_core.host.sensor_coordinator_service.iter_plugins",
+                    return_value=(plugin,),
+                ),
+                patch(
+                    "study_runner.data_core.host.sensor_coordinator_service.get_plugin_manifest",
+                    return_value=_manifest("no_health") | {"capabilities": ["card_contract"]},
+                ),
+                patch(
+                    "study_runner.data_core.host.sensor_coordinator_service.get_plugin_status",
+                    get_status,
+                ),
+            ):
+                status = coordinator.build_status(context)
+
+            self.assertNotIn("no_health", status["plugins"])
+            get_status.assert_not_called()
         finally:
             coordinator.close(wait=True)
 

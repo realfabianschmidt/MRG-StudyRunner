@@ -1,5 +1,5 @@
 {
-  "api_version": 4,
+  "api_version": 5,
   "plugin_key": "brainbit",
   "version": "1.0.0",
   "category": "biosignal",
@@ -68,8 +68,6 @@
         {"output": "relaxation", "stream": "mental", "channel": "Rel_Relaxation"}
       ]
     },
-    "readiness": {},
-    "runtime_control": {},
     "health": {},
     "machine_settings": {},
     "study_settings": {},

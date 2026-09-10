@@ -38,7 +38,7 @@ from study_runner.plugin_framework.plugin_catalog import PluginCatalog, discover
 PLUGIN_KEY = "fixture_vault"
 
 MANIFEST = {
-    "api_version": 4,
+    "api_version": 5,
     "plugin_key": PLUGIN_KEY,
     "version": "1.0.0",
     "category": "storage",

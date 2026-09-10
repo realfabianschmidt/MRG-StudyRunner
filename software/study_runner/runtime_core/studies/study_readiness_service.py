@@ -153,13 +153,17 @@ def check_study_readiness(
         if not section.get("enabled"):
             add("sensor_machine_disabled", blocking=required, sensor=sensor_key)
 
-        readiness_contract = (
-            (manifest.get("capability_config") or {}).get("readiness") or {}
+        # `readiness` renamed to `runtime_modes` in api_version 5 (Phase 3.4)
+        # to stop colliding with the unrelated `readiness_requirements`
+        # capability ("is the operator's config complete", a different
+        # question).
+        runtime_modes_contract = (
+            (manifest.get("capability_config") or {}).get("runtime_modes") or {}
         )
-        platform_modes = readiness_contract.get("platform_modes")
+        platform_modes = runtime_modes_contract.get("platform_modes")
         if isinstance(platform_modes, dict) and platform_modes:
-            mode_setting = str(readiness_contract.get("mode_setting") or "").strip()
-            default_mode = str(readiness_contract.get("default_mode") or "").strip()
+            mode_setting = str(runtime_modes_contract.get("mode_setting") or "").strip()
+            default_mode = str(runtime_modes_contract.get("default_mode") or "").strip()
             configured_mode = str(section.get(mode_setting) or default_mode).strip()
             supported_modes = platform_modes.get(platform_target)
             if not isinstance(supported_modes, list):

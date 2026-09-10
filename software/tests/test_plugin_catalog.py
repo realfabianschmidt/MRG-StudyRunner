@@ -45,7 +45,7 @@ def _manifest(plugin_key: str, *, source_id: str | None = None) -> dict:
             }
         ]
     return {
-        "api_version": 4,
+        "api_version": 5,
         "plugin_key": plugin_key,
         "version": "1.0.0",
         "category": "test",
@@ -313,9 +313,11 @@ class PluginManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(PluginManifestError, "sequence_required must be true"):
             validate_and_normalize_manifest(payload, directory_name="fixture")
 
-    def test_readiness_platform_modes_are_closed_and_normalized(self) -> None:
+    def test_runtime_modes_platform_modes_are_closed_and_normalized(self) -> None:
+        # Renamed from `readiness` in api_version 5 (Phase 3.4) -- it collided
+        # in name with the unrelated `readiness_requirements` capability.
         payload = _manifest("fixture")
-        payload["capabilities"]["readiness"] = {
+        payload["capabilities"]["runtime_modes"] = {
             "mode_setting": "worker_mode",
             "default_mode": "local_worker",
             "platform_modes": {
@@ -325,11 +327,25 @@ class PluginManifestTests(unittest.TestCase):
         }
 
         manifest = validate_and_normalize_manifest(payload, directory_name="fixture")
-        readiness = manifest["capability_config"]["readiness"]
-        self.assertEqual(readiness["platform_modes"]["macos-x64"], ["remote_worker"])
+        runtime_modes = manifest["capability_config"]["runtime_modes"]
+        self.assertEqual(runtime_modes["platform_modes"]["macos-x64"], ["remote_worker"])
 
-        payload["capabilities"]["readiness"]["platform_modes"].pop("default")
+        payload["capabilities"]["runtime_modes"]["platform_modes"].pop("default")
         with self.assertRaisesRegex(PluginManifestError, "default target"):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
+    def test_retired_v4_capabilities_are_rejected_with_a_clear_message(self) -> None:
+        # runtime_control and the old readiness name both existed under
+        # api_version 4; a manifest still declaring either must fail loudly,
+        # not silently accept an unrecognized capability.
+        payload = _manifest("fixture")
+        payload["capabilities"]["runtime_control"] = {}
+        with self.assertRaisesRegex(PluginManifestError, "runtime_control.*retired"):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
+        payload = _manifest("fixture")
+        payload["capabilities"]["readiness"] = {}
+        with self.assertRaisesRegex(PluginManifestError, "readiness.*retired"):
             validate_and_normalize_manifest(payload, directory_name="fixture")
 
     def test_recording_source_requires_lsl_and_cannot_offer_disable_controls(self) -> None:
@@ -628,10 +644,10 @@ class PluginDiscoveryIsolationTests(FixturePluginRootMixin, unittest.TestCase):
 
 
 class PublicCatalogTests(unittest.TestCase):
-    def test_public_catalog_has_only_v4_valid_plugins_and_is_keyed_for_ui_use(self) -> None:
+    def test_public_catalog_has_only_v5_valid_plugins_and_is_keyed_for_ui_use(self) -> None:
         payload = get_plugin_catalog_payload()
 
-        self.assertEqual(payload["api_version"], 4)
+        self.assertEqual(payload["api_version"], 5)
         self.assertEqual(payload["invalid_plugins"], [])
         self.assertEqual(
             set(payload["plugins_by_key"]),
@@ -648,7 +664,7 @@ class PublicCatalogTests(unittest.TestCase):
         response = app.test_client().get("/api/plugins/catalog")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["api_version"], 4)
+        self.assertEqual(response.get_json()["api_version"], 5)
 
     def test_admin_action_endpoint_enforces_the_manifest_allow_list(self) -> None:
         from flask import Flask

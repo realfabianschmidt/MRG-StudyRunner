@@ -1,5 +1,5 @@
 {
-  "api_version": 4,
+  "api_version": 5,
   "plugin_key": "camera_emotion",
   "version": "1.0.0",
   "category": "biosignal",
@@ -71,7 +71,7 @@
         {"output": "face_detected", "stream": "emotion", "channel": "face_detected"}
       ]
     },
-    "readiness": {
+    "runtime_modes": {
       "mode_setting": "worker_mode",
       "default_mode": "local_worker",
       "platform_modes": {
@@ -81,7 +81,6 @@
         "macos-x64": ["remote_worker"]
       }
     },
-    "runtime_control": {},
     "health": {},
     "machine_settings": {},
     "study_settings": {},

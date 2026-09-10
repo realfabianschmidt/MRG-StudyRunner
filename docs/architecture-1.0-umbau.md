@@ -791,11 +791,64 @@ Zero directory moves: existing runtime packages remain in place; `shared/` and
       behavior already existed since Phase 0.4
       (`tests/test_legacy_flat_result_compat.py`) — this was wording-only.
       **Do not remove** (D2)
-- [ ] **3.4** Merge capabilities `readiness` / `runtime_control` / `health` into
-      one lifecycle contract, `api_version: 5`. **Design plan below, not yet
-      implemented** (2026-09-08) — traced every consumer of all three
-      capabilities across the whole codebase before proposing a shape,
-      rather than guessing at a "natural merge."
+- [x] **3.4** Merge capabilities `readiness` / `runtime_control` / `health` into
+      one lifecycle contract, `api_version: 5` — **implemented 2026-09-10,
+      exactly as designed below** (owner approved the design as scoped, no
+      deviations). `runtime_control` removed entirely; the dead fallback in
+      `process_host.py::build_process_plugin` now reads `runtime.actions`
+      alone. `health` now gates `SensorCoordinator.build_status`'s per-plugin
+      poll (`data_core/host/sensor_coordinator_service.py`) — a plugin with no
+      `health` capability is skipped, not given a "pending" placeholder
+      either. `readiness` renamed to `runtime_modes` in `contracts/manifest.py`
+      (`_normalize_readiness` → `_normalize_runtime_modes`) and in
+      `study_readiness_service.py`'s reader; the 5 plugins that declared it
+      empty (`{}`) had it dropped outright, only `camera_emotion` keeps it,
+      non-empty. `RETIRED_CAPABILITIES` in `contracts/manifest.py` rejects a
+      manifest still declaring either old name with a message naming the
+      replacement, instead of silently ignoring an unrecognized capability.
+      All 21 manifests (12 cards, 3 sensors, 2 destinations, 1 output, the 2
+      host-process manifests, the packaging-probe test fixture) bumped to
+      `api_version: 5` in the same commit as the contract change, per T3 —
+      `create_app()` imports `markers.py`/`clock_diagnostics.py` eagerly at
+      module scope, so a split commit would have made it unimportable, exactly
+      as it did at 3.1. `SUPPORTED_PLUGIN_API_VERSIONS = (5,)`, no `(4, 5)`
+      transition window, matching 3.1's precedent. The dead `runtime_control`
+      icon branch in `apps/ui/scripts/shared/plugin-catalog.js::pluginUiIcon()`
+      removed.
+
+      **New test coverage**, not just updated assertions:
+      `test_plugin_catalog.py::test_retired_v4_capabilities_are_rejected_with_a_clear_message`
+      (both retired names raise `PluginManifestError` naming the retirement)
+      and `test_sensor_coordinator_service.py::test_a_plugin_without_the_health_capability_is_never_polled`
+      (confirms `get_plugin_status` is never even called, and the plugin gets
+      no entry in `status["plugins"]` at all — proven via `Mock.assert_not_called()`,
+      not inferred from timing).
+
+      **Verified directly, not assumed:** with a live dev server
+      (`STUDY_RUNNER_DISABLE_HARDWARE=1`), the public catalog reports
+      `api_version: 5` with all 18 plugins valid and zero invalid entries; a
+      direct (non-HTTP) call to `SensorCoordinator.build_status` returned in
+      33ms with exactly the 6 non-card plugins that declare `health`
+      (`brainbit`, `camera_emotion`, `mini_radar`, `nextcloud`, `notion`,
+      `osc`) and none of the 12 cards — confirming the gate actually removes
+      12 extensions from the poll path, not just from a manifest field. (A
+      `curl` request to `/api/admin/status` over the dev server's HTTPS
+      separately hung; isolated to the dev server/TLS layer, unrelated to this
+      change, and out of scope here.)
+
+      Evidence: **965 Python passed, 4 skipped** (963 + 2 new); 43 JavaScript
+      passed; PyInstaller packaging-contract tests passed; structure baseline
+      rewritten (small line-count growth from new docstrings/comments/tests —
+      cross-package edges and cycle count unchanged, so this is explanatory
+      content, not new coupling).
+
+      Docs updated: `docs/developer-guide.md` ("Manifest API v5"),
+      `docs/plugin-recording-architecture.md` (capability list, the
+      `_import_plugin` removal note corrected — it was already stale, dating
+      to before 3.1, not something this package introduced),
+      `extensions/README.md`, `CONTRIBUTING.md` §7.
+
+      Original design record, preserved below for the reasoning trail:
 
       **What each capability actually does today, verified by tracing every
       call site, not assumed from the manifests:**
@@ -855,24 +908,15 @@ Zero directory moves: existing runtime packages remain in place; `shared/` and
          live version" cleanup — no reason to carry a `(4, 5)` transition
          window since every manifest is migrated in the same commit.
 
-      **Files that would change** (not yet touched):
-      `contracts/manifest.py` (drop `runtime_control` from the allowed
-      capability set, rename the `_normalize_readiness` schema's capability
-      key to `runtime_modes`, bump `PLUGIN_API_VERSION`/
-      `SUPPORTED_PLUGIN_API_VERSIONS`); all 6
-      `extensions/*/*/manifest.json` (remove `runtime_control`, rename/drop
-      `readiness`, bump `api_version: 5`); `plugin_framework/process_host.py`
-      (drop the `runtime_control` fallback branch); `data_core/host/
-      sensor_coordinator_service.py` (gate polling on `health`);
-      `runtime_core/studies/study_readiness_service.py` (read
-      `runtime_modes` instead of `readiness`); `apps/ui/scripts/shared/
-      plugin-catalog.js` (drop the dead `runtime_control` icon branch);
-      tests referencing any of these three capability names by string.
-
-      This design is a recommendation, not yet approved for implementation
-      — flag disagreement before starting, since renaming a capability key
-      is a manifest-contract break every plugin author (including future
-      ones) needs to know about.
+      **Files that changed** (see the 2026-09-10 implementation note above for
+      the full account): `contracts/manifest.py`, all 21 manifests (12 cards,
+      3 sensors, 2 destinations, 1 output, 2 host-process, 1 test fixture —
+      grew from the originally-scoped 6 once card manifests and the two host
+      manifests were accounted for), `plugin_framework/process_host.py`,
+      `data_core/host/sensor_coordinator_service.py`,
+      `runtime_core/studies/study_readiness_service.py`,
+      `apps/ui/scripts/shared/plugin-catalog.js`, plus every test referencing
+      any of the three capability names by string.
 - [x] **3.5** Fixed doc drift: the file is `extensions/README.md` now (moved
       in Phase 4.7) and already correctly said "api_version: 4" everywhere
       except one leftover sentence ("API v3 reads only per-folder
@@ -1856,14 +1900,17 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
-| UI redesign (apps/ui pages/styles/scripts visuals + extensions/cards/*/card.js visuals + locale wording) | Claude Code | `feature/architecture-1.0` | 2026-09-10 |
+
+No package is currently owned.
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`
 (commits `dec0908`..`2d40c4a`), Phase 3 items 3.1/3.2/3.3/3.5, and Phase 5
 items 5e, 5d, 5a and 5c on 2026-09-08; Codex completed R1-R5 and the remaining
 Phase 4 packages on 2026-09-08, then completed 5g.B5 on 2026-09-09 from
-Claude's partial implementation. No package is currently owned.
+Claude's partial implementation; Claude completed the UI redesign (visuals
+only, no functional change) and 3.4 (plugin contract cleanup, `api_version: 5`)
+on 2026-09-10.
 
 Rules:
 - **Moves and tree-wide import rewrites are serial.** Approved R1–R4 repairs

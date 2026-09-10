@@ -384,7 +384,7 @@ class FixturePluginBlueprintAcceptanceTests(FixturePluginRootMixin, unittest.Tes
         plugin_dir.mkdir()
         (plugin_dir / "__init__.py").write_text("", encoding="utf-8")
         manifest = {
-            "api_version": 4,
+            "api_version": 5,
             "plugin_key": PLUGIN_KEY,
             "version": "1.0.0",
             "category": "biosignal",
@@ -421,7 +421,6 @@ class FixturePluginBlueprintAcceptanceTests(FixturePluginRootMixin, unittest.Tes
                         }
                     ],
                 },
-                "readiness": {},
                 "health": {},
                 "machine_settings": {},
                 "study_settings": {},

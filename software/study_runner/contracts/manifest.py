@@ -12,11 +12,33 @@ import re
 from typing import Any
 
 
-PLUGIN_API_VERSION = 4
+PLUGIN_API_VERSION = 5
 # v3 (in-process import via entry_point) removed in Phase 3.1
 # (docs/architecture-1.0-umbau.md) -- every shipped manifest was already
-# api_version 4 (process-host) before this narrowed.
-SUPPORTED_PLUGIN_API_VERSIONS = (4,)
+# api_version 4 (process-host) before this narrowed. v4 -> v5 in Phase 3.4:
+# `runtime_control` retired (traced every call site; it had zero effect --
+# process_host's only use was a fallback dead in practice because every
+# declaring plugin already sets runtime.actions explicitly), `readiness`
+# renamed to `runtime_modes` (it collided in name with the unrelated
+# `readiness_requirements` capability), `health` now actually gates
+# per-plugin status polling instead of being declared with no effect.
+SUPPORTED_PLUGIN_API_VERSIONS = (5,)
+
+# Capabilities that existed under API v4 and are rejected under v5+, each with
+# the reason -- so a stale third-party manifest gets a clear message instead
+# of the generic "invalid capability name" a silent drop would produce.
+RETIRED_CAPABILITIES = {
+    "runtime_control": (
+        "removed in api_version 5: it had no effect (process_host's fallback "
+        "was dead code; every plugin that declared it already sets "
+        "runtime.actions explicitly). Remove the capability declaration."
+    ),
+    "readiness": (
+        "renamed to runtime_modes in api_version 5, to stop colliding with "
+        "the unrelated readiness_requirements capability. Rename the key; "
+        "the schema (mode_setting/default_mode/platform_modes) is unchanged."
+    ),
+}
 
 
 DEFAULT_POLL_INTERVAL_MS = 2_000
@@ -437,6 +459,10 @@ def _normalize_capabilities(value: Any) -> dict[str, dict[str, Any]]:
         if not _KEY_PATTERN.fullmatch(name):
             raise PluginManifestError(f"invalid capability name: {name!r}")
         canonical_name = CAPABILITY_ALIASES.get(name, name)
+        if canonical_name in RETIRED_CAPABILITIES:
+            raise PluginManifestError(
+                f"capability {canonical_name!r} is retired: {RETIRED_CAPABILITIES[canonical_name]}"
+            )
         if raw_config is True or raw_config is None:
             config: dict[str, Any] = {}
         elif raw_config is False:
@@ -470,8 +496,8 @@ def _normalize_capability_config(name: str, config: dict[str, Any]) -> dict[str,
             capability="participant_ingest",
             field="inputs",
         )
-    if name == "readiness":
-        return _normalize_readiness(config)
+    if name == "runtime_modes":
+        return _normalize_runtime_modes(config)
     if name == "readiness_requirements":
         return _normalize_readiness_requirements(config)
     if name == "upload_destination":
@@ -532,7 +558,7 @@ def _normalize_card_contract(config: dict[str, Any]) -> dict[str, Any]:
 def _normalize_readiness_requirements(config: dict[str, Any]) -> dict[str, Any]:
     """What a plugin needs before a study using it can actually deliver results.
 
-    Distinct from `readiness` (runtime-mode platform support, below): this is
+    Distinct from `runtime_modes` (runtime-mode platform support, below): this is
     "is the operator's configuration complete", checked before anything starts
     - see `study_readiness_service.py`. A plugin declares what it needs once;
     it does not have to also teach core what "not ready" looks like for it.
@@ -564,8 +590,13 @@ def _normalize_readiness_requirements(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _normalize_readiness(config: dict[str, Any]) -> dict[str, Any]:
-    """Validate optional, manifest-driven runtime-mode platform support."""
+def _normalize_runtime_modes(config: dict[str, Any]) -> dict[str, Any]:
+    """Validate optional, manifest-driven runtime-mode platform support.
+
+    Renamed from `readiness` in api_version 5 (Phase 3.4) -- that name
+    collided with the unrelated `readiness_requirements` capability ("is the
+    operator's config complete", a different question). Schema unchanged.
+    """
 
     if not config:
         return {}
@@ -573,45 +604,45 @@ def _normalize_readiness(config: dict[str, Any]) -> dict[str, Any]:
     unexpected = sorted(set(config) - allowed)
     if unexpected:
         raise PluginManifestError(
-            "readiness contains unsupported fields: " + ", ".join(unexpected)
+            "runtime_modes contains unsupported fields: " + ", ".join(unexpected)
         )
 
-    mode_setting = _required_key(config, "mode_setting", prefix="readiness.")
-    default_mode = _required_key(config, "default_mode", prefix="readiness.")
+    mode_setting = _required_key(config, "mode_setting", prefix="runtime_modes.")
+    default_mode = _required_key(config, "default_mode", prefix="runtime_modes.")
     raw_platform_modes = config.get("platform_modes")
     if not isinstance(raw_platform_modes, dict) or not raw_platform_modes:
-        raise PluginManifestError("readiness.platform_modes must be a non-empty object")
+        raise PluginManifestError("runtime_modes.platform_modes must be a non-empty object")
     if "default" not in raw_platform_modes:
-        raise PluginManifestError("readiness.platform_modes must declare a default target")
+        raise PluginManifestError("runtime_modes.platform_modes must declare a default target")
 
     platform_modes: dict[str, list[str]] = {}
     for raw_target, raw_modes in raw_platform_modes.items():
         target = str(raw_target or "").strip().lower()
         if not _PLATFORM_TARGET_PATTERN.fullmatch(target):
             raise PluginManifestError(
-                f"invalid readiness platform target: {raw_target!r}"
+                f"invalid runtime_modes platform target: {raw_target!r}"
             )
         if not isinstance(raw_modes, list) or not raw_modes:
             raise PluginManifestError(
-                f"readiness.platform_modes.{target} must be a non-empty list"
+                f"runtime_modes.platform_modes.{target} must be a non-empty list"
             )
         modes: list[str] = []
         for raw_mode in raw_modes:
             mode = str(raw_mode or "").strip()
             if not _KEY_PATTERN.fullmatch(mode):
                 raise PluginManifestError(
-                    f"readiness.platform_modes.{target} contains an invalid mode"
+                    f"runtime_modes.platform_modes.{target} contains an invalid mode"
                 )
             if mode in modes:
                 raise PluginManifestError(
-                    f"readiness.platform_modes.{target} contains duplicate mode {mode!r}"
+                    f"runtime_modes.platform_modes.{target} contains duplicate mode {mode!r}"
                 )
             modes.append(mode)
         platform_modes[target] = modes
 
     if default_mode not in platform_modes["default"]:
         raise PluginManifestError(
-            "readiness.default_mode must be allowed by readiness.platform_modes.default"
+            "runtime_modes.default_mode must be allowed by runtime_modes.platform_modes.default"
         )
     return {
         "mode_setting": mode_setting,

@@ -74,11 +74,11 @@ It keeps only the rules that are useful for this small Study Runner project. The
 
 ## 7. Stay extensible with the internal registry
 
-- Required: A new question type lives in one `extensions/cards/<key>/` directory with its API-v4 manifest, Python contract, driver, and browser module.
+- Required: A new question type lives in one `extensions/cards/<key>/` directory with its API-v5 manifest, Python contract, driver, and browser module.
 - Required: Card defaults, configuration normalization, and answer validation are defined in the extension's Python contract. Browser fallbacks receive those defaults through `configureCard()`.
 - Required: Card discovery and dispatch come from manifests. Do not add a parallel per-card registry or a type-specific branch to core handlers.
 - Required: External tools such as BrainBit or TouchDesigner should live in small adapter files.
-- Required: Built-in extensions declare API-v4 capabilities in their own `manifest.json`; `registry.py` remains the runtime compatibility layer for status, controls, trial callbacks, and exports.
+- Required: Built-in extensions declare API-v5 capabilities in their own `manifest.json`; `registry.py` remains the runtime compatibility layer for status, controls, trial callbacks, and exports.
 - Required: Extend the existing process and catalog path instead of building a second system next to it.
 
 ## 8. Write documents for humans

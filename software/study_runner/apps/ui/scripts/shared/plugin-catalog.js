@@ -89,7 +89,6 @@ export function pluginUiIcon(plugin) {
   if (capabilities.has('recording_worker') || capabilities.has('recording_source')) return 'iconoir-floppy-disk-arrow-in';
   if (capabilities.has('lsl_stream_provider')) return 'iconoir-activity';
   if (capabilities.has('processing')) return 'iconoir-cpu';
-  if (capabilities.has('runtime_control')) return 'iconoir-settings-profiles';
   return 'iconoir-puzzle';
 }
 

@@ -1,5 +1,5 @@
 {
-  "api_version": 4,
+  "api_version": 5,
   "plugin_key": "stimulus",
   "config_key": "stimulus",
   "version": "1.0.0",
