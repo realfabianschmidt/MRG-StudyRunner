@@ -22,19 +22,23 @@ import {
 import {
   PLUGIN_UI_SURFACES,
   getPluginCatalog,
+  getPluginCatalogGeneration,
+  loadPluginCatalog,
   visiblePluginsWithCapability,
 } from '../../shared/plugin-catalog.js';
 
 let callbacks = {};
 let initialized = false;
 let activePanel = 'sensors';
+// Which catalog generation built the visible panel - see the same field in
+// settings/machine/machine-settings-panel.js for why this is needed.
+let renderedCatalogGeneration = 0;
 
 export function initializeStudySettingsPanel(options = {}) {
   callbacks = options;
   if (initialized) return;
   initialized = true;
 
-  byId('btn-study-settings-back')?.addEventListener('click', () => void callbacks.switchView?.('view-workspace'));
   byId('study-sensors-enabled')?.addEventListener('change', syncSensorControls);
   byId('study-plugin-sensor-options')?.addEventListener('change', (event) => {
     if (event.target?.matches('[data-plugin-enabled]')) syncSensorControls();
@@ -66,7 +70,26 @@ export function initializeStudySettingsPanel(options = {}) {
 /** Open the panel, optionally jumping straight to one section. */
 export function openStudySettingsPanel(panelKey) {
   if (panelKey) activePanel = panelKey;
-  return callbacks.switchView?.('view-study-settings', { onCovered: renderStudySettingsPanel });
+  return callbacks.switchView?.('view-study-settings', {
+    onCovered: async () => {
+      // The sensor and destination lists come from the catalog, which answers
+      // empty while its fetch is in flight. Cached after the first load, so
+      // this is free on every later open.
+      try {
+        await loadPluginCatalog();
+      } catch (error) {
+        console.debug('[study-settings] Plugin catalog is not available yet:', error);
+      }
+      renderStudySettingsPanel();
+    },
+  });
+}
+
+/** Re-render when the catalog arrived after the panel was already built. */
+export function refreshStudySettingsIfStale() {
+  if (!byId('view-study-settings')?.classList.contains('active')) return;
+  if (renderedCatalogGeneration === getPluginCatalogGeneration()) return;
+  renderStudySettingsPanel();
 }
 
 export function renderStudySettingsPanel() {
@@ -74,6 +97,7 @@ export function renderStudySettingsPanel() {
   const root = byId('view-study-settings');
   if (!nav || !root) return;
 
+  renderedCatalogGeneration = getPluginCatalogGeneration();
   nav.innerHTML = renderShellNav(studySettingsEntries(), activePanel);
   activePanel = activateShellPanel(root, activePanel);
   // Switching panels only changes visibility; plugin fields are rebuilt from
@@ -240,7 +264,7 @@ function renderPluginStudyFields(pluginKey, schema, values) {
       return `<label class="switch-row"><span>${escapeHtml(label)}${hint ? `<small>${escapeHtml(hint)}</small>` : ''}</span><span class="switch"><input type="checkbox" data-plugin-setting="${escapeHtml(name)}" data-setting-type="boolean" ${value ? 'checked' : ''}${disabled}><span class="switch-slider"></span></span></label>`;
     }
     if (field.type === 'choice') {
-      return `<label class="field"><span>${escapeHtml(label)}</span><select class="fi-input" data-plugin-setting="${escapeHtml(name)}" data-setting-type="choice"${disabled}${required}>${(field.options || []).map((option) => `<option value="${escapeHtml(option)}" ${String(option) === String(value) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}</select>${hint ? `<small class="settings-hint">${escapeHtml(hint)}</small>` : ''}</label>`;
+      return `<label class="field"><span>${escapeHtml(label)}</span><select data-plugin-setting="${escapeHtml(name)}" data-setting-type="choice"${disabled}${required}>${(field.options || []).map((option) => `<option value="${escapeHtml(option)}" ${String(option) === String(value) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}</select>${hint ? `<small class="settings-hint">${escapeHtml(hint)}</small>` : ''}</label>`;
     }
     const inputType = ['number', 'url'].includes(field.type) ? field.type : 'text';
     const limits = field.type === 'number'
@@ -248,7 +272,7 @@ function renderPluginStudyFields(pluginKey, schema, values) {
       : '';
     const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : '';
     const unit = field.unit ? ` <small>${escapeHtml(field.unit)}</small>` : '';
-    return `<label class="field"><span>${escapeHtml(label)}${unit}</span><input class="fi-input" type="${inputType}" data-plugin-setting="${escapeHtml(name)}" data-setting-type="${escapeHtml(field.type || 'string')}" value="${escapeHtml(value)}"${limits}${placeholder}${disabled}${required}>${hint ? `<small class="settings-hint">${escapeHtml(hint)}</small>` : ''}</label>`;
+    return `<label class="field"><span>${escapeHtml(label)}${unit}</span><input type="${inputType}" data-plugin-setting="${escapeHtml(name)}" data-setting-type="${escapeHtml(field.type || 'string')}" value="${escapeHtml(value)}"${limits}${placeholder}${disabled}${required}>${hint ? `<small class="settings-hint">${escapeHtml(hint)}</small>` : ''}</label>`;
   }).join('')}</div>`;
 }
 
@@ -261,7 +285,7 @@ function renderStudyPluginCredential(plugin) {
     <div class="study-plugin-credential" data-study-plugin-credential="${escapeHtml(pluginKey)}">
       <label class="field">
         <span>${escapeHtml(label)}</span>
-        <input class="fi-input" type="password" autocomplete="new-password" data-study-plugin-credential-input>
+        <input type="password" autocomplete="new-password" data-study-plugin-credential-input>
         <small class="settings-hint" data-study-plugin-credential-state>${escapeHtml(t('studySettings.credentialLoading', 'Checking saved credential...'))}</small>
       </label>
       <div class="dashboard-actions">
@@ -307,13 +331,13 @@ function renderActionField(name, field) {
     return `<label class="switch-row"><span>${escapeHtml(label)}</span><span class="switch"><input type="checkbox" data-plugin-action-field="${escapeHtml(name)}" data-setting-type="boolean"><span class="switch-slider"></span></span></label>`;
   }
   if (Array.isArray(field.enum) && field.enum.length) {
-    return `<label class="field"><span>${escapeHtml(label)}</span><select class="fi-input" data-plugin-action-field="${escapeHtml(name)}" data-setting-type="${escapeHtml(field.type || 'string')}"${required}><option value=""></option>${field.enum.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}</select></label>`;
+    return `<label class="field"><span>${escapeHtml(label)}</span><select data-plugin-action-field="${escapeHtml(name)}" data-setting-type="${escapeHtml(field.type || 'string')}"${required}><option value=""></option>${field.enum.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}</select></label>`;
   }
   const inputType = ['integer', 'number'].includes(field.type) ? 'number' : 'text';
   const step = field.type === 'integer' ? ' step="1"' : field.type === 'number' ? ' step="any"' : '';
   const minimum = field.minimum !== undefined ? ` min="${escapeHtml(field.minimum)}"` : '';
   const maximum = field.maximum !== undefined ? ` max="${escapeHtml(field.maximum)}"` : '';
-  return `<label class="field"><span>${escapeHtml(label)}</span><input class="fi-input" type="${inputType}" data-plugin-action-field="${escapeHtml(name)}" data-setting-type="${escapeHtml(field.type || 'string')}"${step}${minimum}${maximum}${required}></label>`;
+  return `<label class="field"><span>${escapeHtml(label)}</span><input type="${inputType}" data-plugin-action-field="${escapeHtml(name)}" data-setting-type="${escapeHtml(field.type || 'string')}"${step}${minimum}${maximum}${required}></label>`;
 }
 
 async function refreshStudyPluginCredentialStates() {

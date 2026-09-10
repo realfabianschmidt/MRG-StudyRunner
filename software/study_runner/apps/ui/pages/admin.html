@@ -9,26 +9,41 @@
 </head>
 <body class="admin">
 
+<!-- APP HEADER - persistent across every admin view. Logos always left;
+     the breadcrumb and right-side controls change with context, wired in
+     admin-controller.js (syncHeaderForView). -->
+<header class="app-header" id="app-header">
+  <div class="app-header-left">
+    <div class="app-header-logo">
+      <span class="app-header-wordmark">Study Runner</span>
+      <div class="hub-brand" id="hub-brand-logo" hidden></div>
+    </div>
+    <div class="app-header-breadcrumb" id="app-header-breadcrumb" hidden>
+      <span id="breadcrumb-main"></span><span id="breadcrumb-sub"></span>
+    </div>
+  </div>
+  <div class="app-header-right">
+    <div class="lang-dropdown" id="lang-dropdown">
+      <button class="btn-icon-only" type="button" id="btn-lang-toggle" aria-haspopup="listbox" aria-expanded="false" data-i18n-title="admin.language" data-i18n-aria-label="admin.language" title="Language" aria-label="Language">
+        <i class="iconoir-translate"></i>
+      </button>
+      <div class="lang-dropdown-menu" id="lang-switcher" role="listbox" aria-label="Language" hidden>
+        <button type="button" class="lang-btn" data-lang="en">EN <span>English</span></button>
+        <button type="button" class="lang-btn" data-lang="de">DE <span>Deutsch</span></button>
+      </div>
+    </div>
+    <button class="btn-icon-only" type="button" id="btn-hub-settings" data-i18n-title="settingsHub.title" data-i18n-aria-label="settingsHub.title" title="Settings" aria-label="Settings">
+      <i class="iconoir-settings"></i>
+    </button>
+    <button class="btn-icon-only" type="button" id="btn-header-home" data-i18n-title="workspace.backToHub" data-i18n-aria-label="workspace.backToHub" title="Back to hub" aria-label="Back to hub" hidden>
+      <i class="iconoir-home"></i>
+    </button>
+  </div>
+</header>
+
 <!-- HUB VIEW -->
 <div id="view-hub" class="admin-view active">
   <div class="hub-container">
-    <header class="hub-header">
-      <div class="hub-header-text">
-        <div class="hub-brand" id="hub-brand-logo" hidden></div>
-        <h1 data-i18n="hub.welcome.title">Welcome to Study Runner</h1>
-        <p data-i18n="hub.welcome.subtitle">Choose a study or create a new one.</p>
-      </div>
-      <div class="hub-header-actions">
-        <button class="btn-icon-only" type="button" id="btn-hub-settings" data-i18n-title="settingsHub.title" data-i18n-aria-label="settingsHub.title" title="Settings" aria-label="Settings">
-          <i class="iconoir-settings"></i>
-        </button>
-        <div class="lang-switcher" id="lang-switcher" role="group" aria-label="Language">
-          <button type="button" class="lang-btn" data-lang="en">EN</button>
-          <button type="button" class="lang-btn" data-lang="de">DE</button>
-        </div>
-      </div>
-    </header>
-
     <div class="recovery-banner" id="recovery-banner" hidden>
       <div class="recovery-banner-header">
         <i class="iconoir-warning-triangle"></i>
@@ -148,10 +163,6 @@
     <aside class="admin-sidebar settings-nav">
       <div class="sidebar-content">
         <div class="sidebar-main">
-          <div class="sidebar-header">
-            <button class="btn-icon-only" id="btn-machine-settings-back" type="button" data-i18n-title="settingsHub.backToHub" data-i18n-aria-label="settingsHub.backToHub" title="Back to hub" aria-label="Back to hub"><i class="iconoir-home"></i></button>
-            <span class="sidebar-logo"><span data-i18n="settingsHub.title">Settings</span></span>
-          </div>
           <div class="sidebar-section sidebar-section--grow" id="machine-settings-nav"></div>
         </div>
       </div>
@@ -347,10 +358,6 @@
     <aside class="admin-sidebar settings-nav">
       <div class="sidebar-content">
         <div class="sidebar-main">
-          <div class="sidebar-header">
-            <button class="btn-icon-only" id="btn-study-settings-back" type="button" data-i18n-title="studySettings.backToEditor" data-i18n-aria-label="studySettings.backToEditor" title="Back to editor" aria-label="Back to editor"><i class="iconoir-nav-arrow-left"></i></button>
-            <span class="sidebar-logo"><span data-i18n="studySettings.title">Study settings</span></span>
-          </div>
           <div class="sidebar-section sidebar-section--grow" id="study-settings-nav"></div>
         </div>
       </div>
@@ -454,11 +461,6 @@
 
     <!-- Scrollable main content (slides away when overlay opens) -->
     <div class="sidebar-main" id="sidebar-main">
-
-      <div class="sidebar-header">
-        <button class="btn-icon-only" id="btn-workspace-home" data-i18n-title="workspace.backToHub" title="Back to hub"><i class="iconoir-home"></i></button>
-        <span class="sidebar-logo"><span data-i18n="workspace.studyAdmin">Study Admin</span></span>
-      </div>
 
       <div class="sidebar-section">
         <div class="sidebar-section-title"><span data-i18n="sidebar.studyId">Study ID</span></div>

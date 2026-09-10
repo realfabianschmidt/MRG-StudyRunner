@@ -22,7 +22,9 @@ import { refreshBrandingSettings, renderBrandingSettingsPanel } from './branding
 import {
   PLUGIN_UI_SURFACES,
   getPluginCatalog,
+  getPluginCatalogGeneration,
   isPluginVisible,
+  loadPluginCatalog,
   pluginUiIcon,
 } from '../../shared/plugin-catalog.js';
 
@@ -33,6 +35,17 @@ import {
  * the dashboard poll there without a second fetch.
  */
 let host = {};
+
+/**
+ * The catalog generation the visible shell was built from.
+ *
+ * `getPluginCatalog()` answers with an empty catalog while its fetch is still
+ * in flight, so a shell built too early lists no sensors at all. Remembering
+ * which generation produced the current markup is what lets a later arrival
+ * re-render instead of leaving the operator with an empty page until they
+ * close and re-open the settings.
+ */
+let renderedCatalogGeneration = 0;
 
 export function initializeMachineSettingsPanel(options = {}) {
   host = options;
@@ -46,11 +59,21 @@ export function initializeMachineSettingsPanel(options = {}) {
  * panels are already filled when the shell appears.
  */
 export function openSettingsHub() {
-  // Render synchronously inside the covered frame, then let the status load
-  // fill in afterwards. Awaiting two fetches under the cover made opening
-  // settings visibly slower than every other view for no benefit.
-  return host.switchView('view-machine-settings', { onCovered: renderSettingsHubShell })
-    .then(() => { void loadSettingsHubStatus(); });
+  // Render inside the covered frame, then let the status load fill in
+  // afterwards. Awaiting the status fetches under the cover made opening
+  // settings visibly slower than every other view for no benefit - but the
+  // catalog is awaited, because a shell built without it has no sensor
+  // entries at all. That call is cached, so a warm open still costs nothing.
+  return host.switchView('view-machine-settings', {
+    onCovered: async () => {
+      try {
+        await loadPluginCatalog();
+      } catch (error) {
+        console.debug('[admin] Plugin catalog is not available yet:', error);
+      }
+      renderSettingsHubShell();
+    },
+  }).then(() => { void loadSettingsHubStatus(); });
 }
 
 export function isSettingsHubOpen() {
@@ -68,7 +91,8 @@ export function renderSettingsHubShell() {
   }
 
   nav.innerHTML = renderShellNav(entries, host.state.settingsHubActiveTab);
-  panels.innerHTML = settingsHubPanels();
+  panels.innerHTML = settingsHubStatusRow() + settingsHubPanels();
+  renderedCatalogGeneration = getPluginCatalogGeneration();
 
   const root = byId('view-machine-settings');
   host.state.settingsHubActiveTab = activateShellPanel(root, host.state.settingsHubActiveTab);
@@ -88,6 +112,52 @@ export function renderSettingsHubShell() {
   root?.querySelectorAll('[data-clear-plugin-credential]').forEach((button) => {
     button.addEventListener('click', () => void clearPluginCredential(button.dataset.clearPluginCredential));
   });
+  root?.querySelector('[data-settings-retry]')?.addEventListener('click', () => void loadSettingsHubStatus());
+}
+
+/**
+ * Re-render once the catalog arrives after the shell was already built.
+ *
+ * Called from the admin controller's start-up chain: on a cold start the hub
+ * can be open before `/api/plugins/catalog` has answered.
+ */
+export function refreshSettingsHubIfStale() {
+  if (!isSettingsHubOpen()) return;
+  if (renderedCatalogGeneration === getPluginCatalogGeneration()) return;
+  renderSettingsHubShell();
+}
+
+/**
+ * One line while the shell is still waiting, and nothing once it is not.
+ *
+ * Deliberately no "x of n": the settings for every plugin arrive in a single
+ * `/api/admin/plugin-settings` response, so there is no per-plugin
+ * progression to count. A first attempt counted plugins that had a settings
+ * entry against all plugins in the hub and stuck at "5 of 6" forever, because
+ * a plugin with no machine settings never appears in that response at all.
+ * The remaining *time* is not knowable either - plugin workers are
+ * subprocesses whose first call carries a multi-second budget - so this stays
+ * an indeterminate line rather than pretending to be a progress bar.
+ */
+function settingsHubStatusRow() {
+  if (host.state.settingsHubError) {
+    return `
+      <div class="settings-hub-status settings-hub-status--error">
+        <span>${escapeHtml(t('settingsHub.loadFailed', 'Some settings could not be loaded.'))}</span>
+        <button class="btn-secondary btn-xs" type="button" data-settings-retry>
+          <i class="iconoir-refresh"></i> <span>${escapeHtml(t('settingsHub.retry', 'Try again'))}</span>
+        </button>
+      </div>`;
+  }
+
+  const catalogReady = getPluginCatalogGeneration() > 0;
+  if (catalogReady && host.state.pluginSettingsLoaded) return '';
+
+  return `
+    <div class="settings-hub-status">
+      <span class="settings-hub-status-dot" aria-hidden="true"></span>
+      <span>${escapeHtml(t('settingsHub.loadingExtensions', 'Loading extensions ...'))}</span>
+    </div>`;
 }
 
 /**
@@ -183,29 +253,51 @@ function handleSettingsHubAction(action) {
   }
 }
 
+/**
+ * Load everything the shell needs, judging each source on its own.
+ *
+ * The three fetches used to run sequentially inside one `try`, so a slow or
+ * failing `/api/admin/status` meant the other two never ran: `pluginSettings`
+ * stayed empty, every plugin's settings block rendered as an empty string, and
+ * the only way out was to leave the settings and come back once the server had
+ * warmed up. They are independent, so they now run together and a failure of
+ * one no longer hides the other two.
+ */
 export async function loadSettingsHubStatus() {
-  try {
-    host.state.settingsHubStatus = await getJson('/api/admin/status', { timeoutMs: 1500 });
-    try {
-      const settingsPayload = await getJson('/api/admin/plugin-settings', { timeoutMs: 1500 });
-      host.state.pluginSettings = settingsPayload.plugins || {};
-      host.state.pluginSettingsRevision = settingsPayload.revision || '';
-    } catch (settingsError) {
-      console.debug('[admin] Could not load plugin settings schema:', settingsError);
-    }
-    try {
-      host.state.hardwareConfig = await getJson('/api/hardware-config', { timeoutMs: 1500 });
-    } catch (hardwareError) {
-      console.debug('[admin] Could not load redacted plugin credential state:', hardwareError);
-    }
-    host.state.tabletGate = host.state.settingsHubStatus?.study_clients?.single_tablet || host.state.tabletGate;
-    host.state.studyRunState = host.state.settingsHubStatus?.study_run_state || host.state.studyRunState;
-    host.renderStudyRunState();
-    if (isSettingsHubOpen()) {
-      renderSettingsHubShell();
-    }
-  } catch (error) {
-    console.debug('[admin] Could not load settings hub plugin status:', error);
+  const [status, settings, hardware] = await Promise.allSettled([
+    getJson('/api/admin/status', { timeoutMs: 1500 }),
+    getJson('/api/admin/plugin-settings', { timeoutMs: 1500 }),
+    getJson('/api/hardware-config', { timeoutMs: 1500 }),
+  ]);
+
+  if (status.status === 'fulfilled') {
+    host.state.settingsHubStatus = status.value;
+    host.state.tabletGate = status.value?.study_clients?.single_tablet || host.state.tabletGate;
+    host.state.studyRunState = status.value?.study_run_state || host.state.studyRunState;
+  } else {
+    console.debug('[admin] Could not load settings hub plugin status:', status.reason);
+  }
+  if (settings.status === 'fulfilled') {
+    host.state.pluginSettings = settings.value.plugins || {};
+    host.state.pluginSettingsRevision = settings.value.revision || '';
+    host.state.pluginSettingsLoaded = true;
+  } else {
+    console.debug('[admin] Could not load plugin settings schema:', settings.reason);
+  }
+  if (hardware.status === 'fulfilled') {
+    host.state.hardwareConfig = hardware.value;
+  } else {
+    console.debug('[admin] Could not load redacted plugin credential state:', hardware.reason);
+  }
+
+  // A silent `console.debug` left the operator on a page missing whole blocks
+  // with nothing to act on, so the shell says so and offers the retry.
+  host.state.settingsHubError = [status, settings, hardware]
+    .some((result) => result.status === 'rejected');
+
+  host.renderStudyRunState();
+  if (isSettingsHubOpen()) {
+    renderSettingsHubShell();
   }
 }
 
@@ -272,7 +364,17 @@ function renderTabletAccessPanel() {
  */
 function renderPluginSettingsForm(pluginKey) {
   const entry = host.state.pluginSettings?.[pluginKey];
-  if (!entry?.fields?.length) return '';
+  if (!entry?.fields?.length) {
+    // "Not loaded yet" and "this plugin has no machine settings" are
+    // indistinguishable from the state alone, so the flag decides whether the
+    // operator sees a placeholder or an intentionally absent block.
+    if (host.state.pluginSettingsLoaded) return '';
+    return `
+      <div class="plugin-settings-form">
+        <div class="dashboard-card-title"><i class="iconoir-settings"></i> <span>${escapeHtml(t('pluginSettings.title', 'Machine settings'))}</span></div>
+        <p class="settings-hint">${escapeHtml(t('pluginSettings.loading', 'Loading settings ...'))}</p>
+      </div>`;
+  }
 
   const fields = entry.fields.map((field) => {
     const inputId = `plugin-setting-${pluginKey}-${field.name}`.replace(/[^A-Za-z0-9_-]/g, '-');
@@ -308,14 +410,14 @@ function renderSettingInput(inputId, field) {
   if (field.type === 'choice') {
     const options = (field.options || []).map((option) =>
       `<option value="${escapeHtml(option)}"${option === field.value ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('');
-    return `<select class="fi-input" id="${inputId}" data-setting-name="${name}">${options}</select>`;
+    return `<select id="${inputId}" data-setting-name="${name}">${options}</select>`;
   }
   if (field.type === 'number') {
     const min = field.minimum !== null && field.minimum !== undefined ? ` min="${escapeHtml(String(field.minimum))}"` : '';
     const max = field.maximum !== null && field.maximum !== undefined ? ` max="${escapeHtml(String(field.maximum))}"` : '';
-    return `<input class="fi-input" type="number" step="any" id="${inputId}" data-setting-name="${name}" value="${escapeHtml(String(field.value ?? ''))}"${min}${max}>`;
+    return `<input type="number" step="any" id="${inputId}" data-setting-name="${name}" value="${escapeHtml(String(field.value ?? ''))}"${min}${max}>`;
   }
-  return `<input class="fi-input" type="text" id="${inputId}" data-setting-name="${name}" value="${escapeHtml(String(field.value ?? ''))}">`;
+  return `<input type="text" id="${inputId}" data-setting-name="${name}" value="${escapeHtml(String(field.value ?? ''))}">`;
 }
 
 async function savePluginSettings(pluginKey) {
@@ -365,7 +467,7 @@ function renderPluginCredentialForm(plugin) {
       <p class="settings-hint">${escapeHtml(t('pluginSettings.credentialHint', 'The saved value remains in the local secret store and is never returned to this page.'))}</p>
       <label class="field">
         <span>${escapeHtml(humanize(field))}</span>
-        <input class="fi-input" type="password" autocomplete="new-password" data-plugin-credential-input>
+        <input type="password" autocomplete="new-password" data-plugin-credential-input>
         <small class="settings-hint" data-plugin-credential-state>${escapeHtml(status)}</small>
       </label>
       <div class="dashboard-actions">

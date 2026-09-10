@@ -1856,6 +1856,7 @@ Add a row before starting. Remove it when the package is merged.
 
 | Package / work item | Owner | Branch | Since |
 |---|---|---|---|
+| UI redesign (apps/ui pages/styles/scripts visuals + extensions/cards/*/card.js visuals + locale wording) | Claude Code | `feature/architecture-1.0` | 2026-09-10 |
 
 Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 `shared`/`contracts`/`data_core/{contract,worker,host}`/`runtime_core`

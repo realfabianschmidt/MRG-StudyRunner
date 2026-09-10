@@ -80,9 +80,12 @@ export function renderEditor(q) {
   const wordListsUsed = getWordLists(q);
   const quadSections = wordListsUsed.map(quad => `
     <div class="field mm-ed-quad-field">
-      <label class="mm-ed-quad-label" style="color:${quad.color};">${escapeHtml(quad.label)}</label>
+      <label class="mm-ed-quad-label" style="color:${quad.colorDark};">
+        <span style="width:10px;height:10px;border-radius:50%;background:${quad.color};flex-shrink:0;"></span>
+        ${escapeHtml(quad.label)}
+      </label>
       <textarea class="mm-ed-words fi-textarea" data-quadrant="${quad.id}"
-                style="min-height:96px;font-size:.75rem;"
+                style="min-height:140px;font-size:.75rem;background:var(--bg-elevated);"
                 placeholder="${escapeHtml(t('editor.oneWordPerLine', 'One word per line'))}">${escapeHtml(quad.words.join('\n'))}</textarea>
     </div>`).join('');
 

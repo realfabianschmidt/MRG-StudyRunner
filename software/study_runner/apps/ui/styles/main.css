@@ -65,7 +65,7 @@
 :root {
   /* Surfaces - neutral and near-white. The page and a card differ by a hair,
      so what separates a card from the page is its hairline, not its tone. */
-  --bg:           #F7F7F8;
+  --bg:           #FFFFFF;
   --bg-elevated:  #FFFFFF;
   --bg-sunken:    #EFEFF1;
 
@@ -95,8 +95,11 @@
   --neg-14:       rgba(179,38,30,.14);
 
   /* Shadows - only for layers that genuinely float above the page */
-  --shadow-sm:     0 1px 3px rgba(0,0,0,.04);
+  --shadow-sm:     0 2px 8px rgba(17,17,19,.06);
   --shadow-md:     0 6px 20px rgba(0,0,0,.08);
+  --shadow-hover:  0 14px 34px rgba(17,17,19,.14);
+  --shadow-header: 0 4px 16px rgba(17,17,19,.07);
+  --header-h:      52px;
 
   /* Spacing - a 4px grid with one 2px half-step. Every padding, margin and gap
      in this file resolves to one of these; nothing is a hand-picked number.
@@ -340,6 +343,19 @@ body {
 }
 .switch-row:hover { background: var(--accent-06); }
 .switch-row > span:first-child { font-size: .875rem; color: var(--ink-70); line-height: 1.5; }
+
+/* Settings panels (machine + study) use the same .switch-row markup as the
+   participant page for their boolean fields, but read as a document rather
+   than a control surface here - so the filled box comes off, matching the
+   flat .editor-toggle look the question editor already uses for the same
+   purpose. */
+.settings-page .switch-row {
+  background: none;
+  padding: var(--s-2) 0;
+  border-radius: 0;
+  margin-bottom: 0;
+}
+.settings-page .switch-row:hover { background: none; }
 
 /* Editor switches: a plain row, no panel, no explanatory paragraph.
    .switch-row keeps its filled look for the participant page; this is the
@@ -910,32 +926,28 @@ label.field > span:first-child {
 .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); }
 .field textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
 
-/* On a settings page the fields are part of the prose, so they are ruled
-   rather than boxed. The editor sidebar keeps boxed inputs - there a field
-   is a control in a tool, not a line in a document. */
-.settings-page .field input:not([type=checkbox]):not([type=file]),
-.settings-page .field select {
-  padding: 0 0 var(--s-2);
-  background: transparent;
-  border: none;
-  border-bottom: 1.5px solid var(--ink-14);
-  border-radius: 0;
-}
-.settings-page .field input:not([type=checkbox]):not([type=file]):focus,
-.settings-page .field select:focus {
-  border-bottom-color: var(--accent);
-}
-.settings-page .field textarea {
-  background: var(--bg-sunken);
-  border-color: transparent;
-}
-
-/* The editor's own fields sit on the sidebar's sunken ground. */
+/* Fields sit on white, lifted with an inset shadow rather than a flat grey
+   fill or a border. One rule for both places a field appears - the editor
+   sidebar and the settings pages - so a control looks the same wherever the
+   operator meets it. Checkboxes and file pickers keep their native chrome. */
 .admin-sidebar .field input,
 .admin-sidebar .field select,
-.admin-sidebar .field textarea {
-  background: var(--bg-sunken);
+.admin-sidebar .field textarea,
+.settings-page .field input:not([type=checkbox]):not([type=file]),
+.settings-page .field select,
+.settings-page .field textarea {
+  background: var(--bg-elevated);
+  border: none;
   border-radius: var(--r-md);
+  box-shadow: inset 0 1px 4px var(--ink-14);
+}
+.admin-sidebar .field input:focus,
+.admin-sidebar .field select:focus,
+.admin-sidebar .field textarea:focus,
+.settings-page .field input:not([type=checkbox]):not([type=file]):focus,
+.settings-page .field select:focus,
+.settings-page .field textarea:focus {
+  box-shadow: inset 0 1px 4px var(--ink-14), 0 0 0 3px var(--accent-16);
 }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); margin-bottom: var(--s-4); align-items: end; }
 .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--s-3); margin-bottom: var(--s-4); align-items: end; }
@@ -960,7 +972,7 @@ body.admin::before { display: none; }
    ============================================================ */
 .admin-view {
   display: none;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--header-h));
   animation: fadeIn var(--t-med) var(--fluid) both;
 }
 .admin-view.active {
@@ -970,58 +982,145 @@ body.admin::before { display: none; }
 .hub-container {
   max-width: 1040px;
   margin: 0 auto;
-  padding: var(--s-20) var(--s-10);
+  padding: var(--s-12) var(--s-10) var(--s-20);
 }
-.hub-header {
-  margin-bottom: var(--s-12);
+
+/* ============================================================
+   APP HEADER - persistent top bar, present on every admin view.
+   White, flat, separated from the page by a shadow only.
+   ============================================================ */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: var(--header-h);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--s-4);
+  padding: 0 var(--s-8) 0 0;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-header);
 }
-.hub-header-actions {
+.app-header-left {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-width: 0;
+  height: 100%;
+}
+.app-header-logo {
   display: flex;
   align-items: center;
   gap: var(--s-3);
   flex-shrink: 0;
+  width: 300px;
+  height: 100%;
+  box-sizing: border-box;
+  padding-left: var(--s-8);
 }
-/* The gear and the language switcher sit side by side in the hub header, so
-   they share a height and a radius: both are pills of --control-md. */
-.hub-header-actions .btn-icon-only {
-  border-radius: var(--r-pill);
+.app-header-wordmark {
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -.01em;
+  white-space: nowrap;
 }
-.lang-switcher {
-  display: inline-flex;
-  align-items: stretch;
-  height: var(--control-md);
-  flex-shrink: 0;
-  border: 1px solid var(--ink-14);
-  border-radius: var(--r-pill);
+.app-header-logo .hub-brand {
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+.app-header-logo .hub-brand img {
+  height: 100%;
+  width: auto;
+  display: block;
+}
+.app-header-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding-left: var(--s-5);
+  font-size: .875rem;
+  color: var(--ink-55);
+  min-width: 0;
   overflow: hidden;
+  transition: opacity var(--t-med) var(--fluid);
 }
-.lang-switcher .lang-btn {
+.app-header-breadcrumb.crumb-main-pending #breadcrumb-main {
+  opacity: 0;
+  transform: translateY(3px);
+}
+.app-header-breadcrumb.crumb-main-pending.is-scrolled #breadcrumb-main {
+  opacity: 1;
+  transform: translateY(0);
+}
+.app-header-breadcrumb #breadcrumb-main {
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -.01em;
+  transition: opacity var(--t-fast) var(--fluid), transform var(--t-fast) var(--fluid);
+}
+.app-header-breadcrumb #breadcrumb-sub {
+  font-family: var(--font-mono);
+  font-size: .688rem;
+  font-weight: 500;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-shrink: 0;
+}
+.lang-dropdown {
+  position: relative;
+}
+.lang-dropdown-menu {
+  position: absolute;
+  top: calc(100% + var(--s-2));
+  right: 0;
+  min-width: 140px;
+  background: var(--bg-elevated);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-hover);
+  padding: var(--s-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-0h);
+  z-index: 110;
+}
+.lang-dropdown-menu[hidden] { display: none; }
+.lang-dropdown-menu .lang-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   border: none;
   background: transparent;
   color: var(--ink-70);
-  padding: 0 var(--s-4);
-  font-size: .8rem;
-  font-weight: 700;
-  letter-spacing: .04em;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  font-family: var(--font-body);
+  font-size: .875rem;
+  text-align: left;
   cursor: pointer;
+  transition: background var(--t-fast) var(--fluid), color var(--t-fast) var(--fluid);
 }
-.lang-switcher .lang-btn.active {
-  background: var(--ink);
-  color: #fff;
-}
-.hub-header h1 {
-  font-size: 2.5rem;
+.lang-dropdown-menu .lang-btn:hover {
+  background: var(--bg-sunken);
   color: var(--ink);
-  letter-spacing: -.04em;
-  margin-bottom: var(--s-2);
 }
-.hub-header p {
-  font-size: 1.05rem;
-  color: var(--ink-70);
+.lang-dropdown-menu .lang-btn.active {
+  color: var(--accent);
+  font-weight: 700;
 }
 .hub-grid {
   display: grid;
@@ -1040,28 +1139,26 @@ body.admin::before { display: none; }
 .hub-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--hairline);
-  background: var(--ink-08);
-  border: 1px solid var(--ink-08);
-  border-radius: var(--r-lg);
-  overflow: hidden;
+  gap: var(--s-4);
 }
 .hub-card {
   background: var(--bg-elevated);
   border: none;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
   padding: var(--s-6);
   display: flex;
   align-items: center;
   gap: var(--s-3);
   cursor: pointer;
-  transition: background var(--t-fast) var(--fluid);
+  transition: box-shadow var(--t-fast) var(--fluid);
   color: var(--ink);
   text-decoration: none;
   font-family: var(--font-body);
   text-align: left;
 }
 .hub-card:hover {
-  background: var(--bg-sunken);
+  box-shadow: var(--shadow-hover);
 }
 .hub-card i {
   font-size: 22px;
@@ -1162,17 +1259,20 @@ body.admin::before { display: none; }
 
 .hub-active-card {
   background: var(--bg-elevated);
-  border: 1px solid var(--ink-14);
+  border: none;
   border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
   padding: var(--s-7);
+  transition: box-shadow var(--t-fast) var(--fluid);
+}
+.hub-active-card:hover {
+  box-shadow: var(--shadow-hover);
 }
 .hub-active-header {
   display: flex;
   align-items: center;
   gap: var(--s-4);
   margin-bottom: var(--s-6);
-  padding-bottom: var(--s-6);
-  border-bottom: 1px solid var(--ink-08);
 }
 .hub-active-icon {
   width: var(--s-12);
@@ -1249,9 +1349,14 @@ body.admin::before { display: none; }
 .hub-access-card {
   margin-top: var(--s-4);
   padding: var(--s-5);
-  border: 1px solid var(--ink-14);
+  border: none;
   border-radius: var(--r-lg);
   background: var(--bg-elevated);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--t-fast) var(--fluid);
+}
+.hub-access-card:hover {
+  box-shadow: var(--shadow-hover);
 }
 .hub-access-header {
   display: flex;
@@ -1275,7 +1380,6 @@ body.admin::before { display: none; }
   gap: var(--s-2);
   align-items: center;
   padding: var(--s-2) 0;
-  border-top: 1px solid var(--ink-08);
 }
 .hub-access-row span {
   font-size: .75rem;
@@ -1372,7 +1476,7 @@ body.admin::before { display: none; }
 .admin-layout {
   display: grid;
   grid-template-columns: 300px 1fr;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--header-h));
 }
 
 /* -- Sidebar -- */
@@ -1382,8 +1486,8 @@ body.admin::before { display: none; }
   display: flex;
   flex-direction: column;
   position: sticky;
-  top: 0;
-  height: 100vh;
+  top: var(--header-h);
+  height: calc(100vh - var(--header-h));
   overflow: hidden; /* clips the sliding overlay - do not change */
 }
 
@@ -1798,9 +1902,14 @@ body.admin::before { display: none; }
 }
 .dashboard-card {
   background: var(--bg-elevated);
-  border: 1px solid var(--ink-08);
+  border: none;
   border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
   padding: var(--s-4);
+  transition: box-shadow var(--t-fast) var(--fluid);
+}
+.dashboard-card:hover {
+  box-shadow: var(--shadow-hover);
 }
 .dashboard-card--wide {
   grid-column: 1 / -1;
@@ -2073,7 +2182,6 @@ body.admin::before { display: none; }
 .status-pill--unknown,
 .status-pill--idle { background: var(--ink-08);       color: var(--ink-30); }
 
-
 @media (max-width: 760px) {
   .plugin-control-row {
     grid-template-columns: 1fr;
@@ -2116,7 +2224,6 @@ body.admin::before { display: none; }
   justify-content: space-between;
   gap: var(--s-4);
   padding: var(--s-5);
-  border-bottom: 1px solid var(--ink-08);
 }
 .settings-modal-header h2 {
   font-size: 1.1rem;
@@ -2454,10 +2561,50 @@ body.admin::before { display: none; }
   color: var(--ink-55);
   line-height: 1.35;
 }
+/* On a settings page the sunken fill reads as a grey slab against the white
+   ground, so the action keeps only its hairline. */
+.settings-page .settings-hub-action {
+  background: none;
+  border-color: var(--ink-08);
+}
+.settings-page .settings-hub-action:hover {
+  background: var(--ink-08);
+  border-color: var(--accent-30);
+}
 .settings-hub-plugin {
   display: flex;
   flex-direction: column;
   gap: var(--s-3);
+}
+
+/* Loading and failure state for the settings shell. One line, because the
+   only honest thing to report is how many extensions have answered - their
+   workers are subprocesses, so the remaining time is not knowable. */
+.settings-hub-status {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-5);
+  font-size: .875rem;
+  color: var(--ink-55);
+}
+.settings-hub-status--error {
+  justify-content: space-between;
+  color: var(--warn);
+}
+.settings-hub-status-dot {
+  width: var(--s-2);
+  height: var(--s-2);
+  border-radius: 50%;
+  background: var(--accent);
+  animation: settingsHubPulse 1.2s var(--fluid) infinite;
+}
+@keyframes settingsHubPulse {
+  0%, 100% { opacity: .25; }
+  50%      { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-hub-status-dot { animation: none; opacity: .6; }
 }
 .plugin-problem-list {
   display: grid;
@@ -2594,6 +2741,18 @@ body.admin::before { display: none; }
   background: var(--bg-sunken);
 }
 
+/* Inside a settings page the frame and the grey "off" fill are two more
+   slabs on white ground, so the list becomes ruled like .status-grid and a
+   disabled row recedes by dimming instead of by filling. */
+.settings-page .stimulus-toggle-list {
+  border: none;
+  border-radius: 0;
+}
+.settings-page .stimulus-toggle-row--off {
+  background: none;
+  opacity: .55;
+}
+
 .study-plugin-row {
   align-items: stretch;
   flex-direction: column;
@@ -2679,6 +2838,10 @@ body.admin::before { display: none; }
   border-color: var(--ink-14);
   color: var(--ink-30);
   cursor: not-allowed;
+}
+.settings-page .stimulus-toggle-settings {
+  background: none;
+  border-color: var(--ink-08);
 }
 
 /* ============================================================
@@ -3217,14 +3380,20 @@ body.admin::before { display: none; }
    MOOD METER – EDITOR (per-quadrant word lists)
    ============================================================ */
 .mm-ed-quads {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: var(--s-3);
 }
 .mm-ed-quad-field {
   margin-bottom: 0;
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
 }
 .mm-ed-quad-label {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
   font-size: .75rem;
   font-weight: 600;
   letter-spacing: .05em;
@@ -3490,9 +3659,12 @@ body.admin::before { display: none; }
   background: none;
   border: none;
   border-radius: 0;
-  padding: var(--s-7) 0 0;
-  margin-top: var(--s-7);
-  border-top: 1px solid var(--ink-08);
+  box-shadow: none;
+  padding: var(--s-9) 0 0;
+  margin-top: var(--s-9);
+}
+.settings-page .dashboard-card:hover {
+  box-shadow: none;
 }
 
 .settings-page .dashboard-card:first-child {
@@ -3510,19 +3682,13 @@ body.admin::before { display: none; }
 .status-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 0;
+  gap: var(--s-4);
   margin-bottom: var(--s-4);
-  border-top: 1px solid var(--ink-08);
 }
 
 .status-card {
-  padding: var(--s-4) var(--s-5) var(--s-4) 0;
-  border-bottom: 1px solid var(--ink-08);
+  padding: 0;
   background: transparent;
-}
-
-.status-card:last-child {
-  border-bottom: none;
 }
 
 .status-card-label {
@@ -3545,33 +3711,13 @@ body.admin::before { display: none; }
 /* Two columns, ruled like a table rather than boxed like cards. */
 .status-grid--row {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
-}
-
-.status-grid--row .status-card:nth-child(2n) {
-  padding-left: var(--s-5);
-  padding-right: 0;
-  border-left: 1px solid var(--ink-08);
-}
-
-/* The whole last row loses its rule, not just the final cell - otherwise a
-   two-column grid ends on one hairline and one gap. */
-.status-grid--row .status-card:nth-last-child(-n + 2) {
-  border-bottom: none;
+  gap: var(--s-5) var(--s-6);
 }
 
 @media (max-width: 620px) {
   .status-grid--row {
     grid-template-columns: 1fr;
-  }
-
-  .status-grid--row .status-card:nth-child(2n) {
-    padding-left: 0;
-    border-left: none;
-  }
-
-  .status-grid--row .status-card:not(:last-child) {
-    border-bottom: 1px solid var(--ink-08);
+    gap: var(--s-4);
   }
 }
 
@@ -4347,13 +4493,14 @@ body.admin::before { display: none; }
 .study-readiness-details {
   margin-top: var(--s-1);
   padding-left: var(--s-4);
-  font: .72rem/1.45 var(--font-mono);
   overflow-wrap: anywhere;
+  font: .72rem/1.45 var(--font-mono);
 }
 .study-readiness .btn-secondary {
   width: 100%;
   justify-content: center;
 }
+
 
 .is-cta {
   border-color: var(--warn) !important;

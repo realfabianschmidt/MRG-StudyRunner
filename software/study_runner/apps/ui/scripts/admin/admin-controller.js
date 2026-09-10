@@ -12,10 +12,16 @@ import { confirmWithModal, createModal } from '../shared/modal.js';
 import {
   initializeMachineSettingsPanel,
   isSettingsHubOpen,
+  loadSettingsHubStatus,
   openSettingsHub,
+  refreshSettingsHubIfStale,
   renderSettingsHubShell,
 } from '../settings/machine/machine-settings-panel.js';
-import { initializeStudySettingsPanel, openStudySettingsPanel } from '../settings/study/study-settings-panel.js';
+import {
+  initializeStudySettingsPanel,
+  openStudySettingsPanel,
+  refreshStudySettingsIfStale,
+} from '../settings/study/study-settings-panel.js';
 import { CARDS, CARD_TYPES, defaultFor, loadCards, assertCardsAvailable } from '../cards/index.js';
 import {
   collectInfo,
@@ -55,10 +61,112 @@ async function setupLanguage() {
         console.error('[admin] Could not switch language:', error);
       }
       markActive();
+      closeLangDropdown();
       renderStudyRunState();
     });
   });
   markActive();
+}
+
+// The language icon in the header opens a small dropdown menu. Closes on
+// an outside click or a second press of the toggle.
+function closeLangDropdown() {
+  document.getElementById('lang-switcher')?.setAttribute('hidden', '');
+  document.getElementById('btn-lang-toggle')?.setAttribute('aria-expanded', 'false');
+}
+function setupLangDropdown() {
+  const toggle = document.getElementById('btn-lang-toggle');
+  const menu = document.getElementById('lang-switcher');
+  if (!toggle || !menu) return;
+  toggle.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const isHidden = menu.hasAttribute('hidden');
+    if (isHidden) {
+      menu.removeAttribute('hidden');
+      toggle.setAttribute('aria-expanded', 'true');
+    } else {
+      closeLangDropdown();
+    }
+  });
+  document.addEventListener('click', (event) => {
+    if (!document.getElementById('lang-dropdown')?.contains(event.target)) closeLangDropdown();
+  });
+}
+
+// Per-view header context: which crumb text shows, and which right-side
+// icon (settings on the hub, back everywhere else) is visible. `backTarget`
+// is where the header's home icon returns to - the editor from study
+// settings, the hub from everywhere else.
+const HEADER_META = {
+  'view-hub': { showSettings: true },
+  'view-machine-settings': { crumb: ['settingsHub.title', 'Settings'], backTarget: 'view-hub' },
+  'view-study-settings': { crumb: ['studySettings.title', 'Study settings'], backTarget: 'view-workspace' },
+  'view-workspace': { crumb: ['workspace.studyAdmin', 'Study Admin'], backTarget: 'view-hub' },
+  'view-dashboard': { crumb: ['dashboard.title', 'Dashboard'], backTarget: 'view-hub' },
+  'view-session-detail': { crumb: ['sessions.title', 'Sessions'], backTarget: 'view-hub' },
+};
+let headerBackTarget = 'view-hub';
+
+function updateBreadcrumbSub() {
+  const sub = document.getElementById('breadcrumb-sub');
+  const crumbWrap = document.getElementById('app-header-breadcrumb');
+  const activeView = document.querySelector('.admin-view.active');
+  if (!activeView) { if (sub) sub.textContent = ''; return; }
+
+  // Views with their own on-page H1 keep the header's compact title hidden
+  // until that H1 has scrolled up under the bar - then it "arrives" in the
+  // header, tracked and compact, in place of the page's own big heading.
+  const pageHeading = activeView.querySelector('.dashboard-hero h1, #study-settings-heading');
+  if (crumbWrap) {
+    crumbWrap.classList.toggle('crumb-main-pending', !!pageHeading);
+    if (pageHeading) {
+      const scrolledPast = pageHeading.getBoundingClientRect().bottom <= 72;
+      crumbWrap.classList.toggle('is-scrolled', scrolledPast);
+    }
+  }
+
+  if (!sub) return;
+  // Prefer the section heading currently under the header (scroll-spy) over
+  // the static nav-item label, so "Settings / Tablet" becomes "Settings /
+  // Browser links" once that section has scrolled under the bar.
+  const titles = [...activeView.querySelectorAll('.dashboard-card-title > span')]
+    .filter((el) => el.getBoundingClientRect().height > 0);
+  if (titles.length) {
+    const offset = 90;
+    let current = titles[0];
+    for (const el of titles) {
+      if (el.getBoundingClientRect().top - offset <= 0) current = el;
+      else break;
+    }
+    sub.textContent = ` / ${current.textContent}`;
+    return;
+  }
+  const activeItem = activeView.querySelector('.settings-nav-item.active span');
+  sub.textContent = activeItem ? ` / ${activeItem.textContent}` : '';
+}
+
+function syncHeaderForView(viewId) {
+  const meta = HEADER_META[viewId] || {};
+  const crumbMain = document.getElementById('breadcrumb-main');
+  const crumbWrap = document.getElementById('app-header-breadcrumb');
+  if (crumbMain) crumbMain.textContent = meta.crumb ? t(meta.crumb[0], meta.crumb[1]) : '';
+  if (crumbWrap) crumbWrap.hidden = !meta.crumb;
+  document.getElementById('btn-hub-settings')?.toggleAttribute('hidden', !meta.showSettings);
+  document.getElementById('btn-header-home')?.toggleAttribute('hidden', !meta.backTarget);
+  headerBackTarget = meta.backTarget || 'view-hub';
+  updateBreadcrumbSub();
+}
+
+// Settings-shell nav items get re-rendered (innerHTML) each time a panel
+// opens, so a live MutationObserver on the active class is simpler and more
+// robust than hooking every render call site individually.
+function initHeaderSync() {
+  syncHeaderForView('view-hub');
+  const observer = new MutationObserver(updateBreadcrumbSub);
+  observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+  document.querySelectorAll('.admin-main').forEach((main) => {
+    main.addEventListener('scroll', updateBreadcrumbSub, { passive: true });
+  });
 }
 
 const state = {
@@ -77,6 +185,11 @@ const state = {
   settingsHubStatus: null,
   settingsHubActiveTab: 'tablet',
   pluginSettings: {},
+  // An empty `pluginSettings` means "not fetched yet" until this turns true,
+  // which is what lets the settings shell show a placeholder instead of
+  // silently omitting a plugin's whole settings block.
+  pluginSettingsLoaded: false,
+  settingsHubError: false,
   readiness: null,
 };
 
@@ -85,6 +198,8 @@ const $ = (id) => document.getElementById(id);
 
 async function init() {
   await setupLanguage();
+  setupLangDropdown();
+  initHeaderSync();
   bindEvents();
   initializeAdminDashboard({ showToast, openSettingsHub });
   // `state` goes over by reference: the settings hub's status fetch is the same
@@ -130,6 +245,10 @@ async function init() {
       getJson('/api/config'),
       loadPluginCatalog(),
     ]);
+    // A settings shell opened during start-up was built from a catalog that
+    // had not answered yet, and nothing re-rendered when it did.
+    refreshSettingsHubIfStale();
+    refreshStudySettingsIfStale();
     await loadCards({ requiredTypes: [...(config.questions || []).map(q => q.type), 'participant-id', 'finish'] });
     state.studyRunState = config._runtime?.study_run_state || null;
     applyLoadedConfig(config);
@@ -141,6 +260,10 @@ async function init() {
     await loadRecoveryCandidates();
     await loadUpdateStatus({ silent: true });
     state.loaded = true;
+    // Warm the settings hub while nobody is looking at it: its three fetches
+    // are what the operator otherwise waits for on the first open, on a
+    // server that is still starting its plugin workers.
+    void loadSettingsHubStatus();
     showToast(t('toast.studyLoaded', 'Study loaded'), 'info');
   } catch (error) {
     console.error('[admin] Could not load configuration:', error);
@@ -560,6 +683,7 @@ function switchView(viewId, { animate = true, onCovered } = {}) {
       el.hidden = el.id !== viewId;
       el.classList.toggle('active', el.id === viewId);
     });
+    syncHeaderForView(viewId);
     await onCovered?.();
   };
   return animate ? transitionToView(apply) : apply();
@@ -614,9 +738,8 @@ function bindEvents() {
   $('btn-readiness-settings')?.addEventListener('click', () => void openReadinessSettings());
   $('btn-workspace-start')?.addEventListener('click', () => void confirmAndStartFromEditor());
   $('btn-hub-settings')?.addEventListener('click', () => void openSettingsHub());
+  $('btn-header-home')?.addEventListener('click', () => switchView(headerBackTarget));
   $('btn-create-shortcut')?.addEventListener('click', () => void createDesktopShortcut('btn-create-shortcut', 'shortcut-result'));
-  $('btn-machine-settings-back')?.addEventListener('click', () => void switchView('view-hub'));
-  $('btn-workspace-home').addEventListener('click', () => switchView('view-hub'));
   $('btn-admin-edit-view').addEventListener('click', () => switchView('view-hub'));
   $('btn-create-shortcut')?.addEventListener('click', () => createDesktopShortcut());
 
