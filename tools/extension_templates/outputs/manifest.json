@@ -1,0 +1,20 @@
+{
+  "api_version": 5,
+  "plugin_key": "example_output",
+  "config_key": "example_output",
+  "version": "1.0.0",
+  "category": "output",
+  "ui": {
+    "label": "Example output",
+    "description": "Extension SDK template for a new output/infrastructure extension. Rename plugin_key/config_key and every 'example_output' occurrence (manifest, plugin.py, driver.py) before shipping -- tools/extension_sdk.py new does this for you.",
+    "order": 9999
+  },
+  "capabilities": ["health"],
+  "runtime": {
+    "entrypoint": "driver.py",
+    "protocol": "study-runner-stdio/v1",
+    "interactive_stdin": false,
+    "sample_delivery": "none",
+    "actions": []
+  }
+}

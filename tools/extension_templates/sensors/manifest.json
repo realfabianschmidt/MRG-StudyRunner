@@ -1,0 +1,45 @@
+{
+  "api_version": 5,
+  "plugin_key": "example_sensor",
+  "config_key": "example_sensor",
+  "version": "1.0.0",
+  "category": "biosignal",
+  "ui": {
+    "label": "Example sensor",
+    "description": "Extension SDK template for a new recording sensor. Rename plugin_key/config_key and every 'example_sensor' occurrence (manifest, plugin.py, driver.py) before shipping -- tools/extension_sdk.py new does this for you.",
+    "order": 9999
+  },
+  "capabilities": {
+    "study_sensor": {"default_enabled": false, "default_required": true},
+    "acquisition_transport": {"transport": "serial", "delivery": "host_lsl_bridge"},
+    "lsl_stream_provider": {},
+    "recording_source": {"artifact": "xdf", "primary_stream": "measurements"},
+    "backup_projection": {
+      "rate_hz": 4,
+      "stale_after_ms": 750,
+      "channels": [
+        {"output": "value", "stream": "measurements", "channel": "value"}
+      ]
+    },
+    "health": {},
+    "machine_settings": {},
+    "study_settings": {}
+  },
+  "runtime": {
+    "entrypoint": "driver.py",
+    "protocol": "study-runner-stdio/v1",
+    "sample_delivery": "declared_transport"
+  },
+  "streams": [
+    {
+      "key": "measurements",
+      "source_id": "study_runner.example_sensor.measurements",
+      "type": "EXAMPLE",
+      "nominal_rate_hz": 4,
+      "clock_domain": "lsl",
+      "channel_format": "float32",
+      "channels": ["value"],
+      "channel_units": ["arbitrary_unit"]
+    }
+  ]
+}

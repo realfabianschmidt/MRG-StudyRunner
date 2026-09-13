@@ -1871,9 +1871,41 @@ incompatibility instead of forcing a migration to appear successful.
       12 new tests. Not covered by design: withdrawing a session while the
       recorder is mid-write is exercised through the injected stopper, not
       against a live worker; that belongs to a Phase 6 hardware gate
-- [ ] **5j** Minimal extension SDK: versioned JSON schemas, validator, fake
-      runtime, synthetic LSL source and one template for each extension type.
-      Verify templates with the same contract validation used by the runtime
+- [x] **5j** Minimal extension SDK -- complete 2026-09-13. `tools/extension_sdk.py`
+      adds three commands (`new`, `validate`, `check-runtime`) plus a
+      generated schema reference (`schema --write`), and
+      `tools/synthetic_lsl_source.py` pushes fake samples for a sensor's
+      declared stream. None of this is a second copy of the real rules:
+      `validate` calls `plugin_catalog.discover_plugin_catalog` directly
+      (the same function `apps/server` uses), and `check-runtime` calls
+      `process_host.build_process_plugin` to boot the plugin's real
+      `driver.py` subprocess -- reusing the same test-only environment seam
+      (`extension_layout.TEST_EXTRA_ROOT_*`) that
+      `tests/support/fixture_plugin.py` already uses for the same reason.
+      The generated schema deliberately covers only the manifest's outer
+      shape (top-level fields, `ui`, `runtime`), not each capability's own
+      fields -- writing those out by hand a second time is exactly the
+      drift risk the 5g.B5 decision rejected a schema for; `validate`
+      remains the one real check.
+
+      One template per category (`tools/extension_templates/{sensors,cards,
+      destinations,outputs}/`), each a small, real, working plugin, not a
+      stub -- every template passes `validate` and `check-runtime` under
+      its own shipped key, proven by `test_extension_sdk.py`.
+
+      **Real bug found and fixed while building `check-runtime`, not
+      invented for it:** `driver_runtime.py` crashed with `'list' object
+      has no attribute 'get'` for any plugin whose manifest authors
+      `capabilities` as a bare list instead of an object -- which
+      `tests/fixtures/packaging_probe/manifest.json` (a real, shipped
+      fixture) already does. Nothing in the existing test suite spawns that
+      fixture's real subprocess, so this was never caught. Fixed by
+      normalizing the list form the same way the real validator already
+      treats it as equivalent; the SDK's own outputs-template test (which
+      uses list-form `capabilities`) is the regression guard.
+
+      Evidence: `test_extension_sdk.py` (9 tests, includes the schema-drift
+      check and the synthetic-source tests) plus the full suite below.
 
 ### Phase 6 — Acceptance
 
@@ -1909,8 +1941,8 @@ Completed: Claude implemented Phases 0-2, 5b, Phase 4 packages
 items 5e, 5d, 5a and 5c on 2026-09-08; Codex completed R1-R5 and the remaining
 Phase 4 packages on 2026-09-08, then completed 5g.B5 on 2026-09-09 from
 Claude's partial implementation; Claude completed the UI redesign (visuals
-only, no functional change) and 3.4 (plugin contract cleanup, `api_version: 5`)
-on 2026-09-10.
+only, no functional change), 3.4 (plugin contract cleanup, `api_version: 5`)
+on 2026-09-10, and 5j (minimal extension SDK) on 2026-09-13.
 
 Rules:
 - **Moves and tree-wide import rewrites are serial.** Approved R1–R4 repairs

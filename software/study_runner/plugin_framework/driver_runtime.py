@@ -41,7 +41,15 @@ def run_plugin_driver(plugin_key: str) -> int:
         # entirely) each read a different shape for the same question -- see
         # the comment on PluginProcessRuntime.is_card.
         manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
-        card_contract = (manifest.get("capabilities") or {}).get("card_contract")
+        # A manifest can write "capabilities" as a plain list of names with
+        # no settings (e.g. `["health"]`, as packaging_probe's manifest
+        # does) instead of an {name: config} object -- both are valid. Turn
+        # a list into an empty-config dict here so the .get() calls below
+        # work either way.
+        raw_capabilities = manifest.get("capabilities") or {}
+        if isinstance(raw_capabilities, list):
+            raw_capabilities = {name: {} for name in raw_capabilities}
+        card_contract = raw_capabilities.get("card_contract")
         if card_contract:
             for name in ("get_card_defaults", "normalize_card_config"):
                 if not callable(getattr(plugin, name, None)):

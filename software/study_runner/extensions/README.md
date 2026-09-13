@@ -89,7 +89,11 @@ flag and never from a hard-coded plugin-key set.
 
 ## Adding a sensor
 
-1. Copy the folder structure above and choose a stable lowercase `plugin_key`.
+`python tools/extension_sdk.py new sensors <plugin_key>` writes and checks
+the folder structure above for you; steps 2-5 below are the sensor-specific
+work it cannot do.
+
+1. Choose a stable lowercase `plugin_key`.
 2. Define LSL streams with unique, stable `source_id` values, nominal rates,
    clock domains, channel types, labels, and units.
 3. Add `study_sensor`, `lsl_stream_provider`, `recording_source`, and a valid

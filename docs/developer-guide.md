@@ -22,8 +22,8 @@ the smallest safe plugin workflow.
 - `software/study_runner/plugin_framework/plugin_api.py`: shared context and
   plugin callback type.
 - `software/study_runner/plugin_framework/plugin_catalog.py`: trusted
-  directory discovery, manifest validation (v4 primary, v3 compatibility
-  path), duplicate isolation, and public catalog.
+  directory discovery, manifest validation (api_version 5), duplicate
+  isolation, and public catalog.
 - `software/study_runner/plugin_framework/registry.py`: lookup and generic
   dispatch facade over the discovered, validated plugins.
 - `software/study_runner/plugin_framework/process_host.py`: supervises every
@@ -68,7 +68,7 @@ software/study_runner/extensions/sensors/my_new_sensor/
 The server discovers the folder automatically. Do not add a central import
 entry. Discovery validates `manifest.json`, but never imports `plugin.py`
 into the host process — only `driver.py`, as a supervised subprocess, does
-that (see "Manifest API v4" below). `driver.py` is a one-line wrapper:
+that (see "Manifest API v5" below). `driver.py` is a one-line wrapper:
 
 ```python
 from study_runner.plugin_framework.driver_runtime import run_plugin_driver
@@ -95,6 +95,30 @@ PLUGIN = Plugin(
 The exported key must match `manifest.json`. Add defaults to
 `software/study_content/settings/hardware_settings.json` only for genuine
 machine state; per-study choices belong in the manifest's study schema.
+
+## Extension SDK
+
+`tools/extension_sdk.py` writes the folder shape above for you and checks
+it, instead of copying an existing extension by hand:
+
+```bash
+python tools/extension_sdk.py new sensors my_new_sensor   # or: cards, destinations, outputs
+python tools/extension_sdk.py validate my_new_sensor      # is the manifest valid?
+python tools/extension_sdk.py check-runtime my_new_sensor # does it actually start?
+```
+
+`validate` and `check-runtime` do not have their own copy of the validation
+rules — they call the exact same code the real server uses, so a "yes" here
+means the extension really works, not just that it looks right. There is
+also a generated reference file at
+`tools/extension_templates/manifest.schema.json` describing a manifest's
+outer shape (regenerate it with `schema --write` after changing
+`contracts/manifest.py`); it does not cover each capability's own fields,
+since `validate` already checks those for real.
+
+For a sensor, `tools/synthetic_lsl_source.py <plugin_dir>` reads the stream
+your manifest already declares and pushes fake-but-plausible samples on LSL
+— useful for seeing real recording behavior before real hardware exists.
 
 ## Manifest API v5
 
@@ -203,6 +227,10 @@ not block the aggregate dashboard status request.
 
 ## Adding A Recording Sensor
 
+`tools/extension_sdk.py new sensors <key>` scaffolds a starting manifest and
+plugin.py that already pass `validate`/`check-runtime`; steps 2-8 below still
+need real, sensor-specific work.
+
 1. Add the package, manifest, adapter, and tests.
 2. Choose the transport/delivery pair from the transport matrix.
 3. Publish stable LSL streams with explicit channels, units, format, rate, and
@@ -225,9 +253,13 @@ a named import, type list or special branch to the server, validation entry
 points or participant controller. Use a snake_case plugin key; question-type
 identifiers may retain their established spelling.
 
+`tools/extension_sdk.py new cards <key>` scaffolds these four files with a
+working placeholder question type; rename the type (see the template's own
+comments) since it must be globally unique across every card.
+
 Create these four files:
 
-1. `manifest.json` declares API version 4, category `card`, the runtime driver,
+1. `manifest.json` declares API version 5, category `card`, the runtime driver,
    operation timeouts, UI order, `ui.extensions.card`, and `card.js` as an
    asset. Its versioned `capabilities.card_contract` lists `question_types`,
    `answerless_types`, and any explicit `host_data`. Duplicate question-type

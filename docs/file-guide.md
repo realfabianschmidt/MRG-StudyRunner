@@ -23,6 +23,8 @@ Edit-safety legend:
 | `tools/setup_recording_worker.py` | One-time source setup: verifies the toolchain, builds only the current native XDF core, runs CTest and the Python/PyXDF smoke test | no |
 | `tools/make_timeline_fixture.py` | Writes a synthetic completed session with a real multi-stream XDF, so the timeline can be seen without recording hardware | no |
 | `tools/measure_structure.py` | 1.0 rebuild structure ratchet: cross-package import edges, import cycles, lines per package, largest file, checked against `tools/structure_baseline.json` | careful |
+| `tools/extension_sdk.py` | Extension SDK: scaffold (`new`), validate, and boot-test (`check-runtime`) a new plugin outside `extensions/`, plus a generated manifest reference (`schema`) — see `tools/extension_templates/` | careful |
+| `tools/synthetic_lsl_source.py` | Pushes fake-but-plausible LSL samples for a sensor extension's own declared stream, so it can be tested without real hardware | careful |
 | `tools/install-windows.ps1` / `tools/install-macos.sh` | Idempotent first-install/repair flows: system prerequisites on request, `.venv`, Python requirements, and verified XDF core | careful |
 | `tools/start-windows.ps1` / `tools/start-macos.sh` | Daily source-server launchers that use the repository `.venv` directly | careful |
 | `software/constraints/py312-*.txt` | Bounded release-tested Python 3.12 compatibility pins: bootstrap, common runtime, and platform-selected local emotion stack | careful |
