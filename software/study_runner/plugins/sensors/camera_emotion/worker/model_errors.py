@@ -29,7 +29,7 @@ def classify_model_error(error: str) -> str:
 
 def suggested_action(error_class: str, asset_path: str) -> str:
     if error_class == "missing_package":
-        return "Run the dashboard action 'Repair DeepFace runtime' or run 'pip install -r software/requirements.txt'."
+        return "Run the dashboard action 'Repair emotion runtime' or run 'pip install -r software/requirements.txt'."
     if error_class in {"model_download_failed", "model_file_missing", "model_file_unreadable"}:
         return (
             "Review THIRD_PARTY_NOTICES.md, then provision the optional model with "
@@ -37,4 +37,4 @@ def suggested_action(error_class: str, asset_path: str) -> str:
             "--accept-vgg-face-non-commercial-research-terms', or manually place "
             f"the verified {DEEPFACE_EMOTION_MODEL_NAME} at {asset_path}."
         )
-    return "Run the dashboard action 'Repair DeepFace runtime' and restart the Local Emotion Worker."
+    return "Run the dashboard action 'Repair emotion runtime' and restart the Local Emotion Worker."

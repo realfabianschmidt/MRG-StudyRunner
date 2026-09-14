@@ -421,7 +421,7 @@ def _watch_worker() -> None:
         if _worker_restart_count >= max_attempts:
             print(
                 "[EmotionWorker] Worker keeps crashing - giving up after "
-                f"{max_attempts} automatic restarts. Use 'Repair DeepFace runtime' on the dashboard."
+                f"{max_attempts} automatic restarts. Use 'Repair emotion runtime' on the dashboard."
             )
             return
         backoff_seconds = min(60.0, 5.0 * (2 ** _worker_restart_count))
@@ -535,7 +535,7 @@ def _runtime_error_message(error_info: dict[str, Any]) -> str:
             )
         return (
             "Local Emotion Worker is reachable, but Python packages for DeepFace are missing or incompatible. "
-            "Use the dashboard button 'Repair DeepFace runtime' or run 'pip install -r software/requirements.txt', "
+            "Use the dashboard button 'Repair emotion runtime' or run 'pip install -r software/requirements.txt', "
             f"then restart the worker. Detail: {detail}"
         )
     if error_class in {"model_download_failed", "model_file_missing", "model_file_unreadable"}:

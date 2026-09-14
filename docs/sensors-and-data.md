@@ -124,6 +124,15 @@ capture and local/remote analysis workers are internal modes.
 
 Emotion values are research signals, not diagnostic measurements.
 
+**Plan the emotion model before the study day.** The analysis model is
+separately licensed under non-commercial research terms and ships in no
+release, so someone has to provision it once per recording computer — it never
+downloads itself. Local analysis also needs Windows x64 or macOS Apple Silicon;
+macOS Intel has to send frames to a remote worker. Camera capture, the LSL
+bridge and XDF recording are unaffected either way, so a study without the
+model still records everything else. The steps are in
+`software/study_runner/plugins/sensors/camera_emotion/README.md`.
+
 ## Timer And Clock Metadata
 
 Browser warm-up and stimulus timers use monotonic `performance.now()`
