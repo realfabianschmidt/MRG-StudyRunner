@@ -2,7 +2,7 @@
 
 Study Runner releases intentionally contain no model weight in this folder.
 The DeepFace emotion model inherits the upstream VGG-Face terms and is not
-covered by Study Runner's proprietary license. Review `THIRD_PARTY_NOTICES.md`
+covered by Study Runner's own MIT license. Review `THIRD_PARTY_NOTICES.md`
 before use.
 
 When those terms fit the study, provision the pinned asset into the ignored

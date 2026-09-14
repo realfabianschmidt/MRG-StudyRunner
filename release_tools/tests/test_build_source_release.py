@@ -86,7 +86,8 @@ class SourceReleaseTests(unittest.TestCase):
                     release.validate_archive(path, version=VERSION)
 
     def test_archive_carries_both_licensed_font_families(self) -> None:
-        """Materiability draws the headings and Geist the body; both must ship."""
+        """An archive may legitimately carry both fonts at once (an operator's
+        own optional Materiability alongside the always-shipped Geist)."""
         with temporary_directory() as temporary:
             path = Path(temporary) / release.ARCHIVES[0]
             write_zip(path, members(
@@ -138,16 +139,16 @@ class SourceReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(release.ReleaseError, "empty"):
             release.changelog_section("## 1.2.3\n\n## 1.2.2\n- Older.\n", VERSION)
 
-    def test_repository_license_requires_proprietary_and_third_party_notices(self) -> None:
+    def test_repository_license_requires_mit_and_third_party_notices(self) -> None:
         valid = (
-            "All rights reserved. This source is proprietary. "
+            "MIT License. Permission is hereby granted. "
             "Third-party components remain subject to their respective licenses. "
             "App-LabRecorder/XDFWriter"
         )
 
         release.validate_repository_license(valid)
         with self.assertRaisesRegex(release.ReleaseError, "required notice"):
-            release.validate_repository_license("All rights reserved.")
+            release.validate_repository_license("MIT License.")
 
     def test_third_party_notices_require_native_patch_and_license_provenance(self) -> None:
         notice = (
@@ -209,8 +210,8 @@ class SourceReleaseTests(unittest.TestCase):
                 },
                 "install": release.INSTALL_COMMANDS,
                 "license": {
-                    "identifier": "LicenseRef-Proprietary",
-                    "name": "Proprietary - all rights reserved",
+                    "identifier": "MIT",
+                    "name": "MIT License",
                     "file": "LICENSE",
                     "third_party_notices": list(release.THIRD_PARTY_NOTICE_FILES),
                 },
@@ -399,12 +400,23 @@ class FontReleaseContractTests(unittest.TestCase):
             "font files outside a documented folder would be rejected by the release build",
         )
 
-    def test_the_heading_face_is_present_and_releasable(self) -> None:
-        materiability = [
+    def test_the_default_heading_face_is_present_and_releasable(self) -> None:
+        # Geist is the shipped default for both body and headings (main.css's
+        # --font-heading stack falls back to it). Materiability, the optional
+        # third-party-rights face, is not required here -- see
+        # apps/ui/fonts/README.md.
+        geist = [
             name for name in self._repository_fonts()
-            if "apps/ui/fonts/materiability" in name.casefold()
+            if "apps/ui/vendor/geist/geist-" in name.casefold()
         ]
-        self.assertEqual(len(materiability), 3, f"expected three weights, found {materiability}")
-        for name in materiability:
+        self.assertGreaterEqual(len(geist), 1, "expected at least one Geist weight")
+        for name in geist:
             with self.subTest(font=name):
                 self.assertTrue(release.is_licensed_font(f"/{name.casefold()}"))
+
+    def test_an_optional_local_materiability_would_be_releasable(self) -> None:
+        # apps/ui/fonts/ is empty by default; if an operator adds their own
+        # Materiability files there, they must land in the licensed folder
+        # like any other font -- this proves the exemption still works for
+        # that folder even though nothing ships there by default.
+        self.assertTrue(release.is_licensed_font("/software/study_runner/apps/ui/fonts/materiability-regular.ttf"))

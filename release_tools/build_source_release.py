@@ -77,9 +77,10 @@ FORBIDDEN_SOURCE_SUFFIXES = (
     ".toe",
 )
 # Fonts stay forbidden by default so a stray face can never ride along unnoticed.
-# One may only ship from a folder that documents its terms: apps/ui/fonts/ holds
-# the first-party Materiability faces covered by this repository's own LICENSE,
-# and frontend/vendor/geist/ carries the upstream OFL text the contract checks.
+# One may only ship from a folder that documents its terms: apps/ui/fonts/
+# documents an optional, third-party-rights heading face (see its own README;
+# empty by default), and frontend/vendor/geist/ carries the upstream OFL text
+# the contract checks.
 LICENSED_FONT_DIRECTORIES = (
     "software/study_runner/apps/ui/fonts/",
     "software/study_runner/apps/ui/vendor/geist/",
@@ -271,9 +272,9 @@ def changelog_section(changelog: str, version: str) -> str:
 
 def validate_repository_license(license_text: str) -> None:
     required_phrases = (
-        "All rights reserved.",
-        "proprietary",
-        "Third-party components remain subject to their respective licenses.",
+        "MIT License",
+        "Permission is hereby granted",
+        "Third-party components remain subject to their respective licenses",
         "App-LabRecorder/XDFWriter",
     )
     missing = [phrase for phrase in required_phrases if phrase not in license_text]
@@ -370,8 +371,8 @@ def build_release(
         "commit": commit,
         "repository": repo,
         "license": {
-            "identifier": "LicenseRef-Proprietary",
-            "name": "Proprietary - all rights reserved",
+            "identifier": "MIT",
+            "name": "MIT License",
             "file": "LICENSE",
             "third_party_notices": list(THIRD_PARTY_NOTICE_FILES),
         },
@@ -419,7 +420,7 @@ def _verification_script(expected: dict[str, str]) -> str:
 
 
 def _release_notes(version: str, changes: str) -> str:
-    return f"""# Study Runner {version}\n\nThis is the proprietary source-server release for Windows x64, macOS Intel, and macOS Apple Silicon. All rights are reserved; see `LICENSE`. Third-party provenance and upstream license texts are listed in `THIRD_PARTY_NOTICES.md`.\n\n## Install and start\n\nAfter downloading and extracting `study-runner-source.zip` on Windows:\n\n```powershell\npowershell -NoProfile -ExecutionPolicy Bypass -File tools/install-windows.ps1 -InstallSystemDependencies\n.\\tools\\start-windows.ps1\n```\n\nAfter downloading and extracting `study-runner-source.tar.gz` on macOS:\n\n```bash\nbash tools/install-macos.sh --install-system-dependencies\nbash tools/start-macos.sh\n```\n\nThe native XDF core is intentionally not prebuilt or bundled. First install builds and verifies it locally from the pinned, vendored LabRecorder/XDFWriter sources. Linux may run non-recording development checks, but recording is not supported. Verify manual downloads with `SHA256SUMS`.\n\nThis is not a packaged-updater release and does not require Apple signing, notarization, or updater signing secrets.\n\n## Changes\n\n{changes}\n"""
+    return f"""# Study Runner {version}\n\nThis is the MIT-licensed source-server release for Windows x64, macOS Intel, and macOS Apple Silicon; see `LICENSE`. Third-party provenance and upstream license texts are listed in `THIRD_PARTY_NOTICES.md`.\n\n## Install and start\n\nAfter downloading and extracting `study-runner-source.zip` on Windows:\n\n```powershell\npowershell -NoProfile -ExecutionPolicy Bypass -File tools/install-windows.ps1 -InstallSystemDependencies\n.\\tools\\start-windows.ps1\n```\n\nAfter downloading and extracting `study-runner-source.tar.gz` on macOS:\n\n```bash\nbash tools/install-macos.sh --install-system-dependencies\nbash tools/start-macos.sh\n```\n\nThe native XDF core is intentionally not prebuilt or bundled. First install builds and verifies it locally from the pinned, vendored LabRecorder/XDFWriter sources. Linux may run non-recording development checks, but recording is not supported. Verify manual downloads with `SHA256SUMS`.\n\nThis is not a packaged-updater release and does not require Apple signing, notarization, or updater signing secrets.\n\n## Changes\n\n{changes}\n"""
 
 
 def verify_output(output_dir: Path) -> dict[str, object]:
@@ -460,12 +461,12 @@ def verify_output(output_dir: Path) -> dict[str, object]:
     license_info = metadata.get("license")
     if (
         not isinstance(license_info, dict)
-        or license_info.get("identifier") != "LicenseRef-Proprietary"
-        or license_info.get("name") != "Proprietary - all rights reserved"
+        or license_info.get("identifier") != "MIT"
+        or license_info.get("name") != "MIT License"
         or license_info.get("file") != "LICENSE"
         or license_info.get("third_party_notices") != list(THIRD_PARTY_NOTICE_FILES)
     ):
-        raise ReleaseError("source release must declare the proprietary repository license")
+        raise ReleaseError("source release must declare the MIT repository license")
     artifacts = metadata.get("artifacts")
     if not isinstance(artifacts, dict) or set(artifacts) != set(ARCHIVES):
         raise ReleaseError("release metadata does not describe exactly the source archives")

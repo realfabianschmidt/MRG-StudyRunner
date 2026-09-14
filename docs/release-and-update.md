@@ -17,15 +17,15 @@ The latest GitHub Release provides:
 - `study-runner-source.zip` for Windows;
 - `study-runner-source.tar.gz` for macOS;
 - `study-runner-source-release.json` with version, commit, platform, install,
-  recording, and proprietary-license metadata;
+  recording, and license metadata;
 - `SHA256SUMS` for manual integrity verification.
 
 Both archives contain one versioned root folder. They intentionally exclude
 `.git`, `.venv`, generated native libraries, `.build`, results, runtime state,
-credentials, certificates, and private keys. The repository is proprietary and
-all rights are reserved; every archive includes `LICENSE`,
-`THIRD_PARTY_NOTICES.md`, and the required vendored license texts. Separately
-licensed DeepFace model weights and legacy assets without proven release
+credentials, certificates, and private keys. The repository is MIT-licensed;
+every archive includes `LICENSE`, `THIRD_PARTY_NOTICES.md`, and the required
+vendored license texts. Separately licensed DeepFace model weights, the
+optional Materiability heading font, and legacy assets without proven release
 provenance are excluded.
 
 ## First Install

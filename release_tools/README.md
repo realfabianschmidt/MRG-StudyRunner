@@ -70,7 +70,7 @@ Published files are:
 - `SHA256SUMS`.
 
 The JSON identifies the exact tag and commit, records archive sizes and hashes,
-declares the proprietary repository license, and explicitly declares that the
+declares the MIT repository license, and explicitly declares that the
 native core is not bundled and that the artifacts are not compatible with the
 old packaged updater. Release notes are rendered from the matching version
 section in `CHANGELOG.md`.

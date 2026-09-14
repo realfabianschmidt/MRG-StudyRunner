@@ -23,7 +23,7 @@ Software/
 |-- README.md              This file.
 |-- CONTRIBUTING.md        How we keep the code readable.
 |-- CHANGELOG.md           Version history.
-|-- LICENSE                Study Runner's own proprietary license.
+|-- LICENSE                Study Runner's own MIT license.
 |-- THIRD_PARTY_NOTICES.md What third-party components are used and how.
 |-- licenses/              Full text of every third-party license, collected.
 |-- release.ps1            One-command release from the repo root.
@@ -355,7 +355,6 @@ results stay untracked except the one curated demo under
 
 ## License
 
-Copyright (c) 2026 Fabian Schmidt. Proprietary software; all rights reserved.
-Study Runner is currently proprietary and all rights are reserved. See
+Copyright (c) 2026 Fabian Schmidt. Licensed under the MIT License; see
 [`LICENSE`](LICENSE). Included and optional third-party components retain their
 own terms; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

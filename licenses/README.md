@@ -1,6 +1,6 @@
 # Third-party licenses
 
-Study Runner itself is proprietary; see `../LICENSE`. This folder collects
+Study Runner itself is MIT-licensed; see `../LICENSE`. This folder collects
 the full license text of every third-party component vendored into the
 source tree, in one place, so none of them has to be hunted down individually.
 See `../THIRD_PARTY_NOTICES.md` for what each component is, exactly which
@@ -17,11 +17,15 @@ of these licenses themselves require:
 | `Geist-LICENSE.txt` | `software/study_runner/apps/ui/vendor/geist/LICENSE` | The vendored Geist Sans/Mono font files (SIL Open Font License 1.1) |
 | `Iconoir-LICENSE.txt` | `software/study_runner/apps/ui/vendor/iconoir/LICENSE` | The vendored Iconoir icon set (MIT) |
 
-Not third-party, kept out of this folder on purpose: the Materiability
-heading font (first-party, covered by `../LICENSE`) and
-`software/study_runner/extensions/sensors/brainbit/HelloEEG_HelloMYO_01.3.toe` (a
-project-original TouchDesigner reference project, also covered by
-`../LICENSE` — see `THIRD_PARTY_NOTICES.md`).
+Not third-party, kept out of this folder on purpose:
+`software/study_runner/extensions/sensors/brainbit/HelloEEG_HelloMYO_01.3.toe`,
+a project-original TouchDesigner reference project covered by `../LICENSE`
+like the rest of the source tree — see `THIRD_PARTY_NOTICES.md`.
+
+The Materiability heading font does not ship in this repository at all: its
+rights belong to a third party (the Materiability Research Group), so it is
+neither MIT-licensed with the rest of the code nor collected here. See
+`software/study_runner/apps/ui/fonts/README.md`.
 
 Installed Python packages (DeepFace, notion-client, python-osc, pyneurosdk2,
 etc.) keep their own upstream licenses and are not vendored into this repo,

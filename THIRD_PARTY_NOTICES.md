@@ -1,7 +1,7 @@
 # Third-party notices
 
-Study Runner itself is proprietary and all rights are reserved as described in
-`LICENSE`. The following components are not relicensed by that notice.
+Study Runner itself is licensed under the MIT License as described in
+`LICENSE`. The following components are not relicensed by that grant.
 
 The full text of every license named below is collected in one place under
 [`licenses/`](licenses/README.md), in addition to living next to the vendored
@@ -35,10 +35,10 @@ Sans and Geist Mono 1.7.2 by Vercel, in collaboration with basement.studio. Geis
 the SIL Open Font License, Version 1.1. The complete upstream notice is kept at
 `software/study_runner/apps/ui/vendor/geist/LICENSE`.
 
-Geist Sans is the body face and Geist Mono carries tabular values. Headings are
-drawn in Materiability, which is first-party and covered by `LICENSE` rather than
-by this file; Geist also stands behind it in the stack as the fallback for a
-checkout whose font files have not been fetched. See
+Geist Sans is used for both body text and headings by default. Materiability,
+this project's original heading face, is not shipped here because its rights
+belong to a third party (the Materiability Research Group); an operator with
+their own permission to it can add it locally, without changing any code. See
 `software/study_runner/apps/ui/fonts/README.md`.
 
 ## BrainBit TouchDesigner reference project
@@ -79,6 +79,6 @@ for which the operator has appropriate rights.
 ## Installed Python packages
 
 The source installers obtain Python dependencies from their package indexes.
-Those packages are not part of Study Runner's proprietary license and retain
+Those packages are not covered by Study Runner's own MIT license and retain
 their own licenses and notices. Operators distributing a combined environment
 remain responsible for reviewing those dependency licenses.

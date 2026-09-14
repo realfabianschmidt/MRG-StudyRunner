@@ -2051,22 +2051,35 @@ the Flask-free subprocess import of `data_core`.
 
 ---
 
-## Open questions
+## Open questions -- both answered 2026-09-14
 
-Both come from the target document §16 and must be answered before the 1.0 tag.
+Both come from the target document §16 and had to be answered before the 1.0
+tag. Kept below for the reasoning trail, not because they are still open.
 
-- **Licence.** The repository is public, `LICENSE` is proprietary with full
-  reservation of rights, the stated goal is open source, and the project runs
-  under EFRE funding. The current combination — visible but not usable — is the
-  worst of both. Also to clarify: whether the funding agreement mandates a
-  licence.
-- **Platform matrix.** Canonical recording runs on Windows x64 and macOS; Linux
-  is deliberately fail-closed (`recording/worker_binary.py`, `_core_target`), and
-  `.github/workflows/ci.yml` already runs a three-platform `recording-core`
-  matrix. The decision is therefore narrower than the document implies: **does a
-  canonical Linux build get added?** Windows/macOS CI already exercises the
-  native writer, merge and synthetic LSL paths. Hardware smoke and measured
-  power-loss tests remain additional release gates.
+- **Licence -- resolved: MIT.** The repository was public with `LICENSE`
+  proprietary and full reservation of rights, while the stated goal was open
+  source under EFRE funding -- visible but not usable, the worst of both.
+  Owner decision: switch to MIT (`LICENSE`, `README.md`,
+  `docs/release-and-update.md`, `release_tools/build_source_release.py` and
+  its tests, `licenses/README.md`, `THIRD_PARTY_NOTICES.md`). One asset
+  needed a separate decision on the way there: the Materiability heading
+  font's rights belong to the Materiability Research Group, a third party,
+  so it could not honestly ship under an MIT grant it does not hold. Owner
+  decision: Materiability no longer ships in the repository at all (removed
+  from git); Geist, already vendored under the SIL Open Font License, is now
+  the shipped default for both headings and body text. `main.css`'s heading
+  font stack already tried `'Materiability'` before falling back to
+  `'Geist'`, so an operator with their own rights to the font can still add
+  the three files back to `apps/ui/fonts/` and nothing else changes -- see
+  that folder's own `README.md`.
+- **Platform matrix -- resolved: Windows x64 + macOS canonical, Linux
+  fail-closed.** Canonical recording already ran only on Windows x64 and
+  macOS; Linux was already deliberately fail-closed
+  (`recording/worker_binary.py`, `_core_target`), and
+  `.github/workflows/ci.yml` already ran a three-platform `recording-core`
+  matrix. Owner decision: keep this as the permanent shape, not a gap --
+  Linux stays a source-regression platform only. Hardware smoke and measured
+  power-loss tests remain separate release gates (Phase 6).
 
 Additional questions raised during planning:
 

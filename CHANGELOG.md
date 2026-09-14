@@ -5,6 +5,19 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Changed
+
+- Study Runner is now licensed under the MIT License instead of a
+  proprietary, all-rights-reserved license. Third-party components keep
+  their own separate licenses (see `THIRD_PARTY_NOTICES.md`), unaffected by
+  this change.
+- The Materiability heading font no longer ships in this repository: its
+  rights belong to the Materiability Research Group, a third party, so it
+  could not honestly ship under an MIT grant this project does not hold for
+  it. Geist, already used for body text, is now the default for headings
+  too. An operator with their own rights to Materiability can still add it
+  locally; see `software/study_runner/apps/ui/fonts/README.md`.
+
 ## 0.7.0 - 2026-08-11
 
 ### Changed

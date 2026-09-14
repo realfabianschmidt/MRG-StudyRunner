@@ -1,10 +1,12 @@
 ﻿/* ============================================================
    FONTS
 
-   Materiability is first-party and ships in every build, packaged and source
-   alike. Geist stays behind it in the stack as the fallback for a checkout
-   whose font files have not been fetched, and the native system fonts behind
-   that. See web/fonts/README.md.
+   Geist is the shipped heading and body face. Materiability, the original
+   heading face, does not ship by default (its rights belong to a third
+   party) -- an operator with their own permission can add it locally; see
+   apps/ui/fonts/README.md. The @font-face rules below stay in place either
+   way, and the heading stack tries 'Materiability' first so adding it back
+   just works, with Geist and the native system fonts as fallback.
    ============================================================ */
 @font-face {
   font-family: 'Materiability';
@@ -148,10 +150,10 @@
   --t-med:  .4s;
 
   /* Typography - three roles.
-     Headings carry the institution's face; content is set in Geist; monospace
-     is reserved for values that must not reflow as their digits change.
-     Materiability is export-ignored from source archives, so a source build
-     falls through to Geist for headings too. */
+     Headings and content both default to Geist; monospace is reserved for
+     values that must not reflow as their digits change. Materiability does
+     not ship by default (see apps/ui/fonts/README.md), so headings render
+     in Geist unless an operator has added it locally. */
   --font-heading: 'Materiability', 'Geist', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-body:    'Geist', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono:    'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -160,7 +162,7 @@
 /* ============================================================
    TYPE ROLES
 
-   Headings carry the institution's face, everything else is Geist. Set once
+   Headings use the --font-heading stack, everything else is Geist. Set once
    here rather than repeated per selector, so a new heading is right by
    default and nothing has to remember to opt in.
    ============================================================ */
