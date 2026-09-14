@@ -29,15 +29,20 @@ record. The active documentation is in the parent folder, listed in the
 | `09_python_auto_update.md` | The Python-server update flow. |
 | `10_biosignal_audit_and_limitations.md` | Sensor limitations and the research-grade boundary. |
 
-## Still open from these plans
+## Dropped from these plans
 
-One item from `architecture-1.0-umbau.md` was planned and never built:
+`architecture-1.0-umbau.md` has one unticked box that will stay unticked:
 
-- **5f, the `mrg` CLI.** The plan assumed "the same local command API as the
-  UI", which does not exist — the UI speaks HTTPS to Flask. Building it means
-  either giving the CLI TLS and authentication or designing a new IPC surface,
-  plus read-only offline inspection and exclusive maintenance locking that
-  never bypasses a running runtime's ownership. `software/server.py` works
-  regardless. See the 5f entry in that file for the full constraint list.
+- **5f, the `mrg` maintenance CLI** — dropped on 2026-09-14. The plan already
+  recorded that its premise was wrong: it assumed "the same local command API
+  as the UI", which does not exist, because the UI speaks HTTPS to Flask.
+  Building it meant either giving a CLI its own TLS and authentication or
+  designing a new IPC surface, on top of read-only offline inspection and an
+  exclusive maintenance lock that never bypasses a running runtime's
+  ownership. Nothing depends on it, no code for it was ever written, and
+  `CONTRIBUTING.md` §1 and §10 argue against building it for a need nobody
+  has. This reverses the 2026-09-08 decision to keep the full Phase 5 scope;
+  that entry stays in the plan's decision log as the record of what was
+  decided then.
 
 Item 4.10 in the same file is an unused placeholder, not open work.
