@@ -5,6 +5,39 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+Study Runner 1.0 rebuilds the application on a clearer internal architecture
+(`docs/architecture-1.0-umbau.md`) with no removed capability. The user- and
+operator-facing highlights:
+
+### Added
+
+- Redesigned admin interface: a persistent header bar with a dropdown
+  language switcher, and every settings field brought onto the card editor's
+  visual style throughout, including the sensor/machine settings that had
+  been left behind.
+- Every question type (participant ID, sliders, choice, ranking, semantic
+  differential, word cloud, mood meter, stimulus, and more) is now a
+  self-contained, process-isolated extension with its own manifest, defaults,
+  and validation, rather than a branch inside shared code. Authors can build
+  new ones with the new extension SDK (`tools/extension_sdk.py`): scaffold a
+  sensor, card, destination, or output extension from a working template,
+  validate it, and boot-test it before writing a line of adapter code.
+- Explicit session lifecycle (recording, finalizing, sealed, withdrawn, ...)
+  shown in the session browser, derived from the same documents that already
+  governed it, so it can never disagree with them.
+- Live recording quality tracking (gaps, timing jitter, effective rate) and
+  a bounded recovery journal, surfaced in the session detail view.
+- Preflight checks before a recording can start: available storage, a
+  plausible system clock, and every required sensor connected -- each with
+  a specific, actionable message instead of a generic failure.
+- A documented withdrawal workflow: withdrawing a session empties its folder
+  down to a single tombstone marker, leaving no doubt that withdrawn data is
+  gone rather than quietly still present.
+- A git checkout can now update itself from the admin dashboard's Update
+  panel -- Check, then Update now runs `git pull` and the install script and
+  restarts the server, refusing safely if a study is active, the checkout
+  has local changes, or it is not on the branch that receives releases.
+
 ### Changed
 
 - Study Runner is now licensed under the MIT License instead of a
@@ -17,6 +50,19 @@ All notable Study Runner changes are documented here. Release tags use
   it. Geist, already used for body text, is now the default for headings
   too. An operator with their own rights to Materiability can still add it
   locally; see `software/study_runner/apps/ui/fonts/README.md`.
+- The plugin manifest contract moved to API version 5: two capability flags
+  that had no real effect (`runtime_control`, and `health` being declared
+  without gating anything) were retired or given real meaning, and the
+  `readiness` capability was renamed to `runtime_modes` to stop colliding
+  with the unrelated `readiness_requirements` capability. Every built-in
+  extension migrated in the same change; a third-party extension manifest
+  still declaring the old names is rejected with a message naming the
+  replacement.
+- Recording, plugin discovery, and delivery are reorganized into clearer
+  internal packages (`docs/architecture-1.0-umbau.md` has the full record).
+  No recording format, HTTP route, or operator-facing behavior changed as a
+  result; existing studies, settings, and sessions from 0.7.0 continue to
+  work unchanged, including sessions saved before this release.
 
 ## 0.7.0 - 2026-08-11
 
