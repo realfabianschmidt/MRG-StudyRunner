@@ -32,41 +32,16 @@ provenance are excluded.
 
 ## First Install
 
-Non-developers can download the source archives from:
+Installation is described once, in
+[Install and start](../README.md#install-and-start): the release download, the
+platform installer, the first start, and the macOS desktop shortcut. A Git
+clone remains the better choice for operators who want in-place `git pull`
+updates while keeping ignored local study data in the same folder.
 
-```text
-https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
-```
-
-Move the extracted folder to a permanent location under Documents before the
-first start. A Git clone remains the better choice for operators who want
-in-place `git pull` updates while keeping ignored local study data in the same
-folder.
-
-Windows PowerShell from a cloned or extracted checkout:
-
-```powershell
-.\tools\install-windows.cmd -InstallSystemDependencies
-.\tools\start-windows.cmd
-```
-
-macOS after installing the Xcode Command Line Tools and Homebrew:
-
-```bash
-bash tools/install-macos.sh --install-system-dependencies
-bash tools/start-macos.sh
-```
-
-After the first macOS start, **Settings > System > Create desktop shortcut**
-creates `Study Runner.command` on the Desktop for later double-click starts on
-both Intel and Apple Silicon. The shortcut points to the current extracted
-folder and must be recreated after moving that folder or installing a newly
-downloaded release.
-
-The platform installer creates `.venv`, installs
-`software/requirements.txt`, builds the XDF core from the pinned vendored
-LabRecorder/XDFWriter sources, runs CTest, and imports a synthetic merged XDF
-with PyXDF. See `../README.md` for complete WinGet, Homebrew, and Xcode commands.
+What the installer does with the files above: it creates `.venv`, installs
+`software/requirements.txt` under the constraints below, builds the XDF core
+from the pinned vendored LabRecorder/XDFWriter sources, runs CTest, and
+imports a synthetic merged XDF with PyXDF.
 
 ## Python Dependency Constraints
 

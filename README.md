@@ -245,7 +245,9 @@ git pull --ff-only
 
 Then rerun the platform's install script without the system-dependency switch,
 and use its start script. The installer refreshes Python dependencies and only
-rebuilds the XDF core when its verified build is missing or stale.
+rebuilds the XDF core when its verified build is missing or stale. For the
+admin-panel update flow, version pinning and the rollback path, see
+[Release and Update](docs/release-and-update.md#updating-a-source-checkout).
 
 The terminal prints the available addresses:
 

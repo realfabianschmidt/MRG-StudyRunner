@@ -32,38 +32,16 @@ recording remain supported.
 
 ## Source Setup
 
-Use the platform installer to create `.venv`, install the applicable pinned
-Python dependencies, and build and verify the native core:
+Recording needs a native XDF core built on the machine that records. The
+platform installer builds and verifies it as part of a normal install --
+see [Install and start](../README.md#install-and-start) for the commands, and
+[Release and Update](release-and-update.md#python-dependency-constraints) for
+how Python dependencies are pinned. Windows needs the Visual Studio C++ Build
+Tools workload; macOS needs the Xcode Command Line Tools.
 
-```powershell
-.\tools\install-windows.cmd -InstallSystemDependencies
-```
-
-```bash
-bash tools/install-macos.sh --install-system-dependencies
-```
-
-The installer supplies system packages only when that explicit option is used,
-then builds only the current platform, runs CTest, and runs a synthetic writer
-smoke test. `python tools/setup_recording_worker.py` remains the core-only
-developer command and never installs a compiler, package manager, or Python
-package automatically.
-
-Dependency resolution is shared between source installers, CI, and the
-camera/emotion repair action:
-
-- `software/constraints/py312-bootstrap.txt` pins pip;
-- `software/constraints/py312-common.txt` pins the release-tested common set,
-  including `numpy 1.26.4`, `pylsl 1.18.2`, and `pyxdf 1.16.8`;
-- `software/constraints/py312-local-emotion.txt` pins the high-risk local
-  inference stack and is not selected on macOS Intel.
-
-These are bounded compatibility constraints, not a complete hash-locked
-transitive wheel manifest. Clean Windows and macOS release jobs therefore
-remain mandatory before publication.
-
-- Windows requires the Visual Studio C++ Build Tools workload.
-- macOS requires the Xcode Command Line Tools.
+`python tools/setup_recording_worker.py` is the core-only developer command. It
+builds just the current platform, runs CTest, and runs a synthetic writer smoke
+test. It never installs a compiler, package manager, or Python package.
 
 Generated files live below
 `software/.build/xdf_core/<platform-arch>/` and are not committed. The core
@@ -72,20 +50,6 @@ locator checks `STUDY_RUNNER_XDF_CORE` first, then that exact local build path.
 source-lock fingerprint, binary SHA-256, and supported features. A missing,
 wrong-platform, stale, or ABI-incompatible core blocks only studies that select
 a recording source. The readiness response includes the setup command.
-
-After setup, normal operation is:
-
-```powershell
-.\tools\start-windows.cmd
-```
-
-```bash
-bash tools/start-macos.sh
-```
-
-Both launchers use the repository `.venv` directly. `cd software && python
-server.py` remains the equivalent developer command inside an activated
-environment.
 
 ## Trusted Plugin Layout
 

@@ -26,35 +26,14 @@ installation, start it with `tools/start-windows.cmd` or
 
 ## First Install And Daily Start
 
-For a non-developer installation, download `study-runner-source.zip` on
-Windows or `study-runner-source.tar.gz` on macOS from the latest GitHub
-[Release](https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest).
-Extract it into a permanent folder under Documents, open a terminal in that
-folder, and use the platform installer once:
+Install once per computer by following [Install and start](../README.md#install-and-start)
+in the README: it has the download, the platform installer, and the macOS
+desktop shortcut for every supported platform. Re-running the installer
+repairs or updates the environment without deleting study content or results.
+Dependency pinning is described in
+[Release and Update](release-and-update.md#python-dependency-constraints).
 
-```powershell
-.\tools\install-windows.cmd -InstallSystemDependencies
-```
-
-```bash
-bash tools/install-macos.sh --install-system-dependencies
-```
-
-The Windows script uses WinGet for Python 3.12, CMake, and the Visual Studio C++
-workload. The macOS script uses Homebrew for Python 3.12/CMake and requires the
-Apple Command Line Tools (`xcode-select --install`). Both create `.venv`,
-install `software/requirements.txt`, build the small native XDF core, run CTest,
-and perform a synthetic XDF smoke test. Re-running the installer repairs or
-updates the environment without deleting study content or results.
-
-The installers resolve requirements through the checked-in CPython 3.12
-compatibility constraints under `software/constraints/`. The common set is
-used everywhere; the local-emotion set is added on Windows x64 and macOS Apple
-Silicon. They pin the release-tested direct and high-risk inference packages,
-not every transitive wheel or its hash. Clean platform release jobs remain the
-final compatibility check.
-
-Daily start:
+After that, start the server with one command:
 
 ```powershell
 .\tools\start-windows.cmd
@@ -63,17 +42,6 @@ Daily start:
 ```bash
 bash tools/start-macos.sh
 ```
-
-After the first macOS start, the operator can open **Settings**, select
-**Create desktop shortcut** under **System**, and click **Create shortcut**.
-The resulting `Study Runner.command` on the Desktop works on both macOS Intel
-and Apple Silicon. Keep the installation folder in place; recreate the
-shortcut after moving it or installing a newly downloaded release. One can
-then double-click the shortcut for daily starts and keep its Terminal window
-open until stopping the server with `Ctrl+C`.
-
-Cloning the repository remains the alternative for developers and operators
-who want to update the same folder with `git pull --ff-only`.
 
 Windows x64 and macOS Intel/Apple Silicon are the supported recording
 platforms. If the core is absent or stale, non-recording studies still run; a

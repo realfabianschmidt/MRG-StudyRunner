@@ -298,7 +298,9 @@ are recording infrastructure and do not get user-facing plugin menus.
 
 ## Source Recording Setup
 
-Run once per recording computer:
+The platform installer already builds the native XDF core; see
+[Install and start](../README.md#install-and-start). When you only want to
+rebuild the core, run:
 
 ```bash
 python tools/setup_recording_worker.py
