@@ -32,7 +32,7 @@ Software/
 |   |-- operator-guide.md       Daily operation and project overview.
 |   |-- sensors-and-data.md     Sensor flow, timing, XDF/LSL, data files.
 |   |-- plugin-recording-architecture.md  Plugin/worker/XDF architecture.
-|   |-- developer-guide.md      Backend/frontend/plugin development rules.
+|   |-- developer-guide.md      Server/UI/plugin development rules.
 |   |-- release-and-update.md   Source releases, updates, acceptance gates.
 |   |-- README.md               Documentation index.
 |   `-- archive/                Historical plans and audits.
@@ -215,10 +215,10 @@ Signing and notarization are unnecessary for this source-server workflow. Old
 PyInstaller/Manager/updater code is retained only as legacy or possible future
 work and is not published by the current release workflow.
 
-## Plugin API v4
+## Plugin API v5
 
 Every built-in plugin — sensor or upload destination alike — is a manifest
-declared, API v4 subprocess: the core supervises one `driver.py` per plugin
+declared, API v5 subprocess: the core supervises one `driver.py` per plugin
 and never imports a plugin's Python module directly (see
 `docs/plugin-recording-architecture.md`). The admin page's diagnostics modal
 gives every plugin a guided status view (device/channel/health at a glance)

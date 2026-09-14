@@ -11,7 +11,7 @@ installation, start it with `tools/start-windows.ps1` or
 - `software/study_runner/apps/server/`: Flask app factory, routes, and server startup.
 - `software/study_runner/runtime_core/`: study, settings, and delivery services.
 - `software/study_runner/data_core/host/`: recording orchestration and validation.
-- `software/study_runner/extensions/`: manifest-driven (API v4) plugins —
+- `software/study_runner/extensions/`: manifest-driven (API v5) plugins —
   BrainBit, MR60 mini-radar, camera/emotion, Notion, Nextcloud, and
   OSC/TouchDesigner.
 - `software/study_runner/data_core/worker/`: detached Python recording worker.

@@ -10,7 +10,7 @@ Recommended starting points:
 - `start-here.de.md`: German non-coder setup, HTTPS/iPad, sensors and updates.
 - `operator-guide.md`: daily lab operation and project overview.
 - `sensors-and-data.md`: sensor sources, runtime integrations, timing, XDF/LSL and result files.
-- `plugin-recording-architecture.md`: API-v4 plugin contract (the `driver.py`
+- `plugin-recording-architecture.md`: API-v5 plugin contract (the `driver.py`
   subprocess model), transport matrix, Python worker, native XDF core,
   finalization, and recovery.
 - `how-recording-quality-works.md`: plain-language explanation, written for
@@ -26,7 +26,6 @@ Recommended starting points:
 - `architecture-1.0-umbau.md`: the shared working state for the 1.0 architecture
   rebuild - phase checklist, file ownership, decision log, and the verified traps
   that break silently. Read it before touching package structure.
-- `roadmap-0.5.md`: planned work for 0.5, with decisions, phases and open questions.
 - `../CONTRIBUTING.md`: project rules for clear, maintainable changes.
 
 Per-plugin architecture and troubleshooting live next to each plugin:

@@ -2000,20 +2000,110 @@ cross-package edges or cycles).
 
 ### Phase 6 — Acceptance
 
-- [ ] **6.1** Bundle builds and starts
-- [ ] **6.2** A real 0.7.0 installation updates to 1.0 keeping studies,
-      settings and sessions
-- [ ] **6.3** A 0.7.0 session opens in the session browser; new artifacts are
-      optional on read, mandatory on write
-- [ ] **6.4** Docs: `developer-guide.md`, `file-guide.md`,
-      `plugin-recording-architecture.md`, `README.md`, `CONTRIBUTING.md`;
-      move `roadmap-0.5.md` (92 KB) to `docs/archive/`
-- [ ] **6.5** `version.py` → `1.0.0`, `CHANGELOG.md`
-- [ ] **6.6** Target doc §17 acceptance list, plus: plug-pull test with the
-      measured loss recorded **as a number** in the operator documentation;
-      marker parity journal ↔ XDF; withdrawal via `WITHDRAWN`; one migrated
-      `.study-runner` per card type; hardware smoke test with BrainBit, MR60,
-      tablet and camera
+- [x] **6.1** Bundle builds and starts -- reframed 2026-09-14 for the actual
+      release shape: this project ships a source archive, not a packaged
+      bundle (`docs/release-and-update.md`); "builds and starts" means the
+      source archive installs and runs. The tag workflow already proves this
+      automatically on all three platforms (extracts the clean archive,
+      runs the real install script, starts the server) every time a tag is
+      pushed -- that machinery is unchanged by this package. What this item
+      adds: real evidence from a fresh checkout on the actual development
+      machine, not just the CI description. `git clone` at the current tip
+      into a scratch directory, then `tools/install-windows.ps1`: `.venv`
+      created, all ~90 Python dependencies installed cleanly (including the
+      heaviest ones -- TensorFlow, DeepFace), no error. The native XDF core
+      step itself was not exercised in that particular run because the
+      shell it ran from has no `cl.exe` on `PATH` -- confirmed as a
+      shell/environment fact, not a code defect: Visual Studio 2022 is
+      installed on this machine, and `software/.build/xdf_core_build/`
+      already holds a real, successful build from an earlier session using
+      a shell that did have the compiler on `PATH`. A maintainer running
+      the same install script from an ordinary terminal (as the operator
+      guide instructs) does not hit this. `packaging-smoke` in `ci.yml`
+      remains the automated proof that a full PyInstaller onedir bundle
+      (the historical, non-default path) also still boots.
+- [x] **6.2** A real 0.7.0 installation updates to 1.0 keeping studies,
+      settings and sessions -- verified 2026-09-14 against the actual
+      history, not a synthetic stand-in: `git merge-base --is-ancestor
+      app-v0.7.0 HEAD` confirms tag `app-v0.7.0` is a real ancestor of this
+      branch's tip (55 linear commits between them), so the fast-forward
+      the dashboard's Update panel (previous package) performs is
+      technically the exact same operation once this branch reaches `main`.
+      Cloned the repository at `app-v0.7.0` into a scratch directory,
+      added synthetic operator artifacts in exactly the shape real data
+      takes -- an extra `.study-runner` file under `study_content/studies/`
+      and a completed session folder under `saved_results/`, both in the
+      gitignored, untracked shape operator data actually has -- fetched and
+      fast-forward-merged straight to this branch's tip (`git merge
+      --ff-only`, no conflicts, real diff spans the entire directory
+      rebuild), and confirmed both synthetic artifacts survived byte-for-byte
+      untouched. Then ran the real install script on the updated tree (see
+      6.1 for the one step it could not complete in this shell). This is
+      the same real-git proof `SourceUpdateTests` in
+      `test_update_service.py` already gives for a small synthetic repo;
+      this repeats it against the actual 55-commit historical distance.
+- [x] **6.3** A 0.7.0 session opens in the session browser; new artifacts are
+      optional on read, mandatory on write -- closed 2026-09-14 with a new
+      permanent test, `test_real_0_7_0_session_compat.py`, against
+      `software/saved_results/Demo_Completed_Study/` -- not a fixture built
+      for this, but the exact session folder shipped in tag `app-v0.7.0`
+      (`git diff app-v0.7.0 -- software/saved_results/Demo_Completed_Study`
+      is empty). `list_sessions` indexes it correctly today; `load_session`
+      parses its real, native XDF (3 streams) and returns it, with
+      `quality_summary` (Phase 5c, postdates 0.7.0) correctly defaulting to
+      "unknown"/no findings rather than a false "clean", and the derived
+      `lifecycle` field (Phase 5a, also postdates 0.7.0, never stored)
+      correctly resolving to `SEALED` from documents that were never
+      written for a session this old. Complements (does not replace) the
+      synthetic per-field fixtures already in `test_sessions_routes.py`.
+- [x] **6.4** Docs -- closed 2026-09-14. `roadmap-0.5.md` (92 KB) moved to
+      `docs/archive/`, its `docs/README.md` index entry removed. Found and
+      fixed real drift a plain read caught: `docs/file-guide.md` (9x),
+      `docs/sensors-and-data.md` (2x), `docs/operator-guide.md`, and
+      `README.md`'s "Plugin API v4" section header all still said API-v4,
+      three commits after 3.4 shipped API v5 -- Package 3.4's own doc sweep
+      only covered `developer-guide.md`, `plugin-recording-architecture.md`,
+      `extensions/README.md`, and `CONTRIBUTING.md`, missing these four.
+      `docs/plugin-recording-architecture.md` and `CONTRIBUTING.md`
+      themselves were already current from that pass. The platform matrix
+      (Windows x64 + macOS canonical, Linux fail-closed) and the MIT license
+      were already written into `README.md`/`docs/operator-guide.md` in
+      substance before this package -- the "Open questions" section closed
+      in Package 3 records the decision trail, these active docs already
+      stated the resulting facts, so no further prose was needed there.
+- [ ] **6.5** `version.py` → `1.0.0`, `CHANGELOG.md` -- deliberately last:
+      needs merging this branch to `main` first, which `release.ps1` itself
+      does as part of tagging. Owner decision pending on timing.
+- [x] **6.6** Target doc §17 acceptance list -- reviewed item by item
+      2026-09-14, against real, already-passing tests, not re-derived:
+      preflight fails closed on insufficient storage
+      (`test_recording_capacity.py::test_insufficient_space_fails_with_a_reason`),
+      a missing required stream/plugin
+      (`test_study_readiness_service.py::test_missing_required_plugin_blocks_but_optional_plugin_does_not`),
+      and an implausible system clock
+      (`test_system_clock_probe.py::test_clock_before_the_floor_is_not_plausible`/
+      `test_clock_beyond_the_ceiling_is_not_plausible`), including both at
+      once (`test_both_capacity_and_clock_can_block_at_once`). Marker parity
+      between the journal and XDF is `test_card_summary_service.py`'s
+      `JournalXdfEventIdComparisonTests` (matching/missing/extra all
+      covered). Every sensor stream (brainbit, mini_radar, camera_emotion --
+      9 streams total, checked directly against the live discovered
+      catalog) declares `capture_delay_ns.source: "unknown"`, the honest
+      default target doc §6 asks for -- no adapter has fabricated a number
+      it does not have. Withdrawal empties a session to exactly the
+      `WITHDRAWN` marker (`test_withdrawal_service.py`, 12 tests). "One
+      migrated `.study-runner` per card type": `test_card_type_fixtures.py`
+      already runs a realistic, author-written question of every one of the
+      13 question types through the real `validate_and_normalize_config`
+      migration path (not a re-validation of already-canonical data) --
+      judged equivalent to 13 literal files and not duplicated as such.
+      Structure ratchet: `tools/measure_structure.py --check` passes.
+      Import invariants: `KNOWN_VIOLATIONS` in `test_import_boundaries.py`
+      is empty. Two gates remain, and only the operator can run them: the
+      **hardware smoke test** with real BrainBit, MR60, tablet, and camera
+      hardware, and the **plug-pull test**, whose measured data loss must be
+      recorded as a number in `docs/operator-guide.md` -- there is no
+      simulated stand-in for pulling the plug, and neither exists today.
 
 ---
 
