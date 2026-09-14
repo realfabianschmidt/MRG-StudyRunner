@@ -43,7 +43,7 @@ their own permission to it can add it locally, without changing any code. See
 
 ## BrainBit TouchDesigner reference project
 
-`software/study_runner/extensions/sensors/brainbit/HelloEEG_HelloMYO_01.3.toe` is a
+`software/study_runner/plugins/sensors/brainbit/HelloEEG_HelloMYO_01.3.toe` is a
 project-original TouchDesigner reference project used to sanity-check the
 OSC forwarding described in that plugin's `README.md`. It is not third-party
 content and carries no separate license; it is covered by the root

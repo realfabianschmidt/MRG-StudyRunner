@@ -3,13 +3,13 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
-import re
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 from study_runner.plugin_framework.registry import iter_plugins
 from study_runner.plugin_framework.registry import set_plugin_enabled as _write_enabled_flag
 from study_runner.shared.atomic_io import atomic_path_lock, atomic_write_json
+from .migrate import migrate_moved_plugin_paths
 
 
 class HardwareRevisionConflict(RuntimeError):
@@ -17,63 +17,6 @@ class HardwareRevisionConflict(RuntimeError):
 
 
 HardwareUpdateResult = TypeVar("HardwareUpdateResult")
-
-
-# Up to 0.5.0 the plugin folder was called `integrations`, and machine settings
-# store paths into it verbatim: a script to launch, a folder to log into, a
-# directory of model weights. Renaming the folder would leave every one of those
-# pointing nowhere on an operator's existing install, so they are rewritten when
-# the file is read.
-_MOVED_PLUGIN_PATHS = (
-    ("study_runner/integrations/", "study_runner/plugins/"),
-    ("study_runner\\integrations\\", "study_runner\\plugins\\"),
-    ('study_runner/plugins/brainbit/', 'study_runner/extensions/sensors/brainbit/'),
-    ('study_runner\\plugins\\brainbit\\', 'study_runner\\extensions\\sensors\\brainbit\\'),
-    ('study_runner/plugins/camera_emotion/', 'study_runner/extensions/sensors/camera_emotion/'),
-    ('study_runner\\plugins\\camera_emotion\\', 'study_runner\\extensions\\sensors\\camera_emotion\\'),
-    ('study_runner/plugins/mr60_mini_radar/', 'study_runner/extensions/sensors/mr60_mini_radar/'),
-    ('study_runner\\plugins\\mr60_mini_radar\\', 'study_runner\\extensions\\sensors\\mr60_mini_radar\\'),
-    ('study_runner/plugins/nextcloud_upload/', 'study_runner/extensions/destinations/nextcloud_upload/'),
-    ('study_runner\\plugins\\nextcloud_upload\\', 'study_runner\\extensions\\destinations\\nextcloud_upload\\'),
-    ('study_runner/plugins/notion_upload/', 'study_runner/extensions/destinations/notion_upload/'),
-    ('study_runner\\plugins\\notion_upload\\', 'study_runner\\extensions\\destinations\\notion_upload\\'),
-    ('study_runner/plugins/osc_touchdesigner/', 'study_runner/extensions/outputs/osc_touchdesigner/'),
-    ('study_runner\\plugins\\osc_touchdesigner\\', 'study_runner\\extensions\\outputs\\osc_touchdesigner\\'),
-)
-
-
-def migrate_moved_plugin_paths(value: Any) -> tuple[Any, int]:
-    """Repoint stored plugin paths at the renamed folder.
-
-    Returns the migrated value and how many strings changed, so a caller can
-    decide whether the file is worth rewriting. Walks the whole structure
-    because the paths sit at different depths per plugin and some are inside a
-    per-platform mapping.
-    """
-    if isinstance(value, str):
-        migrated = value
-        for old, new in _MOVED_PLUGIN_PATHS:
-            if old.rstrip("/\\").endswith("integrations"):
-                continue
-            for source in (old, old.replace("plugins", "integrations")):
-                source = source.rstrip("/\\")
-                destination = new.rstrip("/\\")
-                migrated = re.sub(re.escape(source) + r"(?=$|[/\\])", lambda _: destination, migrated)
-        return migrated, int(migrated != value)
-
-    if isinstance(value, dict):
-        result: dict[Any, Any] = {}
-        changes = 0
-        for key, item in value.items():
-            result[key], changed = migrate_moved_plugin_paths(item)
-            changes += changed
-        return result, changes
-
-    if isinstance(value, list):
-        migrated_items = [migrate_moved_plugin_paths(item) for item in value]
-        return [item for item, _ in migrated_items], sum(changed for _, changed in migrated_items)
-
-    return value, 0
 
 
 def save_hardware_config(config_path: Path, config_data: dict[str, Any]) -> None:

@@ -1,7 +1,7 @@
 """Pin the 1.0 rebuild's package-boundary invariants as a shrinking allowlist.
 
 Target doc `MRG_Recorder_Core_Architektur_1.0.md` section 14 lists import
-invariants the eventual `apps/packages/extensions` split must hold. Writing
+invariants the `apps/packages/plugins` split must hold. Writing
 them as tests that are simply red until Phase 4 moves files would either sit
 permanently red in CI (training everyone to ignore red, and blocking a merge
 to `main`) or get skipped (which is the same as not having them). Neither
@@ -53,14 +53,14 @@ RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("plugin_framework",), "study_runner.apps.server"),
     (("plugin_framework",), "study_runner.data_core.worker"),
     (("plugin_framework",), "study_runner.data_core.host"),
-    (("extensions",), "study_runner.apps.server"),
-    (("extensions",), "study_runner.data_core.host"),
-    (("extensions",), "study_runner.data_core.worker"),
+    (("plugins",), "study_runner.apps.server"),
+    (("plugins",), "study_runner.data_core.host"),
+    (("plugins",), "study_runner.data_core.worker"),
     # Package 5g.B5: card extensions run in their own process, same as any
     # sensor/destination/output, and must stay reachable through the same
     # request/response contract -- never by importing the orchestration,
     # participant-identity, or persistence code RuntimeCore owns.
-    (("extensions",), "study_runner.runtime_core"),
+    (("plugins",), "study_runner.runtime_core"),
     (("data_core", "host"), "study_runner.data_core.worker"),
     (("data_core", "worker"), "study_runner.data_core.host"),
     (("data_core", "worker"), "study_runner.plugin_framework"),

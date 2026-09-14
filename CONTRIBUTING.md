@@ -22,14 +22,14 @@ It keeps only the rules that are useful for this small Study Runner project. The
 - `Handler`: A small function that reacts to a click, request, or timer.
 - `Service`: A file or function with one clear job, such as loading config or saving results.
 - `Adapter`: A small bridge to external tools such as BrainBit or TouchDesigner.
-- `Extension`: A trusted built-in folder with `manifest.json` and `plugin.py` below a categorized `study_runner/extensions` directory. The manifest declares its capabilities, runtime, and UI assets. Extensions are shipped with the app; they are not uploaded or installed from the web interface.
+- `Extension`: A trusted built-in folder with `manifest.json` and `plugin.py` below a categorized `study_runner/plugins` directory. The manifest declares its capabilities, runtime, and UI assets. Extensions are shipped with the app; they are not uploaded or installed from the web interface.
 - `API`: Fixed web addresses that let the browser pages and server talk to each other.
 - `Validation`: Checking whether incoming data is complete and sensible before it is saved or used.
 
 ## 1. Keep it simple
 
 - Required: Build direct, simple solutions.
-- Required: Discover only trusted extension folders shipped below `study_runner/extensions/<category>`. Never load paths, packages, or dependencies supplied by a web request.
+- Required: Discover only trusted extension folders shipped below `study_runner/plugins/<category>`. Never load paths, packages, or dependencies supplied by a web request.
 - Required: Do not add structure for a possible future use case unless there is a clear need now.
 - Required: If a term is hard to understand, replace it or explain it immediately.
 
@@ -74,7 +74,7 @@ It keeps only the rules that are useful for this small Study Runner project. The
 
 ## 7. Stay extensible with the internal registry
 
-- Required: A new question type lives in one `extensions/cards/<key>/` directory with its API-v5 manifest, Python contract, driver, and browser module.
+- Required: A new question type lives in one `plugins/cards/<key>/` directory with its API-v5 manifest, Python contract, driver, and browser module.
 - Required: Card defaults, configuration normalization, and answer validation are defined in the extension's Python contract. Browser fallbacks receive those defaults through `configureCard()`.
 - Required: Card discovery and dispatch come from manifests. Do not add a parallel per-card registry or a type-specific branch to core handlers.
 - Required: External tools such as BrainBit or TouchDesigner should live in small adapter files.

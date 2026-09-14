@@ -4,7 +4,7 @@ import re
 import unittest
 from unittest.mock import patch
 from study_runner.plugin_framework.card_catalog import card_bindings
-from study_runner.plugin_framework.extension_layout import resolve_extension
+from study_runner.plugin_framework.plugin_layout import resolve_plugin
 from study_runner.runtime_core.studies import card_extension_bridge
 from study_runner.runtime_core.studies.card_extension_bridge import get_card_defaults
 from study_runner.plugin_framework.process_host import get_process_runtime
@@ -20,7 +20,7 @@ class CardRegistryContractTests(unittest.TestCase):
         for question_type, (entry, contract) in card_bindings().items():
             with self.subTest(question_type=question_type):
                 self.assertEqual(entry.status, "valid", entry.errors)
-                path = resolve_extension(entry.plugin_key)[0] / entry.manifest["ui"]["extensions"]["card"]
+                path = resolve_plugin(entry.plugin_key)[0] / entry.manifest["ui"]["extensions"]["card"]
                 source = path.read_text(encoding="utf-8")
                 for name in ("metaByType", "configureCard", "renderStudy", "renderEditor", "collectConfig", "collectAnswer"):
                     self.assertRegex(source, rf"export (?:const|function) {name}\b")
@@ -53,3 +53,4 @@ class CardRegistryContractTests(unittest.TestCase):
         first = get_card_defaults("multi-slider")
         first["dimensions"][0]["label"] = "changed by an editor"
         self.assertNotEqual(first, get_card_defaults("multi-slider"))
+

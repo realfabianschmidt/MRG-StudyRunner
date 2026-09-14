@@ -140,7 +140,7 @@ def common_hidden_imports(root: Path) -> list[str]:
     imports = (
         collect_submodules("study_runner.apps.server")
         + collect_submodules("study_runner.plugin_framework")
-        + collect_submodules("study_runner.extensions")
+        + collect_submodules("study_runner.plugins")
         + [
             "study_runner.updates.installer",
             "study_runner.updates.trusted_keys",
@@ -157,7 +157,7 @@ def common_hidden_imports(root: Path) -> list[str]:
             + [
                 # Launched as "<own executable> --brainbit-cli" in packaged builds,
                 # because there is no separate Python interpreter to run the script.
-                "study_runner.extensions.sensors.brainbit.brainbit_realtime_cli",
+                "study_runner.plugins.sensors.brainbit.brainbit_realtime_cli",
             ]
         )
     if "osc" in plugin_keys:
@@ -189,7 +189,7 @@ def common_hidden_imports(root: Path) -> list[str]:
 
 def _plugin_manifests(root: Path) -> list[tuple[Path, dict]]:
     manifests: list[tuple[Path, dict]] = []
-    paths = list((root / "study_runner" / "extensions").glob("*/*/manifest.json"))
+    paths = list((root / "study_runner" / "plugins").glob("*/*/manifest.json"))
     for manifest in sorted(paths):
         try:
             payload = json.loads(manifest.read_text(encoding="utf-8"))

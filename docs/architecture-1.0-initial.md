@@ -82,7 +82,7 @@ software/
 │   ├── runtime_core/      studies/ · sessions/ · results/
 │   ├── data_core/         contract/ · host/ · worker/
 │   └── plugin_framework/  Discovery, Manifestprüfung, Prozess-Host
-├── extensions/            sensors/ cards/ destinations/ outputs/
+├── plugins/            sensors/ cards/ destinations/ outputs/
 └── study_content/
 ```
 
@@ -295,7 +295,7 @@ Server-Services. Was eine Extension braucht, kommt über ihr Context-Objekt
 oder ihr Payload, nicht über einen Import. Eine Destination liest oder
 schreibt insbesondere keine Studienkonfiguration.
 
-Das Extension SDK ist kein Hauptmodul und kein laufender Prozess. Für 1.0
+Das Plugin SDK ist kein Hauptmodul und kein laufender Prozess. Für 1.0
 schrumpft es auf das, was ohne externe Entwickler tatsächlich Wert hat:
 versionierte JSON-Schemas, ein Validator, eine Fake-Runtime, eine
 synthetische LSL-Quelle und je ein Template pro Typ. Sprachhilfspakete für
@@ -348,7 +348,7 @@ Diese Regeln sind mechanisch geprüft, nicht dokumentiert und gehofft. Jede
 bekommt einen Test, der vor dem Umbau rot ist.
 
 1. `data_core/host` und `data_core/worker` importieren einander nicht.
-2. Kein Modul unter `extensions/` oder `plugin_framework/` importiert
+2. Kein Modul unter `plugins/` oder `plugin_framework/` importiert
    `runtime_core`, `data_core` oder Server-Services.
 3. `contracts/` importiert nichts aus dem Rest der Anwendung.
 4. Kein Kernmodul nennt einen Plugin-Schlüssel.

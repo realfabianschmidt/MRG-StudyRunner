@@ -292,7 +292,7 @@ class FixturePluginBlueprintAcceptanceTests(FixturePluginRootMixin, unittest.Tes
             "study_runner/data_core/host/recording_runtime.py",
             "study_runner/apps/ui/scripts/shared/plugin-catalog.js",
             "study_runner/apps/ui/scripts/settings/study/study-settings-panel.js",
-            "study_runner/extensions/cards/stimulus/card.js",
+            "study_runner/plugins/cards/stimulus/card.js",
         ):
             self.assertNotIn(
                 PLUGIN_KEY,

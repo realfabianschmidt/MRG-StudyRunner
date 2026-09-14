@@ -1,5 +1,5 @@
 from __future__ import annotations
-from .extension_layout import resolve_extension
+from .plugin_layout import resolve_plugin
 
 import math
 from pathlib import Path
@@ -555,7 +555,7 @@ def resolve_plugin_ui_asset(key: str, asset_path: str) -> Path:
     normalized = str(asset_path or "").replace("\\", "/")
     if normalized not in declared:
         raise ValueError(f"Plugin '{key}' does not declare UI asset '{normalized}'.")
-    plugin_root = resolve_extension(key)[0]
+    plugin_root = resolve_plugin(key)[0]
     candidate = (plugin_root / normalized).resolve()
     try:
         candidate.relative_to(plugin_root)
@@ -587,3 +587,4 @@ _PLUGIN_CATALOG = discover_plugin_catalog()
 PLUGINS: tuple[Plugin, ...] = _PLUGIN_CATALOG.plugins
 PLUGINS_BY_KEY = {plugin.key: plugin for plugin in PLUGINS}
 _report_invalid_plugins(_PLUGIN_CATALOG)
+

@@ -12,11 +12,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.extensions.sensors.camera_emotion.worker import plugin as worker_plugin
-from study_runner.extensions.sensors.camera_emotion.worker import server as worker_server
+from study_runner.plugins.sensors.camera_emotion.worker import plugin as worker_plugin
+from study_runner.plugins.sensors.camera_emotion.worker import server as worker_server
 from study_runner.contracts.plugin_api import PluginContext
-from study_runner.extensions.sensors.camera_emotion import adapter as camera_adapter
-from study_runner.extensions.sensors.camera_emotion.plugin import PLUGIN as CAMERA_EMOTION_PLUGIN
+from study_runner.plugins.sensors.camera_emotion import adapter as camera_adapter
+from study_runner.plugins.sensors.camera_emotion.plugin import PLUGIN as CAMERA_EMOTION_PLUGIN
 
 
 class FakeWorkerProcess:

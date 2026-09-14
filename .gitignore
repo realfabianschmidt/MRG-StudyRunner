@@ -38,15 +38,14 @@ software/study_runner/plugins/brainbit_assets_to_copy/
 *.crt
 *.p12
 *.pfx
-software/study_runner/plugins/brainbit/logs/
-software/study_runner/plugins/brainbit/recordings/
-software/study_runner/extensions/**/runtime/
-software/study_runner/extensions/**/logs/
-software/study_runner/extensions/**/*.log
+software/study_runner/plugins/**/runtime/
+software/study_runner/plugins/**/logs/
+software/study_runner/plugins/**/recordings/
+software/study_runner/plugins/**/*.log
 software/logs/
 # DeepFace runtime cache and separately licensed operator-provisioned weights.
-software/study_runner/extensions/sensors/camera_emotion/worker/deepface_home/
-software/study_runner/extensions/sensors/camera_emotion/worker/model_assets/*.h5
+software/study_runner/plugins/sensors/camera_emotion/worker/deepface_home/
+software/study_runner/plugins/sensors/camera_emotion/worker/model_assets/*.h5
 .secrets/
 
 # Environment and editor tooling

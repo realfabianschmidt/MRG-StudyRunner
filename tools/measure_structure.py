@@ -56,7 +56,7 @@ def _areas() -> list[str]:
     for parent, children in {
         "apps": ("server", "ui", "cli"),
         "data_core": ("host", "worker", "contract"),
-        "extensions": ("sensors", "cards", "destinations", "outputs"),
+        "plugins": ("sensors", "cards", "destinations", "outputs"),
     }.items():
         for name in children:
             if (STUDY_RUNNER_ROOT / parent / name).is_dir():

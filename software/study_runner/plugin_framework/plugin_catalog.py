@@ -26,14 +26,14 @@ from study_runner.contracts.manifest import (
     validate_admin_action_payload,
     validate_and_normalize_manifest,
 )
-from .extension_layout import trusted_roots, candidate_directories
+from .plugin_layout import trusted_roots, candidate_directories
 from study_runner.shared.runtime_mode import is_frozen
 from study_runner.contracts.plugin_api import Plugin
 
 
 MANIFEST_FILENAME = "manifest.json"
 PLUGIN_IGNORE_FILENAME = ".pluginignore"
-DEFAULT_PACKAGE_NAME = "study_runner.extensions"
+DEFAULT_PACKAGE_NAME = "study_runner.plugins"
 
 
 @dataclass(frozen=True)

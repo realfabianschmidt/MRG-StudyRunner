@@ -162,6 +162,15 @@ class PluginManifestTests(unittest.TestCase):
             validate_and_normalize_manifest(payload, directory_name="fixture")
 
         payload = _manifest("fixture")
+        payload["ui"]["assets"] = ["card.js", "card.css"]
+        manifest = validate_and_normalize_manifest(payload, directory_name="fixture")
+        self.assertEqual(manifest["ui"]["assets"], ["card.js", "card.css"])
+
+        payload["ui"]["extensions"] = {"card": "card.css"}
+        with self.assertRaisesRegex(PluginManifestError, r"\.js path"):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
+        payload = _manifest("fixture")
         payload["ui"]["timeline"] = {
             "lane_aliases": ["fixture_sidecar"],
             "preferred_channels": ["payload.value"],
@@ -797,7 +806,7 @@ class PublicCatalogTests(unittest.TestCase):
             },
         )
 
-    def test_plugin_asset_endpoint_serves_only_declared_javascript(self) -> None:
+    def test_plugin_asset_endpoint_serves_declared_javascript_and_css(self) -> None:
         from flask import Flask
 
         app = Flask(__name__)
@@ -805,13 +814,18 @@ class PublicCatalogTests(unittest.TestCase):
         client = app.test_client()
 
         declared = client.get("/api/plugins/brainbit/assets/ui/dashboard.js")
+        stylesheet = client.get("/api/plugins/choice/assets/card.css")
         undeclared = client.get("/api/plugins/brainbit/assets/manifest.json")
 
         self.assertEqual(declared.status_code, 200)
         self.assertEqual(declared.mimetype, "text/javascript")
         self.assertEqual(declared.headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(stylesheet.status_code, 200)
+        self.assertEqual(stylesheet.mimetype, "text/css")
+        self.assertEqual(stylesheet.headers["X-Content-Type-Options"], "nosniff")
         self.assertEqual(undeclared.status_code, 404)
         declared.close()
+        stylesheet.close()
         undeclared.close()
 
     def test_admin_action_endpoint_rejects_wrong_and_unknown_payload_fields(self) -> None:
@@ -853,7 +867,7 @@ class PublicCatalogTests(unittest.TestCase):
     def test_brainbit_selection_uses_generic_route_and_machine_context(self) -> None:
         """BrainBit is an API-v4 plugin: its admin actions run inside the
         driver.py child process, not the server process. Patching
-        study_runner.extensions.sensors.brainbit.plugin._restart here would be a no-op --
+        study_runner.plugins.sensors.brainbit.plugin._restart here would be a no-op --
         that module only runs inside the isolated driver. This test instead
         observes the process RPC boundary (like the equivalent Nextcloud
         test), so the HTTP-route -> validated-payload -> process-request
@@ -924,7 +938,7 @@ class BrainBitManifestActionTests(unittest.TestCase):
             persist_hardware_config=lambda value: persisted.append(value),
         )
         with (
-            patch("study_runner.extensions.sensors.brainbit.plugin._restart", return_value={"status": "waiting"}),
+            patch("study_runner.plugins.sensors.brainbit.plugin._restart", return_value={"status": "waiting"}),
             patch("study_runner.plugin_framework.registry.get_plugin_status", return_value={"status": "waiting"}),
         ):
             response = run_admin_action(

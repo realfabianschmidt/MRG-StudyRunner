@@ -39,15 +39,15 @@ class StructureMetricsTests(unittest.TestCase):
         for relative in (
             "apps/server/module.py",
             "apps/ui/module.py",
-            "extensions/sensors/module.py",
-            "extensions/destinations/module.py",
+            "plugins/sensors/module.py",
+            "plugins/destinations/module.py",
         ):
             self.write_module(relative, "VALUE = 1\n")
         current = self.measure()
         self.assertEqual(current["lines_per_package"]["apps.server"], 1)
         self.assertEqual(current["lines_per_package"]["apps.ui"], 1)
-        self.assertEqual(current["lines_per_package"]["extensions.sensors"], 1)
-        self.assertEqual(current["lines_per_package"]["extensions.destinations"], 1)
+        self.assertEqual(current["lines_per_package"]["plugins.sensors"], 1)
+        self.assertEqual(current["lines_per_package"]["plugins.destinations"], 1)
 
     def test_detects_a_transitive_cycle_inside_the_future_data_core_layout(self) -> None:
         self.write_module("data_core/host/runtime.py", "from .. import worker\n")

@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 from study_runner.contracts.plugin_api import Plugin, PluginContext
 from study_runner.contracts.card_validation_primitives import CardValidationError
-from .extension_layout import resolve_extension
+from .plugin_layout import resolve_plugin
 from .plugin_secrets import resolve_plugin_secret
 from .process_host import PROTOCOL_PREFIX
 
@@ -32,7 +32,7 @@ def run_plugin_driver(plugin_key: str) -> int:
         plugin = getattr(module, "PLUGIN", None)
         if not isinstance(plugin, Plugin):
             raise TypeError("plugin module does not expose PLUGIN")
-        directory = resolve_extension(normalized)[0]
+        directory = resolve_plugin(normalized)[0]
         # The raw manifest.json, not the normalized catalog shape: a child
         # process reads its own file directly rather than importing the
         # discovery machinery. Here "capabilities" is still the authored
@@ -142,7 +142,7 @@ def run_plugin_driver(plugin_key: str) -> int:
 def _plugin_package_directory(plugin_key: str) -> str:
     """Resolve a manifest key to its bundle folder without a core key map."""
 
-    return resolve_extension(plugin_key)[1]
+    return resolve_plugin(plugin_key)[1]
 
 
 def _dispatch(
@@ -333,3 +333,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

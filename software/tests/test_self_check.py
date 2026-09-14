@@ -109,7 +109,7 @@ class SelfCheckIsolationTests(unittest.TestCase):
         fixture = PluginCatalogEntry("packaging_probe", "valid", "packaging_probe", manifest={"plugin_key": "packaging_probe"})
         app = SimpleNamespace(config={"BASE_DIR": Path("."), "DATA_DIR": Path("data"), "LOCAL_SECRETS_FILE": Path("secrets.json")})
         with patch("study_runner.plugin_framework.process_host.PluginProcessRuntime") as runtime_class, patch(
-            "study_runner.plugin_framework.extension_layout.resolve_extension",
+            "study_runner.plugin_framework.plugin_layout.resolve_plugin",
             return_value=(Path("fixture"), "fixture.packaging_probe"),
         ):
             runtime = runtime_class.return_value
@@ -134,3 +134,4 @@ class SelfCheckIsolationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

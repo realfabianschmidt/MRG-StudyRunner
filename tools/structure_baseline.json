@@ -4,7 +4,7 @@
   "cycle_pairs": [],
   "largest_file": {
     "lines": 2292,
-    "path": "software/study_runner/extensions/sensors/brainbit/adapter.py"
+    "path": "software/study_runner/plugins/sensors/brainbit/adapter.py"
   },
   "lines_per_package": {
     "apps": 0,

@@ -21,7 +21,7 @@ finally:
 
 export async function importCard(url) {
   const key = url.split('/')[3];
-  let source = await fs.readFile(new URL(`study_runner/extensions/cards/${key}/card.js`, software), 'utf8');
+  let source = await fs.readFile(new URL(`study_runner/plugins/cards/${key}/card.js`, software), 'utf8');
   source = source.replaceAll("'/static/", `'${ui.href}`);
   return import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 }

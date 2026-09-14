@@ -25,7 +25,7 @@ catalog normalises it once; everything downstream reads the normalised shape.
 
 ## Two things worth knowing before changing this
 
-- **`extension_layout.trusted_roots()` is the only place that knows where
+- **`plugin_layout.trusted_roots()` is the only place that knows where
   extensions live.** Discovery, UI assets, self-check, and drivers share it.
 - **Manifest validation is a security boundary, not a convenience.** A plugin is
   imported only after its manifest passes; an asset is served only if the

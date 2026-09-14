@@ -18,7 +18,7 @@ of these licenses themselves require:
 | `Iconoir-LICENSE.txt` | `software/study_runner/apps/ui/vendor/iconoir/LICENSE` | The vendored Iconoir icon set (MIT) |
 
 Not third-party, kept out of this folder on purpose:
-`software/study_runner/extensions/sensors/brainbit/HelloEEG_HelloMYO_01.3.toe`,
+`software/study_runner/plugins/sensors/brainbit/HelloEEG_HelloMYO_01.3.toe`,
 a project-original TouchDesigner reference project covered by `../LICENSE`
 like the rest of the source tree — see `THIRD_PARTY_NOTICES.md`.
 

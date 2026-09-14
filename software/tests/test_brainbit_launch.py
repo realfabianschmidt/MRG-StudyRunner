@@ -16,8 +16,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.extensions.sensors.brainbit import adapter, brainbit_realtime_cli
-from study_runner.extensions.sensors.brainbit import plugin as brainbit_plugin
+from study_runner.plugins.sensors.brainbit import adapter, brainbit_realtime_cli
+from study_runner.plugins.sensors.brainbit import plugin as brainbit_plugin
 from study_runner.contracts.plugin_api import PluginContext
 
 
@@ -292,7 +292,7 @@ class RuntimeDirTests(unittest.TestCase):
         sys.frozen = True
 
         result = brainbit_plugin._runtime_dir(
-            self.context, "study_runner/extensions/sensors/brainbit/logs", "plugins/brainbit/logs", "logs"
+            self.context, "study_runner/plugins/sensors/brainbit/logs", "plugins/brainbit/logs", "logs"
         )
 
         self.assertEqual(Path(result), Path("/writable/brainbit/logs"))

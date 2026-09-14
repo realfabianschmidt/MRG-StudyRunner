@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.runtime_core.studies.validation import validate_and_normalize_config
-from study_runner.extensions.destinations.notion_upload import adapter, plugin
+from study_runner.plugins.destinations.notion_upload import adapter, plugin
 
 
 class NotionParticipantMetadataTests(unittest.TestCase):

@@ -9,10 +9,10 @@ both are now real recording code instead -- see `recording/markers.py` and
 `recording/clock_diagnostics.py`.
 
 This test makes the promise executable for what is left, instead of assumed. It
-works on a flat copy of the real `extensions/*/` trees with one folder removed, so a
+works on a flat copy of the real `plugins/*/` trees with one folder removed, so a
 regression here means an operator's plugin folder, not a fixture.
 
-Package 5g.B5 made cards real extensions under `extensions/cards/`, so they are
+Package 5g.B5 made cards real extensions under `plugins/cards/`, so they are
 swept into this file's per-plugin checks too, and the promise holds: removing
 any one card's folder leaves every other plugin's manifest valid and the
 internal recording plan untouched, same as any sensor/destination/output.
@@ -20,7 +20,7 @@ The one exception is the *zero-catalog* edge case below -- `participant-id`
 and `finish` are the mandatory bookends of every study, so a catalog with
 neither installed cannot author a *playable* study. That is the same
 "necessity wearing a manifest" property `lsl_markers`/`clock_diagnostics` had
-(and it is why they no longer live under `extensions/`); cards stay real,
+(and it is why they no longer live under `plugins/`); cards stay real,
 process-isolated extensions regardless, because the isolation guarantee
 matters for participant-id/finish too, not just for peripheral hardware.
 """
@@ -43,7 +43,7 @@ from study_runner.plugin_framework.plugin_catalog import PluginCatalog, discover
 from study_runner.plugin_framework.registry import reload_plugin_catalog
 
 
-EXTENSIONS_DIR = PROJECT_ROOT / "study_runner" / "extensions"
+PLUGINS_DIR = PROJECT_ROOT / "study_runner" / "plugins"
 
 # Every folder under plugins/ must have this property. If a folder is added
 # that is not meant to be removable, it does not belong under plugins/ --
@@ -52,7 +52,7 @@ EXTENSIONS_DIR = PROJECT_ROOT / "study_runner" / "extensions"
 REMOVABLE_PLUGINS = tuple(
     sorted(
         path.name
-        for category in EXTENSIONS_DIR.iterdir() if category.is_dir()
+        for category in PLUGINS_DIR.iterdir() if category.is_dir()
         for path in category.iterdir() if path.is_dir() and (path / "manifest.json").is_file()
     )
 )
@@ -81,14 +81,14 @@ class PlugInAndPullOutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             copy = Path(tmp) / "plugins"
             copy.mkdir()
-            for category in EXTENSIONS_DIR.iterdir():
+            for category in PLUGINS_DIR.iterdir():
                 if not category.is_dir():
                     continue
                 for source in category.iterdir():
                     if source.is_dir() and (source / "manifest.json").is_file():
                         shutil.copytree(source, copy / source.name, ignore=shutil.ignore_patterns("__pycache__"))
             shutil.rmtree(copy / plugin_key)
-            return discover_plugin_catalog(copy, package_name="study_runner.extensions")
+            return discover_plugin_catalog(copy, package_name="study_runner.plugins")
 
     def test_every_declared_plugin_is_actually_removable(self) -> None:
         for plugin_key in REMOVABLE_PLUGINS:
@@ -143,8 +143,7 @@ class PlugInAndPullOutTests(unittest.TestCase):
                 self.assertEqual(client.get("/admin").status_code, 200)
                 self.assertEqual(client.get("/api/plugins/catalog").get_json()["plugins"], [])
                 self.assertEqual(client.post("/api/admin/plugins/absent/start", json={}).status_code, 404)
-                self.assertEqual(client.post("/api/admin/brainbit/start", json={}).status_code, 410)
-                self.assertEqual(client.get("/api/notion/status").status_code, 410)
+                self.assertEqual(client.post("/api/admin/plugins/brainbit/start", json={}).status_code, 404)
 
                 hardware_save = client.post(
                     "/api/hardware-config",

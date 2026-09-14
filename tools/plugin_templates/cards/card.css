@@ -1,0 +1,2 @@
+/* Card-specific styles are loaded from ui.assets before registration. */
+.example-card-input { min-height: 8rem; }

@@ -4,7 +4,7 @@ A v4 plugin's handlers run in a spawned subprocess (``driver.py``), which has
 no access to this process's ``sys.path`` or monkeypatches -- only its
 environment survives the spawn (``env = os.environ.copy()`` in
 ``plugin_framework/process_host.py``). This mixin registers the temp package
-with ``extension_layout``'s test-only environment seam so a real subprocess
+with ``plugin_layout``'s test-only environment seam so a real subprocess
 can resolve and import the fixture plugin exactly like a real one, instead of
 faking the v3 in-process import path that Phase 3.1
 (docs/architecture-1.0-umbau.md) removed.
@@ -17,9 +17,9 @@ import shutil
 import sys
 import uuid
 
-from study_runner.plugin_framework.extension_layout import (
-    TEST_EXTRA_ROOT_PACKAGE_ENV_VAR,
-    TEST_EXTRA_ROOT_PATH_ENV_VAR,
+from study_runner.plugin_framework.plugin_layout import (
+    TEST_EXTRA_PLUGIN_ROOT_PACKAGE_ENV_VAR,
+    TEST_EXTRA_PLUGIN_ROOT_PATH_ENV_VAR,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -71,15 +71,15 @@ class FixturePluginRootMixin:
 
         self._previous_environ = {
             "PYTHONPATH": os.environ.get("PYTHONPATH"),
-            TEST_EXTRA_ROOT_PATH_ENV_VAR: os.environ.get(TEST_EXTRA_ROOT_PATH_ENV_VAR),
-            TEST_EXTRA_ROOT_PACKAGE_ENV_VAR: os.environ.get(TEST_EXTRA_ROOT_PACKAGE_ENV_VAR),
+            TEST_EXTRA_PLUGIN_ROOT_PATH_ENV_VAR: os.environ.get(TEST_EXTRA_PLUGIN_ROOT_PATH_ENV_VAR),
+            TEST_EXTRA_PLUGIN_ROOT_PACKAGE_ENV_VAR: os.environ.get(TEST_EXTRA_PLUGIN_ROOT_PACKAGE_ENV_VAR),
         }
         existing_pythonpath = os.environ.get("PYTHONPATH", "")
         os.environ["PYTHONPATH"] = os.pathsep.join(
             item for item in (str(self.root), existing_pythonpath) if item
         )
-        os.environ[TEST_EXTRA_ROOT_PATH_ENV_VAR] = str(self.package_dir)
-        os.environ[TEST_EXTRA_ROOT_PACKAGE_ENV_VAR] = self.package_name
+        os.environ[TEST_EXTRA_PLUGIN_ROOT_PATH_ENV_VAR] = str(self.package_dir)
+        os.environ[TEST_EXTRA_PLUGIN_ROOT_PACKAGE_ENV_VAR] = self.package_name
 
     def tearDown(self) -> None:
         for name, value in self._previous_environ.items():

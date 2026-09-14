@@ -1,7 +1,7 @@
 # Developer Guide
 
 Study Runner uses trusted built-in integration plugins. A plugin is a Python
-package below `software/study_runner/extensions/`; there is no web upload,
+package below `software/study_runner/plugins/`; there is no web upload,
 marketplace, automatic dependency installation, or untrusted code path.
 
 The complete recording contract is in
@@ -52,7 +52,7 @@ is only the files worth knowing before touching plugin code.
 ## Required Plugin Shape
 
 ```text
-software/study_runner/extensions/sensors/my_new_sensor/
+software/study_runner/plugins/sensors/my_new_sensor/
   __init__.py
   manifest.json
   driver.py           # the only process entry point; a one-line wrapper
@@ -96,22 +96,22 @@ The exported key must match `manifest.json`. Add defaults to
 `software/study_content/settings/hardware_settings.json` only for genuine
 machine state; per-study choices belong in the manifest's study schema.
 
-## Extension SDK
+## Plugin SDK
 
-`tools/extension_sdk.py` writes the folder shape above for you and checks
+`tools/plugin_sdk.py` writes the folder shape above for you and checks
 it, instead of copying an existing extension by hand:
 
 ```bash
-python tools/extension_sdk.py new sensors my_new_sensor   # or: cards, destinations, outputs
-python tools/extension_sdk.py validate my_new_sensor      # is the manifest valid?
-python tools/extension_sdk.py check-runtime my_new_sensor # does it actually start?
+python tools/plugin_sdk.py new sensors my_new_sensor   # or: cards, destinations, outputs
+python tools/plugin_sdk.py validate my_new_sensor      # is the manifest valid?
+python tools/plugin_sdk.py check-runtime my_new_sensor # does it actually start?
 ```
 
 `validate` and `check-runtime` do not have their own copy of the validation
 rules — they call the exact same code the real server uses, so a "yes" here
 means the extension really works, not just that it looks right. There is
 also a generated reference file at
-`tools/extension_templates/manifest.schema.json` describing a manifest's
+`tools/plugin_templates/manifest.schema.json` describing a manifest's
 outer shape (regenerate it with `schema --write` after changing
 `contracts/manifest.py`); it does not cover each capability's own fields,
 since `validate` already checks those for real.
@@ -227,7 +227,7 @@ not block the aggregate dashboard status request.
 
 ## Adding A Recording Sensor
 
-`tools/extension_sdk.py new sensors <key>` scaffolds a starting manifest and
+`tools/plugin_sdk.py new sensors <key>` scaffolds a starting manifest and
 plugin.py that already pass `validate`/`check-runtime`; steps 2-8 below still
 need real, sensor-specific work.
 
@@ -248,12 +248,12 @@ need real, sensor-specific work.
 ## Adding A Card Type
 
 A card extension is one trusted directory under
-`software/study_runner/extensions/cards/<plugin_key>/`. Adding one must not add
+`software/study_runner/plugins/cards/<plugin_key>/`. Adding one must not add
 a named import, type list or special branch to the server, validation entry
 points or participant controller. Use a snake_case plugin key; question-type
 identifiers may retain their established spelling.
 
-`tools/extension_sdk.py new cards <key>` scaffolds these four files with a
+`tools/plugin_sdk.py new cards <key>` scaffolds these four files with a
 working placeholder question type; rename the type (see the template's own
 comments) since it must be globally unique across every card.
 

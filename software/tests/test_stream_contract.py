@@ -95,7 +95,7 @@ class ApplyStreamContractDescTests(unittest.TestCase):
 class LoadOwnStreamContractsTests(unittest.TestCase):
     def test_loads_and_normalizes_a_real_manifest_by_key(self) -> None:
         adapter_file = str(
-            PROJECT_ROOT / "study_runner" / "extensions" / "sensors" / "brainbit" / "adapter.py"
+            PROJECT_ROOT / "study_runner" / "plugins" / "sensors" / "brainbit" / "adapter.py"
         )
         contracts = load_own_stream_contracts(adapter_file)
         self.assertEqual(

@@ -1,0 +1,79 @@
+{
+  "api_version": 5,
+  "plugin_key": "nextcloud",
+  "version": "1.0.0",
+  "category": "storage",
+  "config_key": "nextcloud",
+  "runtime": {
+    "entrypoint": "driver.py",
+    "protocol": "study-runner-stdio/v1",
+    "interactive_stdin": true,
+    "modes": ["runtime", "diagnostics"],
+    "sample_delivery": "none",
+    "actions": [],
+    "trial_events": [],
+    "can_toggle": false,
+    "sidecar": {}
+  },
+  "ui": {
+    "label": "Nextcloud upload",
+    "description": "Mirrors immutable session artifacts to a Nextcloud share.",
+    "order": 610,
+    "visibility": {
+      "dashboard": false,
+      "settings_hub": true,
+      "study_settings": true,
+      "destination_settings": true
+    }
+  },
+  "capabilities": {
+    "upload_destination": {
+      "destination": "nextcloud",
+      "default_enabled": false,
+      "requires_valid_result": false,
+      "publish_on_attention": true,
+      "republish_on_degraded": true,
+      "purge_verified_sources": true,
+      "legacy": {
+        "enabled_field": "nextcloud_enabled",
+        "settings": {"share_link": "nextcloud_share_link"}
+      }
+    },
+    "readiness_requirements": {
+      "requires_settings": ["share_link"]
+    },
+    "health": {},
+    "study_settings": {},
+    "credentials": {
+      "config_field": "password",
+      "env_var": "STUDY_RUNNER_NEXTCLOUD_PASSWORD",
+      "per_study": true
+    },
+    "admin_actions": {
+      "actions": [
+        {
+          "key": "test_connection",
+          "label": "Test connection",
+          "payload_schema": {
+            "share_link": {"type": "string", "required": true, "max_length": 2048},
+            "password": {"type": "string", "required": false, "max_length": 256},
+            "timeout_seconds": {"type": "integer", "required": false, "minimum": 1, "maximum": 120}
+          }
+        }
+      ]
+    }
+  },
+  "streams": [],
+  "settings": {
+    "machine": {},
+    "study": {
+      "share_link": {"type": "url", "format": "nextcloud_public_share", "default": ""}
+    },
+    "card_actions": {}
+  },
+  "poll_interval_ms": 5000,
+  "request_timeout_ms": 1000,
+  "clock_domain": "server",
+  "expected_data_rate": {},
+  "backpressure": {"max_in_flight": 1, "drop_policy": "upload_job_queue"}
+}

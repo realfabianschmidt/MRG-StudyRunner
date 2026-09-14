@@ -71,7 +71,7 @@ def _context() -> PluginContext:
 class PluginRegistryContractTests(unittest.TestCase):
     def _verify_process_isolated(self, folder: str, category: str) -> tuple[str, str]:
         module = importlib.import_module(
-            f"study_runner.extensions.{category}.{folder}.plugin"
+            f"study_runner.plugins.{category}.{folder}.plugin"
         )
         plugin = module.PLUGIN
         registered = PLUGINS_BY_KEY[plugin.key]
@@ -354,7 +354,7 @@ class PluginRegistryContractTests(unittest.TestCase):
         }
         for plugin_key, module_suffix in adapter_modules.items():
             with self.subTest(plugin=plugin_key):
-                adapter = importlib.import_module(f"study_runner.extensions.sensors.{module_suffix}")
+                adapter = importlib.import_module(f"study_runner.plugins.sensors.{module_suffix}")
                 manifest_ids = {
                     stream["key"]: stream["source_id"]
                     for stream in get_plugin_manifest(plugin_key)["streams"]

@@ -34,7 +34,7 @@ class MovedPluginPathTests(unittest.TestCase):
         self.assertEqual(changed, 1)
         self.assertEqual(
             migrated["brainbit"]["script_path"],
-            "study_runner/extensions/sensors/brainbit/brainbit_realtime_cli.py",
+            "study_runner/plugins/sensors/brainbit/brainbit_realtime_cli.py",
         )
 
     def test_windows_paths_are_repointed(self) -> None:
@@ -46,7 +46,24 @@ class MovedPluginPathTests(unittest.TestCase):
         self.assertEqual(changed, 1)
         self.assertEqual(
             migrated["brainbit"]["log_dir"],
-            "C:\\Study\\software\\study_runner\\extensions\\sensors\\brainbit\\logs",
+            "C:\\Study\\software\\study_runner\\plugins\\sensors\\brainbit\\logs",
+        )
+
+    def test_flat_and_categorized_plugin_paths_are_repointed(self) -> None:
+        migrated, changed = migrate_moved_plugin_paths(
+            {
+                "flat": "study_runner/plugins/notion_upload/adapter.py",
+                "categorized": "study_runner/extensions/cards/custom_card/card.js",
+            }
+        )
+
+        self.assertEqual(changed, 2)
+        self.assertEqual(
+            migrated,
+            {
+                "flat": "study_runner/plugins/destinations/notion_upload/adapter.py",
+                "categorized": "study_runner/plugins/cards/custom_card/card.js",
+            },
         )
 
     def test_per_platform_mappings_and_lists_are_reached(self) -> None:
@@ -67,9 +84,9 @@ class MovedPluginPathTests(unittest.TestCase):
 
         settings = migrated["camera_emotion"]["settings"]
         self.assertEqual(changed, 3)
-        self.assertEqual(settings["log_dir"]["windows"], "study_runner\\extensions\\sensors\\camera_emotion\\worker\\logs")
-        self.assertEqual(settings["log_dir"]["default"], "study_runner/extensions/sensors/camera_emotion/worker/logs")
-        self.assertEqual(settings["extra_paths"], ["study_runner/extensions/sensors/camera_emotion/worker/model_assets"])
+        self.assertEqual(settings["log_dir"]["windows"], "study_runner\\plugins\\sensors\\camera_emotion\\worker\\logs")
+        self.assertEqual(settings["log_dir"]["default"], "study_runner/plugins/sensors/camera_emotion/worker/logs")
+        self.assertEqual(settings["extra_paths"], ["study_runner/plugins/sensors/camera_emotion/worker/model_assets"])
 
     def test_unrelated_values_are_left_alone(self) -> None:
         """Only the folder path moved. A URL that happens to say 'integrations' did not."""
@@ -85,7 +102,7 @@ class MovedPluginPathTests(unittest.TestCase):
         self.assertEqual(migrated, original)
 
     def test_an_already_migrated_file_is_a_no_op(self) -> None:
-        already = {"brainbit": {"script_path": "study_runner/extensions/sensors/brainbit/brainbit_realtime_cli.py"}}
+        already = {"brainbit": {"script_path": "study_runner/plugins/sensors/brainbit/brainbit_realtime_cli.py"}}
 
         migrated, changed = migrate_moved_plugin_paths(already)
 
@@ -127,7 +144,7 @@ class MovedPluginPathTests(unittest.TestCase):
             save_hardware_config(path, migrated)
             reloaded = json.loads(path.read_text(encoding="utf-8"))
 
-        self.assertEqual(reloaded["brainbit"]["working_dir"], "study_runner/extensions/sensors/brainbit")
+        self.assertEqual(reloaded["brainbit"]["working_dir"], "study_runner/plugins/sensors/brainbit")
 
 
 if __name__ == "__main__":

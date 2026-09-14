@@ -16,7 +16,7 @@ Most app work happens in `software/`. Source-archive and release helpers live in
 
 In the local lab workspace, `../Sensorik/` is intentionally kept next to this
 repo as the hardware reference and experiment folder. Runtime-ready copies live
-inside `software/study_runner/extensions/`.
+inside `software/study_runner/plugins/`.
 
 ```text
 Software/
@@ -56,7 +56,7 @@ study_runner/
 |-- contracts/         Pure shared manifest and plugin contracts.
 |-- data_core/         Host, worker and wire-contract recording packages.
 |-- runtime_core/      Study, settings and delivery orchestration.
-|-- extensions/        Sensors, destinations, outputs and future cards.
+|-- plugins/        Sensors, destinations, outputs and future cards.
 |-- plugin_framework/  The machinery that finds and runs those plugins.
 |-- shared/            Dependency-light common utilities.
 `-- updates/           Verifying and applying a signed update.
@@ -229,7 +229,7 @@ Current built-in plugins:
 
 - **BrainBit** EEG through the repo-local NeuroSDK CLI.
 - **MR60 mini-radar** through ESP32-C6 BLE firmware in
-  `software/study_runner/extensions/sensors/mr60_mini_radar/firmware/`.
+  `software/study_runner/plugins/sensors/mr60_mini_radar/firmware/`.
 - **Camera and emotion** through the single `camera_emotion` plugin, using
   browser `getUserMedia` plus a local or remote analysis worker.
 - **Notion** and **Nextcloud** as manifest-declared upload destinations
