@@ -148,15 +148,16 @@ Software/
 |-- THIRD_PARTY_NOTICES.md What third-party components are used and how.
 |-- licenses/              Full text of every third-party license, collected.
 |-- release.ps1            One-command release from the repo root.
-|-- docs/
+|-- docs/                  See Documentation below for who each one is for.
 |   |-- start-here.de.md        German guide for non-coders.
 |   |-- operator-guide.md       Daily operation and project overview.
-|   |-- sensors-and-data.md     Sensor flow, timing, XDF/LSL, data files.
-|   |-- plugin-recording-architecture.md  Plugin/worker/XDF architecture.
+|   |-- how-recording-quality-works.md  Quality and timing, in plain language.
+|   |-- sensors-and-data.md     What you configure, what you get back.
+|   |-- plugin-recording-architecture.md  Plugin/worker/XDF contract.
 |   |-- developer-guide.md      Server/UI/plugin development rules.
+|   |-- file-guide.md           One line per source file.
 |   |-- release-and-update.md   Source releases, updates, acceptance gates.
-|   |-- README.md               Documentation index.
-|   `-- archive/                Historical plans and audits.
+|   `-- archive/                Finished plans and historical records.
 |-- software/              THE PROGRAM.
 |   |-- server.py          Run locally with: cd software && python server.py
 |   |-- requirements.txt   Python dependencies.
@@ -325,7 +326,8 @@ Current built-in plugins:
 
 Each plugin folder has its own `README.md` with its architecture and, where
 applicable, exactly which parts of its code come from a third-party SDK
-versus project-original code — see `docs/README.md` for the full list.
+versus project-original code — see
+`software/study_runner/plugins/README.md` for the full list.
 
 On Windows x64 and macOS Apple Silicon, the source installer installs DeepFace,
 TensorFlow/tf-keras, OpenCV and the local Emotion Worker from
@@ -411,22 +413,33 @@ python -m py_compile release_tools/build_source_release.py tools/setup_recording
 git diff --check
 ```
 
-## Source Of Truth
+## Documentation
 
-- Non-coder start: `docs/start-here.de.md`
-- Operator guide: `docs/operator-guide.md`
-- Sensor and data model: `docs/sensors-and-data.md`
-- Plugin/recording architecture: `docs/plugin-recording-architecture.md`
-- Developer guide: `docs/developer-guide.md`
+| Document | Written for | Read it when |
+|---|---|---|
+| [start-here.de.md](docs/start-here.de.md) | Operators without a coding background (German) | You are setting the app up for the first time and do not work with code. |
+| [operator-guide.md](docs/operator-guide.md) | Operators running studies | You run sessions day to day and need the start, HTTPS/iPad, and troubleshooting steps. |
+| [how-recording-quality-works.md](docs/how-recording-quality-works.md) | Anyone reading a session's numbers | You want to know what gaps, jitter, effective rate and the lifecycle states actually mean. No code in it. |
+| [sensors-and-data.md](docs/sensors-and-data.md) | Study authors | You are choosing sensors and need to know which files a session produces. |
+| [plugin-recording-architecture.md](docs/plugin-recording-architecture.md) | Developers | You are changing recording, finalization, recovery, or the API-v5 plugin contract. This is the implementation contract. |
+| [developer-guide.md](docs/developer-guide.md) | Developers | You are adding a plugin or card, or need the code layout and naming rules. |
+| [file-guide.md](docs/file-guide.md) | Anyone touching a source file | You want to know what one file does and how safely it can be edited. A test keeps it complete. |
+| [release-and-update.md](docs/release-and-update.md) | Whoever cuts releases | You are tagging a release, or updating an existing installation. |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Everyone changing code | Before your first change. Project rules for keeping it readable. |
+
+Each plugin documents itself next to its code; start at
+[plugins/README.md](software/study_runner/plugins/README.md).
+Finished plans, audits and implementation records are in
+[docs/archive/](docs/archive/) — kept for context, current for nothing.
+
+Where everything else lives:
+
 - Editable study defaults: `software/study_content/`
 - Runtime app code: `software/study_runner/`
 - Release automation: `release_tools/`
-- Local hardware references in the lab workspace: `../Sensorik/`
-- Source release and update details: `docs/release-and-update.md`
-- Docs index: `docs/README.md`
-- Historical plans and audits: `docs/archive/`
 - Version history: `CHANGELOG.md`
 - Third-party license texts, collected in one place: `licenses/`
+- Local hardware references in the lab workspace: `../Sensorik/`
 
 Never commit local study results, generated build output, private keys,
 certificates, passwords, `.env`, `local_secrets.json`, `settings/ssl/`,
