@@ -12,14 +12,16 @@ the smallest safe plugin workflow.
 
 - `software/` is the application root and stays lowercase.
 - Python packages, modules, services, and plugin keys use `snake_case`.
-- Browser files and docs use descriptive `kebab-case`.
+- Browser files and docs use descriptive `kebab-case`, not numbered
+  prefixes. Files in `docs/archive/` keep the names they were written
+  under, numbering included, because they are a dated record.
 - Active technical docs and code comments are English.
 - Keep HTTP handlers thin; validation and policy belong in focused services.
 - Keep hardware-specific code inside its integration package.
 
 ## Important Files
 
-- `software/study_runner/plugin_framework/plugin_api.py`: shared context and
+- `software/study_runner/contracts/plugin_api.py`: shared context and
   plugin callback type.
 - `software/study_runner/plugin_framework/plugin_catalog.py`: trusted
   directory discovery, manifest validation (api_version 5), duplicate
@@ -27,7 +29,7 @@ the smallest safe plugin workflow.
 - `software/study_runner/plugin_framework/registry.py`: lookup and generic
   dispatch facade over the discovered, validated plugins.
 - `software/study_runner/plugin_framework/process_host.py`: supervises every
-  v4 plugin's `driver.py` subprocess (start/stop/restart, line-oriented
+  plugin's `driver.py` subprocess (start/stop/restart, line-oriented
   console, reserved-prefix RPC).
 - `software/study_runner/plugin_framework/driver_runtime.py`: runs inside
   that subprocess; imports the plugin's own `plugin.py` and dispatches to it.

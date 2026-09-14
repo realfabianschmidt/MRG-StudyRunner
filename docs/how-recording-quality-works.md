@@ -5,9 +5,10 @@ quality of a recording, how it keeps track of time, and what the words in
 `quality.jsonl`, `timing.jsonl` and the session browser actually mean.
 
 It is written for people who run studies, not for programmers. There is no
-code in it. If you want the code, `study_runner/contracts/quality_journal.py`,
-`study_runner/contracts/session_lifecycle.py` and
-`study_runner/contracts/recording_checkpoint.py` carry the same
+code in it. If you want the code,
+`software/study_runner/contracts/quality_journal.py`,
+`software/study_runner/contracts/session_lifecycle.py` and
+`software/study_runner/contracts/recording_checkpoint.py` carry the same
 explanations next to the implementation.
 
 ---
