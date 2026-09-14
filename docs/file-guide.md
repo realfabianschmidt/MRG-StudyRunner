@@ -238,6 +238,7 @@ recording code now, not extensions: `data_core/host/markers.py` and
 | `brainbit/plugin.py` | Plugin wrapper: config defaults + lifecycle for BrainBit | careful |
 | `brainbit/driver.py` | API-v5 process entry point (`run_plugin_driver("brainbit")`) | no |
 | `brainbit/diagnose_backends.py` | Standalone 30-second NeuroSDK vs. BrainFlow A/B diagnostic, outside the acquisition path | careful |
+| `brainbit/tools/ble_brainbit_probe.py` | Standalone discovery probe: lists the bands this computer can see and which one the production selector would pick | yes |
 | `mr60_mini_radar/adapter.py` | MR60 heart/breathing radar via serial or BLE, with auto-reconnect | careful |
 | `mr60_mini_radar/plugin.py` | Plugin wrapper for the radar | careful |
 | `mr60_mini_radar/driver.py` | API-v5 process entry point (`run_plugin_driver("mini_radar")`) | no |

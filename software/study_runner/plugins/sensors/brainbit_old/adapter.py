@@ -1,9 +1,15 @@
 """
+ARCHIVED COPY - the BrainBit integration as it stood before the reliability
+rebuild. Frozen on purpose: do not fix bugs here, fix them in
+``plugins/sensors/brainbit/`` instead. This exists only so an operator can
+fall back by hand if the current plugin fails in the field. See this folder's
+README.md.
+
 BrainBit adapter - launches a repo-local BrainBit CLI process and optionally mirrors its output to LSL.
 
 Expected setup inside this repository:
   - BrainBit Python CLI script in the project folder, for example:
-      study_runner/plugins/sensors/brainbit/brainbit_realtime_cli.py
+      study_runner/plugins/sensors/brainbit_old/brainbit_realtime_cli.py
   - TouchDesigner project listening for OSC on the configured port, for example:
       study_runner/plugins/sensors/brainbit/HelloEEG_HelloMYO_01.3.toe
 
@@ -37,7 +43,6 @@ from study_runner.contracts.stream_contract import apply_stream_contract_desc, l
 from .brainbit_realtime_cli import (
     EXIT_BLE_UNAVAILABLE,
     EXIT_CALLBACK_FAILURE,
-    EXIT_CONNECT_FAILED,
     EXIT_DEVICE_TARGET_MISSING,
     EXIT_MISSING_DEPENDENCY,
     EXIT_NO_DEVICE_FOUND,
@@ -46,11 +51,11 @@ from .brainbit_realtime_cli import (
 
 
 LSL_SOURCE_IDS = {
-    "eeg": "study_runner.brainbit.eeg",
-    "bands": "study_runner.brainbit.bands",
-    "mental": "study_runner.brainbit.mental",
-    "quality": "study_runner.brainbit.quality",
-    "battery": "study_runner.brainbit.battery",
+    "eeg": "study_runner.brainbit_old.eeg",
+    "bands": "study_runner.brainbit_old.bands",
+    "mental": "study_runner.brainbit_old.mental",
+    "quality": "study_runner.brainbit_old.quality",
+    "battery": "study_runner.brainbit_old.battery",
 }
 LSL_CHANNEL_UNITS = {
     "eeg": ("microvolt",) * 4,
@@ -95,11 +100,6 @@ _EXIT_REASONS: dict[int, dict[str, Any]] = {
         "message": "The BrainBit stream could not be started or stopped safely.",
         "retry": True,
     },
-    EXIT_CONNECT_FAILED: {
-        "detail_key": "brainbit.error.connectFailed",
-        "message": "The BrainBit headset was found, but the connection did not take. Retrying.",
-        "retry": True,
-    },
     EXIT_BLE_UNAVAILABLE: {
         "detail_key": "brainbit.error.bluetoothUnavailable",
         "message": "Bluetooth is switched off or unavailable on this computer.",
@@ -111,15 +111,6 @@ _CRASH_REASON: dict[str, Any] = {
     "message": "The BrainBit connection stopped unexpectedly.",
     "retry": True,
 }
-
-# How long to wait for the CLI to answer a stop signal by disconnecting the band
-# before forcing it. The SDK's own disconnect is unhurried, and forcing early is
-# what leaves the band held for the next attempt.
-SHUTDOWN_SIGNAL_WAIT_SECONDS = 8.0
-# How long to let the Bluetooth stack release the band between a stop and the
-# next scan. Overridable through `brainbit.settle_seconds` for a machine whose
-# adapter needs longer, and for tests, which set it to 0.
-DEFAULT_SETTLE_SECONDS = 2.0
 
 _lock = threading.Lock()
 _state_lock = threading.Lock()
@@ -143,10 +134,6 @@ _last_quality_at = 0.0
 _last_derived_at = 0.0
 _signal_started_at = 0.0
 _process_started_at = 0.0
-# When the band actually became reachable. Scanning and waiting happen before
-# this and are open-ended by design, so the startup watchdog measures from here
-# rather than from process launch.
-_connected_at = 0.0
 _log_handle: Any = None
 _log_write_error = ""
 _last_log_flush_at = 0.0
@@ -155,9 +142,6 @@ _lsl_create_outlet: Any = None
 _eeg_lsl_channels: tuple[str, ...] = ()
 _lsl_stream_health: dict[str, dict[str, Any]] = {}
 _stream_contract_ready = threading.Event()
-# Never set in normal operation: waiting on an Event that nobody sets is simply
-# an interruptible sleep. It exists so a shutdown can cut a settle short.
-_restart_settle_event = threading.Event()
 _routing_state = {
     "forward_to_lsl": False,
     "forward_to_touchdesigner": False,
@@ -203,10 +187,16 @@ def _default_python_executable(python_executable: str | None) -> str:
 
 
 def _uses_frozen_self_dispatch() -> bool:
-    """True when the CLI must be started as `<own exe> --brainbit-cli ...`."""
-    from study_runner.shared.runtime_mode import is_frozen
+    """Always False in this archived copy.
 
-    return not _config.get("python_executable") and is_frozen()
+    A packaged build launches the CLI as `<own exe> --brainbit-cli`, and that
+    flag dispatches to the *current* BrainBit CLI, not this archived one. Rather
+    than silently acquiring through the new code while reporting itself as the
+    old plugin, this copy refuses to launch in a packaged build: `start()` then
+    reports "needs a Python interpreter path", which is the honest answer. The
+    fallback is a source checkout, which is where an operator would be using it.
+    """
+    return False
 
 
 def _build_cli_command() -> list[str] | None:
@@ -269,12 +259,10 @@ def initialize(
     debug: bool = False,
     lsl_enabled: bool = False,
     lsl_auto_install: bool = True,
-    lsl_stream_prefix: str = "BrainBit",
+    lsl_stream_prefix: str = "BrainBitOld",
     quiet_output: bool = True,
     monitor_refresh_ms: int = 1000,
-    disconnect_timeout_ms: int = 45000,
-    settle_seconds: float = DEFAULT_SETTLE_SECONDS,
-    auto_restart_max_attempts: int = 3,
+    disconnect_timeout_ms: int = 20000,
     log_dir: str | None = None,
     log_max_bytes: int = 10 * 1024 * 1024,
     log_backup_count: int = 3,
@@ -338,11 +326,9 @@ def initialize(
         "quiet_output": bool(quiet_output),
         "monitor_refresh_ms": max(250, int(monitor_refresh_ms)),
         "disconnect_timeout_ms": max(1000, int(disconnect_timeout_ms)),
-        "settle_seconds": max(0.0, float(settle_seconds)),
-        "auto_restart_max_attempts": max(0, int(auto_restart_max_attempts)),
         "log_dir": str(resolved_log_dir),
-        "raw_log_path": str(resolved_log_dir / "brainbit_runtime.log"),
-        "state_path": str(resolved_log_dir / "brainbit_state.json"),
+        "raw_log_path": str(resolved_log_dir / "brainbit_old_runtime.log"),
+        "state_path": str(resolved_log_dir / "brainbit_old_state.json"),
         "log_max_bytes": max(256 * 1024, int(log_max_bytes)),
         "log_backup_count": max(1, int(log_backup_count)),
     }
@@ -381,7 +367,6 @@ def start() -> None:
     global _process, _process_generation, _reader_thread, _log_handle, _watchdog_thread, _desired_running
     global _last_activity_at, _last_any_line_at, _last_sensor_activity_at
     global _last_eeg_at, _last_quality_at, _last_derived_at, _signal_started_at, _process_started_at
-    global _connected_at
     global _log_write_error, _last_log_flush_at
     global _eeg_lsl_channels, _lsl_stream_health
 
@@ -396,8 +381,8 @@ def start() -> None:
         command = _build_cli_command()
         if command is None:
             message = (
-                "BrainBit needs a Python interpreter path on this installation. "
-                "Set brainbit.python_executable in hardware settings."
+                "BrainBit (old) needs a Python interpreter path on this installation. "
+                "Set brainbit_old.python_executable in hardware settings."
             )
             print(f"[BrainBit] {message}")
             _set_state(
@@ -495,7 +480,6 @@ def start() -> None:
         _last_quality_at = 0.0
         _last_derived_at = 0.0
         _signal_started_at = 0.0
-        _connected_at = 0.0
         _log_write_error = ""
         _last_log_flush_at = 0.0
         _reader_thread = threading.Thread(
@@ -535,11 +519,7 @@ def stop() -> None:
             process.send_signal(signal.CTRL_BREAK_EVENT)
         else:
             process.send_signal(signal.SIGINT)
-        # The CLI answers this signal by tearing the BLE link down, and the
-        # SDK's disconnect is not instant. Cutting the wait short and calling
-        # terminate() is exactly what leaves the band held, so give the clean
-        # path clearly more room than it normally needs before forcing.
-        process.wait(timeout=SHUTDOWN_SIGNAL_WAIT_SECONDS)
+        process.wait(timeout=5)
     except Exception:
         try:
             process.terminate()
@@ -572,28 +552,9 @@ def stop() -> None:
 
 
 def restart() -> None:
-    """Restart the repo-local BrainBit process using the current configuration.
-
-    The pause is the point. `stop()` returns once the CLI process is gone, but
-    the Bluetooth stack needs a moment longer to actually release the band.
-    Starting the next scan immediately means scanning for a device the machine
-    still believes it is talking to -- which is how "restart" used to make
-    things worse rather than better, and why repeated start/stop sometimes
-    happened to work: it accidentally supplied the delay.
-    """
+    """Restart the repo-local BrainBit process using the current configuration."""
     stop()
-    _settle_after_stop()
     start()
-
-
-def _settle_after_stop() -> None:
-    """Wait for the BLE stack to let go, without blocking a shutdown."""
-    delay = float(_config.get("settle_seconds", DEFAULT_SETTLE_SECONDS))
-    if delay <= 0:
-        return
-    # An Event wait rather than sleep(): a server shutdown arriving mid-restart
-    # should not have to sit out the full delay.
-    _restart_settle_event.wait(delay)
 
 
 def is_configured() -> bool:
@@ -633,22 +594,13 @@ def get_status() -> dict[str, Any]:
         "scan_timeout_seconds": int(_config.get("scan_seconds", 5)) if _config else None,
         "last_scan_started_at": latest.get("last_scan_started_at"),
         "last_scan_finished_at": latest.get("last_scan_finished_at"),
-        # Published so the dashboard can say "trying again at ..." instead of
-        # looking stuck -- an operator who cannot see that a retry is coming
-        # tends to hit Restart, which interrupts the attempt already running.
-        "next_retry_at": latest.get("next_retry_at"),
-        "retry_attempt": latest.get("retry_attempt"),
-        # The band is searched for again and again while the plugin is on, not
-        # once at start. Naming that here keeps the UI honest about the wait.
-        "scan_mode": "repeated_while_enabled",
-        "measured_sample_rate_hz": latest.get("measured_sample_rate_hz"),
+        "next_retry_at": None,
         "state_file": _config.get("state_path") if _config else None,
         "raw_log_path": _config.get("raw_log_path") if _config else None,
         "last_activity_at": latest.get("last_activity_at"),
         **seconds_since,
         "contact_quality_state": contact_state,
         "contact_quality_channels": contact_channels,
-        "contact_quality_as_of": latest.get("contact_quality_as_of"),
         "scan_candidates": latest.get("scan_candidates") or [],
         "selected_device": latest.get("selected_device") or latest.get("device"),
         "target_device": latest.get("target_device") or _target_device_from_config(),
@@ -657,31 +609,12 @@ def get_status() -> dict[str, Any]:
     }
 
 
-def reset_retry_budget() -> None:
-    """Give the automatic restarts a clean slate again.
-
-    The budget used to recover only when real EEG arrived, so once it was spent
-    the watchdog stayed silent for good and the plugin could only be revived by
-    a full application restart. An operator pressing Start or Restart is a clear
-    statement that they want another try, so that is where it is refilled --
-    deliberately not in the automatic path, whose ceiling exists precisely to
-    stop an endless restart loop.
-    """
-    global _auto_restart_count
-    _auto_restart_count = 0
-
-
 def wait_for_stream_contract(timeout_seconds: float | None = None) -> dict[str, Any]:
     """Wait boundedly for discovery to publish the real device stream schema."""
     timeout = (
         float(timeout_seconds)
         if timeout_seconds is not None
-        # Scan, connect and the six-second electrode-contact measurement all
-        # happen before the first EEG sample. Budgeting only ten seconds meant
-        # a perfectly normal start regularly reported a timeout.
-        else float(_config.get("scan_seconds", 5))
-        + float(_config.get("resist_seconds", 6))
-        + 20.0
+        else float(_config.get("scan_seconds", 5)) + 10.0
     )
     status = get_status()
     if status.get("actual_streams"):
@@ -1005,7 +938,7 @@ def _validated_metric_batch(
 
 def _update_state_from_line(line: str) -> bool:
     global _last_activity_at, _last_any_line_at, _last_sensor_activity_at
-    global _last_eeg_at, _last_quality_at, _last_derived_at, _signal_started_at, _connected_at
+    global _last_eeg_at, _last_quality_at, _last_derived_at, _signal_started_at
 
     important = False
     now = time.time()
@@ -1102,11 +1035,6 @@ def _update_state_from_line(line: str) -> bool:
                 contact_state, contact_channels = _derive_contact_quality(payload)
                 state_update["contact_quality_state"] = contact_state
                 state_update["contact_quality_channels"] = contact_channels
-                # Contact is measured once, for six seconds, before streaming
-                # begins -- it is never refreshed while recording. Carrying the
-                # time it was taken keeps the dashboard from presenting a
-                # half-hour-old reading as if it were current.
-                state_update["contact_quality_as_of"] = now_text
                 if contact_state == "poor":
                     state_update["status"] = "poor_contact"
                     state_update["last_message"] = "BrainBit is receiving data, but electrode contact is poor."
@@ -1142,13 +1070,6 @@ def _update_state_from_line(line: str) -> bool:
                             "measured_hz": payload.get("measured_hz"),
                             "queue_overflow_dropped_total": payload.get("queue_overflow_dropped_total", 0),
                         }
-                        # Lifted out of the batch so the dashboard can show what
-                        # the band is *actually* delivering. Until now only the
-                        # nominal 250 Hz was ever displayed, so a band running
-                        # at half rate looked perfectly healthy.
-                        state_update["measured_sample_rate_hz"] = payload.get("measured_hz")
-                        state_update["packet_gap_frames_total"] = payload.get("packet_gap_frames_total", 0)
-                        state_update["packet_counter_reset_total"] = payload.get("packet_counter_reset_total", 0)
                 else:
                     try:
                         values = [float(payload[channel]) for channel in ("O1", "O2", "T3", "T4")]
@@ -1247,44 +1168,6 @@ def _update_state_from_line(line: str) -> bool:
                     f"{discarded} undecodable frame(s), {gaps} packet-counter gap frame(s)."
                 )
                 important = True
-            elif tag == "CONNECTING":
-                state_update["status"] = "connecting"
-                state_update["next_retry_at"] = None
-                state_update["last_message"] = "BrainBit band found. Connecting ..."
-                important = True
-            elif tag == "CONNECTED":
-                # The startup clock starts here, not at process launch. Scanning
-                # and waiting for a band are normal and can take a while; only
-                # once the band is actually connected does continued silence
-                # mean something is wrong.
-                _connected_at = now
-                state_update["connected_at"] = now_text
-                state_update["connected_epoch"] = now
-                state_update["next_retry_at"] = None
-                state_update["status"] = "connected"
-                state_update["last_message"] = "BrainBit band connected. Preparing streams ..."
-                important = True
-            elif tag == "CONNECT_FAILED":
-                # Not a crash: one attempt did not take. The CLI keeps trying.
-                _connected_at = 0.0
-                state_update["status"] = "connecting"
-                state_update["last_message"] = (
-                    "Could not connect to the band on this attempt. Trying again."
-                )
-                important = True
-            elif tag == "WAITING":
-                # The CLI owns retrying now, so this is a healthy holding state,
-                # not a failure -- and publishing the next attempt time keeps an
-                # operator from "helping" with a restart that would interrupt it.
-                _connected_at = 0.0
-                state_update["status"] = "waiting"
-                state_update["next_retry_at"] = payload.get("next_retry_at")
-                state_update["retry_attempt"] = payload.get("attempt")
-                state_update["last_message"] = (
-                    "Waiting for the BrainBit band. Switch it on and keep it near the computer; "
-                    "the connection is retried automatically."
-                )
-                important = True
             elif tag == "EMO_INIT_FAIL":
                 state_update["status"] = "failed"
                 state_update["last_message"] = payload.get("error", "EmotionalMath init failed.")
@@ -1300,7 +1183,7 @@ def _update_state_from_line(line: str) -> bool:
                     state_update["status"] = "warming_up"
                 elif stream_name == "eeg" and event == "STOP":
                     state_update["signal_stopped_at"] = now_text
-            elif tag in {"CALLBACK_ERROR", "STREAM_ERROR", "CONFIG_ERROR", "SESSION_ERROR"}:
+            elif tag in {"CALLBACK_ERROR", "STREAM_ERROR", "CONFIG_ERROR"}:
                 key = "callback_error" if tag == "CALLBACK_ERROR" else "stream_error"
                 state_update[key] = payload
                 state_update["status"] = "failed"
@@ -1839,7 +1722,7 @@ def _initialize_lsl_outlets() -> None:
         *,
         nominal_rate_hz: float = 0.0,
     ) -> Any:
-        stream_prefix = _config.get("lsl_stream_prefix", "BrainBit")
+        stream_prefix = _config.get("lsl_stream_prefix", "BrainBitOld")
         info = StreamInfo(
             name=f"{stream_prefix}_{stream_suffix}",
             type=stream_suffix,
@@ -1922,20 +1805,10 @@ def _configure_device_lsl_outlets(
 def _derive_status(latest: dict[str, Any], running: bool) -> str:
     status = latest.get("status") or ("running" if running else "not_configured")
     if not running:
-        # A sensor nobody asked to run is stopped, never failed. Without this an
-        # ordinary Stop could leave a red "failed" on the dashboard, which reads
-        # like a fault and invites a pointless restart.
-        if not _desired_running:
-            return "disabled" if status == "disabled" else "stopped"
         if status in {"failed", "exited", "stopped", "not_configured", "disabled"}:
             return str(status)
         return "stopped"
     if status in {"failed", "exited", "stopped", "not_configured", "disabled", "stale", "scanning"}:
-        return str(status)
-    # Looking for the band, or waiting for it to be switched on. Both are
-    # healthy, open-ended states that the CLI drives itself; silence during
-    # them is expected, so the checks below must not call it stale.
-    if status in {"connecting", "waiting"}:
         return str(status)
     if not _has_recent_any_output(latest):
         return "stale"
@@ -2277,17 +2150,10 @@ def _check_connection_health_once(now: float | None = None) -> bool:
         # Once EEG streaming starts, only fresh raw samples prove acquisition
         # health. Battery/status/log noise must not mask a dead data callback.
         last_epoch = _last_eeg_at or _signal_started_at
-    elif _connected_at > 0:
-        # Connected but not streaming yet: bound that, because a band that
-        # answers and then goes quiet really is stuck.
-        last_epoch = _connected_at
     else:
-        # Still scanning, or waiting for a band that is switched off. Both are
-        # normal and open-ended, and the CLI retries them on its own. Measuring
-        # from process launch here was what made the watchdog kill perfectly
-        # healthy startups: a normal start spends seconds scanning and another
-        # six measuring electrode contact before the first EEG sample exists.
-        return True
+        # Before StartSignal, bound startup from the process launch time. Output
+        # chatter must not postpone a stuck-startup restart indefinitely.
+        last_epoch = _process_started_at
     if last_epoch <= 0:
         return True
 
@@ -2317,7 +2183,7 @@ def _check_connection_health_once(now: float | None = None) -> bool:
 
 
 def _restart_backoff_seconds(attempt_count: int) -> float:
-    """Wait before the next restart attempt: 5s, 15s, 45s, 135s, then 300s."""
+    """Wait before the next restart attempt: 5s, 15s, then 60s and up."""
     return min(300.0, 5.0 * (3 ** attempt_count))
 
 

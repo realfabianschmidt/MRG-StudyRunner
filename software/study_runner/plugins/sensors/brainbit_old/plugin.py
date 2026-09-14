@@ -10,9 +10,9 @@ from study_runner.contracts.plugin_api import PluginContext, Plugin
 
 
 DEFAULT_BRAINBIT = {
-    "script_path": "study_runner/plugins/sensors/brainbit/brainbit_realtime_cli.py",
-    "working_dir": "study_runner/plugins/sensors/brainbit",
-    "log_dir": "study_runner/plugins/sensors/brainbit/logs",
+    "script_path": "study_runner/plugins/sensors/brainbit_old/brainbit_realtime_cli.py",
+    "working_dir": "study_runner/plugins/sensors/brainbit_old",
+    "log_dir": "study_runner/plugins/sensors/brainbit_old/logs",
 }
 
 
@@ -34,7 +34,7 @@ def _runtime_dir(context: PluginContext, configured: Any, default_relative: str,
     """
     from study_runner.shared.runtime_mode import is_frozen
 
-    writable = str(context.data_dir.parent / "brainbit" / name)
+    writable = str(context.data_dir.parent / "brainbit_old" / name)
     resolved = context.resolve_platform_value(configured)
     if not resolved:
         return writable if is_frozen() else context.resolve_project_path(default_relative)
@@ -56,7 +56,7 @@ def _is_inside_bundle(context: PluginContext, candidate: str) -> bool:
 
 
 def _initialize(context: PluginContext) -> None:
-    config = config_section(context, "brainbit")
+    config = config_section(context, "brainbit_old")
     if not config.get("enabled"):
         return
 
@@ -88,18 +88,16 @@ def _initialize(context: PluginContext) -> None:
         lsl_stream_prefix=lsl_config.get("stream_prefix", "BrainBit"),
         quiet_output=config.get("quiet_output", True),
         monitor_refresh_ms=config.get("monitor_refresh_ms", 1000),
-        disconnect_timeout_ms=config.get("disconnect_timeout_ms", 45000),
-        settle_seconds=config.get("settle_seconds", 2.0),
-        auto_restart_max_attempts=config.get("auto_restart_max_attempts", 3),
+        disconnect_timeout_ms=config.get("disconnect_timeout_ms", 20000),
         log_dir=_runtime_dir(context, config.get("log_dir"), DEFAULT_BRAINBIT["log_dir"], "logs"),
         log_max_bytes=config.get("log_max_bytes", 10 * 1024 * 1024),
         log_backup_count=config.get("log_backup_count", 3),
     )
-    adapter.wait_for_stream_contract()
+    adapter.wait_for_stream_contract(float(config.get("scan_seconds", 5)) + 10.0)
 
 
 def _status(context: PluginContext) -> dict[str, Any]:
-    config = config_section(context, "brainbit")
+    config = config_section(context, "brainbit_old")
     from . import adapter
 
     adapter_status = adapter.get_status()
@@ -107,7 +105,7 @@ def _status(context: PluginContext) -> dict[str, Any]:
         _runtime_dir(context, config.get("log_dir"), DEFAULT_BRAINBIT["log_dir"], "logs")
         or context.base_dir / DEFAULT_BRAINBIT["log_dir"]
     )
-    state_path = log_dir / "brainbit_state.json"
+    state_path = log_dir / "brainbit_old_state.json"
     state_payload = _read_json_file(state_path)
     latest = adapter_status.get("latest") or state_payload
 
@@ -224,15 +222,13 @@ def _handle_console_line(context: PluginContext, line: str) -> Any:
 def _start(context: PluginContext) -> Any:
     from . import adapter
 
-    # Pressing Start means "try again", so the automatic-restart budget starts
-    # over. Without this, a plugin that had used up its retries earlier stayed
-    # unrecoverable until the whole application was restarted.
-    adapter.reset_retry_budget()
-    if not adapter.is_configured() and config_section(context, "brainbit").get("enabled"):
+    if not adapter.is_configured() and config_section(context, "brainbit_old").get("enabled"):
         _initialize(context)
     else:
         adapter.start()
-    return adapter.wait_for_stream_contract()
+    return adapter.wait_for_stream_contract(
+        float(config_section(context, "brainbit_old").get("scan_seconds", 5)) + 10.0
+    )
 
 
 def _stop(context: PluginContext) -> Any:
@@ -245,15 +241,14 @@ def _stop(context: PluginContext) -> Any:
 def _restart(context: PluginContext) -> Any:
     from . import adapter
 
-    config = config_section(context, "brainbit")
-    adapter.reset_retry_budget()
+    config = config_section(context, "brainbit_old")
     adapter.stop()
     if not config.get("enabled"):
         return adapter.get_status()
-    # Re-read every machine setting from the refreshed v5 context. A plain
+    # Re-read every machine setting from the refreshed v4 context. A plain
     # adapter.restart() would retain the old serial/path/timeout configuration.
     _initialize(context)
-    return adapter.wait_for_stream_contract()
+    return adapter.wait_for_stream_contract(float(config.get("scan_seconds", 5)) + 10.0)
 
 
 def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
@@ -261,7 +256,7 @@ def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
 
     plugin_actions = options.get("plugin_actions")
     plugin_actions = plugin_actions if isinstance(plugin_actions, dict) else {}
-    actions = plugin_actions.get("brainbit")
+    actions = plugin_actions.get("brainbit_old")
     actions = actions if isinstance(actions, dict) else {}
     adapter.set_routing(
         forward_to_lsl=None,
@@ -312,23 +307,11 @@ def _run_admin_action(
     device_address = str(payload.get("address") or "").strip()
     device_name = str(payload.get("name") or "").strip()
     device_index = payload.get("index")
-    # A band is only reliably re-findable by serial, address or name. A position
-    # in the scan list is not: the next scan can order the bands differently, so
-    # saving a bare index would quietly point at whichever band answers first
-    # next time. Refusing is better than saving a selection that drifts.
-    if not (serial_number or device_address or device_name):
-        return {
-            "last_message": (
-                "This band reported no serial number, address or name, so it "
-                "cannot be saved. Switch the band off and on and scan again."
-            ),
-            "saved": False,
-        }
     hardware_config = json.loads(json.dumps(context.hardware_config))
-    brainbit_config = hardware_config.setdefault("brainbit", {})
+    brainbit_config = hardware_config.setdefault("brainbit_old", {})
     if not isinstance(brainbit_config, dict):
         brainbit_config = {}
-        hardware_config["brainbit"] = brainbit_config
+        hardware_config["brainbit_old"] = brainbit_config
     brainbit_config.update(
         {
             "serial_number": serial_number,
@@ -364,10 +347,10 @@ def _run_admin_action(
 
 
 PLUGIN = Plugin(
-    key="brainbit",
-    label="BrainBit",
+    key="brainbit_old",
+    label="BrainBit (old)",
     category="biosignal",
-    config_key="brainbit",
+    config_key="brainbit_old",
     can_start=True,
     can_stop=True,
     can_restart=True,
@@ -384,7 +367,7 @@ PLUGIN = Plugin(
     get_interval_summary=_interval,
     export_interval_samples=_export,
     handle_console_line=_handle_console_line,
-    sidecar_sensor="brainbit",
-    sidecar_filename_suffix="brainbit_signals",
-    sidecar_output_key="brainbit_file",
+    sidecar_sensor="brainbit_old",
+    sidecar_filename_suffix="brainbit_old_signals",
+    sidecar_output_key="brainbit_old_file",
 )

@@ -6,7 +6,7 @@ when extending or reproducing the integration.
 
 ## Runtime layers
 
-1. `driver.py` is the thin API-v4 plugin-process entry point.
+1. `driver.py` is the thin API-v5 plugin-process entry point.
 2. `plugin.py` configures the BrainBit adapter inside that process.
 3. `adapter.py` supervises `brainbit_realtime_cli.py`, keeps low-rate state,
    rotates diagnostics, and publishes timestamped chunks to LSL.
@@ -70,7 +70,7 @@ EEG remains recordable but derived values are not ready.
 From `software/`:
 
 ```powershell
-python study_runner\extensions\sensors\brainbit\brainbit_realtime_cli.py --scan-seconds 10 --resist-seconds 10 --signal-seconds 30 --pretty --debug --no-osc
+python study_runner\plugins\sensors\brainbit\brainbit_realtime_cli.py --scan-seconds 10 --resist-seconds 10 --signal-seconds 30 --pretty --debug --no-osc
 ```
 
 Useful evidence, in order:

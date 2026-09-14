@@ -14,28 +14,41 @@ from study_runner.data_core.host.study_sensor_runtime import (
     build_effective_hardware_config,
     normalize_study_sensors,
 )
+from study_runner.plugin_framework.registry import get_plugin_manifests
+
+
+def _manifest_sensor_defaults() -> dict[str, bool]:
+    """`{plugin key: default_enabled}` for every plugin declaring study_sensor.
+
+    Derived rather than listed, so installing a sensor plugin never means
+    editing this file. The cross-check still has teeth: the expectation comes
+    from the manifests, the result from the runtime module, and the two are
+    computed independently.
+    """
+    return {
+        key: bool((manifest["capability_config"]["study_sensor"] or {}).get("default_enabled", False))
+        for key, manifest in get_plugin_manifests().items()
+        if "study_sensor" in (manifest.get("capabilities") or [])
+    }
 
 
 class StudySensorRuntimeTests(unittest.TestCase):
-    def test_missing_sensor_selection_defaults_to_brainbit_and_radar(self) -> None:
-        self.assertEqual(
-            normalize_study_sensors({}),
-            {"brainbit": True, "mini_radar": True, "camera_emotion": False},
-        )
+    def test_missing_sensor_selection_falls_back_to_the_manifest_defaults(self) -> None:
+        defaults = _manifest_sensor_defaults()
+        self.assertTrue(defaults, "no plugin declares study_sensor at all")
+        self.assertEqual(normalize_study_sensors({}), defaults)
 
     def test_master_sensor_switch_disables_every_study_sensor(self) -> None:
+        every_sensor_on = {key: True for key in _manifest_sensor_defaults()}
+        result = normalize_study_sensors(
+            {"sensors_enabled": "false", "sensors": every_sensor_on}
+        )
+
+        self.assertEqual(set(result), set(every_sensor_on))
         self.assertEqual(
-            normalize_study_sensors(
-                {
-                    "sensors_enabled": "false",
-                    "sensors": {
-                        "brainbit": True,
-                        "mini_radar": True,
-                        "camera_emotion": True,
-                    },
-                }
-            ),
-            {"brainbit": False, "mini_radar": False, "camera_emotion": False},
+            [key for key, enabled in result.items() if enabled],
+            [],
+            "the master switch must win over every per-sensor selection",
         )
 
     def test_effective_hardware_config_only_overrides_study_sensor_enabled_flags(self) -> None:

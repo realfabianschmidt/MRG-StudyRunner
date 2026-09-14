@@ -13,7 +13,6 @@ Required packages are pinned in ``REQUIRED_MODULES`` below.
 from __future__ import annotations
 
 import argparse
-import atexit
 import importlib.util
 import json
 import math
@@ -41,18 +40,7 @@ EXIT_NO_DEVICE_FOUND = 5
 EXIT_DEVICE_TARGET_MISSING = 6
 EXIT_CALLBACK_FAILURE = 7
 EXIT_STREAM_FAILURE = 8
-# The band was found but the connection attempt itself did not take. Retryable,
-# and deliberately distinct from a crash: the host can say so plainly instead of
-# reporting "stopped unexpectedly".
-EXIT_CONNECT_FAILED = 9
 EXIT_BLE_UNAVAILABLE = 103
-
-# Nothing the retry loop can do about these: no Bluetooth adapter, or a package
-# that is simply not installed. Everything else is worth another attempt.
-FATAL_EXIT_CODES = frozenset({EXIT_MISSING_DEPENDENCY, EXIT_BLE_UNAVAILABLE})
-# Matches the radar plugin's reconnect cadence. Flat, not escalating: a band
-# that was switched on again should be picked up within seconds, every time.
-RETRY_DELAY_SECONDS = 5.0
 
 EEG_CHANNELS = ("O1", "O2", "T3", "T4")
 RESISTANCE_UPPER_OHM = 2_666_000.0
@@ -516,40 +504,6 @@ PRETTY = False
 _LAST_OSC_ERROR_AT = 0.0
 _OUTPUT_LOCK = threading.Lock()
 
-# The one live sensor handle, so the interpreter can always let go of the band
-# on its way out. A BrainBit that is never disconnected stays held at the BLE
-# layer and refuses the next connection attempt, so releasing it is worth a
-# best-effort attempt even on paths that skipped the normal `finally`.
-_ACTIVE_SENSOR: Any = None
-_ACTIVE_SENSOR_LOCK = threading.Lock()
-
-
-def _remember_active_sensor(sensor: Any) -> None:
-    global _ACTIVE_SENSOR
-    with _ACTIVE_SENSOR_LOCK:
-        _ACTIVE_SENSOR = sensor
-
-
-def _release_active_sensor() -> None:
-    """Disconnect the band if nothing else has. Safe to call more than once."""
-    global _ACTIVE_SENSOR
-    with _ACTIVE_SENSOR_LOCK:
-        sensor, _ACTIVE_SENSOR = _ACTIVE_SENSOR, None
-    if sensor is None:
-        return
-    for attribute in ("signalDataReceived", "resistDataReceived", "fpgDataReceived", "memsDataReceived"):
-        try:
-            setattr(sensor, attribute, None)
-        except Exception:
-            pass
-    try:
-        sensor.disconnect()
-    except Exception:
-        pass
-
-
-atexit.register(_release_active_sensor)
-
 
 def _print_json(tag: str, data: dict):
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
@@ -614,72 +568,13 @@ def _sensor_info_payload(info, index: int) -> dict:
     }
 
 
-def _wall_clock_in(seconds: float) -> str:
-    """A human-readable clock time `seconds` from now, for status messages."""
-    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + seconds))
-
-
 def _normalize_target(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
-def _normalize_address(value: Any) -> str:
-    """Compare BLE addresses on their hex digits alone.
-
-    The SDK, the Windows Bluetooth page and the settings file disagree about
-    separators (``AA:BB:CC``, ``AA-BB-CC``, bare hex) and about case. Comparing
-    the raw strings meant a correctly typed address silently failed to match,
-    and selection then fell through to the *next* selector -- in practice to a
-    different band than the one the operator had configured.
-    """
-    return re.sub(r"[^0-9a-f]", "", str(value or "").lower())
-
-
-# Everything the scan has seen this session, in first-seen order. One list, so
-# the index printed on a SCAN line (what the dashboard's "Use this band" button
-# sends back) means the same position the selector will later use.
-_SCAN_SEEN: List[Any] = []
-_SCAN_SEEN_KEYS: set = set()
-_SCAN_LOCK = threading.Lock()
-
-
-def _candidate_identity(info: Any) -> tuple:
-    return (
-        _normalize_target(_safe(info, "SerialNumber")),
-        _normalize_address(_safe(info, "Address")),
-        _normalize_target(_safe(info, "Name")),
-    )
-
-
-def _reset_scan_candidates() -> None:
-    """Forget the previous scan. Called once per connection attempt."""
-    with _SCAN_LOCK:
-        _SCAN_SEEN.clear()
-        _SCAN_SEEN_KEYS.clear()
-
-
-def _remember_scan_candidates(sensors: Iterable[Any]) -> List[Tuple[int, Any]]:
-    """Add bands we have not seen before; return them with their stable index."""
-    added: List[Tuple[int, Any]] = []
-    with _SCAN_LOCK:
-        for info in sensors or []:
-            identity = _candidate_identity(info)
-            if identity in _SCAN_SEEN_KEYS:
-                continue
-            _SCAN_SEEN_KEYS.add(identity)
-            _SCAN_SEEN.append(info)
-            added.append((len(_SCAN_SEEN) - 1, info))
-    return added
-
-
-def _scan_candidates() -> List[Any]:
-    with _SCAN_LOCK:
-        return list(_SCAN_SEEN)
-
-
 def _select_sensor_info(sensors: List[Any], args) -> Tuple[Optional[int], Optional[Any], str]:
     serial_target = _normalize_target(args.serial_number)
-    address_target = _normalize_address(args.device_address)
+    address_target = _normalize_target(args.device_address)
     name_target = _normalize_target(args.device_name)
     if serial_target:
         for idx, info in enumerate(sensors):
@@ -688,7 +583,7 @@ def _select_sensor_info(sensors: List[Any], args) -> Tuple[Optional[int], Option
         return None, None, f"serial_number '{args.serial_number}' not found"
     if address_target:
         for idx, info in enumerate(sensors):
-            if _normalize_address(_safe(info, "Address")) == address_target:
+            if _normalize_target(_safe(info, "Address")) == address_target:
                 return idx, info, "device_address"
         return None, None, f"device_address '{args.device_address}' not found"
     if name_target:
@@ -772,13 +667,7 @@ class NotchIIR:
         return y
 
 # BLE preflight with macOS tips (Code 103)
-def _start_scan_or_explain(scanner) -> None:
-    """Start discovery, or explain plainly that Bluetooth is unusable.
-
-    Only starts it. How long to listen and when to stop belongs to
-    `_scan_for_target`, which can end the scan the moment the right band
-    answers instead of always waiting out a fixed window.
-    """
+def _start_scan_or_explain(scanner, seconds: int):
     try:
         scanner.start()
     except Exception as e:
@@ -791,80 +680,10 @@ def _start_scan_or_explain(scanner) -> None:
             raise SystemExit(EXIT_BLE_UNAVAILABLE)
         else:
             raise
-
-
-def _scan_for_target(scanner, args, stop_event: threading.Event) -> List[Any]:
-    """Scan until the configured band is resolvable, then stop immediately.
-
-    Replaces a flat `sleep(scan_seconds)`. Three things went wrong with that:
-
-    * It always waited the full window even once the right band had answered,
-      so every start paid the worst case.
-    * It never waited *longer* than the window, so a band that advertises
-      slowly -- which BLE devices legitimately do, especially just after being
-      switched on -- was simply missed.
-    * Selection then indexed `scanner.sensors()` taken after `stop()`, while
-      the dashboard's candidate list came from the `sensorsChanged` callback.
-      Two lists, two orderings, one shared index: the band an operator clicked
-      was not reliably the band that got connected.
-
-    All three are the same fix: accumulate candidates as they arrive, check
-    after every slice whether the target resolves, and select from exactly the
-    set that was accumulated.
-    """
-    window = max(1.0, float(args.scan_seconds))
-    # Only a band named by serial, address or name can be recognised early. With
-    # none of those configured the selection is positional, so cutting the scan
-    # short would hide the other bands the operator still has to choose between.
-    has_named_target = bool(
-        _normalize_target(args.serial_number)
-        or _normalize_address(args.device_address)
-        or _normalize_target(args.device_name)
-    )
-    # A named band is worth waiting three windows for, because BLE devices
-    # legitimately take seconds to start advertising -- especially one that was
-    # just switched on. Without a name there is nothing to wait *for*, so the
-    # nominal window is the whole discovery pass.
-    deadline = window * 3.0 if has_named_target else window
-
-    started = time.monotonic()
-    _start_scan_or_explain(scanner)
     try:
-        while not stop_event.is_set():
-            candidates = _accumulated_candidates(scanner)
-            if has_named_target:
-                index, info, _ = _select_sensor_info(candidates, args)
-                if info is not None and index is not None:
-                    return candidates
-            if (time.monotonic() - started) >= deadline:
-                break
-            stop_event.wait(0.25)
-        return _accumulated_candidates(scanner)
+        time.sleep(max(1, seconds))
     finally:
-        try:
-            scanner.stop()
-        except Exception:
-            pass
-
-
-def _accumulated_candidates(scanner) -> List[Any]:
-    """Every band seen so far, in stable first-seen order.
-
-    The ``sensorsChanged`` callback and ``scanner.sensors()`` do not always
-    agree, so both feed the same list; anything the poll finds that the callback
-    missed is announced with a SCAN line too, so the dashboard and the selector
-    never disagree about which band index 2 is.
-    """
-    for index, info in _remember_scan_candidates(_safe_sensor_list(scanner)):
-        _print_json("SCAN", _sensor_info_payload(info, index))
-    return _scan_candidates()
-
-
-def _safe_sensor_list(scanner) -> List[Any]:
-    try:
-        return list(scanner.sensors() or [])
-    except Exception:
-        return []
+        scanner.stop()
 
 
 # ----------------- main -----------------
@@ -875,12 +694,6 @@ def main(argv: Optional[List[str]] = None):
     ap.add_argument("--device-address", type=str, default="")
     ap.add_argument("--serial-number", type=str, default="")
     ap.add_argument("--device-name", type=str, default="")
-    ap.add_argument(
-        "--max-session-attempts",
-        type=int,
-        default=0,
-        help="0 = keep reconnecting until stopped. Only tests set a limit.",
-    )
 
     # staging (per SDK: Resist and Signal cannot run simultaneously)
     ap.add_argument("--no-resist", action="store_true")
@@ -927,124 +740,28 @@ def main(argv: Optional[List[str]] = None):
     _validate_sdk_api_surface()
     osc = None if args.no_osc else SimpleUDPClient(args.osc_host, int(args.osc_port))
 
-    stop_event = threading.Event()
-
-    def _on_stop_signal(signum, frame):
-        print(f"\n# Stop signal {signum} — stopping streams ...", flush=True)
-        stop_event.set()
-
-    # Every signal the host can actually send has to reach the same handler,
-    # or the `finally: sensor.disconnect()` at the end of streaming never runs
-    # and the band stays held at the BLE layer -- which looks to an operator
-    # like "it connects, then immediately drops", curable only by repeated
-    # start/stop until the stack lets go by itself.
-    #
-    # The host sends CTRL_BREAK_EVENT on Windows (adapter.stop(), because the
-    # child is spawned with CREATE_NEW_PROCESS_GROUP and CTRL_C_EVENT cannot
-    # be delivered to a specific group member). That arrives as SIGBREAK, not
-    # SIGINT, and Python's default SIGBREAK handler terminates the process
-    # outright. SIGINT alone was therefore never enough on the platform this
-    # actually runs on.
-    for signal_name in ("SIGINT", "SIGBREAK", "SIGTERM"):
-        handled_signal = getattr(os_signal, signal_name, None)
-        if handled_signal is None:
-            continue
-        try:
-            os_signal.signal(handled_signal, _on_stop_signal)
-        except (ValueError, OSError):
-            # Not every signal is settable on every platform/thread; a signal
-            # we cannot hook is not a reason to refuse to record.
-            pass
-
-    return _run_until_stopped(args, osc, stop_event)
-
-
-def _run_until_stopped(args, osc, stop_event: threading.Event) -> int:
-    """Keep trying to hold a session with the band until asked to stop.
-
-    Previously this process ran exactly once -- scan, connect, stream, exit --
-    and the supervising adapter restarted it on failure. That put the retry at
-    the wrong level: every retry threw away the whole SDK and BLE stack, and a
-    restart is by definition a kill, which is what left the band held open in
-    the first place. The radar plugin, which is the stable one in this project,
-    owns its own reconnect loop; this now works the same way.
-
-    First connection and reconnection are therefore the same code path, and
-    there is no attempt ceiling: as long as the operator wants the band
-    recording, this keeps reaching for it.
-    """
-    attempts = 0
-    max_attempts = max(0, int(getattr(args, "max_session_attempts", 0) or 0))
-    while not stop_event.is_set():
-        attempts += 1
-        try:
-            exit_code = _run_session(args, osc, stop_event)
-        except SystemExit as stop:  # raised deep inside the BLE preflight
-            code = stop.code
-            exit_code = code if isinstance(code, int) else (EXIT_OK if code is None else EXIT_STREAM_FAILURE)
-        except Exception as error:
-            # An unforeseen failure must not end the recording either. It is
-            # reported in full -- once -- and then treated like any other bad
-            # attempt, because a researcher mid-session is better served by a
-            # process that keeps reaching for the band than by a traceback.
-            _print_json(
-                "SESSION_ERROR",
-                {"error_type": type(error).__name__, "error": str(error)},
-            )
-            print(f"# Unexpected failure in this attempt: {error}", flush=True)
-            exit_code = EXIT_STREAM_FAILURE
-        finally:
-            # Whatever happened, do not walk into the next attempt still
-            # holding the band -- that attempt would be refused by the stack.
-            _release_active_sensor()
-
-        if stop_event.is_set() or exit_code == EXIT_OK:
-            return EXIT_OK
-        if exit_code in FATAL_EXIT_CODES:
-            # Bluetooth off, or a missing package: retrying changes nothing,
-            # and the host has a plain-language message for each of these.
-            return exit_code
-        if max_attempts and attempts >= max_attempts:
-            return exit_code
-
-        _print_json(
-            "WAITING",
-            {
-                "reason_exit_code": exit_code,
-                "attempt": attempts,
-                "retry_in_seconds": RETRY_DELAY_SECONDS,
-                "next_retry_at": _wall_clock_in(RETRY_DELAY_SECONDS),
-            },
-        )
-        print(f"# Retrying in {RETRY_DELAY_SECONDS:.0f} s ...", flush=True)
-        stop_event.wait(RETRY_DELAY_SECONDS)
-    return EXIT_OK
-
-
-def _run_session(args, osc, stop_event: threading.Event) -> int:
-    """One attempt: scan, connect, stream, disconnect. Returns an exit code."""
     # --- Scan / select device ---
     scanner = Scanner(_brainbit_sensor_families(SensorFamily))
 
     def _on_sensors(_, sensors):
-        # The callback hands over *its* batch, whose numbering restarts each
-        # time. Announcing that raw position was the reason a clicked band and
-        # the connected band could differ; the shared accumulator gives every
-        # band one index that stays valid for the rest of the scan.
-        for index, info in _remember_scan_candidates(sensors):
-            _print_json("SCAN", _sensor_info_payload(info, index))
+        for idx, info in enumerate(sensors):
+            _print_json("SCAN", _sensor_info_payload(info, idx))
     scanner.sensorsChanged = _on_sensors
 
-    print(f"# Scanning for up to {args.scan_seconds} s ...", flush=True)
-    _reset_scan_candidates()
-    sensors = _scan_for_target(scanner, args, stop_event)
-    if stop_event.is_set():
-        return EXIT_OK
+    stop_event = threading.Event()
+    def _on_sigint(signum, frame):
+        print("\n# Ctrl+C — stopping streams ...", flush=True)
+        stop_event.set()
+    os_signal.signal(os_signal.SIGINT, _on_sigint)
+
+    print(f"# Scanning for {args.scan_seconds} s ...", flush=True)
+    _start_scan_or_explain(scanner, args.scan_seconds)
+    sensors = scanner.sensors()
     if not sensors:
         message = "No compatible BrainBit-family sensor found."
         _print_json("NO_DEVICE_FOUND", {"message": message, "scan_seconds": int(args.scan_seconds)})
         print(f"# {message} Exiting.", flush=True)
-        return EXIT_NO_DEVICE_FOUND
+        raise SystemExit(EXIT_NO_DEVICE_FOUND)
     sel_idx, info, selection_source = _select_sensor_info(sensors, args)
     if info is None or sel_idx is None:
         target = {
@@ -1059,37 +776,14 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             {"message": message, "target": target, "fallback": None},
         )
         print(f"# {message}. Refusing to substitute a different headset.", flush=True)
-        return EXIT_DEVICE_TARGET_MISSING
+        raise SystemExit(EXIT_DEVICE_TARGET_MISSING)
     selected_payload = _sensor_info_payload(info, sel_idx)
     selected_payload["selection_source"] = selection_source
     _print_json("DEVICE_SELECTED", selected_payload)
     print(f"# Connecting to device index {sel_idx} ({selection_source}) ...", flush=True)
-    _print_json("CONNECTING", {"index": sel_idx, "selection_source": selection_source})
     # NeuroSDK Scanner.create_sensor() creates and connects the sensor. Calling
     # connect() a second time is an API error on some SDK/device combinations.
-    #
-    # Guarded because a BLE connect fails for ordinary, transient reasons (the
-    # band is still held by a previous session, the adapter is busy, the device
-    # stopped advertising between the scan and now). Unguarded, any of those
-    # became a bare traceback and exit code 1, which the host could only report
-    # as the generic "stopped unexpectedly" -- so an operator was told the
-    # process crashed when in truth one connection attempt did not take.
-    try:
-        sensor = scanner.create_sensor(info)
-    except Exception as error:
-        _print_json(
-            "CONNECT_FAILED",
-            {
-                "error_type": type(error).__name__,
-                "error": str(error),
-                "index": sel_idx,
-                "selection_source": selection_source,
-            },
-        )
-        print(f"# Could not connect to the selected band: {error}", flush=True)
-        return EXIT_CONNECT_FAILED
-    _remember_active_sensor(sensor)
-    _print_json("CONNECTED", {"index": sel_idx, "selection_source": selection_source})
+    sensor = scanner.create_sensor(info)
     _status("Sensor created and connected successfully.")
 
     _print_sensor_summary(sensor)
@@ -1116,7 +810,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             sensor.disconnect()
         except Exception:
             pass
-        return EXIT_STREAM_FAILURE
+        raise SystemExit(EXIT_STREAM_FAILURE)
 
     supported_channels: list[Any] = []
     channel_index_map: dict[str, int] = {}
@@ -1132,7 +826,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             sensor.disconnect()
         except Exception:
             pass
-        return EXIT_STREAM_FAILURE
+        raise SystemExit(EXIT_STREAM_FAILURE)
     if not channel_index_map:
         channel_index_map = {channel: index for index, channel in enumerate(EEG_CHANNELS)}
 
@@ -1211,7 +905,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             )
         except Exception as error:
             _print_json("EMO_INIT_FAIL", {"error": str(error)})
-            return EXIT_STREAM_FAILURE
+            raise SystemExit(EXIT_STREAM_FAILURE)
 
         _print_json(
             "EMO_INIT",

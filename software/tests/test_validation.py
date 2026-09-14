@@ -15,6 +15,19 @@ from study_runner.runtime_core.studies.validation import (
     validate_and_normalize_results,
     validate_and_normalize_trial_options,
 )
+from study_runner.plugin_framework.registry import get_plugin_manifests
+
+
+def _manifest_sensor_defaults() -> dict[str, bool]:
+    """`{plugin key: default_enabled}` for every plugin declaring study_sensor.
+
+    Derived so that installing a sensor plugin never means editing this file.
+    """
+    return {
+        key: bool((manifest["capability_config"]["study_sensor"] or {}).get("default_enabled", False))
+        for key, manifest in get_plugin_manifests().items()
+        if "study_sensor" in (manifest.get("capabilities") or [])
+    }
 
 
 class ValidationTests(unittest.TestCase):
@@ -423,31 +436,24 @@ class ValidationTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(
-            config["study_settings"]["sensors"],
-            {"brainbit": True, "mini_radar": True, "camera_emotion": False},
-        )
+        self.assertEqual(config["study_settings"]["sensors"], _manifest_sensor_defaults())
 
     def test_study_sensor_master_switch_disables_all_sensors(self) -> None:
+        every_sensor_on = {key: True for key in _manifest_sensor_defaults()}
         config = validate_and_normalize_config(
             {
                 "study_id": "No Sensors",
                 "study_settings": {
                     "sensors_enabled": False,
-                    "sensors": {
-                        "brainbit": True,
-                        "mini_radar": True,
-                        "camera_emotion": True,
-                    },
+                    "sensors": every_sensor_on,
                 },
                 "questions": [{"type": "finish"}],
             }
         )
 
-        self.assertEqual(
-            config["study_settings"]["sensors"],
-            {"brainbit": False, "mini_radar": False, "camera_emotion": False},
-        )
+        sensors = config["study_settings"]["sensors"]
+        self.assertEqual(set(sensors), set(every_sensor_on))
+        self.assertEqual([key for key, enabled in sensors.items() if enabled], [])
 
     def test_study_sensor_selection_migrates_unknown_sensor_to_missing_plugin(self) -> None:
         config = validate_and_normalize_config(

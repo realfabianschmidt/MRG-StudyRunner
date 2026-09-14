@@ -28,34 +28,27 @@ from study_runner.contracts.plugin_api import Plugin, PluginContext
 from study_runner.plugin_framework.process_host import get_process_runtime
 
 
-EXPECTED_PLUGIN_MAPPING = {
-    "brainbit": ("brainbit", "brainbit"),
-    "mr60_mini_radar": ("mini_radar", "mini_radar"),
-    "camera_emotion": ("camera_emotion", "camera_emotion"),
-    "osc_touchdesigner": ("osc", "osc"),
-    "notion_upload": ("notion", "notion"),
-    "nextcloud_upload": ("nextcloud", "nextcloud"),
-}
+# Adding a plugin must not require editing anything outside its own folder, so
+# the shipped set is read from the trusted extension roots rather than listed
+# here. This keeps the guarantee the old hardcoded list existed for: the folders
+# come from the *filesystem*, the keys they claim come from their manifests, and
+# both are compared against what actually registered. A plugin that silently
+# fails to register therefore still fails this test, because its folder is on
+# disk while its key is missing from the registry.
+def _shipped_folders() -> dict[str, str]:
+    """`{folder name: category}` for every discoverable extension on disk."""
+    from study_runner.plugin_framework.plugin_layout import (
+        candidate_directories,
+        trusted_roots,
+    )
 
-# Package 5g.B5: every shipped card extension. Unlike the plugins above (whose
-# folder name predates and differs from their plugin key), a card's folder,
-# plugin_key and config_key are the same string. Listed explicitly rather than
-# read back from the registry, so a card that silently fails to register is
-# still caught here.
-EXPECTED_CARD_PLUGIN_KEYS = {
-    "choice",
-    "finish",
-    "likert",
-    "mood_meter",
-    "multi_slider",
-    "participant_id",
-    "ranking",
-    "semantic",
-    "slider",
-    "stimulus",
-    "text",
-    "word_cloud",
-}
+    folders: dict[str, str] = {}
+    for root, package in trusted_roots():
+        category = package.rsplit(".", 1)[-1]
+        for directory in candidate_directories(root):
+            if (directory / "manifest.json").is_file():
+                folders[directory.name] = category
+    return folders
 
 
 def _context() -> PluginContext:
@@ -84,34 +77,37 @@ class PluginRegistryContractTests(unittest.TestCase):
         )
         return (plugin.key, plugin.config_key)
 
-    def test_folder_plugin_key_and_config_key_mapping_is_explicit(self) -> None:
-        actual = {}
-        for folder in EXPECTED_PLUGIN_MAPPING:
-            category = "sensors" if folder in {"brainbit", "camera_emotion", "mr60_mini_radar"} else (
-                "destinations" if folder in {"notion_upload", "nextcloud_upload"} else "outputs"
-            )
-            actual[folder] = self._verify_process_isolated(folder, category)
+    def test_every_shipped_folder_registers_as_an_isolated_process(self) -> None:
+        """Folder on disk, key in its manifest, proxy in the registry — all three agree.
 
-        self.assertEqual(actual, EXPECTED_PLUGIN_MAPPING)
+        The folder name and the plugin key are deliberately allowed to differ
+        (`mr60_mini_radar` ships `mini_radar`), so this reads the claim from
+        each manifest instead of assuming they match.
+        """
+        folders = _shipped_folders()
+        self.assertTrue(folders, "no extension folders were discovered at all")
 
-    def test_card_folder_plugin_key_and_config_key_mapping_is_explicit(self) -> None:
-        """Cards get the same isolated-process-proxy guarantee as any other plugin."""
-        actual = {
-            folder: self._verify_process_isolated(folder, "cards")
-            for folder in EXPECTED_CARD_PLUGIN_KEYS
-        }
-        self.assertEqual(actual, {key: (key, key) for key in EXPECTED_CARD_PLUGIN_KEYS})
+        for folder, category in sorted(folders.items()):
+            with self.subTest(folder=folder):
+                key, config_key = self._verify_process_isolated(folder, category)
+                manifest = get_plugin_manifest(key)
+                self.assertEqual(manifest["plugin_key"], key)
+                self.assertEqual(manifest["config_key"], config_key)
 
-    def test_registry_contains_each_documented_plugin_once(self) -> None:
-        expected_keys = {
-            plugin_key
-            for plugin_key, _config_key in EXPECTED_PLUGIN_MAPPING.values()
-        } | EXPECTED_CARD_PLUGIN_KEYS
+    def test_card_folder_plugin_key_and_config_key_are_the_same_string(self) -> None:
+        """Unlike sensors, a card's folder, plugin_key and config_key must match."""
+        cards = [folder for folder, category in _shipped_folders().items() if category == "cards"]
+        self.assertTrue(cards, "no card extensions were discovered")
+
+        for folder in sorted(cards):
+            with self.subTest(folder=folder):
+                self.assertEqual(self._verify_process_isolated(folder, "cards"), (folder, folder))
+
+    def test_registry_contains_each_shipped_plugin_exactly_once(self) -> None:
         registered_keys = [plugin.key for plugin in PLUGINS]
-
-        self.assertEqual(set(registered_keys), expected_keys)
         self.assertEqual(len(registered_keys), len(set(registered_keys)))
-        self.assertEqual(set(PLUGINS_BY_KEY), expected_keys)
+        self.assertEqual(set(PLUGINS_BY_KEY), set(registered_keys))
+        self.assertEqual(len(registered_keys), len(_shipped_folders()))
 
     def test_each_active_plugin_owns_one_config_key(self) -> None:
         config_to_plugins: dict[str, set[str]] = {}
@@ -144,11 +140,7 @@ class PluginRegistryContractTests(unittest.TestCase):
                 # architecture-1.0 3.4 decision log for its retirement).
                 if manifest["category"] != "card":
                     self.assertIn("health", manifest["capabilities"])
-                    # entry_point is v3 in-process-import legacy, parsed only so an
-                    # operator-edited pre-rebuild manifest still loads (contracts/
-                    # manifest.py, scheduled for removal at T4). Every card manifest
-                    # was written after v3 was removed, so none carries it.
-                    self.assertEqual(manifest["entry_point"], "plugin:PLUGIN")
+                self.assertNotIn("entry_point", manifest)
                 self.assertEqual(manifest["runtime"]["entrypoint"], "driver.py")
                 self.assertEqual(
                     manifest["runtime"]["protocol"],
@@ -180,10 +172,28 @@ class PluginRegistryContractTests(unittest.TestCase):
 
     def test_capability_queries_are_manifest_driven(self) -> None:
         sensors = {plugin.key for plugin in get_plugins_with_capability("study_sensor")}
-        self.assertEqual(sensors, {"brainbit", "mini_radar", "camera_emotion"})
+        manifests = get_plugin_manifests()
+        self.assertEqual(
+            sensors,
+            {
+                key
+                for key, manifest in manifests.items()
+                if "study_sensor" in (manifest.get("capabilities") or [])
+            },
+        )
+        # Both sides are derived, so guard against the degenerate case where a
+        # broken catalog makes them vacuously equal at zero.
+        self.assertTrue(sensors, "no plugin declares study_sensor at all")
 
-        projections = get_backup_projection_specs({"brainbit", "mini_radar"})
-        self.assertEqual({projection["plugin_key"] for projection in projections}, sensors - {"camera_emotion"})
+        # Asking for every sensor must yield a projection from exactly those
+        # that declare one -- derived, so a new sensor needs no edit here.
+        with_projection = {
+            key
+            for key, manifest in manifests.items()
+            if "backup_projection" in (manifest.get("capabilities") or [])
+        }
+        projections = get_backup_projection_specs(sensors)
+        self.assertEqual({projection["plugin_key"] for projection in projections}, sensors & with_projection)
         self.assertTrue(all(projection["rate_hz"] > 0 for projection in projections))
         self.assertTrue(all(projection["channels"] for projection in projections))
         self.assertTrue(

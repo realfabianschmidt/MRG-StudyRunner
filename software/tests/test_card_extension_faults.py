@@ -22,7 +22,7 @@ the process boundary itself.
 
 The fixture card is registered the same CONTRIBUTING.md-compliant way
 test_fixture_plugin_blueprint.py registers a synthetic sensor: through
-FixturePluginRootMixin's STUDY_RUNNER_TEST_EXTRA_EXTENSION_ROOT/_PACKAGE
+FixturePluginRootMixin's STUDY_RUNNER_TEST_EXTRA_PLUGIN_ROOT/_PACKAGE
 environment seam (read only from the environment, never a request or
 manifest value), merged with the real catalog for the duration of one test.
 """
@@ -49,7 +49,7 @@ from support.fixture_plugin import FixturePluginRootMixin, write_driver_py
 
 from study_runner.plugin_framework import registry
 from study_runner.plugin_framework.plugin_catalog import PluginCatalog, discover_plugin_catalog
-from study_runner.plugin_framework.process_host import get_process_runtime
+from study_runner.plugin_framework.process_host import STARTUP_TIMEOUT_MS, get_process_runtime
 
 
 PLUGIN_KEY = "fixture_fault_card"
@@ -378,7 +378,13 @@ class UnrelatedWorkStaysAvailableDuringACardFaultTests(_FixtureFaultCardMixin, u
                         app.test_client(),
                         {"type": QUESTION_TYPE, "_fault": "hang"},
                     )
-                    deadline = time.monotonic() + 3
+                    # Getting here means spawning a driver process, so allow the
+                    # framework's own startup budget plus a margin. A shorter,
+                    # hand-picked wait was really an assumption about how many
+                    # plugins ship -- adding one more folder to discovery was
+                    # enough to break it, which says nothing about the fault
+                    # isolation this test is actually about.
+                    deadline = time.monotonic() + (STARTUP_TIMEOUT_MS / 1000.0) * 3
                     while time.monotonic() < deadline and not self.blocked_marker_path.is_file():
                         time.sleep(0.01)
                     self.assertTrue(self.blocked_marker_path.is_file(), "fixture handler never blocked")

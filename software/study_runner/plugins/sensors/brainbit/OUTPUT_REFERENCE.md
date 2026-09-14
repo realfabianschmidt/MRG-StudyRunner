@@ -15,6 +15,11 @@ DEVICE_SELECTED {"index":0,"name":"BrainBit","family":"LEBrainBit","address":"..
 DEVICE {"family":"LEBrainBit","name":"BrainBit","address":"...","serial_number":"...","fs_hz":250,"scale":"uV","raw_processing":"unit_scale_only","supported_channels":[]}
 ```
 
+`SCAN.index` is the band's position in one accumulated list that lives for the
+whole scan, fed by both the SDK's discovery callback and its sensor snapshot.
+The same index is what `select_device` sends back, so the band a researcher
+clicks is the band that gets connected.
+
 Configured identities are strict. If the configured band is absent, another
 band is not substituted:
 
@@ -22,7 +27,28 @@ band is not substituted:
 DEVICE_TARGET_MISSING {"message":"Configured BrainBit target not found: serial_number '...' not found","target":{"serial_number":"..."},"fallback":null}
 ```
 
-The process exits with code 6.
+That ends the *session*, not the process: the CLI waits and scans again.
+
+## Connecting, and waiting to connect
+
+```text
+CONNECTING {"index":0,"selection_source":"serial_number"}
+CONNECTED {"index":0,"selection_source":"serial_number"}
+CONNECT_FAILED {"error_type":"RuntimeError","error":"...","index":0,"selection_source":"serial_number"}
+WAITING {"reason_exit_code":9,"attempt":2,"retry_in_seconds":5.0,"next_retry_at":"2026-09-14 15:30:12"}
+```
+
+A session that ends for any non-fatal reason is retried every five seconds for
+as long as the plugin is enabled, with no attempt ceiling. `WAITING` is a
+healthy holding state, not a failure; the adapter surfaces `next_retry_at` so
+an operator can see that an attempt is already on its way.
+
+Only two outcomes are fatal and end the process: a missing dependency (code 2)
+and an unavailable Bluetooth adapter (code 103). Retrying neither of those can
+change anything.
+
+`--max-session-attempts` bounds the loop. It defaults to 0, meaning unbounded;
+only the tests set it.
 
 BrainBit2, Pro, and Flex additionally report their SDK array mapping. `index`
 is `EEGChannelInfo.Num`, the position used in `SignalChannelsData.Samples`:
@@ -148,7 +174,10 @@ Relevant exit codes:
 | 6 | configured target missing |
 | 7 | callback/data-processing failure |
 | 8 | stream or device configuration failure |
+| 9 | the band was found, but the connection attempt did not take |
 | 103 | Bluetooth unavailable |
+
+Codes 5 to 9 end one session and are retried. Only 2 and 103 end the process.
 
 The adapter health model reports log output, raw EEG, derived metrics, data
 integrity, contact, and successful LSL publication separately. Battery lines,

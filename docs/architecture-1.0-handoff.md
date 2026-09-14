@@ -4,6 +4,48 @@ Updated: 2026-09-10. Read this file and [the working plan](architecture-1.0-umba
 before continuing. Both are tracked repository files, accessible to either
 assistant through the local checkout; no private assistant memory is required.
 
+## OPEN AND URGENT: three structure regressions are unaccounted for (2026-09-14)
+
+`python tools/measure_structure.py --check` currently exits 1 with:
+
+```text
+- cross-package import edges grew: 302 -> 306
+- plugin_framework/ grew: 2700 -> 2703 lines
+- runtime_core/ grew: 12816 -> 12885 lines
+```
+
+These are **deliberately left red**. They arrived with the
+`extensions/` → `plugins/` rename and the new `runtime_core/*/migrate.py`
+files, i.e. from work that is not the BrainBit rebuild, so whoever made those
+changes should look at the numbers and decide whether each one is acceptable
+before absorbing it. The ratchet only works if a human accepts each
+regression knowingly; `tools/measure_structure.py`'s own docstring says as
+much ("a passing check is never a reason to automatically overwrite the
+baseline").
+
+What *was* absorbed into `tools/structure_baseline.json` on 2026-09-14, and
+why:
+
+- the `extensions.* → plugins.*` key rename, values unchanged for
+  `cards`/`destinations`/`outputs` — a pure move, nothing grew;
+- `plugins.sensors` 8087 → 12271 and largest file 2292 → 2304
+  (`plugins/sensors/brainbit_old/adapter.py`) — the deliberate frozen copy of
+  the pre-rebuild BrainBit integration, kept as an operator fallback. Growth
+  here is the intended cost of having an archive at all;
+- `plugins.sensors` 12271 → 12843 and largest file → 2438
+  (`plugins/sensors/brainbit/adapter.py`) — the BrainBit connection rebuild
+  itself: the CLI's own retry loop, the sliced scan, the new
+  connecting/connected/waiting states, and the discovery probe under
+  `brainbit/tools/`. **`adapter.py` at 2438 lines is now the largest file in
+  the repository and is itself a finding**, recorded in that plugin's README:
+  it does four separable jobs and wants splitting. That was deliberately not
+  done in the same pass as the behaviour fixes, so the two changes stay
+  reviewable apart.
+
+Nothing else was touched. In particular the four new cross-package import
+edges are worth a look on their own: that number is the one most likely to
+signal a boundary quietly being crossed.
+
 ## Development data directory (2026-09-10)
 
 The UI redesign work found five operator data files edited in-place in this
@@ -79,16 +121,16 @@ is a summary**:
 3. Three test files used a "synthetic plugin in a temp directory" pattern
    that broke once any of them tried to invoke a live handler: v4 spawns a
    real `driver.py` subprocess that resolves itself via
-   `extension_layout.trusted_roots()`, hardcoded to the real `extensions/`
+   `plugin_layout.trusted_roots()`, hardcoded to the real `plugins/`
    tree, with no way for a spawned child to see a parent test's
    monkeypatches. Added a test-only environment-variable seam
-   (`extension_layout.TEST_EXTRA_ROOT_PATH_ENV_VAR`/
-   `TEST_EXTRA_ROOT_PACKAGE_ENV_VAR`, read only from the environment — never
+   (`plugin_layout.TEST_EXTRA_PLUGIN_ROOT_PATH_ENV_VAR`/
+   `TEST_EXTRA_PLUGIN_ROOT_PACKAGE_ENV_VAR`, read only from the environment — never
    a request or manifest value) and a shared `tests/support/fixture_plugin.py`
    helper; all three fixtures now go through the genuine v4 subprocess
    pipeline instead of a synthetic stand-in.
 
-3.3 (doc wording) and 3.5 (one stale sentence in `extensions/README.md`) were
+3.3 (doc wording) and 3.5 (one stale sentence in `plugins/README.md`) were
 both already smaller than the working plan estimated and are done. Full
 suite: **812 passed, 4 skipped** (two fewer than 814 from the dead-test
 removal in point 2, not a new gap).
@@ -632,7 +674,7 @@ structure baseline itself is deliberately *not* rewritten mid-phase -- edge
 count growth from each merge is expected and gets checkpointed once, at the
 end of Phase 4, same as the one checkpoint after Phase 2).
 
-**Next task, in order: `extensions/*` (item 4.7), then `apps/ui` (4.8), then
+**Next task, in order: `plugins/*` (item 4.7), then `apps/ui` (4.8), then
 `apps/server` (4.9), then the tail items 4.11-4.16.** Claim the package in
 the working plan's file-ownership table before starting. The mechanical
 pattern is identical each time (see the six commit messages for the exact
@@ -644,7 +686,7 @@ import` forms always need a manual pass; check both single- and double-dot
 depending on the importing file's own location) → fix
 `test_import_boundaries.py`'s `RULES` tuple and
 `test_architecture_invariants.py`'s area/prefix checks if the moved package
-touches either → run the full suite → fix forward → commit. `extensions/*`
+touches either → run the full suite → fix forward → commit. `plugins/*`
 specifically also needs: reading each of the six plugin manifests'
 `category` field before moving anything (do not guess the destination
 subfolder from the plugin's name), and very likely a same-or-next-commit

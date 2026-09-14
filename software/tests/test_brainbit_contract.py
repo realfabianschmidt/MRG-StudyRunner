@@ -115,10 +115,21 @@ class DeviceSelectionSafetyTests(unittest.TestCase):
             mock.patch.object(cli.time, "sleep"),
             redirect_stdout(io.StringIO()),
         ):
-            with self.assertRaises(SystemExit) as caught:
-                cli.main(["--scan-seconds", "1", "--serial-number", "missing", "--no-osc"])
+            # One attempt only. The CLI now retries a missing band for as long
+            # as it is wanted, so an unbounded run would never return -- which
+            # is the point: not finding the configured band is a wait, not a
+            # crash. What must never change is that waiting never turns into
+            # connecting to some *other* headset.
+            exit_code = cli.main(
+                [
+                    "--scan-seconds", "1",
+                    "--serial-number", "missing",
+                    "--no-osc",
+                    "--max-session-attempts", "1",
+                ]
+            )
 
-        self.assertEqual(caught.exception.code, cli.EXIT_DEVICE_TARGET_MISSING)
+        self.assertEqual(exit_code, cli.EXIT_DEVICE_TARGET_MISSING)
         self.assertFalse(Scanner.created)
 
 

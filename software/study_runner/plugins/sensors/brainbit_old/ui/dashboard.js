@@ -22,13 +22,12 @@ export function renderDashboard({ plugin: brainbit }, ui) {
     <dl class="status-list">
       <dt>${ui.fieldLabel('scanWindow', 'Scan window')}</dt><dd>${ui.formatValue(brainbit.scan_timeout_seconds, ' s')} (${ui.escapeHtml(brainbit.scan_mode || 'one-shot')})</dd>
       <dt>${ui.fieldLabel('lastScan', 'Last scan')}</dt><dd>${ui.escapeHtml(brainbit.last_scan_started_at || '-')}</dd>
-      ${renderRetryRow(brainbit, ui)}
       <dt>${ui.fieldLabel('band', 'Band')}</dt><dd>${renderBand(brainbit, ui)}</dd>
       <dt>${ui.fieldLabel('channels', 'Channels')}</dt><dd>${channels.length ? ui.escapeHtml(channels.join(', ')) : '-'}</dd>
       <dt>${ui.fieldLabel('battery', 'Battery')}</dt><dd>${ui.formatValue(battery.percent, '%')}</dd>
       <dt>${ui.fieldLabel('rawEeg', 'Latest raw EEG')}</dt><dd>${formatExactChannels(eeg, channels, ui, latest.eeg_batch?.units || '')}</dd>
       <dt>${ui.fieldLabel('resistance', 'Resistance')}</dt><dd>${formatExactChannels(resistance, channels, ui, resistance.units || 'Ohm')}</dd>
-      <dt>${ui.fieldLabel('quality', 'Quality')}</dt><dd>${formatQuality(quality, channels, contactState, brainbit.contact_quality_as_of || latest.contact_quality_as_of, ui)}</dd>
+      <dt>${ui.fieldLabel('quality', 'Quality')}</dt><dd>${formatQuality(quality, channels, contactState, ui)}</dd>
       <dt>${ui.fieldLabel('bands', 'Bands')}</dt><dd>${ui.formatSensorChannels(bands, ['delta', 'theta', 'alpha', 'beta', 'gamma'])}</dd>
       <dt>${ui.fieldLabel('mental', 'Mental')}</dt><dd>${ui.formatSensorChannels(mental, ['Inst_Attention', 'Inst_Relaxation', 'Rel_Attention', 'Rel_Relaxation'])}</dd>
       <dt>${ui.fieldLabel('calibration', 'Calibration')}</dt><dd>${formatCalibration(calibration, ui)}</dd>
@@ -45,21 +44,6 @@ export function renderDashboard({ plugin: brainbit }, ui) {
   `;
 }
 
-/**
- * Shown only while a reconnection is pending.
- *
- * Without it, a band that is switched off looks like a stuck plugin, and the
- * natural reaction is to press Restart -- which aborts the attempt that was
- * already on its way.
- */
-function renderRetryRow(brainbit, ui) {
-  const nextRetryAt = brainbit.next_retry_at || brainbit.latest?.next_retry_at;
-  if (!nextRetryAt) return '';
-  const attempt = brainbit.retry_attempt || brainbit.latest?.retry_attempt;
-  const suffix = attempt ? ` (${ui.escapeHtml(ui.t('dashboard.attempt', 'attempt'))} ${ui.escapeHtml(String(attempt))})` : '';
-  return `<dt>${ui.fieldLabel('nextAttempt', 'Next attempt')}</dt><dd>${ui.escapeHtml(nextRetryAt)}${suffix}</dd>`;
-}
-
 function formatMessage(brainbit, latest, ui) {
   const fallback = latest.last_message || brainbit.last_message || '-';
   const detailKey = latest.status_detail_key || brainbit.status_detail_key;
@@ -71,15 +55,11 @@ function formatMessage(brainbit, latest, ui) {
     : ui.escapeHtml(message);
 }
 
-function formatQuality(quality, channelNames, contactState, measuredAt, ui) {
+function formatQuality(quality, channelNames, contactState, ui) {
   const channels = formatExactChannels(quality, channelNames, ui, quality.units || 'ratio');
   const contact = ui.formatHealthValue(contactState);
-  // Contact is measured once before streaming and never refreshed, so the time
-  // it was taken belongs next to it -- otherwise a reading from the start of a
-  // long session reads as if it were live.
-  const measured = measuredAt ? ` · ${ui.escapeHtml(ui.t('dashboard.measuredAt', 'measured'))} ${ui.escapeHtml(measuredAt)}` : '';
-  if (channels === '-') return contact === '-' ? '-' : `${contact}${measured}`;
-  return `${channels}<br><span class="status-muted">${ui.escapeHtml(ui.t('dashboard.contactPrefix', 'contact'))}: ${contact}${measured}</span>`;
+  if (channels === '-') return contact === '-' ? '-' : contact;
+  return `${channels}<br><span class="status-muted">${ui.escapeHtml(ui.t('dashboard.contactPrefix', 'contact'))}: ${contact}</span>`;
 }
 
 function channelLabels(brainbit, latest) {
@@ -135,9 +115,6 @@ function formatIntegrity(latest, ui) {
   const batch = latest.eeg_batch || {};
   const warning = latest.data_warning || {};
   const rows = [
-    // The nominal rate was all that was ever shown, so a band delivering half
-    // its samples looked perfectly healthy. This is what it is really sending.
-    `measured rate: ${batch.measured_hz ?? latest.measured_sample_rate_hz ?? '-'} Hz`,
     `batch samples: ${batch.sample_count ?? '-'}`,
     `last packet: ${batch.last_pack ?? '-'}`,
     `gap frames (batch / total): ${batch.packet_gap_frames ?? 0} / ${batch.packet_gap_frames_total ?? warning.packet_gap_frames_total ?? 0}`,

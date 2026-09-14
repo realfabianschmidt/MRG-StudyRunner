@@ -1,9 +1,10 @@
 {
   "api_version": 5,
-  "plugin_key": "brainbit",
+  "plugin_key": "brainbit_old",
   "version": "1.0.0",
   "category": "biosignal",
-  "config_key": "brainbit",
+  "config_key": "brainbit_old",
+  "entry_point": "plugin:PLUGIN",
   "runtime": {
     "entrypoint": "driver.py",
     "protocol": "study-runner-stdio/v1",
@@ -28,15 +29,15 @@
     "trial_events": ["start", "stop"],
     "can_toggle": true,
     "sidecar": {
-      "sensor": "brainbit",
-      "filename_suffix": "brainbit_signals",
-      "output_key": "brainbit_file"
+      "sensor": "brainbit_old",
+      "filename_suffix": "brainbit_old_signals",
+      "output_key": "brainbit_old_file"
     }
   },
   "ui": {
-    "label": "BrainBit",
-    "description": "BrainBit EEG acquisition and derived metrics.",
-    "order": 100,
+    "label": "BrainBit (old)",
+    "description": "Archived pre-rebuild BrainBit integration, kept only as a manual fallback. Switch this on ONLY if the current BrainBit plugin fails, and never run both at once: the band can only be owned by one process at a time.",
+    "order": 900,
     "visibility": {
       "dashboard": true,
       "settings_hub": true,
@@ -52,7 +53,7 @@
     }
   },
   "capabilities": {
-    "study_sensor": {"default_enabled": true, "default_required": true},
+    "study_sensor": {"default_enabled": false, "default_required": false},
     "acquisition_transport": {
       "transport": "ble",
       "delivery": "host_lsl_bridge"
@@ -102,31 +103,31 @@
   },
   "streams": [
     {
-      "key": "eeg", "source_id": "study_runner.brainbit.eeg", "type": "EEG",
+      "key": "eeg", "source_id": "study_runner.brainbit_old.eeg", "type": "EEG",
       "nominal_rate_hz": 250, "clock_domain": "lsl", "channel_format": "float32",
       "channels": ["O1", "O2", "T3", "T4"],
       "channel_units": ["microvolt", "microvolt", "microvolt", "microvolt"]
     },
     {
-      "key": "bands", "source_id": "study_runner.brainbit.bands", "type": "BANDS",
+      "key": "bands", "source_id": "study_runner.brainbit_old.bands", "type": "BANDS",
       "nominal_rate_hz": 25, "clock_domain": "lsl", "channel_format": "float32",
       "channels": ["delta", "theta", "alpha", "beta", "gamma"],
       "channel_units": ["relative_power", "relative_power", "relative_power", "relative_power", "relative_power"]
     },
     {
-      "key": "mental", "source_id": "study_runner.brainbit.mental", "type": "MENTAL",
+      "key": "mental", "source_id": "study_runner.brainbit_old.mental", "type": "MENTAL",
       "nominal_rate_hz": 25, "clock_domain": "lsl", "channel_format": "float32",
       "channels": ["Inst_Attention", "Inst_Relaxation", "Rel_Attention", "Rel_Relaxation"],
       "channel_units": ["ratio", "ratio", "ratio", "ratio"]
     },
     {
-      "key": "quality", "source_id": "study_runner.brainbit.quality", "type": "QUALITY",
+      "key": "quality", "source_id": "study_runner.brainbit_old.quality", "type": "QUALITY",
       "nominal_rate_hz": 0, "clock_domain": "lsl", "channel_format": "float32",
       "channels": ["O1", "O2", "T3", "T4"],
       "channel_units": ["ratio", "ratio", "ratio", "ratio"]
     },
     {
-      "key": "battery", "source_id": "study_runner.brainbit.battery", "type": "BATTERY",
+      "key": "battery", "source_id": "study_runner.brainbit_old.battery", "type": "BATTERY",
       "nominal_rate_hz": 0, "clock_domain": "lsl", "channel_format": "float32",
       "channels": ["percent"],
       "channel_units": ["percent"]
@@ -140,31 +141,9 @@
         "apply": "restart", "scope": "machine"
       },
       "disconnect_timeout_ms": {
-        "type": "number", "unit": "ms", "path": "disconnect_timeout_ms", "default": 45000,
+        "type": "number", "unit": "ms", "path": "disconnect_timeout_ms", "default": 20000,
         "minimum": 1000, "maximum": 120000,
         "label_key": "pluginSettings.brainbit.disconnectTimeout", "apply": "restart", "scope": "machine"
-      },
-      "serial_number": {
-        "type": "string", "path": "serial_number", "default": "",
-        "label_key": "pluginSettings.brainbit.serialNumber", "apply": "restart", "scope": "machine"
-      },
-      "device_address": {
-        "type": "string", "path": "device_address", "default": "",
-        "label_key": "pluginSettings.brainbit.deviceAddress", "apply": "restart", "scope": "machine"
-      },
-      "device_name": {
-        "type": "string", "path": "device_name", "default": "",
-        "label_key": "pluginSettings.brainbit.deviceName", "apply": "restart", "scope": "machine"
-      },
-      "settle_seconds": {
-        "type": "number", "unit": "s", "path": "settle_seconds", "default": 2,
-        "minimum": 0, "maximum": 30,
-        "label_key": "pluginSettings.brainbit.settleSeconds", "apply": "restart", "scope": "machine"
-      },
-      "auto_restart_max_attempts": {
-        "type": "number", "path": "auto_restart_max_attempts", "default": 3,
-        "minimum": 0, "maximum": 20,
-        "label_key": "pluginSettings.brainbit.autoRestartMaxAttempts", "apply": "restart", "scope": "machine"
       }
     },
     "study": {},
@@ -172,8 +151,8 @@
       "to_touchdesigner": {"type": "boolean", "default": true}
     }
   },
-  "poll_interval_ms": 1000,
-  "request_timeout_ms": 1500,
+  "poll_interval_ms": 150,
+  "request_timeout_ms": 2000,
   "clock_domain": "lsl",
   "expected_data_rate": {"eeg_hz": 250, "metrics_hz": 25, "backup_projection_hz": 1},
   "backpressure": {"max_in_flight": 1, "drop_policy": "latest_status_wins"}

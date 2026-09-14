@@ -1,11 +1,12 @@
 {
   "_comment": "Desktop-only Study Runner plugin settings for Windows, macOS, and Linux. Use the dashboard controls for common enabled flags and runtime actions.",
   "brainbit": {
+    "auto_restart_max_attempts": 3,
     "debug": false,
     "device_address": "",
     "device_index": 0,
     "device_name": "BrainBit",
-    "disconnect_timeout_ms": 20000,
+    "disconnect_timeout_ms": 45000,
     "enabled": true,
     "lsl": {
       "auto_install": false,
@@ -24,6 +25,7 @@
     "scan_seconds": 5,
     "script_path": "study_runner/plugins/sensors/brainbit/brainbit_realtime_cli.py",
     "serial_number": "",
+    "settle_seconds": 2,
     "signal_seconds": 0
   },
   "camera_emotion": {

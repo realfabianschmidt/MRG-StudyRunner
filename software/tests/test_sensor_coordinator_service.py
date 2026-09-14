@@ -30,6 +30,13 @@ class FakeClock:
             self._now += float(seconds)
 
 
+def _declared_poll_interval_ms(plugin_key: str) -> int:
+    """What this plugin's own manifest asks to be polled at."""
+    from study_runner.plugin_framework.registry import get_plugin_manifests
+
+    return int(get_plugin_manifests()[plugin_key]["poll_interval_ms"])
+
+
 def _context() -> PluginContext:
     return PluginContext(
         base_dir=PROJECT_ROOT,
@@ -105,7 +112,14 @@ class SensorCoordinatorTests(unittest.TestCase):
             brainbit = status["plugins"]["brainbit"]
             self.assertEqual(brainbit["status"], "ok")
             self.assertEqual(brainbit["manifest"]["clock_domain"], "lsl")
-            self.assertEqual(brainbit["coordinator"]["poll_interval_ms"], 150)
+            # Read from the manifest rather than pinned to a number: the claim
+            # under test is that the coordinator honours what a plugin declares,
+            # and a plugin must be free to change its own polling rate without
+            # editing a core test.
+            self.assertEqual(
+                brainbit["coordinator"]["poll_interval_ms"],
+                _declared_poll_interval_ms("brainbit"),
+            )
             self.assertEqual(brainbit["coordinator"]["cache_state"], "fresh")
             self.assertEqual(brainbit["coordinator"]["poll_count"], 1)
             self.assertIn("brainbit", status["plugins"])

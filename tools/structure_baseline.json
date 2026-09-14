@@ -3,7 +3,7 @@
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
-    "lines": 2292,
+    "lines": 2438,
     "path": "software/study_runner/plugins/sensors/brainbit/adapter.py"
   },
   "lines_per_package": {
@@ -15,11 +15,11 @@
     "data_core.contract": 1223,
     "data_core.host": 6203,
     "data_core.worker": 2413,
-    "extensions": 0,
-    "extensions.cards": 1093,
-    "extensions.destinations": 1607,
-    "extensions.outputs": 154,
-    "extensions.sensors": 8087,
+    "plugins": 0,
+    "plugins.cards": 1093,
+    "plugins.destinations": 1607,
+    "plugins.outputs": 154,
+    "plugins.sensors": 12855,
     "plugin_framework": 2700,
     "runtime_core": 12816,
     "shared": 455,
