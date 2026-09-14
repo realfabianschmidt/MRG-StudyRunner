@@ -460,6 +460,15 @@ class SettingsShellTests(unittest.TestCase):
 
 
 class PluginUiContractTests(unittest.TestCase):
+    def test_desktop_shortcut_button_has_one_click_handler(self) -> None:
+        admin = _read(WEB / "scripts" / "admin" / "admin-controller.js")
+
+        self.assertEqual(
+            admin.count("$('btn-create-shortcut')?.addEventListener('click'"),
+            1,
+            "one click must create only one desktop shortcut",
+        )
+
     def test_sensor_rich_views_and_timeline_preferences_are_plugin_owned(self) -> None:
         dashboard = _read(WEB / "scripts" / "admin" / "admin-dashboard-controller.js").lower()
         timeline = _read(WEB / "scripts" / "admin" / "session-timeline.js")

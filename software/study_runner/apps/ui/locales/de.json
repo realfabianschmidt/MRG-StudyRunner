@@ -1019,7 +1019,7 @@
   "readiness.confirmBody": "Die Messdaten werden so oder so lokal gespeichert, die oben genannten Uploads schlagen aber fehl. Trotzdem starten?",
   "hub.sensorCheck": "Sensoren & Live-Status",
   "dashboard.idleNote": "Live-Werte erscheinen, sobald eine Studie läuft.",
-  "shortcut.body": "Legt auf dem Desktop dieses Computers eine Verknüpfung an, die Study Runner startet und die Admin-Seite öffnet.",
+  "shortcut.body": "Legt auf dem Desktop dieses Computers eine Verknüpfung an, die Study Runner startet und die Admin-Seite öffnet. Lass den Installationsordner danach am selben Ort und erstelle die Verknüpfung nach einem Umzug oder einem neu heruntergeladenen Release erneut.",
   "shortcut.action": "Verknüpfung anlegen",
   "audit.title": "Biosignal-Workflow auf Forschungsniveau",
   "audit.disclaimer": "Study Runner ist ein Forschungswerkzeug. Es ist kein Medizinprodukt und stellt keine Diagnose.",

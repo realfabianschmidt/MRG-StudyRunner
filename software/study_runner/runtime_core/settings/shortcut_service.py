@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import os
 import platform
+import shlex
 import stat
 import subprocess
 import sys
@@ -89,10 +90,19 @@ def _create_windows_shortcut(app_config: dict[str, Any]) -> dict[str, Any]:
 def _create_macos_shortcut(app_config: dict[str, Any]) -> dict[str, Any]:
     target, arguments, working_dir = _server_launch(app_config)
     shortcut_path = _desktop_dir() / "Study Runner.command"
-    if arguments:
-        launch_line = f'cd "{working_dir}"\n"{target}" "{arguments}"\n'
+    source_start_script = working_dir.parent / "tools" / "start-macos.sh"
+    if not getattr(sys, "frozen", False) and source_start_script.is_file():
+        launch_line = f"exec /bin/bash {shlex.quote(str(source_start_script))}\n"
+    elif arguments:
+        launch_line = (
+            f"cd {shlex.quote(str(working_dir))}\n"
+            f"exec {shlex.quote(str(target))} {shlex.quote(arguments)}\n"
+        )
     else:
-        launch_line = f'cd "{working_dir}"\n"{target}"\n'
+        launch_line = (
+            f"cd {shlex.quote(str(working_dir))}\n"
+            f"exec {shlex.quote(str(target))}\n"
+        )
     content = "#!/bin/zsh\n" + launch_line
     shortcut_path.write_text(content, encoding="utf-8")
     shortcut_path.chmod(shortcut_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)

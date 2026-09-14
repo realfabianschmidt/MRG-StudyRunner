@@ -5,27 +5,124 @@ workshop, or design research setting.
 
 ## Install and start
 
-From the repository root, run the installer once and use the start command for
-every later session:
+These steps use the tested files from the
+[latest GitHub Release](https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest).
+Choose a permanent folder under **Documents** before installing. Study Runner
+stores its local setup and, by default, study data inside this folder, so do not
+run it permanently from Downloads or move/delete the folder later.
 
-**Windows x64:**
+### Windows x64
+
+#### First installation
+
+1. Download `study-runner-source.zip` from the latest release and extract it.
+2. Move the extracted Study Runner folder into **Documents**.
+3. Open that folder in File Explorer, click the address bar, type `powershell`,
+   and press Enter. PowerShell now opens in the correct folder.
+4. Copy this command into PowerShell and press Enter:
+
+   ```powershell
+   .\tools\install-windows.cmd -InstallSystemDependencies
+   ```
+
+5. Wait until the terminal says `Study Runner is ready`. Installation can take
+   several minutes and Windows may ask for administrator permission.
+6. Start Study Runner:
+
+   ```powershell
+   .\tools\start-windows.cmd
+   ```
+
+The Admin page normally opens automatically. If it does not, open
+`https://localhost:3000/admin` in a browser.
+
+#### Every later start
+
+Open the permanent Study Runner folder and double-click
+`tools\start-windows.cmd`. You can also open PowerShell in the folder and run:
 
 ```powershell
-.\tools\install-windows.cmd -InstallSystemDependencies
 .\tools\start-windows.cmd
 ```
 
-**macOS Intel or Apple Silicon:**
+Keep the terminal window open while Study Runner is running. Press `Ctrl+C` in
+that window to stop it.
+
+### macOS Intel or Apple Silicon
+
+#### First installation
+
+1. Download `study-runner-source.tar.gz` from the latest release. Double-click
+   it in Finder if the browser did not extract it automatically.
+2. Move the extracted Study Runner folder into **Documents**.
+3. Open Terminal. Type `cd `, including the space, drag the Study Runner folder
+   from Finder into the Terminal window, and press Enter.
+4. Ask macOS to install Apple's Command Line Tools and finish the displayed
+   installer before continuing:
+
+   ```bash
+   xcode-select --install
+   ```
+
+5. If Homebrew is not installed, install it with its official command and
+   follow the displayed `Next steps`:
+
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+   Open a new Terminal afterward and repeat step 3.
+6. Install Study Runner:
+
+   ```bash
+   bash tools/install-macos.sh --install-system-dependencies
+   ```
+
+7. Wait until the terminal says `Study Runner is ready`, then start it:
+
+   ```bash
+   bash tools/start-macos.sh
+   ```
+
+8. Wait for the Admin page to open. If it does not, open
+   `https://localhost:3000/admin` in a browser.
+
+#### Create the macOS desktop shortcut
+
+1. Leave Study Runner and its Terminal window running after the first start.
+2. On the Admin page, open **Settings**, find **System**, and select
+   **Create desktop shortcut**.
+3. Click **Create shortcut** and wait for the success message. Finder now shows
+   `Study Runner.command` on the Desktop.
+4. Return to Terminal and press `Ctrl+C` to stop the first start.
+
+The same shortcut works on macOS Intel and Apple Silicon. It points to this
+installation folder. Create it again after moving the folder or installing a
+new downloaded release.
+
+#### Every later start
+
+Double-click `Study Runner.command` on the Desktop. Confirm **Open** if macOS
+asks the first time. Keep the Terminal window open while Study Runner is
+running and press `Ctrl+C` there to stop it.
+
+If the shortcut is missing, open Terminal in the Study Runner folder as in step
+3 above and run:
 
 ```bash
-bash tools/install-macos.sh --install-system-dependencies
 bash tools/start-macos.sh
 ```
 
-The installers are safe to run again after an update. They reuse the local
-`.venv` and a verified native recording core without deleting studies or
-results. See [Installation details](#installation-details) below for Git,
-WinGet, Homebrew, Xcode, and platform-specific camera support.
+### Repair, update, or use Git
+
+The installers are safe to run again and reuse `.venv` and a verified XDF core.
+Run the platform installer again without the system-dependency option to repair
+or refresh an installation. Never delete an old downloaded release until its
+local studies, settings, and results are secured; follow
+[Release and Update](docs/release-and-update.md) when replacing an archive.
+
+Developers and operators who want `git pull` updates can use the
+[Git clone alternative](#git-clone-alternative).
 
 Start here if you are not developing the code:
 
@@ -102,64 +199,29 @@ stack; macOS Intel intentionally uses only the common set and `remote_worker`.
 These constraints pin the release-tested direct and high-risk ML versions, but
 are not a hash-locked offline wheel bundle.
 
-### Windows x64
+On Windows, the system-dependency option installs missing Python 3.12, CMake,
+and Visual Studio C++ Build Tools through WinGet. The `.cmd` launchers invoke
+only their adjacent checked-in PowerShell scripts with a process-local
+execution-policy bypass; they do not change the machine or user policy. A
+policy enforced through AppLocker, WDAC, or Group Policy must be resolved by
+the organization's administrator.
 
-Open PowerShell. On a new computer, install Git once:
+On macOS, the system-dependency option runs `brew install python@3.12 cmake`
+idempotently after verifying the Apple Command Line Tools.
 
-```powershell
-winget install --id Git.Git --exact --source winget
-```
+### Git clone alternative
 
-Open a new PowerShell window, then clone and install:
-
-```powershell
-git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
-cd MRG-StudyRunner
-.\tools\install-windows.cmd -InstallSystemDependencies
-```
-
-The explicit switch installs missing Python 3.12, CMake, and Visual Studio C++
-Build Tools through WinGet. Windows may show a UAC prompt. The `.cmd` launcher
-invokes only the adjacent checked-in PowerShell script with a process-local
-execution-policy bypass. It does not change the machine or user policy. A policy
-enforced by an organization through AppLocker, WDAC, or Group Policy still needs
-to be resolved by that organization's administrator.
-
-Every later start is one command:
-
-```powershell
-.\tools\start-windows.cmd
-```
-
-### macOS Intel or Apple Silicon
-
-On a new Mac, install Apple's compiler tools and complete the dialog:
-
-```bash
-xcode-select --install
-```
-
-Install Homebrew with its official installer, follow the printed `Next steps`
-for your shell, then clone and install Study Runner:
-
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-Continue with:
+After installing Git and the platform prerequisites described above, clone the
+repository instead of downloading a release archive:
 
 ```bash
 git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
 cd MRG-StudyRunner
-bash tools/install-macos.sh --install-system-dependencies
 ```
 
-The script runs `brew install python@3.12 cmake` idempotently. Every later start
-is one command:
-
-```bash
-bash tools/start-macos.sh
-```
+Then run the same platform installer and start commands from the quick-start
+guide. A clone can be updated in place with `git pull --ff-only` and therefore
+keeps ignored local data in the same folder.
 
 On Apple Silicon, `camera_emotion` supports its local DeepFace worker. Current
 TensorFlow/tf-keras wheels do not support CPython 3.12 on macOS Intel, so the

@@ -7,6 +7,12 @@ All notable Study Runner changes are documented here. Release tags use
 
 ### Added
 
+- The main and German getting-started guides now lead non-developers through a
+  release download, first installation, first start, and every later start as
+  separate copyable steps.
+- macOS Intel and Apple Silicon operators can create an executable
+  `Study Runner.command` desktop launcher from the Settings page. Source
+  shortcuts use the same checked-in daily-start script as the Terminal flow.
 - Windows source installs and daily starts now use `.cmd` entry points that
   invoke the checked-in PowerShell scripts with a process-local execution-policy
   bypass. Downloaded source archives therefore work without changing the user's
@@ -16,6 +22,7 @@ All notable Study Runner changes are documented here. Release tags use
 
 ### Fixed
 
+- Creating a desktop shortcut from Settings now sends one request per click.
 - Source releases again exclude the optional BrainBit TouchDesigner reference
   after the plugin-directory rename.
 

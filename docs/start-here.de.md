@@ -18,10 +18,10 @@ Study Runner ist eine lokale App fuer Studien. Ein Computer startet den Server,
 und Tablets oder andere Browser im gleichen Netzwerk oeffnen die
 Teilnehmerseite.
 
-Fuer die aktuelle Recording-Architektur ist der Python-Server aus einem
-Git-Checkout der bevorzugte Weg. Alternativ kann das Source-Archiv eines GitHub
-Releases entpackt werden. Beide Wege verwenden dieselben Installations- und
-Startskripte; es gibt aktuell keine separate Desktop-App.
+Fuer Nicht-Entwickler ist das Source-Archiv eines GitHub Releases der einfachste
+Weg. Ein Git-Checkout bleibt die Alternative fuer Personen, die spaeter mit
+`git pull` im selben Ordner aktualisieren wollen. Beide Wege verwenden dieselben
+Installations- und Startskripte; es gibt aktuell keine separate Desktop-App.
 
 ## Was darf ich anpassen?
 
@@ -58,75 +58,84 @@ Quelle der Wahrheit.
 
 ## Software installieren
 
-Der empfohlene Weg ist aktuell der normale Python-Server direkt aus GitHub. Die
-Installationsskripte erzeugen eine eigene `.venv`, installieren die festgelegten
-Python-Pakete und bauen den kleinen XDF-Kern. Studien und Ergebnisse werden
-dabei nicht geloescht. Signing oder Apple-Notarisierung werden dafuer nicht
-benoetigt.
-
-Die Skripte verwenden die mitgelieferten Python-3.12-Constraints unter
-`software/constraints/`. Damit sind die direkt verwendeten und die besonders
-kritischen ML-Versionen fuer den Release-Test festgelegt. Es handelt sich aber
-nicht um ein vollstaendiges, hash-gesperrtes Offline-Wheelpaket; deshalb prueft
-der GitHub-Release jede Zielplattform noch einmal in einer sauberen Umgebung.
+Fuer die einfachste Installation ohne Git lade das gepruefte Archiv vom
+[aktuellen GitHub-Release](https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest)
+herunter. Verschiebe den entpackten Ordner vor der Installation aus
+`Downloads` in einen dauerhaften Ordner unter **Dokumente**. In diesem Ordner
+liegen standardmaessig auch lokale Einstellungen, Studien und Ergebnisse. Den
+Ordner deshalb spaeter nicht einfach verschieben oder loeschen.
 
 ### Windows x64: erste Installation
 
-PowerShell oeffnen und Git installieren, falls es noch fehlt:
+1. `study-runner-source.zip` herunterladen und entpacken.
+2. Den entpackten Study-Runner-Ordner nach **Dokumente** verschieben.
+3. Diesen Ordner im Explorer oeffnen, in die Adresszeile klicken,
+   `powershell` eingeben und Enter druecken.
+4. Diesen Befehl in PowerShell ausfuehren:
 
 ```powershell
-winget install --id Git.Git --exact --source winget
-```
-
-Danach ein neues PowerShell-Fenster oeffnen und ausfuehren:
-
-```powershell
-git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
-cd MRG-StudyRunner
 .\tools\install-windows.cmd -InstallSystemDependencies
 ```
 
-Das Skript installiert fehlendes Python 3.12, CMake und die Visual-Studio-C++-
-Build-Tools ueber WinGet. Windows kann dabei nach Administratorrechten fragen.
-Der `.cmd`-Starter ruft nur das mitgelieferte PowerShell-Skript mit einer fuer
-diesen Prozess geltenden Ausnahme auf. Er veraendert keine dauerhafte
-Execution Policy. Erzwingt eine Organisation die Sperre ueber AppLocker, WDAC
-oder Group Policy, muss deren Administration den Start freigeben.
-
-### Windows: spaeter starten
-
-Im Projektordner genuegt:
+5. Warten, bis `Study Runner is ready` erscheint. Die Installation kann einige
+   Minuten dauern und Windows kann nach Administratorrechten fragen.
+6. Study Runner starten:
 
 ```powershell
 .\tools\start-windows.cmd
 ```
 
+Die Admin-Seite oeffnet normalerweise automatisch. Sonst im Browser
+`https://localhost:3000/admin` aufrufen.
+
+### Windows: spaeter starten
+
+Im dauerhaften Study-Runner-Ordner `tools\start-windows.cmd` doppelklicken oder
+PowerShell wie oben im Ordner oeffnen und ausfuehren:
+
+```powershell
+.\tools\start-windows.cmd
+```
+
+Das Fenster offen lassen, solange Study Runner laeuft. `Ctrl+C` beendet den
+Server.
+
 ### macOS Intel oder Apple Silicon: erste Installation
 
-Im Terminal zuerst Apples Command Line Tools anfordern und den Dialog komplett
-abschliessen:
+1. `study-runner-source.tar.gz` herunterladen. Falls der Browser es nicht
+   automatisch entpackt, die Datei im Finder doppelklicken.
+2. Den entpackten Study-Runner-Ordner nach **Dokumente** verschieben.
+3. Terminal oeffnen und `cd ` inklusive Leerzeichen eingeben. Den Ordner aus
+   dem Finder in das Terminalfenster ziehen und Enter druecken.
+4. Apples Command Line Tools anfordern und den Dialog komplett abschliessen:
 
 ```bash
 xcode-select --install
 ```
 
-Danach Homebrew mit seinem offiziellen Installer installieren und die dort
-angezeigten `Next steps` fuer die Shell ausfuehren:
+5. Falls Homebrew noch fehlt, den offiziellen Installer ausfuehren und danach
+   dessen angezeigte `Next steps` befolgen:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-Dann Study Runner einrichten:
+Danach ein neues Terminal oeffnen und Schritt 3 wiederholen.
+
+6. Study Runner installieren:
 
 ```bash
-git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
-cd MRG-StudyRunner
 bash tools/install-macos.sh --install-system-dependencies
 ```
 
-Das Skript fuehrt wiederholbar `brew install python@3.12 cmake` aus und baut den
-XDF-Kern mit Apples Compiler.
+7. Warten, bis `Study Runner is ready` erscheint, und Study Runner starten:
+
+```bash
+bash tools/start-macos.sh
+```
+
+8. Auf die Admin-Seite warten. Falls sie nicht automatisch erscheint,
+`https://localhost:3000/admin` im Browser oeffnen.
 
 Auf Apple Silicon kann `camera_emotion` den lokalen DeepFace-Worker verwenden.
 Fuer Mac Intel gibt es mit Python 3.12 aktuell keine passenden
@@ -134,9 +143,28 @@ TensorFlow/tf-keras-Wheels. Die Intel-Installation unterstuetzt Server und XDF-
 Recording vollstaendig, fuer Kamera/Emotion muss aber `remote_worker` mit einem
 anderen Analyse-Rechner konfiguriert werden.
 
+### macOS: Desktop-Verknuepfung erstellen
+
+1. Study Runner nach dem ersten Start samt Terminalfenster laufen lassen.
+2. Auf der Admin-Seite **Einstellungen** oeffnen, unter **System** den Eintrag
+   **Desktop-Shortcut erstellen** auswaehlen und **Verknuepfung anlegen**
+   anklicken.
+3. Auf die Erfolgsmeldung warten. Auf dem Desktop liegt jetzt
+   `Study Runner.command`.
+4. Im ersten Terminalfenster `Ctrl+C` druecken, um den Server zu beenden.
+
+Dieselbe Verknuepfung funktioniert auf Mac Intel und Apple Silicon. Sie zeigt
+auf den aktuellen Installationsordner. Nach einem Umzug oder einem neu
+heruntergeladenen Release muss sie erneut erstellt werden.
+
 ### macOS: spaeter starten
 
-Im Projektordner genuegt:
+Auf dem Desktop `Study Runner.command` doppelklicken. Beim ersten Mal eine
+eventuelle Rueckfrage mit **Oeffnen** bestaetigen. Das Terminalfenster offen
+lassen, solange Study Runner laeuft, und den Server dort mit `Ctrl+C` beenden.
+
+Falls die Verknuepfung fehlt, Terminal wieder im Study-Runner-Ordner oeffnen
+und ausfuehren:
 
 ```bash
 bash tools/start-macos.sh
@@ -149,17 +177,11 @@ verwendet immer direkt den richtigen Python-Interpreter. Danach ist Admin hier:
 https://localhost:3000/admin
 ```
 
-### Aktualisieren oder Installation reparieren
+### Installation reparieren
 
-Zuerst den Code aktualisieren:
-
-```bash
-git pull --ff-only
-```
-
-Danach das passende Installationsskript noch einmal ohne System-Schalter
-ausfuehren. Es aktualisiert die Python-Abhaengigkeiten und verwendet einen
-bereits gueltigen XDF-Kern weiter:
+Im bestehenden Ordner das passende Installationsskript noch einmal ohne
+System-Schalter ausfuehren. Es aktualisiert die Python-Abhaengigkeiten und
+verwendet einen bereits gueltigen XDF-Kern weiter:
 
 ```powershell
 .\tools\install-windows.cmd
@@ -173,9 +195,31 @@ Nur fuer eine Installation ohne Sensoraufzeichnung gibt es
 `-SkipRecordingCore` beziehungsweise `--skip-recording-core`. Studien ohne XDF
 laufen dann, Pflicht-Recording bleibt jedoch mit einem klaren Hinweis blockiert.
 
-Spaetere Release-ZIPs und ein Installations-Wizard sind ein getrennter Weg. Die
-aktuelle Source-Installation braucht weder signierte Pakete noch Apple-
+### Neues heruntergeladenes Release verwenden
+
+Ein heruntergeladenes Archiv besitzt keine automatische Aktualisierung. Vor
+dem Wechsel die lokalen Studien, Einstellungen und Ergebnisse aus dem alten
+Ordner sichern. Den alten Ordner erst loeschen, wenn die Daten im neuen Release
+vorhanden und geprueft sind. Danach die Installation und auf macOS auch die
+Desktop-Verknuepfung fuer den neuen Ordner erneut ausfuehren.
+
+Die Source-Installation braucht weder signierte App-Pakete noch Apple-
 Notarisierung.
+
+### Alternative fuer Git-Nutzer
+
+Wer Study Runner mit `git pull` im selben Ordner aktualisieren moechte, kann
+statt des Release-Archivs das Repository klonen:
+
+```bash
+git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
+cd MRG-StudyRunner
+```
+
+Danach gelten dieselben Installations- und Startbefehle wie oben.
+Zum Aktualisieren den Server beenden, im geklonten Ordner `git pull --ff-only`
+ausfuehren und danach das Installationsskript ohne System-Schalter erneut
+starten.
 
 ## HTTPS und iPad / Tablet Kamera
 

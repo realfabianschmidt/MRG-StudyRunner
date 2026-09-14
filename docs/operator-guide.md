@@ -26,7 +26,11 @@ installation, start it with `tools/start-windows.cmd` or
 
 ## First Install And Daily Start
 
-From a fresh GitHub checkout, use the platform installer once:
+For a non-developer installation, download `study-runner-source.zip` on
+Windows or `study-runner-source.tar.gz` on macOS from the latest GitHub
+[Release](https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest).
+Extract it into a permanent folder under Documents, open a terminal in that
+folder, and use the platform installer once:
 
 ```powershell
 .\tools\install-windows.cmd -InstallSystemDependencies
@@ -59,6 +63,17 @@ Daily start:
 ```bash
 bash tools/start-macos.sh
 ```
+
+After the first macOS start, the operator can open **Settings**, select
+**Create desktop shortcut** under **System**, and click **Create shortcut**.
+The resulting `Study Runner.command` on the Desktop works on both macOS Intel
+and Apple Silicon. Keep the installation folder in place; recreate the
+shortcut after moving it or installing a newly downloaded release. One can
+then double-click the shortcut for daily starts and keep its Terminal window
+open until stopping the server with `Ctrl+C`.
+
+Cloning the repository remains the alternative for developers and operators
+who want to update the same folder with `git pull --ff-only`.
 
 Windows x64 and macOS Intel/Apple Silicon are the supported recording
 platforms. If the core is absent or stale, non-recording studies still run; a

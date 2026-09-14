@@ -146,8 +146,30 @@ class SourceInstallScriptTests(unittest.TestCase):
             "brew install",
         ):
             self.assertIn(command, readme)
+        for instruction in (
+            "study-runner-source.zip",
+            "study-runner-source.tar.gz",
+            "#### First installation",
+            "#### Every later start",
+            "#### Create the macOS desktop shortcut",
+            "Study Runner.command",
+            "drag the Study Runner folder",
+            "Keep the terminal window open",
+        ):
+            self.assertIn(instruction, readme)
         self.assertLess(readme.index("install-windows.cmd"), readme.index("## Project Layout"))
+        self.assertLess(readme.index("study-runner-source.zip"), readme.index("## Project Layout"))
         self.assertRegex(readme, re.compile(r"xcode-select --install", re.IGNORECASE))
+
+        german = text("docs/start-here.de.md")
+        for instruction in (
+            "study-runner-source.zip",
+            "study-runner-source.tar.gz",
+            "Desktop-Verknuepfung erstellen",
+            "Study Runner.command",
+            "Ctrl+C",
+        ):
+            self.assertIn(instruction, german)
 
     def test_macos_intel_keeps_local_tensorflow_out_of_the_base_install(self) -> None:
         marker = 'sys_platform != "darwin" or platform_machine != "x86_64"'

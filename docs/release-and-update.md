@@ -32,13 +32,16 @@ provenance are excluded.
 
 ## First Install
 
-Using `git clone` is recommended because later updates are then simple and keep
-ignored local study data in place. The equivalent source archives are available
-from:
+Non-developers can download the source archives from:
 
 ```text
 https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
 ```
+
+Move the extracted folder to a permanent location under Documents before the
+first start. A Git clone remains the better choice for operators who want
+in-place `git pull` updates while keeping ignored local study data in the same
+folder.
 
 Windows PowerShell from a cloned or extracted checkout:
 
@@ -53,6 +56,12 @@ macOS after installing the Xcode Command Line Tools and Homebrew:
 bash tools/install-macos.sh --install-system-dependencies
 bash tools/start-macos.sh
 ```
+
+After the first macOS start, **Settings > System > Create desktop shortcut**
+creates `Study Runner.command` on the Desktop for later double-click starts on
+both Intel and Apple Silicon. The shortcut points to the current extracted
+folder and must be recreated after moving that folder or installing a newly
+downloaded release.
 
 The platform installer creates `.venv`, installs
 `software/requirements.txt`, builds the XDF core from the pinned vendored

@@ -332,6 +332,7 @@ class SourceReleaseTests(unittest.TestCase):
         self.assertIn("tools\\start-windows.cmd -SelfCheck", workflow)
         self.assertIn("tools/install-macos.sh", workflow)
         self.assertIn("tools/start-macos.sh --self-check", workflow)
+        self.assertIn("tests.test_shortcut_service", workflow)
         self.assertIn("macos-15-intel", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertEqual(workflow.count("contents: write"), 1)

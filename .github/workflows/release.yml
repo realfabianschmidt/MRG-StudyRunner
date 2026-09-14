@@ -228,6 +228,13 @@ jobs:
           STUDY_RUNNER_DISABLE_BACKGROUND: "1"
         run: bash tools/start-macos.sh --self-check
 
+      - name: Verify the macOS desktop-shortcut contract
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd "${{ steps.source-root.outputs.path }}/software"
+          "../${{ matrix.venv_python }}" -m unittest -v tests.test_shortcut_service
+
   publish:
     name: Publish source release
     runs-on: ubuntu-24.04

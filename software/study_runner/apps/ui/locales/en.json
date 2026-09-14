@@ -989,7 +989,7 @@
   "readiness.confirmBody": "Measurements are saved locally either way, but the uploads listed above will fail. Start anyway?",
   "hub.sensorCheck": "Sensors & live status",
   "dashboard.idleNote": "Live values appear once a study is running.",
-  "shortcut.body": "Places a launcher on this computer's desktop that starts Study Runner and opens the admin page.",
+  "shortcut.body": "Places a launcher on this computer's desktop that starts Study Runner and opens the admin page. Keep the installation folder in place, and create the shortcut again after moving the folder or installing a newly downloaded release.",
   "shortcut.action": "Create shortcut",
   "audit.title": "Research-grade biosignal workflow",
   "audit.disclaimer": "Study Runner is a research tool. It is not a medical device and produces no diagnosis.",

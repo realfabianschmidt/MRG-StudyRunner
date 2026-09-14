@@ -741,7 +741,6 @@ function bindEvents() {
   $('btn-header-home')?.addEventListener('click', () => switchView(headerBackTarget));
   $('btn-create-shortcut')?.addEventListener('click', () => void createDesktopShortcut('btn-create-shortcut', 'shortcut-result'));
   $('btn-admin-edit-view').addEventListener('click', () => switchView('view-hub'));
-  $('btn-create-shortcut')?.addEventListener('click', () => createDesktopShortcut());
 
   $('cfg-id').addEventListener('input', () => { markUnsaved(); updateHubTitle(); });
 
