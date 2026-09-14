@@ -6,9 +6,9 @@ The active study is stored in
 `software/study_content/settings/study_config.json`. Saved presets live in
 `software/study_content/studies/` as `.study-runner` files.
 
-Plugin choices use this manifest-driven schema (unchanged since it was
-introduced in API v3; see `plugin-recording-architecture.md` for the current
-API v5 manifest/process contract):
+Plugin choices use this manifest-driven schema. The manifest and process
+contract behind it is
+[API v5](plugin-recording-architecture.md#manifest-api-v5):
 
 ```json
 {
@@ -61,46 +61,36 @@ published result view. `manifest.json` and `checksums.sha256` record provenance
 and artifact integrity. `finalization-state.json` plus the JSONL log make every
 step and retry replayable after a process restart.
 
-## LSL Acquisition
+## How The Recording Is Produced
 
-LSL is the common acquisition boundary for recorded sensor and marker streams:
+You do not have to configure any of this; it follows from the plugins the
+study selects. The short version, in the order it happens:
 
-- Network-native LAN/WLAN sources publish LSL directly.
-- BLE, serial, local hardware, browser, and adapter sources are republished by a
-  host-side LSL bridge.
-- BLE itself is not an LSL transport.
-- Browser samples require HTTPS, heartbeat, sequence number, and source time.
+- **Acquisition.** Every recorded sensor and marker stream reaches the app as
+  an LSL stream. Network-native sources publish LSL themselves; BLE, serial,
+  local hardware and browser sources are republished by a host-side bridge.
+  BLE itself is not an LSL transport. Browser samples need HTTPS.
+- **Native raw XDF.** Each active plugin gets its own segments at its own
+  rate, with raw timestamps kept as recorded. A worker restart opens a new
+  segment rather than appending to a possibly damaged one.
+- **Slowest-grid backup.** A second, reduced recording samples every plugin on
+  one shared grid, chosen at session start as the lowest backup rate any
+  active sensor declares. Missing values are never carried forward: they are
+  `NaN` with a companion status of `missing`, `valid`, `stale` or `degraded`.
+  It is a recovery and QC artifact, not a substitute for the raw data.
+- **Merge.** `derived/session.xdf` combines the sources with no resampling, no
+  clock synchronization and no dejittering, then is validated against every
+  source -- metadata, sample counts, the full timestamp sequence, clock
+  offsets and a normalized data hash. A mismatch fails finalization; it never
+  becomes a quietly completed session.
 
-Each plugin manifest declares stable stream/source IDs, channel names, units,
-format, nominal rate, and clock domain. Marker and clock-diagnostic streams are
-hidden recording providers and appear exactly once in the merged session.
+Each plugin manifest declares its stable stream and source IDs, channel names,
+units, format, nominal rate and clock domain. Marker and clock-diagnostic
+streams are hidden recording providers and appear exactly once in the merged
+session.
 
-## Native Raw XDF
-
-Each active recording plugin receives its own append-never XDF segments. The
-detached Python worker owns LSL inlets and sends validated batches to the small
-native XDF core. Flask never encodes XDF bytes.
-
-A worker restart creates `part-0002.xdf`; it never appends to a potentially
-damaged `part-0001.xdf`. Boundaries and durable flushes limit crash loss. Source
-headers, raw timestamps, native rates, samples, and clock offsets are retained.
-
-The final `derived/session.xdf` combines all source segments without resampling,
-clock synchronization, or dejittering. Validation compares metadata, sample
-counts, raw timestamps, clock offsets, and normalized data hashes against every
-source. A parity failure cannot become a normal completed session.
-
-## Slowest-Grid Backup
-
-At session start, the worker selects the smallest positive backup rate declared
-by the active sensor plugins. It samples its last-received cache at that shared
-deadline and writes a separate `derived_backup` XDF.
-
-Missing and stale values are not forward-filled. Value channels receive `NaN`;
-companion channels report validity, sample age, sequence, and a status of
-`missing`, `valid`, `stale`, or `degraded`. The backup is useful for recovery and
-quality control, but its reduced rate means it is not equivalent to native raw
-data.
+The exact file names, manifest fields and validation rules are in
+[plugin-recording-architecture.md](plugin-recording-architecture.md#raw-and-backup-recording).
 
 ## Card Summaries
 
@@ -169,20 +159,25 @@ Raw plugin XDFs can be purged locally only when:
 
 Backup XDF, merged XDF, JSON, checksums, and manifests remain local. Without
 Nextcloud or during an attention/degraded completion, raw sources remain local.
+The nine finalization steps and their replay behaviour are in
+[plugin-recording-architecture.md](plugin-recording-architecture.md#persistent-finalization).
 
-## Failure Meaning
+## When Something Goes Wrong
 
-- A missing required plugin blocks participant release.
-- A runtime disconnect creates visible reconnect/gap/drop metadata and an admin
-  warning but does not stop the participant timer.
-- Lost tablet or Flask control starts a 15-minute worker lease. Recording
-  continues, then closes with `attention_required` if control does not return.
-- Flask restart replays journals and reattaches to the worker.
-- Worker/machine crashes preserve readable fragments and use new segments.
-- Missing/corrupt required sources, merge mismatch, or summary failure never
-  becomes silent `completed`.
-- The admin may retry or acknowledge documented loss. Acknowledgement creates
-  `completed_degraded` with a persistent quality warning.
+What each failure costs you, from the study's point of view:
+
+| Situation | Consequence |
+|---|---|
+| A required plugin is missing | The participant cannot be released; the run does not start. |
+| A sensor disconnects mid-run | The participant timer keeps going. The gap is recorded as visible metadata and the admin page warns. |
+| The tablet or server connection is lost | Recording continues on a 15-minute worker lease, then closes as `attention_required` if control does not return. |
+| The server restarts | Journals are replayed and the worker is reattached. |
+| The worker or machine crashes | Readable fragments are preserved and recording resumes in new segments. |
+| A required source is missing or corrupt, or the merge does not match | Finalization fails. It never becomes a silent `completed`. |
+| The admin acknowledges a documented loss | The session becomes `completed_degraded` and keeps a permanent quality warning. |
+
+[how-recording-quality-works.md](how-recording-quality-works.md) explains what
+these states mean and how the numbers behind them are measured.
 
 ## Sensor Source Versus Runtime
 

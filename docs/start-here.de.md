@@ -48,8 +48,6 @@ https://localhost:3000/admin
 
 Diese Ordner sind generiert oder lokal:
 
-- `software/build/`
-- `software/dist/`
 - `software/.build/`
 - `software/saved_results/`
 
@@ -312,29 +310,13 @@ nie still als Erfolg behandelt.
 
 ## Neues Update veroeffentlichen
 
-Kurzantwort: Nein, ein normaler Push auf GitHub reicht nicht fuer ein Update.
+Das ist nicht Teil der normalen Bedienung. Ein Push auf `main` erzeugt noch
+kein Update; ein oeffentlicher Release entsteht erst durch einen Release-Tag,
+und der wird mit `.\release.ps1 patch` aus dem Hauptordner gesetzt.
 
-Ein Push auf `main` aktualisiert nur den Code im Repository. Ein oeffentlicher
-Source-Release entsteht erst, wenn ein Release-Tag wie `app-v0.4.1` gepusht
-wird. GitHub Actions baut daraus ZIP und tar.gz, Metadaten und SHA-256-Summen.
-
-Der einfache Weg ist dieses Skript aus dem Hauptordner:
-
-```powershell
-.\release.ps1 patch
-```
-
-Das Skript:
-
-1. erhoeht die Versionsnummer,
-2. fuehrt schnelle lokale Checks aus,
-3. committet die Versionsaenderung auf `main`,
-4. pusht `main`,
-5. pusht einen Tag wie `app-v0.2.5`.
-
-Erst dieser Tag startet GitHub Actions. Veroeffentlicht wird nur, wenn die echte
-Installation und die nativen XDF-Smoke-Tests auf Windows x64, Mac Intel und Mac
-Apple Silicon erfolgreich sind.
+Die vollstaendige Beschreibung -- Release-Dateien, Abnahme-Gates und was auf
+Windows und macOS gruen sein muss -- steht in
+[release-and-update.md](release-and-update.md).
 
 ## Update am Nutzer-Rechner
 
@@ -383,9 +365,17 @@ Recording-Release.
 
 ## Weitere Doku
 
-- `docs/operator-guide.md`: taegliche Bedienung im Labor.
-- `docs/sensors-and-data.md`: Sensorik, Rohdaten, XDF/LSL und Grenzen.
-- `docs/plugin-recording-architecture.md`: kompletter Plugin-, Worker-,
+Alles Weitere ist auf Englisch:
+
+- `operator-guide.md`: taegliche Bedienung im Labor.
+- `how-recording-quality-works.md`: was Luecken, Jitter und die
+  Sitzungs-Zustaende bedeuten. Ohne Code geschrieben.
+- `sensors-and-data.md`: was du einstellst und welche Dateien herauskommen.
+- `release-and-update.md`: Source-Updates, Release-Dateien und Abnahme-Gates.
+- `plugin-recording-architecture.md`: kompletter Plugin-, Worker-,
   Finalisierungs- und Recovery-Bauplan.
-- `docs/release-and-update.md`: Source-Updates, Release-Dateien und Abnahme-Gates.
-- `docs/developer-guide.md`: Struktur und Regeln fuer Code-Aenderungen.
+- `developer-guide.md`: Struktur und Regeln fuer Code-Aenderungen.
+- `file-guide.md`: eine Zeile pro Quelldatei.
+
+Eine Uebersicht, wer welches Dokument liest, steht in der
+[README](../README.md#documentation).

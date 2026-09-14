@@ -168,16 +168,15 @@ python release_tools/build_source_release.py --verify-output release-assets
 
 ## Legacy Packaging Code
 
-Some PyInstaller, signing, and packaged-updater helpers remain in
-`release_tools/` for historical reference or possible future non-recording
-experiments, along with the standalone Install & Repair Wizard,
-`tools/study_runner_manager.py` (a Tkinter GUI that downloads, verifies, and
-installs a packaged build). None of this is output by the active release
-workflow and must not be described as recording-ready. Reintroducing a
-packaged release requires a new explicit acceptance gate for the verified
-native core, all runtime libraries, data-directory preservation, and platform
-installation behavior -- plus, for the Manager specifically, an
-Ed25519 release-signing key and, on macOS, Apple signing and notarization
-credentials, none of which this project currently has. All are deliberately
-outside the current source-server release; the admin dashboard's Update panel
-(previous section) is the one supported update path today.
+`release_tools/` still contains PyInstaller, signing and packaged-updater
+helpers, and `tools/study_runner_manager.py` is a standalone Tkinter Install &
+Repair Wizard for packaged builds. **The active release workflow produces none
+of it, and none of it is recording-ready.** Do not describe it as a shipping
+path.
+
+Reviving a packaged release would need a fresh acceptance gate covering the
+verified native core, all runtime libraries, data-directory preservation and
+platform installation -- plus an Ed25519 release-signing key and, for the
+Manager on macOS, Apple signing and notarization credentials. This project
+holds none of those. The admin dashboard's Update panel, described above, is
+the one supported update path today.
