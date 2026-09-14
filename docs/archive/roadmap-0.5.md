@@ -340,8 +340,8 @@ Tests: `tests/test_sessions_routes.py` with a fixture `saved_results` tree; down
 >   (1472) and `backend/services/finalization_service.py` (1411).
 >
 > **One trap worth keeping:** the study id is normalised by stripping everything
-> outside `[alnum] _-`, so `Autonomous Materials User Study #1` is stored and
-> listed as `Autonomous Materials User Study 1`. That normalised id is also the
+> outside `[alnum] _-`, so `Example Study #1` is stored and
+> listed as `Example Study 1`. That normalised id is also the
 > per-study credential key, so it cannot be relaxed without stranding secrets on
 > rename - but it does mean the hub can show a different name than the file.
 
