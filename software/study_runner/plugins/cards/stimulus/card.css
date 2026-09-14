@@ -1,0 +1,162 @@
+/* Styles owned by the stimulus card. */
+
+/* ============================================================
+   STIMULUS CARD - body centering and countdown elements
+   ============================================================ */
+/* .stimulus-body centers everything inside the card tile so the ring
+   and labels sit symmetrically regardless of card width. */
+.stimulus-body { text-align: center; }
+/* Override the full-screen margin-bottom (32px) to fit inside a card */
+.stimulus-body .screen-sub { margin-bottom: var(--s-4); }
+/* display:block makes margin:auto work inside a flex container */
+.cd-ring  { width: 160px; height: 160px; margin: var(--s-2) auto var(--s-1); display: block; }
+.cd-num   { font-size: 3.5rem; font-weight: 300; color: var(--ink); letter-spacing: -.03em; }
+.cd-lbl   {
+  font-family: var(--font-heading); font-size: .688rem;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-30); margin: var(--s-1) 0 var(--s-4);
+}
+
+/* ============================================================
+   STIMULUS CARD - trigger type pills (admin editor)
+   ============================================================ */
+.trigger-type-pills { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-bottom: var(--s-1); }
+.trigger-pill {
+  padding: var(--s-1) var(--s-3); border-radius: var(--r-pill);
+  border: 1.5px solid var(--ink-14); background: var(--bg);
+  font-family: var(--font-body); font-size: .813rem; font-weight: 500;
+  color: var(--ink-70); cursor: pointer;
+  transition: all var(--t-fast) var(--fluid);
+}
+.trigger-pill:hover { border-color: var(--accent-30); background: var(--accent-06); color: var(--accent); }
+.trigger-pill.active { background: var(--ink); border-color: var(--ink); color: #fff; border-radius: var(--r-technical); }
+.se-trigger-content--code { font-family: var(--font-mono); font-size: .813rem; }
+
+/* ============================================================
+   STIMULUS CARD - inline content area (study page)
+   ============================================================ */
+.stimulus-content { margin: var(--s-4) 0 var(--s-2); border-radius: var(--r-md); overflow: hidden; }
+.stimulus-image {
+  display: block; max-width: 100%; max-height: 240px;
+  object-fit: contain; border-radius: var(--r-md); margin: 0 auto;
+}
+.stimulus-video {
+  display: block; width: 100%; max-height: 240px;
+  object-fit: cover; border-radius: var(--r-md);
+}
+
+/* ============================================================
+   STIMULUS CARD - warm-up phase and active phase overrides
+   ============================================================ */
+.cd-ring-progress {
+  transition: stroke-dashoffset 1s linear;
+}
+
+.stimulus-body {
+  position: relative;
+  min-height: 440px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.stimulus-body--warmup {
+  align-items: stretch;
+}
+
+.stimulus-stage {
+  width: 100%;
+}
+
+.stimulus-stage[hidden] {
+  display: none;
+}
+
+.stimulus-copy-wrap {
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-4);
+}
+
+.stimulus-hero-title {
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1.05;
+  letter-spacing: -.04em;
+  color: var(--ink);
+}
+
+.stimulus-hero-sub {
+  max-width: 36ch;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--ink-70);
+}
+
+.stimulus-mini-timer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  background: var(--bg-sunken);
+  border: 1px solid var(--ink-08);
+  border-radius: var(--r-lg);
+}
+
+.stimulus-mini-label {
+  font-family: var(--font-heading);
+  font-size: .625rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-30);
+}
+
+.stimulus-mini-value {
+  font-family: var(--font-mono);
+  font-size: .938rem;
+  color: var(--ink);
+}
+
+.stimulus-active-copy {
+  margin-bottom: var(--s-2);
+}
+
+.stimulus-body--active .stimulus-active-copy .screen-sub {
+  margin-bottom: var(--s-5);
+}
+
+.stimulus-editor-note {
+  font-size: .813rem;
+  line-height: 1.5;
+  color: var(--ink-30);
+  margin-top: var(--s-4);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--ink-08);
+}
+
+
+@media (max-width: 700px) {
+  .study-fullscreen-ui {
+    top: 12px;
+    right: 12px;
+  }
+
+  .stimulus-body {
+    min-height: 380px;
+  }
+
+  .stimulus-copy-wrap {
+    min-height: 280px;
+  }
+
+  .stimulus-mini-timer {
+    right: 8px;
+    bottom: 8px;
+  }
+}

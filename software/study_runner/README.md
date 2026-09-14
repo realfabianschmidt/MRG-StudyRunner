@@ -7,16 +7,28 @@ matches what you are looking for.
 |---|---|
 | [`apps/server/`](apps/server/) | Flask app factory, HTTP routes, and server runtime. |
 | [`apps/ui/`](apps/ui/) | Browser pages, ES modules, styles, locales, and fonts. No build step. |
+| [`contracts/`](contracts/) | Pure data/validation shapes shared across areas — the plugin manifest contract, session lifecycle, quality journal. No Flask, no filesystem I/O. |
 | [`data_core/`](data_core/) | Recording host, detached worker, and their pure wire contracts. |
 | [`runtime_core/`](runtime_core/) | Study, settings, finalization, and delivery orchestration. |
-| [`extensions/`](extensions/) | Built-in sensors, destinations, outputs, and future cards, discovered from manifests. |
+| [`plugins/`](plugins/) | Built-in sensors, cards, destinations, and outputs, discovered from manifests. |
 | [`plugin_framework/`](plugin_framework/) | The machinery that finds, validates and talks to those plugins. Nothing here is a plugin. |
 | [`shared/`](shared/) | Dependency-light utilities used across package boundaries. |
-| `updates/` | Verifying a signed release and applying it. |
+| [`updates/`](updates/) | Verifying a signed release and applying it. |
 
-Two loose files: `app_server.py` is the Flask app module used by browser and
-packaged mode, and also prepares the per-computer HTTPS certificate the tablet
-camera needs; `version.py` is the single source of the version number.
+Three files sit directly in this package:
+
+- `app_server.py` provides the stable `study_runner.app_server` import path used
+  by `software/server.py`, the desktop launcher, and server restarts. It delegates
+  to `apps/server/application.py`.
+- `self_check.py` implements the packaging smoke test (`server.py --self-check`).
+  It boots the app with disposable storage without starting the HTTP server or
+  using real hardware.
+- `version.py` is the single source of the version number.
+
+The import-graph checks in `software/tests/support/import_graph.py` assign an
+area to modules below `study_runner/<area>/`. Files directly in this package
+sit outside those area boundaries, allowing the self-check to exercise the
+whole application.
 
 ## Running it
 

@@ -1,6 +1,6 @@
 // Card registration and defaults come from the shared extension catalog.
 import { getJson } from '../shared/api-client.js';
-import { loadPluginCatalog, getPluginCatalog, getPluginCatalogGeneration, loadPluginUiExtension } from '../shared/plugin-catalog.js';
+import { loadPluginCatalog, getPluginCatalog, getPluginCatalogGeneration, loadPluginStyles, loadPluginUiExtension } from '../shared/plugin-catalog.js';
 
 export const CARDS = {};
 export const CARD_TYPES = [];
@@ -39,12 +39,26 @@ export function assertCardsAvailable(types) {
   if (missing.length) throw new Error(`Required cards could not be loaded: ${missing.join(', ')}. Please contact the study supervisor.`);
 }
 
-export async function loadCards({ types = null, requiredTypes = types || [], importer, fetchDefaults } = {}) {
+export async function loadCards({
+  types = null,
+  requiredTypes = types || [],
+  importer,
+  fetchDefaults,
+  stylesheetLoader,
+  styleDocument,
+  stylesheetTimeoutMs = 6000,
+} = {}) {
   await loadPluginCatalog();
   refreshDefinitions();
   const wanted = types === null ? [...definitions.keys()] : types;
   const plugins = new Map(wanted.map(type => [definitions.get(type)?.plugin.plugin_key, definitions.get(type)?.plugin]));
-  await Promise.allSettled([...plugins.values()].filter(Boolean).map(plugin => loadCard(plugin, { importer, fetchDefaults })));
+  await Promise.allSettled([...plugins.values()].filter(Boolean).map(plugin => loadCard(plugin, {
+    importer,
+    fetchDefaults,
+    stylesheetLoader,
+    styleDocument,
+    stylesheetTimeoutMs,
+  })));
   assertCardsAvailable(requiredTypes);
   return CARDS;
 }
@@ -58,6 +72,11 @@ async function loadCard(plugin, options) {
     const [module, response] = await Promise.all([
       loadPluginUiExtension(plugin, 'card', { importer: options.importer, timeoutMs: 6000 }),
       options.fetchDefaults ? options.fetchDefaults(plugin) : getJson(`/api/plugins/${encodeURIComponent(plugin.plugin_key)}/card-defaults`, { timeoutMs: 12000 }),
+      loadPluginStyles(plugin, {
+        loader: options.stylesheetLoader,
+        documentRef: options.styleDocument,
+        timeoutMs: options.stylesheetTimeoutMs,
+      }),
     ]);
     if (startedGeneration !== generation || startedGeneration !== getPluginCatalogGeneration()) return;
     for (const name of ['renderStudy', 'renderEditor', 'collectConfig', 'collectAnswer', 'configureCard']) {

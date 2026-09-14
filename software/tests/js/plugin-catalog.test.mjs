@@ -4,6 +4,7 @@ import {
   getPluginCatalog,
   getPluginUiExtension,
   isPluginVisible,
+  loadPluginStyles,
   loadPluginUiExtensions,
   PLUGIN_UI_SURFACES,
   pluginByKey,
@@ -105,3 +106,87 @@ await loadPluginUiExtensions('dashboard', {
   timeoutMs: 15,
 });
 assert.equal(slowImports, 1, 'failed optional extensions stay on fallback until catalog reload');
+
+const styledPlugin = {
+  plugin_key: 'styled_card',
+  status: 'valid',
+  ui: { assets: ['card.js', 'card.css'] },
+};
+configurePluginCatalog({ api_version: 5, plugins: [styledPlugin] });
+let stylesheetLoads = 0;
+let finishStylesheet;
+const stylesheetLoader = () => {
+  stylesheetLoads += 1;
+  return new Promise(resolve => { finishStylesheet = resolve; });
+};
+const firstStylesheetLoad = loadPluginStyles(styledPlugin, { loader: stylesheetLoader });
+const concurrentStylesheetLoad = loadPluginStyles(styledPlugin, { loader: stylesheetLoader });
+while (typeof finishStylesheet !== 'function') await new Promise(resolve => setImmediate(resolve));
+assert.equal(stylesheetLoads, 1, 'concurrent stylesheet requests share one load');
+finishStylesheet();
+await Promise.all([firstStylesheetLoad, concurrentStylesheetLoad]);
+
+configurePluginCatalog({ api_version: 5, plugins: [styledPlugin] });
+let retryLoads = 0;
+await assert.rejects(
+  loadPluginStyles(styledPlugin, {
+    loader: () => {
+      retryLoads += 1;
+      return new Promise(() => {});
+    },
+    timeoutMs: 10,
+  }),
+  /stylesheet timed out/,
+);
+await loadPluginStyles(styledPlugin, {
+  loader: async () => { retryLoads += 1; },
+  timeoutMs: 10,
+});
+assert.equal(retryLoads, 2, 'a failed stylesheet can be retried');
+
+configurePluginCatalog({ api_version: 5, plugins: [styledPlugin] });
+let finishStaleLoad;
+const staleLoad = loadPluginStyles(styledPlugin, {
+  loader: () => new Promise(resolve => { finishStaleLoad = resolve; }),
+});
+while (typeof finishStaleLoad !== 'function') await new Promise(resolve => setImmediate(resolve));
+configurePluginCatalog({ api_version: 5, plugins: [] });
+finishStaleLoad();
+await assert.rejects(staleLoad, /catalog changed/);
+
+const styleNodes = [];
+const styleDocument = {
+  createElement: () => ({
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+    getAttribute(name) { return this.attributes[name]; },
+    remove() {
+      const index = styleNodes.indexOf(this);
+      if (index >= 0) styleNodes.splice(index, 1);
+    },
+  }),
+  head: {
+    querySelectorAll: () => styleNodes,
+    insertBefore(node, successor) {
+      const index = successor ? styleNodes.indexOf(successor) : -1;
+      if (index >= 0) styleNodes.splice(index, 0, node);
+      else styleNodes.push(node);
+      queueMicrotask(() => node.onload());
+    },
+  },
+};
+const earlyStyle = { plugin_key: 'early', status: 'valid', ui: { order: 1, assets: ['card.css'] } };
+const lateStyle = { plugin_key: 'late', status: 'valid', ui: { order: 2, assets: ['card.css'] } };
+configurePluginCatalog({ api_version: 5, plugins: [lateStyle, earlyStyle] });
+await Promise.all([
+  loadPluginStyles(lateStyle, { documentRef: styleDocument }),
+  loadPluginStyles(earlyStyle, { documentRef: styleDocument }),
+]);
+assert.deepEqual(
+  styleNodes.map(node => node.href),
+  [
+    '/api/plugins/early/assets/card.css',
+    '/api/plugins/late/assets/card.css',
+  ],
+  'stylesheet order follows catalog order even when loads start out of order',
+);

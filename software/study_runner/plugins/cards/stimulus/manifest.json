@@ -44,7 +44,8 @@
       "card": "card.js"
     },
     "assets": [
-      "card.js"
+      "card.js",
+      "card.css"
     ]
   }
 }

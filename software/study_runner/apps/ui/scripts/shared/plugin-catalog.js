@@ -1,10 +1,12 @@
 import { getJson } from './api-client.js';
 
-let catalog = { api_version: 4, plugins: [], plugins_by_key: {}, invalid_plugins: [] };
+let catalog = { api_version: 5, plugins: [], plugins_by_key: {}, invalid_plugins: [] };
 let loading = null;
 let loaded = false;
 let extensionModules = new Map();
 let extensionLoads = new Map();
+let stylesheetLoads = new Map();
+let stylesheetElements = new Map();
 let catalogGeneration = 0;
 
 const EXTENSION_EXPORTS = Object.freeze({
@@ -31,6 +33,7 @@ export async function loadPluginCatalog({ force = false } = {}) {
 }
 
 export function configurePluginCatalog(payload) {
+  clearPluginStyles();
   const plugins = Array.isArray(payload?.plugins)
     ? payload.plugins.filter((plugin) => plugin?.status === 'valid' && plugin.plugin_key)
     : [];
@@ -39,7 +42,7 @@ export function configurePluginCatalog(payload) {
     return order || String(left.plugin_key).localeCompare(String(right.plugin_key));
   });
   catalog = {
-    api_version: Number(payload?.api_version || 4),
+    api_version: Number(payload?.api_version || 5),
     plugins,
     plugins_by_key: Object.fromEntries(plugins.map((plugin) => [plugin.plugin_key, plugin])),
     invalid_plugins: Array.isArray(payload?.invalid_plugins) ? payload.invalid_plugins : [],
@@ -48,6 +51,8 @@ export function configurePluginCatalog(payload) {
   catalogGeneration += 1;
   extensionModules = new Map();
   extensionLoads = new Map();
+  stylesheetLoads = new Map();
+  stylesheetElements = new Map();
   return catalog;
 }
 
@@ -129,6 +134,92 @@ export function pluginUiAssetUrl(pluginOrKey, assetPath) {
     .map((segment) => encodeURIComponent(segment))
     .join('/');
   return `/api/plugins/${encodeURIComponent(pluginKey || '')}/assets/${safePath}`;
+}
+
+/** Load manifest-declared CSS before a plugin UI is made available. */
+export async function loadPluginStyles(plugin, options = {}) {
+  const assets = (Array.isArray(plugin?.ui?.assets) ? plugin.ui.assets : [])
+    .filter((assetPath) => String(assetPath).toLowerCase().endsWith('.css'));
+  await Promise.all(assets.map((assetPath, assetIndex) => (
+    loadOnePluginStylesheet(plugin, assetPath, assetIndex, options)
+  )));
+}
+
+function loadOnePluginStylesheet(plugin, assetPath, assetIndex, options) {
+  const url = pluginUiAssetUrl(plugin, assetPath);
+  const cacheKey = `${plugin.plugin_key}:${assetPath}`;
+  if (stylesheetLoads.has(cacheKey)) return stylesheetLoads.get(cacheKey);
+  const generation = catalogGeneration;
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs))
+    ? Math.max(1, Number(options.timeoutMs))
+    : 6000;
+  const loader = typeof options.loader === 'function'
+    ? () => options.loader(url, plugin)
+    : () => insertStylesheetLink(
+      plugin,
+      url,
+      assetIndex,
+      cacheKey,
+      options.documentRef || globalThis.document,
+    );
+
+  const promise = withTimeout(
+    Promise.resolve().then(loader),
+    timeoutMs,
+    `${plugin.plugin_key}: stylesheet timed out: ${assetPath}`,
+  ).then(() => {
+    if (generation !== catalogGeneration) {
+      throw new Error(`${plugin.plugin_key}: catalog changed while loading stylesheet`);
+    }
+    return url;
+  }).catch((error) => {
+    stylesheetLoads.delete(cacheKey);
+    const element = stylesheetElements.get(cacheKey);
+    element?.remove?.();
+    stylesheetElements.delete(cacheKey);
+    throw error;
+  });
+  stylesheetLoads.set(cacheKey, promise);
+  return promise;
+}
+
+function insertStylesheetLink(plugin, url, assetIndex, cacheKey, documentRef) {
+  if (!documentRef?.createElement || !documentRef?.head) {
+    return Promise.reject(new Error(`${plugin.plugin_key}: document is unavailable for stylesheet loading`));
+  }
+  const pluginIndex = Math.max(0, catalog.plugins.findIndex((item) => item.plugin_key === plugin.plugin_key));
+  const orderKey = `${String(pluginIndex).padStart(6, '0')}:${String(assetIndex).padStart(6, '0')}`;
+  const link = documentRef.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = url;
+  link.setAttribute('data-study-runner-plugin-style', orderKey);
+  stylesheetElements.set(cacheKey, link);
+
+  const loaded = new Promise((resolve, reject) => {
+    link.onload = () => resolve(url);
+    link.onerror = () => reject(new Error(`${plugin.plugin_key}: stylesheet failed to load: ${url}`));
+  });
+
+  const existing = Array.from(documentRef.head.querySelectorAll?.('link[data-study-runner-plugin-style]') || []);
+  const successor = existing.find((item) => (
+    String(item.getAttribute('data-study-runner-plugin-style') || '') > orderKey
+  ));
+  documentRef.head.insertBefore(link, successor || null);
+  return loaded;
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => { globalThis.clearTimeout(timeoutId); resolve(value); },
+      (error) => { globalThis.clearTimeout(timeoutId); reject(error); },
+    );
+  });
+}
+
+function clearPluginStyles() {
+  for (const element of stylesheetElements.values()) element?.remove?.();
 }
 
 async function loadOnePluginUiExtension(plugin, surface, options = {}) {

@@ -20,6 +20,7 @@ from ..studies.study_plugin_config import (
     normalize_card_plugin_actions,
     normalize_study_settings_plugins,
 )
+from .migrate import migrated_info_top
 # STUDY_SENSOR_KEYS remains imported as a compatibility/patch seam for fixture
 # tests and external validators. Unknown legacy keys are migrated instead of
 # being rejected against this tuple.
@@ -684,9 +685,7 @@ def _validate_question(question_data: Any, question_index: int) -> dict[str, Any
 
     # Optional per-question info text, shared by every card type. Only kept when set.
     info_top = normalize_text(question_data.get("info_top"))
-    if not info_top and normalized.get("type") == "participant-id":
-        # Migrate legacy participant-id privacy hint into the shared top callout.
-        info_top = normalize_text(question_data.get("code_hint"))
+    info_top = normalize_text(migrated_info_top(question_data, info_top))
     info_bottom = normalize_text(question_data.get("info_bottom"))
     if info_top:
         normalized["info_top"] = info_top

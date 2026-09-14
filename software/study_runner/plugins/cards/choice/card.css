@@ -1,0 +1,19 @@
+/* Styles owned by the choice card. */
+
+/* Chips (multiple choice) */
+.chips { display: flex; flex-wrap: wrap; gap: var(--s-2); justify-content: center; }
+.chips input { display: none; }
+.chips label {
+  padding: var(--s-2) var(--s-4); border-radius: var(--r-pill);
+  border: 1.5px solid var(--ink-14);
+  font-size: .875rem; color: var(--ink-70); cursor: pointer;
+  transition: all var(--t-fast) var(--fluid); user-select: none;
+}
+.chips label:hover {
+  border-color: var(--accent-30); background: var(--accent-06);
+  color: var(--accent); border-radius: var(--r-technical);
+}
+.chips input:checked + label {
+  background: var(--ink); border-color: var(--ink); color: #fff;
+  border-radius: var(--r-technical);
+}

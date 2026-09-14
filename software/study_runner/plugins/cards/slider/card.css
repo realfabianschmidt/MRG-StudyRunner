@@ -1,0 +1,8 @@
+/* Styles owned by the slider card. */
+
+/* VAS slider */
+.vas-wrap    { display: flex; flex-direction: column; gap: var(--s-3); }
+.vas-track   { display: flex; align-items: center; gap: var(--s-3); }
+.vas-pole    { font-size: .813rem; color: var(--ink-70); flex: 0 0 76px; }
+.vas-pole:last-child { text-align: right; }
+.vas-val     { font-family: var(--font-mono); font-size: .75rem; color: var(--accent); text-align: center; letter-spacing: .06em; }

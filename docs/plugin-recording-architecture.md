@@ -89,7 +89,7 @@ environment.
 
 ## Trusted Plugin Layout
 
-Only code shipped in `software/study_runner/extensions/` is discovered. There
+Only code shipped in `software/study_runner/plugins/` is discovered. There
 is no browser upload, dependency installer, marketplace, or third-party plugin
 execution path.
 
@@ -121,9 +121,7 @@ that response and must not maintain sensor-key lists.
 Every built-in manifest provides:
 
 - `api_version: 5`
-- stable `plugin_key`, semantic `version`, `category`, and `entry_point`
-  (the `entry_point` field is vestigial for `api_version: 4+`; a plugin's
-  real process entry point is `runtime.entrypoint`, see below)
+- stable `plugin_key`, semantic `version`, and `category`
 - a `runtime` block: `entrypoint` (always `driver.py`), `protocol`
   (`study-runner-stdio/v1`), `interactive_stdin`, and its supported `modes`
 - `ui` metadata, including label, description, order, and visibility
@@ -141,11 +139,8 @@ terminal output surfaced through the admin diagnostics console. Inside that
 subprocess, `driver.py` calls `run_plugin_driver(plugin_key)`
 (`plugin_framework/driver_runtime.py`), which imports the plugin's own
 `plugin.py` and dispatches to it — so `plugin.py` is real, running business
-logic, just relocated into the child process rather than the host. The
-in-process import compatibility path (`_import_plugin`, for a v3 manifest that
-imported `entry_point` directly into the host process) was removed in Phase
-3.1 once every shipped manifest reached `api_version: 4`
-(docs/architecture-1.0-umbau.md). Only `api_version: 5` validates today
+logic, just relocated into the child process rather than the host. Only
+`runtime.entrypoint` selects executable code. Only `api_version: 5` validates today
 (`SUPPORTED_PLUGIN_API_VERSIONS`, `contracts/manifest.py`); an older manifest
 is rejected at discovery, not silently downgraded.
 

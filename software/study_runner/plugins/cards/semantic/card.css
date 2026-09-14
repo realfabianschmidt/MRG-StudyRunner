@@ -1,0 +1,15 @@
+/* Styles owned by the semantic card. */
+
+/* Semantic differential */
+.sem-pair  { display: flex; align-items: center; gap: var(--s-3); margin-bottom: var(--s-3); }
+.sem-pole  { font-size: .875rem; font-weight: 500; color: var(--ink-70); flex: 0 0 90px; white-space: nowrap; }
+.sem-pole:last-child { text-align: right; }
+.sem-track { flex: 1; display: flex; gap: var(--s-1); }
+.sem-track input { display: none; }
+.sem-track label {
+  flex: 1; height: var(--control-md); border-radius: var(--r-pill);
+  border: 1.5px solid var(--ink-14); cursor: pointer;
+  transition: all var(--t-fast) var(--fluid);
+}
+.sem-track label:hover { background: var(--accent-06); border-color: var(--accent-30); }
+.sem-track input:checked + label { background: var(--ink); border-color: var(--ink); border-radius: var(--r-technical); }

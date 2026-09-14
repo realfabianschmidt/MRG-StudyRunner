@@ -4,7 +4,6 @@
   "version": "1.0.0",
   "category": "sync",
   "config_key": "clock_diagnostics",
-  "entry_point": "data_core.host.clock_diagnostics:BUILT_IN",
   "runtime": {
     "entrypoint": "driver.py",
     "protocol": "study-runner-stdio/v1"

@@ -33,8 +33,6 @@ export function renderCardInstruction(q) {
   return `<p class="card-instruction">${escapeHtml(text)}</p>`;
 }
 
-export const renderInfoTop = renderCardInstruction;
-
 export function renderInfoBottom(q) {
   const text = String(q?.info_bottom ?? '').trim();
   if (!text) return '';

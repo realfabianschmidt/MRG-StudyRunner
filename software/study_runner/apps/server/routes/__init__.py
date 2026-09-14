@@ -6,7 +6,6 @@
 - admin.py    operator endpoints: health, studies, status, restart
 - sensors.py  hardware config, sensor runtime actions, camera, worker
 - update.py   in-app updater
-- notion.py   one-release deprecated aliases for old Notion clients
 - plugins.py  the manifest-driven plugin catalog, UI assets, and generic
               admin/participant action dispatch (a plugin's own "test
               connection" or "select device" runs through here, never a
@@ -27,7 +26,7 @@ from flask import Flask, jsonify
 from study_runner.runtime_core.studies.trial_service import configure_runtime
 from study_runner.runtime_core.studies.validation import ValidationError
 from study_runner.runtime_core.studies.card_extension_bridge import CardExtensionUnavailableError
-from . import admin, branding, certificate, finalization, notion, pages, plugins, recovery, results, sensors, sessions, study, update, uploads
+from . import admin, branding, certificate, finalization, pages, plugins, recovery, results, sensors, sessions, study, update, uploads
 
 
 def register_routes(app: Flask) -> None:
@@ -45,7 +44,6 @@ def register_routes(app: Flask) -> None:
     app.register_blueprint(admin.bp)
     app.register_blueprint(sensors.bp)
     app.register_blueprint(update.bp)
-    app.register_blueprint(notion.bp)
     app.register_blueprint(sessions.bp)
     app.register_blueprint(certificate.bp)
     app.register_blueprint(branding.bp)

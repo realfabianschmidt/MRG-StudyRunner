@@ -1,0 +1,29 @@
+/* Styles owned by the likert card. */
+
+/* Likert */
+.likert-scale-row {
+  display: flex; align-items: center; gap: var(--s-3); justify-content: center; flex-wrap: wrap;
+  margin-bottom: var(--s-2);
+}
+.likert-pole {
+  font-size: .813rem; color: var(--ink-70); flex: 0 0 72px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.likert-pole--right { text-align: right; }
+.likert-row { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; justify-content: center; }
+.likert-row input { display: none; }
+.likert-row label {
+  width: var(--control-lg); height: var(--control-lg); border-radius: 50%;
+  border: 1.5px solid var(--ink-14);
+  display: flex; align-items: center; justify-content: center;
+  font-size: .875rem; font-weight: 500; color: var(--ink-70); cursor: pointer;
+  transition: all var(--t-fast) var(--fluid); flex-shrink: 0;
+}
+.likert-row label:hover {
+  border-color: var(--accent-30); background: var(--accent-06);
+  color: var(--accent); border-radius: var(--r-technical); transform: scale(1.08);
+}
+.likert-row input:checked + label {
+  background: var(--ink); border-color: var(--ink); color: #fff;
+  border-radius: var(--r-technical); transform: scale(1.1);
+}

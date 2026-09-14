@@ -1,0 +1,151 @@
+/* Styles owned by the participant id card. */
+
+/* ============================================================
+   PARTICIPANT-ID CARD
+   ============================================================ */
+.pid-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  margin-top: var(--s-3);
+}
+
+.pid-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.pid-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin-bottom: var(--s-2);
+}
+
+.pid-label {
+  font-size: .8125rem;
+  font-weight: 600;
+  color: var(--ink-70);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.pid-field {
+  margin-bottom: 0 !important;
+}
+
+.pid-code-box {
+  padding: var(--s-3) var(--s-6) 0;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.pid-code-label {
+  font-size: .75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--ink-70);
+}
+
+.pid-code-display {
+  font-family: var(--font-mono);
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: .18em;
+  color: var(--accent);
+}
+
+.pid-field-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--ink-08);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.pid-field-row-ed {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: var(--s-12);
+  padding: var(--s-2) var(--s-3);
+  border-top: 1px solid var(--ink-08);
+}
+.pid-field-row-ed:first-child {
+  border-top: 0;
+}
+
+.pid-field-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink);
+  font-size: .8125rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.pid-field-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-shrink: 0;
+}
+
+.pid-gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  border: 1px solid var(--ink-14);
+  border-radius: var(--r-sm);
+  background: var(--bg-sunken);
+  color: var(--ink-70);
+  cursor: pointer;
+  transition: all var(--t-fast) var(--fluid);
+}
+.pid-gear:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pid-gear[hidden] {
+  display: none;
+}
+
+/* Options editor inside the per-field modal */
+.pid-options-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.pid-option-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.pid-option-row .pid-option-input {
+  flex: 1;
+}
+.pid-option-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  flex-shrink: 0;
+  border: 1px solid var(--ink-14);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-55);
+  cursor: pointer;
+  transition: all var(--t-fast) var(--fluid);
+}
+.pid-option-remove:hover {
+  border-color: var(--neg);
+  color: var(--neg);
+}

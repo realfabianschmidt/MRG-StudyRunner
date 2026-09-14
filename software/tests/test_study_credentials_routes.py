@@ -94,12 +94,14 @@ class StudyCredentialRouteTests(unittest.TestCase):
                 json={"notion": "top-secret-key", "nextcloud": "top-secret-pw"},
             )
 
-            bodies = [
-                client.get("/api/admin/studies/Study A/credentials").get_data(as_text=True),
-                client.get("/api/hardware-config").get_data(as_text=True),
-                client.get("/api/notion/status").get_data(as_text=True),
-                client.get("/api/config").get_data(as_text=True),
+            responses = [
+                client.get("/api/admin/studies/Study A/credentials"),
+                client.get("/api/hardware-config"),
+                client.get("/api/admin/status"),
+                client.get("/api/config"),
             ]
+            self.assertTrue(all(response.status_code == 200 for response in responses))
+            bodies = [response.get_data(as_text=True) for response in responses]
 
         for body in bodies:
             self.assertNotIn("top-secret-key", body)

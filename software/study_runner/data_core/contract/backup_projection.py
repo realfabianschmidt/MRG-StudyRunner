@@ -23,11 +23,6 @@ STATUS_MISSING = 0.0
 STATUS_VALID = 1.0
 STATUS_STALE = 2.0
 STATUS_DEGRADED = 3.0
-# Compatibility aliases for plans created during the v2 prototype.
-STATUS_OK = STATUS_VALID
-STATUS_SOURCE_DEGRADED = STATUS_DEGRADED
-
-
 @dataclass(frozen=True)
 class BackupChannel:
     """One manifest-declared source channel projected to a backup output."""

@@ -1,0 +1,33 @@
+/* Styles owned by the ranking card. */
+
+/* Ranking */
+.rank-list { display: flex; flex-direction: column; gap: var(--s-2); touch-action: none; }
+.rank-item {
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: var(--s-3) var(--s-4); background: var(--bg-sunken);
+  border: 1px solid var(--ink-08); border-radius: var(--r-lg);
+  transition: opacity var(--t-fast) ease, border-color var(--t-fast) ease,
+              background var(--t-fast) ease;
+  user-select: none;
+}
+.rank-item:hover { border-color: var(--ink-14); background: var(--bg-elevated); }
+.rank-num    { font-family: var(--font-mono); font-size: .75rem; color: var(--ink-30); letter-spacing: .06em; flex: 0 0 20px; }
+.rank-text   { flex: 1; font-size: .938rem; color: var(--ink); }
+.rank-handle {
+  display: flex; align-items: center; justify-content: center;
+  width: var(--s-6); color: var(--ink-30); cursor: grab; font-size: 16px;
+  transition: color var(--t-fast) ease;
+  flex-shrink: 0;
+}
+.rank-handle:hover { color: var(--ink-70); }
+.rank-handle:active { cursor: grabbing; }
+.rank-item--dragging { opacity: 0; pointer-events: none; }
+.rank-item--ghost {
+  border-radius: var(--r-lg);
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent-30);
+  box-shadow: 0 8px 32px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.10);
+  transform: rotate(1.2deg) scale(1.02);
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+}

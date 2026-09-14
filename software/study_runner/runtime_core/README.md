@@ -10,37 +10,22 @@ here knows about Flask requests.
 | `delivery/` | Getting a finished session out of the building: finalization, upload queues, Nextcloud, and the HTTPS certificate an operator moves to a tablet. |
 | `settings/` | How this machine is configured and what it reports about itself: hardware and plugin settings, secrets, branding, updates, TLS, shortcuts. |
 
-Getting signal off the hardware and into a file -- the worker's lifecycle, the
-sensor poll loop, clock sync, and whether a recording is good enough to keep --
-is `data_core/host/`, not here (moved out in Phase 4,
-docs/architecture-1.0-umbau.md; it used to be `backend/services/recording/`).
+The worker lifecycle, sensor polling, clock synchronization, and recording
+quality checks live in `data_core/host/`.
 
-Utilities that no area owns live in `study_runner/shared/`. They may not import
-from any area — that is what keeps `data_core/` importable without
-constructing the Flask app.
+## Responsibility boundaries
 
-## Where does a new service go?
+Services are grouped by their purpose: delivery services publish results,
+study services manage studies and sessions, and settings services manage the
+machine. Utilities used across areas live in `study_runner/shared/` and have
+no imports from those areas.
 
-Ask what it is *for*, not what it talks to. A service that uploads to a new
-destination is `delivery/` even though it reads settings; a service that
-decides whether a recording is ready to keep is `data_core/host/` even though
-it produces results.
-
-If it genuinely fits two, it usually wants splitting. If it fits none and is
-used by several areas — not just several service groups — it belongs in
-`study_runner/shared/`, and only if it depends on no area at all.
-
-## Three rules worth keeping
-
-- **A service may not be imported by `data_core/`.** `atomic_io` used to live
-  here, so reading a session meant importing the whole Flask app — a real
-  import cycle, and the reason the native-core CI job could not load its own
-  test module. Cross-area helpers go in `study_runner/shared/`.
-- **Do not compute paths by counting parents.** `settings/runtime_config.py`
-  owns `get_project_base_dir()`, and it is frozen-build aware. Three modules had
-  their own `parents[3]` and all three broke the moment these files moved one
-  folder deeper.
-- **No service may name a plugin.** Plugins are discovered from their manifests;
-  a service that hardcodes `brainbit` or `notion` has taken a shortcut that stops
-  the next plugin from working. `test_sensor_rich_views_and_timeline_preferences_are_plugin_owned`
-  guards part of this.
+- **DataCore does not import RuntimeCore services.** Shared helpers such as
+  `atomic_io` are available through `study_runner/shared/`, keeping recording
+  code independent of application startup.
+- **Runtime paths come from the common path helpers.**
+  `settings/runtime_config.py` exposes `get_project_base_dir()` and resolves
+  paths for both source and packaged builds.
+- **Plugin dispatch uses manifests.** Generic services use declared capabilities
+  and settings to select plugin behavior. Historical data conversion is handled
+  by the compatibility functions in the corresponding data area.

@@ -1,7 +1,7 @@
 """
 Emotion analysis module for the local Emotion Worker.
 
-Accepts a frame payload in the same format as /api/camera/frame and returns an
+Accepts a frame payload from the generic participant-ingest route and returns an
 analysis dict compatible with camera_affect_adapter's expected shape.
 """
 from __future__ import annotations

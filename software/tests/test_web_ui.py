@@ -48,7 +48,7 @@ class LocaleTests(unittest.TestCase):
 
         pattern = re.compile(r"""t\(\s*['"]([A-Za-z0-9_.]+)['"]""")
         sources = list((WEB / "scripts").rglob("*.js"))
-        sources += list((PROJECT_ROOT / "study_runner" / "extensions").rglob("*.js"))
+        sources += list((PROJECT_ROOT / "study_runner" / "plugins").rglob("*.js"))
 
         used: set[str] = set()
         for path in sources:
@@ -171,10 +171,10 @@ class ParticipantLanguageTests(unittest.TestCase):
     def test_participant_lifecycle_is_manifest_extension_driven(self) -> None:
         controller = _read(WEB / "scripts" / "participant" / "study-controller.js")
         camera_extension = _read(
-            PROJECT_ROOT / "study_runner" / "extensions" / "sensors" / "camera_emotion" / "ui" / "participant.js"
+            PROJECT_ROOT / "study_runner" / "plugins" / "sensors" / "camera_emotion" / "ui" / "participant.js"
         )
         camera_capture = _read(
-            PROJECT_ROOT / "study_runner" / "extensions" / "sensors" / "camera_emotion" / "ui" / "camera-capture.js"
+            PROJECT_ROOT / "study_runner" / "plugins" / "sensors" / "camera_emotion" / "ui" / "camera-capture.js"
         )
 
         self.assertNotIn("camera_emotion", controller)
@@ -238,7 +238,7 @@ class EditorFieldOrderTests(unittest.TestCase):
         # glob and needs no exclusion.
         offenders = [
             str(path.relative_to(PROJECT_ROOT))
-            for path in sorted((PROJECT_ROOT / "study_runner" / "extensions" / "cards").glob("*/card.js"))
+            for path in sorted((PROJECT_ROOT / "study_runner" / "plugins" / "cards").glob("*/card.js"))
             if 'class="qe-prompt"' in _read(path)
         ]
         self.assertEqual(offenders, [])
@@ -251,7 +251,7 @@ class EditorFieldOrderTests(unittest.TestCase):
         self.assertNotIn("switch-row", info)
         self.assertNotIn("<small", info)
 
-        for path in sorted((PROJECT_ROOT / "study_runner" / "extensions" / "cards").glob("*/card.js")):
+        for path in sorted((PROJECT_ROOT / "study_runner" / "plugins" / "cards").glob("*/card.js")):
             with self.subTest(card=path.name):
                 self.assertNotIn('class="switch-row"', _read(path))
 
@@ -333,16 +333,16 @@ class MotionTests(unittest.TestCase):
     """The view sweep must be skippable by anyone who asks the OS to reduce motion."""
 
     def test_stylesheet_honours_reduced_motion(self) -> None:
-        css = _read(WEB / "styles" / "main.css")
+        css = _read(WEB / "styles" / "admin.css")
 
         self.assertIn(
             "@media (prefers-reduced-motion: reduce)",
             css,
-            "main.css must respect the OS reduce-motion setting",
+            "admin.css must respect the OS reduce-motion setting",
         )
 
     def test_reduced_motion_block_disables_the_sweep(self) -> None:
-        css = _read(WEB / "styles" / "main.css")
+        css = _read(WEB / "styles" / "admin.css")
         start = css.index("@media (prefers-reduced-motion: reduce)")
         block = css[start : css.index("\n}", css.index("{", start))]
 
@@ -454,15 +454,9 @@ class SettingsShellTests(unittest.TestCase):
             self.assertNotIn(removed, admin, "absorbed into the study settings panel")
 
     def test_nav_items_reuse_the_existing_tab_styling(self) -> None:
-        css = _read(WEB / "styles" / "main.css")
-
-        # Appended to the .settings-hub-tab rules rather than a second copy,
-        # so active/hover treatment can only ever be changed in one place.
-        self.assertRegex(
-            css,
-            r"\.settings-hub-tab,\s*\n\.settings-nav-item\s*{",
-            ".settings-nav-item must share the .settings-hub-tab rules",
-        )
+        css = _read(WEB / "styles" / "admin.css")
+        self.assertIn(".settings-nav-item {", css)
+        self.assertNotIn(".settings-hub-tab", css)
 
 
 class PluginUiContractTests(unittest.TestCase):

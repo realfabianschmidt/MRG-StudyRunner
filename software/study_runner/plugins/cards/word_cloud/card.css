@@ -1,0 +1,114 @@
+/* Styles owned by the word cloud card. */
+
+/* ============================================================
+   WORD CLOUD CARD
+   ============================================================ */
+.wc-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  justify-content: center;
+  padding: var(--s-3) 0;
+}
+
+/* Chip button */
+.wc-chip {
+  padding: var(--s-2) var(--s-4);
+  border-radius: var(--r-pill);
+  border: 1.5px solid var(--ink-14);
+  background: var(--bg-elevated);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;          /* let pointer events handle everything */
+  transition: all var(--t-fast) var(--fluid);
+}
+.wc-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: scale(1.04);
+}
+.wc-chip--selected {
+  background: var(--ink);
+  border-color: var(--ink);
+  border-radius: var(--r-technical);
+  color: #fff;
+}
+.wc-chip--dragging {
+  opacity: .35;
+  transform: scale(.96);
+  pointer-events: none;
+}
+
+/* Ghost element that follows the pointer during drag */
+.wc-drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  padding: var(--s-2) var(--s-4);
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  box-shadow: 0 6px 20px rgba(0,0,0,.25);
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+
+/* Drop tray */
+.wc-tray {
+  min-height: var(--s-14);
+  margin-top: var(--s-4);
+  padding: var(--s-3) var(--s-3);
+  border-radius: var(--r-lg);
+  border: 2px dashed var(--ink-14);
+  background: var(--bg-sunken);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.wc-tray--over {
+  border-color: var(--accent);
+  background: var(--accent-06);
+}
+.wc-tray-hint {
+  color: var(--ink-55);
+  font-size: .875rem;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Chips inside the tray */
+.wc-tray-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3) var(--s-2) var(--s-4);
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: .875rem;
+}
+.wc-tray-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--s-5);
+  height: var(--s-5);
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,.25);
+  color: #fff;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--t-fast);
+}
+.wc-tray-remove:hover { background: rgba(255,255,255,.4); }

@@ -4,7 +4,6 @@ import {
   finalizationSessionKey,
   finalizationStepLabel,
   pickFinalizationFocus,
-  retryableSteps,
 } from '../../study_runner/apps/ui/scripts/shared/finalization-view-model.js';
 
 const queued = {
@@ -38,7 +37,6 @@ const degradedPublishing = {
 assert.deepEqual(finalizationProgress(queued), { done: 2, total: 3, percent: 67 });
 assert.equal(pickFinalizationFocus([completed, queued, attention]), attention);
 assert.equal(pickFinalizationFocus([completed, degradedPublishing]), degradedPublishing);
-assert.deepEqual(retryableSteps(attention), ['validate_sources', 'publish_nextcloud']);
 assert.equal(finalizationSessionKey(attention), 'finalization:attention');
 assert.equal(
   finalizationStepLabel(

@@ -34,7 +34,7 @@ _CANONICAL_RECORDING_DISABLE_TOKENS = {
     "sendmarker",
     "tolsl",
 }
-_LEGACY_CARD_FIELDS = {
+LEGACY_CARD_FIELDS = {
     "send_signal",
     "brainbit_to_lsl",
     "brainbit_to_touchdesigner",
@@ -270,29 +270,16 @@ def normalize_card_plugin_actions(
 
 
 def migrate_study_plugin_config(config_data: dict[str, Any]) -> dict[str, Any]:
-    """Return a migrated copy suitable for loading older study files."""
+    """Compatibility entry point for callers that migrate complete studies."""
 
-    migrated = deepcopy(config_data)
-    settings = migrated.get("study_settings")
-    if not isinstance(settings, dict):
-        # A study that never declared sensor settings is not a sensor study.
-        # Explicit legacy biosignal studies (`sensors_enabled: true`) retain
-        # the historic BrainBit/MR60 defaults, while ordinary questionnaires
-        # do not accidentally become hard-blocked by the native XDF gate.
-        settings = {"sensors_enabled": False}
-    migrated["study_settings"] = normalize_study_settings_plugins(
-        settings
+    from .migrate import migrate_study_config
+
+    return migrate_study_config(
+        config_data,
+        normalize_settings=normalize_study_settings_plugins,
+        normalize_actions=normalize_card_plugin_actions,
+        legacy_card_fields=LEGACY_CARD_FIELDS,
     )
-    questions = migrated.get("questions")
-    if isinstance(questions, list):
-        for card in questions:
-            if not isinstance(card, dict) or card.get("type") != "stimulus":
-                continue
-            actions = normalize_card_plugin_actions(card)
-            card["plugin_actions"] = actions
-            for legacy_key in _LEGACY_CARD_FIELDS:
-                card.pop(legacy_key, None)
-    return migrated
 
 
 def _plugin_manifests() -> dict[str, dict[str, Any]]:

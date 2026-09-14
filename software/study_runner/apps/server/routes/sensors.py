@@ -6,13 +6,12 @@ never import a plugin module and return HTTP 410 when that bundle is absent.
 import json
 
 from flask import Blueprint, current_app, jsonify, request
-from werkzeug.exceptions import BadRequest, Forbidden, UnsupportedMediaType
+from werkzeug.exceptions import BadRequest, UnsupportedMediaType
 
 from study_runner.plugin_framework.registry import (
     apply_enabled_runtime,
     get_plugin,
     get_plugin_status,
-    ingest_participant_payload,
     initialize_plugin,
     run_admin_action,
     run_participant_action,
@@ -32,7 +31,6 @@ from study_runner.runtime_core.settings.plugin_settings_service import (
 )
 from study_runner.data_core.host.study_sensor_runtime import SESSION_OVERRIDE_KEYS, STUDY_SENSOR_KEYS
 from .helpers import (
-    _apply_plugin_toggle_to_active_runtime,
     _apply_session_override_runtime,
     _copy_config,
     _hardware_disabled,
@@ -40,7 +38,6 @@ from .helpers import (
     _rebuild_active_study_runtime_config,
     _refresh_trial_runtime,
     _request_json_object,
-    _require_secure_participant_ingest,
     _save_hardware_secret_payload,
     _sensor_runtime_state,
     _session_overrides,
@@ -342,10 +339,9 @@ def update_plugin_enabled(plugin_key: str):
         return jsonify({"ok": False, "error": str(error), "code": "hardware_revision_conflict"}), 409
 
     current_app.config["HARDWARE_CONFIG"] = hardware_config
-    active_runtime_updated = _apply_plugin_toggle_to_active_runtime(plugin_key, enabled)
-    study_controlled = bool(active_config) and plugin_key in STUDY_SENSOR_KEYS and not active_runtime_updated
-    if not active_runtime_updated:
-        _refresh_trial_runtime()
+    active_runtime_updated = False
+    study_controlled = bool(active_config) and plugin_key in STUDY_SENSOR_KEYS
+    _refresh_trial_runtime()
 
     try:
         if not study_controlled:
@@ -392,120 +388,6 @@ def _run_plugin_action_json(plugin_key: str, action: str):
 @bp.route("/api/admin/plugins/<plugin_key>/<action>", methods=["POST"])
 def run_plugin_runtime_action(plugin_key: str, action: str):
     return _run_plugin_action_json(plugin_key, action)
-
-
-@bp.route("/api/admin/brainbit/start", methods=["POST"])
-def start_brainbit():
-    successor = "/api/admin/plugins/brainbit/start"
-    return _removed_compatibility_plugin("brainbit", successor) or _mark_deprecated(
-        _run_plugin_action_json("brainbit", "start"), successor
-    )
-
-
-@bp.route("/api/admin/brainbit/stop", methods=["POST"])
-def stop_brainbit():
-    successor = "/api/admin/plugins/brainbit/stop"
-    return _removed_compatibility_plugin("brainbit", successor) or _mark_deprecated(
-        _run_plugin_action_json("brainbit", "stop"), successor
-    )
-
-
-@bp.route("/api/admin/brainbit/restart", methods=["POST"])
-def restart_brainbit():
-    successor = "/api/admin/plugins/brainbit/restart"
-    return _removed_compatibility_plugin("brainbit", successor) or _mark_deprecated(
-        _run_plugin_action_json("brainbit", "restart"), successor
-    )
-
-
-@bp.route("/api/admin/brainbit/select-device", methods=["POST"])
-def select_brainbit_device():
-    successor = "/api/admin/plugins/brainbit/actions/select_device"
-    missing = _removed_compatibility_plugin("brainbit", successor)
-    if missing is not None:
-        return missing
-    try:
-        payload = _request_json_object()
-        return _mark_deprecated(jsonify(
-            run_admin_action(
-                "brainbit",
-                "select_device",
-                _plugin_context(machine_admin=True),
-                payload,
-            )
-        ), successor)
-    except UnsupportedMediaType as error:
-        return jsonify({"ok": False, "error": error.description}), 415
-    except BadRequest as error:
-        return jsonify({"ok": False, "error": error.description}), 400
-    except ValueError as error:
-        return jsonify({"ok": False, "error": str(error)}), 400
-    except Exception as error:
-        return jsonify({"ok": False, "error": str(error)}), 500
-
-
-@bp.route("/api/admin/radar/start", methods=["POST"])
-def start_mini_radar():
-    successor = "/api/admin/plugins/mini_radar/start"
-    return _removed_compatibility_plugin("mini_radar", successor) or _mark_deprecated(
-        _run_plugin_action_json("mini_radar", "start"), successor
-    )
-
-
-@bp.route("/api/admin/radar/stop", methods=["POST"])
-def stop_mini_radar():
-    successor = "/api/admin/plugins/mini_radar/stop"
-    return _removed_compatibility_plugin("mini_radar", successor) or _mark_deprecated(
-        _run_plugin_action_json("mini_radar", "stop"), successor
-    )
-
-
-@bp.route("/api/admin/radar/restart", methods=["POST"])
-def restart_mini_radar():
-    successor = "/api/admin/plugins/mini_radar/restart"
-    return _removed_compatibility_plugin("mini_radar", successor) or _mark_deprecated(
-        _run_plugin_action_json("mini_radar", "restart"), successor
-    )
-
-
-@bp.route("/api/camera/frame", methods=["POST"])
-def process_camera_frame():
-    """Deprecated fixed-key shim for pre-v3 participant clients."""
-
-    successor = "/api/plugins/camera_emotion/participant/ingest/frame"
-    missing = _removed_compatibility_plugin("camera_emotion", successor)
-    if missing is not None:
-        return missing
-    try:
-        _require_secure_participant_ingest("camera_emotion")
-        dispatched = ingest_participant_payload(
-            "camera_emotion",
-            "frame",
-            _plugin_context(),
-            _request_json_object(),
-        )
-        frame_result = dispatched.get("result") or {}
-        return _mark_deprecated(
-            jsonify({"ok": bool(dispatched.get("ok", False)), **frame_result}),
-            successor,
-        )
-    except (Forbidden, UnsupportedMediaType, BadRequest) as error:
-        status = (
-            403
-            if isinstance(error, Forbidden)
-            else 415
-            if isinstance(error, UnsupportedMediaType)
-            else 400
-        )
-        return _mark_deprecated(
-            (jsonify({"ok": False, "error": error.description}), status),
-            successor,
-        )
-    except ValueError as error:
-        return _mark_deprecated(
-            (jsonify({"ok": False, "error": str(error)}), 400),
-            successor,
-        )
 
 
 @bp.route("/api/admin/camera/start", methods=["POST"])

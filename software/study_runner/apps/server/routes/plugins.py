@@ -91,7 +91,8 @@ def plugin_ui_asset(plugin_key: str, asset_path: str):
         path = resolve_plugin_ui_asset(plugin_key, asset_path)
     except ValueError as error:
         return jsonify({"ok": False, "error": str(error)}), 404
-    response = send_file(path, mimetype="text/javascript", conditional=True)
+    mimetype = "text/css" if path.suffix.lower() == ".css" else "text/javascript"
+    response = send_file(path, mimetype=mimetype, conditional=True)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Cache-Control"] = "no-cache"
     return response

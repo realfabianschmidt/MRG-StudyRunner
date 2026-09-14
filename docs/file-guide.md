@@ -23,7 +23,7 @@ Edit-safety legend:
 | `tools/setup_recording_worker.py` | One-time source setup: verifies the toolchain, builds only the current native XDF core, runs CTest and the Python/PyXDF smoke test | no |
 | `tools/make_timeline_fixture.py` | Writes a synthetic completed session with a real multi-stream XDF, so the timeline can be seen without recording hardware | no |
 | `tools/measure_structure.py` | 1.0 rebuild structure ratchet: cross-package import edges, import cycles, lines per package, largest file, checked against `tools/structure_baseline.json` | careful |
-| `tools/extension_sdk.py` | Extension SDK: scaffold (`new`), validate, and boot-test (`check-runtime`) a new plugin outside `extensions/`, plus a generated manifest reference (`schema`) — see `tools/extension_templates/` | careful |
+| `tools/plugin_sdk.py` | Plugin SDK: scaffold (`new`), validate, and boot-test (`check-runtime`) a new plugin outside `plugins/`, plus a generated manifest reference (`schema`) — see `tools/plugin_templates/` | careful |
 | `tools/synthetic_lsl_source.py` | Pushes fake-but-plausible LSL samples for a sensor extension's own declared stream, so it can be tested without real hardware | careful |
 | `tools/install-windows.ps1` / `tools/install-macos.sh` | Idempotent first-install/repair flows: system prerequisites on request, `.venv`, Python requirements, and verified XDF core | careful |
 | `tools/start-windows.ps1` / `tools/start-macos.sh` | Daily source-server launchers that use the repository `.venv` directly | careful |
@@ -47,7 +47,7 @@ Edit-safety legend:
 | File | Purpose | Edit? |
 |---|---|---|
 | `routes/__init__.py` | Registers all route groups; ValidationError -> 400 handler | careful |
-| `routes/pages.py` | Serves the three pages: `/` (participant), `/admin`, `/audit` | careful |
+| `routes/pages.py` | Serves the two pages: `/` (participant) and `/admin`. The audit text moved into the settings shell, so there is no separate `/audit` page any more | careful |
 | `routes/study.py` | Everything the tablet calls: config, sessions, triggers, heartbeat, clock sync | careful |
 | `routes/results.py` | Saving results - crash-safe, with recovery files and partial snapshots | no |
 | `routes/admin.py` | Operator endpoints: health, studies list/activate/delete, status, restart | careful |
@@ -67,7 +67,7 @@ Edit-safety legend:
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `software/study_runner/runtime_core/studies/__init__.py` | Empty package marker | yes |
+| `software/study_runner/runtime_core/studies/__init__.py` | One-paragraph orientation for the folder: a study, its run, and everything that run produces | yes |
 | `software/study_runner/shared/atomic_io.py` | Crash-safe JSON writes (temp file + replace) for all study data | no |
 | `software/study_runner/shared/software_root.py` | Locates `software/` by marker (`server.py` + `study_runner/`) instead of counting parent levels | no |
 | `software/study_runner/shared/runtime_mode.py` | `is_frozen`/`get_app_mode`/`get_project_base_dir` shared by extensions, plugin framework, and runtime settings | no |
@@ -128,24 +128,40 @@ Edit-safety legend:
 | `software/study_runner/data_core/host/recording_quality.py` | Scientific source, backup, gap/drop, lease-expiry, and finalization quality checks | no |
 | `software/study_runner/runtime_core/delivery/recording_finalization_adapter.py` | Thin bridge from persistent finalization steps to recording freeze, validation, merge, and shutdown | no |
 | `software/study_runner/runtime_core/studies/study_plugin_config.py` | Migrates legacy sensor/upload/card fields into the manifest-driven plugin settings shape | careful |
+| `software/study_runner/runtime_core/studies/migrate.py` | One-way compatibility rewrites for saved study files: the pre-card `stimulus_duration_ms` field becomes a real stimulus card. Runs on load, never on save, so an old study opens without the old shape leaking back into new files | careful |
+| `software/study_runner/runtime_core/settings/migrate.py` | One-way compatibility rewrites for machine settings: repoints plugin paths stored by older installs at the folder layout in use today | careful |
+| `software/study_runner/runtime_core/delivery/migrate.py` | One-way compatibility rewrites for delivery state: upload-job metadata and the leftover pre-1.0 queue shape | careful |
 | `software/study_runner/runtime_core/studies/trial_event_service.py` | Persists idempotent trial events and backend-enforced deadlines | no |
 | `software/study_runner/runtime_core/studies/session_journal_service.py` | Append-only, fsynced per-session audit journals plus terminal-finalization archive | no |
 | `software/study_runner/data_core/host/recording_contract.py` | Builds and persists the immutable, hash-checked `recording-plan.json` snapshot each session starts with | no |
 
 ## Recording, host side (`software/study_runner/data_core/host/`)
 
+`backup.py`, `errors.py`, `recovery.py`, and `worker_protocol.py` used to live
+here; they moved to `software/study_runner/data_core/contract/` (see that
+folder's own README) because both the host and the detached worker need
+them and may not import each other. The table below is the current list.
+
 | File | Purpose | Edit? |
 |---|---|---|
 | `artifacts.py` | Canonical immutable session identity, path layout, and SHA-256 helpers | no |
-| `backup.py` | Validates slowest-grid backup projections and stale-value rules | no |
 | `coordinator.py` | Allocates append-never plugin segments and sends idempotent worker commands | no |
-| `errors.py` | Shared typed recording errors used across coordinator, worker client, and finalization | no |
-| `recovery.py` | Detects recoverable recording state and allocates append-never post-crash segments | no |
 | `worker_binary.py` | Locates and validates the tiny platform-native XDF core and its build manifest | no |
-| `worker_protocol.py` | Authenticated loopback protocol, persisted endpoint state, and command replay ledger | no |
 | `xdf.py` | Native-worker backend contract plus pinned PyXDF source/merge validation | no |
 | `markers.py` | The study's own event-marker LSL outlet; every session carries it, not a plugin | careful |
 | `clock_diagnostics.py` | Wall/LSL/client clock observations at event boundaries; every session carries it, not a plugin | careful |
+| `clock_sync_service.py` | Bounded tablet/worker clock-offset and RTT history for the admin dashboard | careful |
+| `sensor_coordinator_service.py` | Central plugin lifecycle/status wrapper with a stale-while-revalidate health cache | careful |
+| `plugin_health_poll_service.py` | The bounded, per-plugin polling engine `sensor_coordinator_service.py` is built on | careful |
+| `sensor_flush_service.py` | Periodic background export of live sensor history for crash recovery | no |
+| `study_sensor_runtime.py` | Which sensors are effectively on right now (hardware config + study settings + session overrides) | careful |
+| `recording_capacity.py` | Preflight storage check: required space from the declared stream contract, never a disk benchmark | careful |
+| `recording_contract.py` | Snapshots the exact manifests/streams/backup projections a recording started with, hash-checked | no |
+| `recording_dependencies.py` | liblsl dependency probe and capability-based selection of study/internal recording sources | no |
+| `recording_quality.py` | Turns a validation report, lease state, and source health into finalization's pass/fail checks | no |
+| `recording_runtime.py` | `RecordingRuntimeService`: the orchestrator `apps/server` actually calls (preflight, start, freeze, merge, shut down) | no |
+| `recording_runtime_support.py` | Small helpers `recording_runtime.py` needs: session identity, port reservation, the public recording plan | no |
+| `recording_worker_launcher.py` | Detached Python/self worker process command, isolation flags, and startup health handshake | no |
 | `markers.manifest.json`, `clock_diagnostics.manifest.json` | Declare each built-in source's streams the same way a plugin manifest does, loaded through the same validator, never discovered from a directory | no |
 
 ## Detached recording worker (`software/study_runner/data_core/worker/`)
@@ -170,7 +186,31 @@ it deliberately contains no HTTP, LSL, plugin, or study logic.
 | `software/study_runner/updates/trusted_keys.py` | Trusted public keys (filled in by CI at release build) | no |
 | `software/study_runner/updates/installer.py` | Applies a staged update on restart (`--apply-update`) | no |
 
-## Plugins (`software/study_runner/extensions/`)
+## Plugin framework (`software/study_runner/plugin_framework/`)
+
+Nothing in this folder is a plugin -- it's the machinery that finds,
+validates, and talks to the plugins in `plugins/` below. See that
+folder's own README for the full picture, including why "plugin" and
+"extension" are deliberately two different words for two different layers.
+
+| File | Purpose | Edit? |
+|---|---|---|
+| `plugin_secrets.py` | Per-study credential storage and env/study/machine/legacy resolution used by the host and each extension subprocess | careful |
+| `adapter_utils.py` | Shared timestamps, locked state updates, and config-section lookup | careful |
+| `registry.py` | The façade almost everything else calls: manifest-driven plugin lookup, generic actions, interval summaries, sidecar exports | careful |
+| `plugin_catalog.py` | Discovers trusted extension folders and validates API-v5 manifests before dispatch | no |
+| `plugin_layout.py` | Defines trusted extension category roots shared by discovery, drivers, UI assets, and self-check | no |
+| `driver_runtime.py` | Runtime used by the single `driver.py` entry point every API-v5 plugin process runs | careful |
+| `process_host.py` | Host-side supervisor for API-v5 drivers: start/stop/restart, line-oriented console, reserved-prefix RPC; cards additionally get no app context and terminate their process on an RPC timeout, everyone else does not | careful |
+| `card_catalog.py` | Package 5g.B5: `card_bindings()` -- the manifest-driven `question_type -> (catalog entry, card_contract)` lookup every card-aware caller reads instead of a hardcoded type list; `QuestionTypes` is the live set view `ALLOWED_QUESTION_TYPES`/`NON_ANSWER_QUESTION_TYPES` wrap | careful |
+| `history_buffer.py` | Session-sized ring buffers + gap/truncation detection for all sensors | careful |
+
+(`dependency_utils.py` -- optional auto-install of Python packages a plugin
+needs -- actually lives in `software/study_runner/shared/`, not here; see
+the "Runtime and shared services" section above. A previous version of this
+guide listed it in this section by mistake.)
+
+## Extensions (`software/study_runner/plugins/`)
 
 The folder name, public plugin key, and hardware-config key are deliberately
 not assumed to be identical. `test_plugin_registry.py` freezes this compatibility
@@ -192,19 +232,9 @@ recording code now, not extensions: `data_core/host/markers.py` and
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `plugin_secrets.py` | Per-study credential storage and env/study/machine/legacy resolution used by the host and each extension subprocess | careful |
-| `adapter_utils.py` | Shared timestamps, locked state updates, and config-section lookup | careful |
-| `registry.py` | Manifest-driven plugin lookup, generic actions, interval summaries, and sidecar exports | careful |
-| `plugin_catalog.py` | Discovers trusted extension folders and validates API-v5 manifests before dispatch | no |
-| `extension_layout.py` | Defines trusted extension category roots shared by discovery, drivers, UI assets, and self-check | no |
-| `driver_runtime.py` | Runtime used by the single `driver.py` entry point every API-v5 plugin process runs | careful |
-| `process_host.py` | Host-side supervisor for API-v5 drivers: start/stop/restart, line-oriented console, reserved-prefix RPC; cards additionally get no app context and terminate their process on an RPC timeout, everyone else does not | careful |
-| `card_catalog.py` | Package 5g.B5: `card_bindings()` -- the manifest-driven `question_type -> (catalog entry, card_contract)` lookup every card-aware caller reads instead of a hardcoded type list; `QuestionTypes` is the live set view `ALLOWED_QUESTION_TYPES`/`NON_ANSWER_QUESTION_TYPES` wrap | careful |
-| `history_buffer.py` | Session-sized ring buffers + gap/truncation detection for all sensors | careful |
-| `dependency_utils.py` | Optional auto-install of Python packages sensors need | careful |
 | `__init__.py` (all) | Empty package markers | yes |
 | `brainbit/adapter.py` | Supervises the BrainBit CLI process (has a TOC docstring) | careful |
-| `brainbit/brainbit_realtime_cli.py` | The external BrainBit EEG CLI itself (SOURCE OF TRUTH; in a lab-workspace checkout, `../../Sensorik/` is the separate external hardware/sensor reference folder this mirrors into — see `docs/README.md` — not generated by the app and not part of this repo); also runs inside packaged builds via `--brainbit-cli`. See `extensions/sensors/brainbit/README.md` for NeuroSDK/BrainFlow provenance. | careful |
+| `brainbit/brainbit_realtime_cli.py` | The external BrainBit EEG CLI itself (SOURCE OF TRUTH; in a lab-workspace checkout, `../../Sensorik/` is the separate external hardware/sensor reference folder this mirrors into — see `docs/README.md` — not generated by the app and not part of this repo); also runs inside packaged builds via `--brainbit-cli`. See `plugins/sensors/brainbit/README.md` for NeuroSDK/BrainFlow provenance. | careful |
 | `brainbit/plugin.py` | Plugin wrapper: config defaults + lifecycle for BrainBit | careful |
 | `brainbit/driver.py` | API-v5 process entry point (`run_plugin_driver("brainbit")`) | no |
 | `brainbit/diagnose_backends.py` | Standalone 30-second NeuroSDK vs. BrainFlow A/B diagnostic, outside the acquisition path | careful |
@@ -227,7 +257,7 @@ recording code now, not extensions: `data_core/host/markers.py` and
 | `nextcloud_upload/webdav_client.py` | The WebDAV client: uploads session files to a writable Nextcloud public share, checksum-first | careful |
 | `nextcloud_upload/driver.py` | API-v5 process entry point (`run_plugin_driver("nextcloud")`) | no |
 
-## Cards (`software/study_runner/extensions/cards/`)
+## Cards (`software/study_runner/plugins/cards/`)
 
 Package 5g.B5: every question/card type is a genuine, process-isolated API-v5
 plugin like any sensor or destination above, not a hardcoded type string.
@@ -262,9 +292,7 @@ one, unlike the plugin table above).
 | `settings/machine/machine-settings-panel.js` | Machine settings shell: nav, generated sensor forms, tablet links | careful |
 | `settings/machine/certificate-settings-controller.js` | Certificate status, setup, export, and import, inside the machine settings shell | no |
 | `settings/machine/branding-settings-controller.js` | Upload and remove the group and funder logos, inside the machine settings shell | no |
-| `settings/study/study-settings-panel.js` | Per-study settings shell (editor only): sensors, participant, uploads, export | careful |
-| `settings/study/notion-settings-controller.js` | Notion fields inside the per-study settings panel | careful |
-| `settings/study/nextcloud-settings-controller.js` | Nextcloud fields inside the per-study settings panel | careful |
+| `settings/study/study-settings-panel.js` | Per-study settings shell (editor only): sensors, participant, data destinations, export. Destination plugin settings (Notion, Nextcloud, ...) are generated here from the catalog, not from a per-destination file | careful |
 | `admin/session-timeline.js` | Renders completed-session sensor lanes and answer markers as offline SVG | careful |
 | `admin/sessions-browser.js` | Completed-session hub list, detail panel, and timeline data fetching | careful |
 | `admin/upload-monitor.js` | Background-upload completion modal and the corner progress widget it shrinks to | careful |
@@ -287,14 +315,14 @@ one, unlike the plugin table above).
 | `shared/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
 | `shared/api-client.js` | Tiny fetch helpers (getJson/postJson) | careful |
 | `shared/i18n.js` | Translation loading and the `t()` helper | careful |
-| `extensions/sensors/camera_emotion/ui/participant.js` | Camera/emotion participant lifecycle extension for preview, stimuli, submit, and heartbeat status | careful |
-| `extensions/sensors/camera_emotion/ui/camera-capture.js` | Plugin-owned tablet camera capture and frame upload adapter | careful |
-| `extensions/sensors/brainbit/ui/dashboard.js` | Optional BrainBit rich-status renderer loaded through the manifest extension hook | careful |
-| `extensions/sensors/mr60_mini_radar/ui/dashboard.js` | Optional MR60 rich-status renderer loaded through the manifest extension hook | careful |
-| `extensions/sensors/camera_emotion/ui/dashboard.js` | Optional camera/emotion rich-status renderer loaded through the manifest extension hook | careful |
+| `plugins/sensors/camera_emotion/ui/participant.js` | Camera/emotion participant lifecycle extension for preview, stimuli, submit, and heartbeat status | careful |
+| `plugins/sensors/camera_emotion/ui/camera-capture.js` | Plugin-owned tablet camera capture and frame upload adapter | careful |
+| `plugins/sensors/brainbit/ui/dashboard.js` | Optional BrainBit rich-status renderer loaded through the manifest extension hook | careful |
+| `plugins/sensors/mr60_mini_radar/ui/dashboard.js` | Optional MR60 rich-status renderer loaded through the manifest extension hook | careful |
+| `plugins/sensors/camera_emotion/ui/dashboard.js` | Optional camera/emotion rich-status renderer loaded through the manifest extension hook | careful |
 | `participant/study-client-heartbeat.js` | Keeps the tablet visible on the dashboard | careful |
 | `shared/qr-code.js` | QR code rendering for the access card | no |
-| `cards/index.js` | Package 5g.B5: `loadCards()` fetches each installed card's `card.js` (`/api/plugins/<key>/assets/card.js`) and Python-authoritative defaults (`/api/plugins/<key>/card-defaults`) instead of a static import list; the 12 card modules themselves now live in `extensions/cards/<name>/card.js` | careful |
+| `cards/index.js` | Package 5g.B5: `loadCards()` fetches each installed card's `card.js` (`/api/plugins/<key>/assets/card.js`) and Python-authoritative defaults (`/api/plugins/<key>/card-defaults`) instead of a static import list; the 12 card modules themselves now live in `plugins/cards/<name>/card.js` | careful |
 | `cards/card-info.js` | The shared editor frame every card composes into: question text, instruction, note, toggle group | careful |
 
 Locales (`apps/ui/locales/en.json`, `de.json`) hold every UI string; both

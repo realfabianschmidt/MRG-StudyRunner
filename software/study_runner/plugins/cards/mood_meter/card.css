@@ -1,0 +1,214 @@
+/* Styles owned by the mood meter card. */
+
+/* ============================================================
+   MOOD METER CARD – overview
+   ============================================================ */
+.mm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-4);
+  margin: var(--s-4) 0 var(--s-2);
+}
+
+.mm-quad-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+  padding: var(--s-7) var(--s-4);
+  min-height: 130px;
+  border-radius: var(--r-lg);
+  border: none;
+  background: var(--mm-color, var(--bg-sunken));
+  cursor: pointer;
+  text-align: center;
+  transition:
+    border-radius var(--t-fast) var(--fluid),
+    transform var(--t-fast) var(--fluid),
+    filter var(--t-fast) var(--fluid);
+}
+.mm-quad-btn:hover {
+  border-radius: var(--r-technical);
+  transform: scale(1.02);
+  filter: brightness(0.88);
+}
+.mm-quad-btn:active {
+  transform: scale(0.97);
+  filter: brightness(0.78);
+}
+
+/* Overview reflects the current selection: chosen quadrants stay colored and
+   list the picked words; the rest gray out to their label only. */
+.mm-quad-btn--chosen {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .55);
+}
+.mm-quad-btn--dimmed {
+  filter: grayscale(1) brightness(.6);
+  opacity: .5;
+}
+.mm-quad-btn--dimmed:hover {
+  transform: none;
+  filter: grayscale(1) brightness(.66);
+}
+
+.mm-quad-label {
+  font-family: var(--font-heading);
+  font-size: .6rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.75);
+  line-height: 1.4;
+}
+.mm-quad-examples {
+  font-size: .95rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* ── Mood Meter fullscreen overlay ─────────────────────────── */
+#mm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+/* Floating back button – circle, glassmorphism */
+.mm-back-btn {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-lg);
+  height: var(--control-lg);
+  border-radius: var(--r-pill);
+  border: none;
+  background: rgba(255,255,255,.22);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #fff;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background .18s ease, transform .18s var(--fluid), border-radius .35s var(--fluid);
+  box-shadow: 0 2px 12px rgba(0,0,0,.18);
+}
+.mm-back-btn:hover {
+  background: rgba(255,255,255,.38);
+  border-radius: var(--r-technical);
+  transform: scale(1.08);
+}
+
+/* Floating title + counter – centered top */
+.mm-float-header {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-5);
+  border-radius: var(--r-pill);
+  background: rgba(0,0,0,.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+.mm-overlay-title {
+  color: rgba(255,255,255,.9);
+  font-family: var(--font-heading);
+  font-size: .75rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mm-sel-counter {
+  font-family: var(--font-mono);
+  font-size: .7rem;
+  color: rgba(255,255,255,.75);
+  white-space: nowrap;
+}
+.mm-sel-counter:empty { display: none; }
+
+/* ── Apple Watch bubble viewport ───────────────────────────── */
+#mm-bubble-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+#mm-bubble-viewport:active { cursor: grabbing; }
+
+#mm-bubble-space {
+  position: absolute;
+  top: 0; left: 0;
+  will-change: transform;
+}
+
+.mm-word {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-2) var(--s-4);
+  border-radius: var(--r-pill);
+  border: 1.5px solid rgba(255,255,255,.28);
+  background: rgba(255,255,255,.13);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: .9rem;
+  cursor: pointer;
+  transform: translate(-50%, -50%) scale(var(--mm-scale, 1));
+  transition: transform .28s var(--fluid), opacity .28s ease,
+              background .15s ease, border-color .15s ease,
+              border-radius .18s var(--fluid);
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+}
+.mm-word:hover {
+  background: rgba(255,255,255,.26);
+  border-color: rgba(255,255,255,.6);
+  border-radius: var(--r-technical);
+}
+.mm-word--selected {
+  background: rgba(255,255,255,.92) !important;
+  color: var(--ink) !important;
+  font-weight: 700;
+  border-color: #fff !important;
+  border-radius: var(--r-technical) !important;
+}
+
+/* ============================================================
+   MOOD METER – EDITOR (per-quadrant word lists)
+   ============================================================ */
+.mm-ed-quads {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
+}
+.mm-ed-quad-field {
+  margin-bottom: 0;
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+}
+.mm-ed-quad-label {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: .75rem;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  margin-bottom: var(--s-1);
+  display: block;
+}

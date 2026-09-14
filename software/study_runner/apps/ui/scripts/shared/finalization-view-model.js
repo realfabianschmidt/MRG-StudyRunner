@@ -1,5 +1,3 @@
-export const TERMINAL_FINALIZATION_STATUSES = new Set(['completed', 'completed_degraded']);
-
 const STEP_COMPLETE = new Set(['done', 'skipped']);
 
 export function finalizationProgress(job) {
@@ -32,13 +30,6 @@ export function pickFinalizationFocus(jobs) {
     if (statusOrder) return statusOrder;
     return Number(right.created_epoch || 0) - Number(left.created_epoch || 0);
   })[0] || null;
-}
-
-export function retryableSteps(job) {
-  return (Array.isArray(job?.steps) ? job.steps : [])
-    .filter((step) => ['failed', 'retrying'].includes(step?.status))
-    .map((step) => step.key)
-    .filter(Boolean);
 }
 
 export function finalizationSessionKey(job) {

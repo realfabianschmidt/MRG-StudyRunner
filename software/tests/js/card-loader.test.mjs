@@ -12,7 +12,7 @@ function plugin(key, type, order) {
     capability_config: {
       card_contract: { version: 1, question_types: [type], answerless_types: [], host_data: [] },
     },
-    ui: { order, extensions: { card: 'card.js' } },
+    ui: { order, extensions: { card: 'card.js' }, assets: ['card.js'] },
   };
 }
 
@@ -51,6 +51,34 @@ test('catalog order drives the picker and defaults are fetched once per generati
   const first = defaultFor('earlier-card');
   first.prompt = 'mutated';
   assert.equal(defaultFor('earlier-card').prompt, 'earlier-card default');
+});
+
+test('card registration waits for CSS and retries a failed stylesheet', async () => {
+  const styled = plugin('styled_card', 'styled-card', 1);
+  styled.ui.assets.push('card.css');
+  configurePluginCatalog({ plugins: [styled] });
+  let attempts = 0;
+  let releaseStyle;
+  const stylesheetLoader = () => {
+    attempts += 1;
+    if (attempts === 1) return Promise.reject(new Error('synthetic CSS failure'));
+    return new Promise(resolve => { releaseStyle = resolve; });
+  };
+  const options = {
+    requiredTypes: ['styled-card'],
+    importer: async () => moduleFor('styled-card'),
+    fetchDefaults: async () => ({ defaults: { 'styled-card': { type: 'styled-card' } } }),
+    stylesheetLoader,
+  };
+
+  await assert.rejects(loadCards(options), /Required cards could not be loaded: styled-card/);
+  const pendingLoad = loadCards(options);
+  while (typeof releaseStyle !== 'function') await new Promise(resolve => setImmediate(resolve));
+  assert.throws(() => defaultFor('styled-card'), /Required cards could not be loaded/);
+  releaseStyle();
+  await pendingLoad;
+  assert.equal(defaultFor('styled-card').type, 'styled-card');
+  assert.equal(attempts, 2);
 });
 
 test('an unrelated broken module is isolated while a required broken module blocks', async () => {

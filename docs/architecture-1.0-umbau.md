@@ -27,14 +27,14 @@ approved deviations, implementation progress and acceptance evidence.
 
 Status, 2026-09-08: **Phase 0 merged to `main` (`a1f39d9`); Phase 1, Phase 2
 and 5b (preflight) implemented, including approved repairs R1-R5. Phase 4
-(directory move) is complete.** The final packages are `extensions/*`,
+(directory move) is complete.** The final packages are `plugins/*`,
 `apps/ui`, and `apps/server`; the old `plugins`, `frontend`, and `backend`
 packages are gone. Tail items 4.11-4.16 are complete and version is
 `1.0.0-dev`. **Phase 3 items 3.1/3.2/3.3/3.5 also complete** (3.2 was found
 already implemented pre-dating this rebuild, verified rather than built —
 see Phase 3 section); **only 3.4 remains in Phase 3**, then Phase 5 in full
 (operator decided 2026-09-08 to keep the complete target scope, including
-`mrg` CLI and the extension SDK, rather than trim it against
+`mrg` CLI and the plugin SDK, rather than trim it against
 CONTRIBUTING.md's "keep it simple" guidance). **Phase 5's first two
 packages 5e (journal/XDF event-id comparison), 5d (stream contracts +
 timing provenance), 5a (session lifecycle), 5c (live quality/timing
@@ -96,7 +96,7 @@ and are cherry-picked onto the branch, never the other way round.
 | D3 | **`upload_destination.legacy` is migrated before it is removed.** | It reads fields out of live operator `.study-runner` files. Order: migrate and write forward → ship one release → then remove the read path. |
 | D4 | **Work happens in a second worktree**, `git worktree add C:\SR-1.0 -b feature/architecture-1.0`, with an external data directory. | The production install must keep working. See [Development environment](#development-environment). |
 | D5 | **No compatibility shims for moved modules**, with one exception: `software/server.py` and `study_runner/app_server.py` stay permanently, and the **built executable name never changes** (`study-runner-server` / `study-runner-server.exe`). | Every consumer of the old paths is in-repo and editable. A shim would re-introduce exactly the import edge the rebuild removes, and would defeat git rename detection. `server.py` is not a shim — it is the documented entry point baked into the install/start scripts and the PyInstaller root probe, and the packaged app re-invokes *itself* with `server.py --flags`. The executable name is a separate, harder constraint: the 0.7.0 updater already deployed in the field finds the new build by literally globbing for that filename (see Phase 0.6) — nothing in the 1.0 codebase can fix a 0.7.0 client that already shipped. |
-| D6 | **Target layout (per D1):** | `study_runner/{apps/{server,cli,ui}, contracts, runtime_core, data_core/{contract,host,worker}, plugin_framework, extensions/{sensors,cards,destinations,outputs}, shared, updates}` |
+| D6 | **Target layout (per D1):** | `study_runner/{apps/{server,cli,ui}, contracts, runtime_core, data_core/{contract,host,worker}, plugin_framework, plugins/{sensors,cards,destinations,outputs}, shared, updates}` |
 | D7 | **`study_runner/updates/` does not move in Phase 4.** | See Phase 0.6 findings below — it is the one path a live field machine actually executes with 0.7.0 code during an update, moving it buys no architectural benefit and adds real risk. |
 
 ---
@@ -171,7 +171,7 @@ into RuntimeCore.
 | §9 preflight and versioned QC | 5b, 5c | Disk reserve, required stream, clock plausibility failures; versioned thresholds |
 | §10 lifecycle/seal | 5a | Transition table; sealing requires verified artifacts; upload failure preserves seal |
 | §10 withdrawal | 5i | Stop writers/jobs; repeatable deletion of raw, derived and runtime journal copies; destination disposition recorded |
-| §11 extension SDK | 5j | Versioned schemas, validator, fake runtime, synthetic LSL source, one template per type |
+| §11 plugin SDK | 5j | Versioned schemas, validator, fake runtime, synthetic LSL source, one template per type |
 | §12 maintenance CLI | 5f | Shared online command guards; offline writes refuse a live runtime and require exclusive maintenance lock |
 | §13 compatibility | 3.1–3.3, 6.2–6.3 | Existing studies migrate and recordings remain readable; archival discovery/browser promises tested separately |
 | §14 invariants/structure | R2, R5, 4, 5a | Negative controls; empty import allowlist; CI structure check; sealed-session validation |
@@ -190,7 +190,7 @@ study_runner/data_core/contract/ <- recording/{worker_protocol,artifacts,errors}
 study_runner/data_core/host/    <- backend/services/recording/ + recording/{coordinator,recovery,worker_binary,xdf}
 study_runner/data_core/worker/  <- recording_worker/{application,lsl_recording,runtime,core}
 study_runner/plugin_framework/  <- plugin_framework/ minus plugin_api.py
-study_runner/extensions/        <- plugins/, split by each manifest's `category` field:
+study_runner/plugins/        <- plugins/, split by each manifest's `category` field:
                                      biosignal -> sensors/    storage -> destinations/
                                      output    -> outputs/    (cards/ is new)
 study_runner/shared/            <- shared/ + runtime-config helpers
@@ -746,10 +746,10 @@ Zero directory moves: existing runtime packages remain in place; `shared/` and
       synthetic plugin from a temp directory and, in one case, actually
       invoke a live handler through it — which for a real v4 plugin means
       spawning `driver.py` as a subprocess that resolves itself via
-      `extension_layout.trusted_roots()`, hardcoded to the real
-      `extensions/{sensors,cards,destinations,outputs}` directories with no
-      injection seam. Added one: `TEST_EXTRA_ROOT_PATH_ENV_VAR`/
-      `TEST_EXTRA_ROOT_PACKAGE_ENV_VAR` in `extension_layout.py`, read only
+      `plugin_layout.trusted_roots()`, hardcoded to the real
+      `plugins/{sensors,cards,destinations,outputs}` directories with no
+      injection seam. Added one: `TEST_EXTRA_PLUGIN_ROOT_PATH_ENV_VAR`/
+      `TEST_EXTRA_PLUGIN_ROOT_PACKAGE_ENV_VAR` in `plugin_layout.py`, read only
       from the environment (never a request or manifest value, so it can
       never become an attacker-controlled plugin path per
       CONTRIBUTING.md #1), which the child subprocess inherits since
@@ -846,7 +846,7 @@ Zero directory moves: existing runtime packages remain in place; `shared/` and
       `docs/plugin-recording-architecture.md` (capability list, the
       `_import_plugin` removal note corrected — it was already stale, dating
       to before 3.1, not something this package introduced),
-      `extensions/README.md`, `CONTRIBUTING.md` §7.
+      `plugins/README.md`, `CONTRIBUTING.md` §7.
 
       Original design record, preserved below for the reasoning trail:
 
@@ -917,7 +917,7 @@ Zero directory moves: existing runtime packages remain in place; `shared/` and
       `runtime_core/studies/study_readiness_service.py`,
       `apps/ui/scripts/shared/plugin-catalog.js`, plus every test referencing
       any of the three capability names by string.
-- [x] **3.5** Fixed doc drift: the file is `extensions/README.md` now (moved
+- [x] **3.5** Fixed doc drift: the file is `plugins/README.md` now (moved
       in Phase 4.7) and already correctly said "api_version: 4" everywhere
       except one leftover sentence ("API v3 reads only per-folder
       manifests") describing the discovery model itself, not a specific
@@ -960,7 +960,7 @@ detection with `git show --stat -M90%` → full suite green (in practice: every
 package so far) → next package.
 
 Order: `shared` → `contracts` → `data_core/contract` → `data_core/worker` →
-`data_core/host` → `plugin_framework` → `runtime_core` → `extensions/*` (one
+`data_core/host` → `plugin_framework` → `runtime_core` → `plugins/*` (one
 commit per category, derived from each manifest's `category`) → `apps/ui` →
 `apps/server`.
 
@@ -1032,7 +1032,7 @@ commit per category, derived from each manifest's `category`) → `apps/ui` →
       these three. `backend/services/` (now empty) removed. 53 files
       rewritten (absolute + two different relative-dot forms: `backend/__init__.py`'s
       single-dot `.services.X`, `backend/routes/*.py`'s two-dot `..services.X`).
-- [x] **4.7 `extensions/{sensors,cards,destinations,outputs}`** — all six
+- [x] **4.7 `plugins/{sensors,cards,destinations,outputs}`** — all six
       built-ins moved according to their manifests; `cards/` is an empty
       package. Discovery, child-process launch, UI assets, self-check, and
       packaging share one trusted-root resolver. Conflicts are checked across
@@ -1048,7 +1048,7 @@ commit per category, derived from each manifest's `category`) → `apps/ui` →
       4.0; renumber if a package above turns out to need splitting)*
 - [x] **4.11** Hand-edit the two dynamic import sites: `driver_runtime.py:28`
       and `plugin_catalog.py`. Both resolve categorized packages through
-      `plugin_framework/extension_layout.py`.
+      `plugin_framework/plugin_layout.py`.
 - [x] **4.12** Extend `_MOVED_PLUGIN_PATHS` — see [T7](#t7--operator-stored-plugin-paths-break-on-a-folder-move).
       Now in `runtime_core/settings/hardware_settings_service.py` (moved in 4.6).
 - [x] **4.13** Pull the rest along: `study_runner_server_common.py` (15 path
@@ -1286,7 +1286,7 @@ history.
       five hand-copied XML-building blocks. Wired into all five LSL
       producers: `data_core/host/{markers,clock_diagnostics}.py` (already
       load their own manifest at module scope) and the three sensor
-      adapters `extensions/sensors/{brainbit,camera_emotion,mr60_mini_radar}/adapter.py`
+      adapters `plugins/sensors/{brainbit,camera_emotion,mr60_mini_radar}/adapter.py`
       (which, as v4 process-host plugins, never see the host's parsed
       manifest — each now loads and normalizes its own `manifest.json`
       independently via `load_own_stream_contracts(__file__)`, same
@@ -1688,7 +1688,7 @@ later stage hits the hard stop below:
       `measure_structure.py`'s scope).
 - [x] **5g.B5** Cards are real extensions — completed 2026-09-09
       after the declarative-schema hard stop described below. All 13 question
-      types are supplied by 12 trusted `extensions/cards/<key>/` directories;
+      types are supplied by 12 trusted `plugins/cards/<key>/` directories;
       `choice` also supplies `single`. Each manifest declares a versioned
       `card_contract`, question and answerless types, host-data requirements,
       picker order and `card.js`. Duplicate or invalid providers never enter
@@ -1871,7 +1871,7 @@ incompatibility instead of forcing a migration to appear successful.
       12 new tests. Not covered by design: withdrawing a session while the
       recorder is mid-write is exercised through the injected stopper, not
       against a live worker; that belongs to a Phase 6 hardware gate
-- [x] **5j** Minimal extension SDK -- complete 2026-09-13. `tools/extension_sdk.py`
+- [x] **5j** Minimal plugin SDK -- complete 2026-09-13. `tools/plugin_sdk.py`
       adds three commands (`new`, `validate`, `check-runtime`) plus a
       generated schema reference (`schema --write`), and
       `tools/synthetic_lsl_source.py` pushes fake samples for a sensor's
@@ -1880,7 +1880,7 @@ incompatibility instead of forcing a migration to appear successful.
       (the same function `apps/server` uses), and `check-runtime` calls
       `process_host.build_process_plugin` to boot the plugin's real
       `driver.py` subprocess -- reusing the same test-only environment seam
-      (`extension_layout.TEST_EXTRA_ROOT_*`) that
+      (`plugin_layout.TEST_EXTRA_ROOT_*`) that
       `tests/support/fixture_plugin.py` already uses for the same reason.
       The generated schema deliberately covers only the manifest's outer
       shape (top-level fields, `ui`, `runtime`), not each capability's own
@@ -1888,10 +1888,10 @@ incompatibility instead of forcing a migration to appear successful.
       drift risk the 5g.B5 decision rejected a schema for; `validate`
       remains the one real check.
 
-      One template per category (`tools/extension_templates/{sensors,cards,
+      One template per category (`tools/plugin_templates/{sensors,cards,
       destinations,outputs}/`), each a small, real, working plugin, not a
       stub -- every template passes `validate` and `check-runtime` under
-      its own shipped key, proven by `test_extension_sdk.py`.
+      its own shipped key, proven by `test_plugin_sdk.py`.
 
       **Real bug found and fixed while building `check-runtime`, not
       invented for it:** `driver_runtime.py` crashed with `'list' object
@@ -1904,7 +1904,7 @@ incompatibility instead of forcing a migration to appear successful.
       treats it as equivalent; the SDK's own outputs-template test (which
       uses list-form `capabilities`) is the regression guard.
 
-      Evidence: `test_extension_sdk.py` (9 tests, includes the schema-drift
+      Evidence: `test_plugin_sdk.py` (9 tests, includes the schema-drift
       check and the synthetic-source tests) plus the full suite below.
 
 ## Update path: source-mode self-update (2026-09-14)
@@ -2063,7 +2063,7 @@ cross-package edges or cycles).
       `README.md`'s "Plugin API v4" section header all still said API-v4,
       three commits after 3.4 shipped API v5 -- Package 3.4's own doc sweep
       only covered `developer-guide.md`, `plugin-recording-architecture.md`,
-      `extensions/README.md`, and `CONTRIBUTING.md`, missing these four.
+      `plugins/README.md`, and `CONTRIBUTING.md`, missing these four.
       `docs/plugin-recording-architecture.md` and `CONTRIBUTING.md`
       themselves were already current from that pass. The platform matrix
       (Windows x64 + macOS canonical, Linux fail-closed) and the MIT license
@@ -2084,7 +2084,7 @@ cross-package edges or cycles).
       over from the pre-1.0 layout (logs, `.pyc` caches, one model weight
       file -- nothing tracked, nothing lost). Wrote a real, operator-facing
       `## Unreleased` entry in `CHANGELOG.md` summarizing the whole rebuild
-      (redesigned UI, extension SDK, session lifecycle/quality/withdrawal
+      (redesigned UI, plugin SDK, session lifecycle/quality/withdrawal
       tracking, preflight checks, git-checkout self-update, API v5, the MIT
       switch), committed and pushed it, then ran `release.ps1 1.0.0` for
       real: it bumped `version.py`, promoted that entry to `## 1.0.0`, ran
@@ -2144,7 +2144,7 @@ items 5e, 5d, 5a and 5c on 2026-09-08; Codex completed R1-R5 and the remaining
 Phase 4 packages on 2026-09-08, then completed 5g.B5 on 2026-09-09 from
 Claude's partial implementation; Claude completed the UI redesign (visuals
 only, no functional change), 3.4 (plugin contract cleanup, `api_version: 5`)
-on 2026-09-10, and 5j (minimal extension SDK) on 2026-09-13.
+on 2026-09-10, and 5j (minimal plugin SDK) on 2026-09-13.
 
 Rules:
 - **Moves and tree-wide import rewrites are serial.** Approved R1–R4 repairs
@@ -2232,10 +2232,10 @@ the Flask-free subprocess import of `data_core`.
 | Date | Decision | Reason |
 |---|---|---|
 | 2026-09-09 | 5g.B5 completed as genuine process-isolated card extensions reusing the existing API-v4 plugin framework; only card workers terminate and recover after RPC timeout, and browser defaults are fetched from Python and cached per catalog generation | Design work on the original scope found no clean implementation: a schema expressive enough to reproduce all 13 card types' exact semantics (including `stimulus`'s live-plugin-registry coupling) would be a large, novel, risky validation engine; a schema that does not drive validation is a second, undriven copy of `validation.py`, exactly the drift risk 5g.B1-B4 exist to remove. Raised to the owner as a hard-stop finding per the standing 5g hard-stop clause; owner supplied the revised architecture directly (process isolation via the existing plugin-framework, an executable contract instead of a schema, `stimulus`'s registry coupling kept host-side, a card-only timeout-termination policy with instance-bound bounded recovery). Accepted despite tension with `CONTRIBUTING.md` §7 ("extend the existing simple path instead of building a second system next to it") for the same reason the 5f/5j scope tension with §1/§10 was accepted on 2026-09-08 — explicit, detailed owner direction |
-| 2026-09-08 | Keep the full Phase 5 target scope (including `mrg` CLI 5f and the extension SDK 5j) rather than trim it against `CONTRIBUTING.md` §1/§10 ("no structure for a hypothetical future need", "no heavy framework just to look architecturally clean") | Operator-directed after the tension was raised explicitly: the target document (`MRG_Recorder_Core_Architektur_1.0.md`) is the deliberate, current decision on functional scope. `CONTRIBUTING.md`'s other rules (clear names, thin handlers, why-comments, validate at every boundary) still apply in full to *how* each package gets built — only the scope question itself was in play, not the quality bar |
+| 2026-09-08 | Keep the full Phase 5 target scope (including `mrg` CLI 5f and the plugin SDK 5j) rather than trim it against `CONTRIBUTING.md` §1/§10 ("no structure for a hypothetical future need", "no heavy framework just to look architecturally clean") | Operator-directed after the tension was raised explicitly: the target document (`MRG_Recorder_Core_Architektur_1.0.md`) is the deliberate, current decision on functional scope. `CONTRIBUTING.md`'s other rules (clear names, thin handlers, why-comments, validate at every boundary) still apply in full to *how* each package gets built — only the scope question itself was in play, not the quality bar |
 | 2026-09-08 | 3.2 (`upload_destination.legacy` migrate-and-write-forward) closed as verification-only, no code change | Traced the full persist call chain and found `normalize_study_settings_plugins`/`_remove_legacy_destination_fields` already migrate and strip every legacy flat field before any save, confirmed by two already-passing tests. This predates the 1.0 rebuild; 3.2 was not new work, just unverified until now |
 | 2026-09-08 | Removed `_validate_plugin_object` from `plugin_catalog.py` in the same commit as 3.1's `_import_plugin` removal, rather than leaving it as a defensive check | It is dead code for its only remaining caller: `build_process_plugin` derives every handler it checks for directly and unconditionally from the same manifest's `capabilities` set, so the check is a tautology for anything build_process_plugin produces. It only ever caught anything for a hand-written v3 `Plugin` object, which could genuinely omit a handler while still declaring the capability — that possibility no longer exists |
-| 2026-09-08 | Added `TEST_EXTRA_ROOT_PATH_ENV_VAR`/`TEST_EXTRA_ROOT_PACKAGE_ENV_VAR` to `plugin_framework/extension_layout.py`, read only from the environment | Three tests discover a synthetic plugin from a temp directory and (in one case) invoke a live handler through it; v4's real path spawns `driver.py` as a subprocess that resolves itself via `trusted_roots()`, hardcoded to the real `extensions/*` directories with no prior injection seam — a spawned subprocess has no access to a parent test's monkeypatches, only its environment. Read only from the environment, never a request or manifest value, so it can never become an attacker-controlled plugin path (CONTRIBUTING.md #1) |
+| 2026-09-08 | Added `TEST_EXTRA_PLUGIN_ROOT_PATH_ENV_VAR`/`TEST_EXTRA_PLUGIN_ROOT_PACKAGE_ENV_VAR` to `plugin_framework/plugin_layout.py`, read only from the environment | Three tests discover a synthetic plugin from a temp directory and (in one case) invoke a live handler through it; v4's real path spawns `driver.py` as a subprocess that resolves itself via `trusted_roots()`, hardcoded to the real `plugins/*` directories with no prior injection seam — a spawned subprocess has no access to a parent test's monkeypatches, only its environment. Read only from the environment, never a request or manifest value, so it can never become an attacker-controlled plugin path (CONTRIBUTING.md #1) |
 | 2026-09-08 | Directory-move package boundaries for Phase 4: `contracts` gets `plugin_api.py`; `data_core/host` absorbs both old `recording/` and `backend/services/recording/`; `runtime_core` is exactly `studies`+`settings`+`delivery` | Matches D6/target package mapping; `data_core/host`'s merge specifically resolves the pre-1.0 split that existed only because `backend` importing `recording` eagerly at Flask-construction time was a real cycle risk before this package (with no Flask routes) existed |
 | 2026-09-08 | `recording_finalization_adapter.py` placed in `backend/services/delivery/` (now `runtime_core/delivery/`), not in `data_core/host/` alongside the rest of the old `backend/services/recording/` | It is the one file in that directory that imports RuntimeCore-side code (`finalization_service.py`); leaving it in `data_core/host` would have created a real `backend <-> data_core.host` import cycle (backend already imports data_core.host extensively) once the merge closed the loop. Moved to the allowed direction (RuntimeCore → DataCore) instead of redesigning the finalization/DataCore ownership split under a move commit — that split is real, deferred design work (see "Split scientific sealing out of the current delivery services..." above), not something to improvise while relocating files |
 | 2026-09-08 | New `shared/filename_sanitizer.py` for `sanitize_identifier_for_filename` | Needed by both `data_core/host/sensor_flush_service.py` and `backend/services/studies/results_service.py` (now `runtime_core/studies/`) after the Phase 4 merge; a pure, dependency-free helper neither area should own on the other's behalf |
@@ -2316,7 +2316,7 @@ Checkpoint: destinations moved; catalog, real fake-client Notion path, retry and
 hardware-path suites: 69 passed. Next: outputs and final multi-root tests.
 
 Checkpoint: 4.7 complete. All six built-ins now live below categorized
-`extensions/`; the obsolete `plugins` package is removed. One trusted-root
+`plugins/`; the obsolete `plugins` package is removed. One trusted-root
 resolver serves catalog, child drivers, UI assets, self-check and packaging.
 Cross-category candidates share the global conflict pass. Targeted evidence:
 84 Python, 4 packaging and 4 JavaScript tests passed. Next: 4.8 `apps/ui`.

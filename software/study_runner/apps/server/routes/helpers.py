@@ -42,11 +42,6 @@ from study_runner.runtime_core.studies.validation import (
     validate_and_normalize_study_settings,
 )
 
-# Internal marker/clock streams are mandatory recording providers, not
-# operator-toggleable integrations.
-ACTIVE_RUNTIME_TOGGLE_KEYS: set[str] = set()
-
-
 def _hardware_disabled() -> bool:
     configured = current_app.config.get("HARDWARE_DISABLED")
     if configured is not None:
@@ -336,18 +331,6 @@ def _set_runtime_enabled(config_data: dict, plugin_key: str, enabled: bool) -> N
     set_plugin_enabled(config_data, plugin_key, enabled)
 
 
-def _apply_plugin_toggle_to_active_runtime(plugin_key: str, enabled: bool) -> bool:
-    active_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
-    if not isinstance(active_config, dict) or plugin_key not in ACTIVE_RUNTIME_TOGGLE_KEYS:
-        return False
-
-    active_copy = _copy_config(active_config)
-    _set_runtime_enabled(active_copy, plugin_key, enabled)
-    current_app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = active_copy
-    _refresh_trial_runtime()
-    return True
-
-
 def _rebuild_active_study_runtime_config(study_settings: dict | None = None) -> dict | None:
     if not isinstance(current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"), dict):
         return None
@@ -561,10 +544,6 @@ def _stop_study_sensor_runtime() -> dict:
 
 def _session_store():
     return current_app.config["SESSION_STORE"]
-
-
-def _find_active_study_session(study_id: str, participant_id: str, client_id: str = "") -> dict | None:
-    return _session_store().find_active(study_id, participant_id, client_id)
 
 
 def _start_or_reuse_study_session(payload: dict) -> dict:

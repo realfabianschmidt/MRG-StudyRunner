@@ -24,10 +24,6 @@ from study_runner.apps.server import create_app
 EXPECTED_ROUTES = {
     ("GET", "/"),
     ("GET", "/admin"),
-    ("POST", "/api/admin/brainbit/restart"),
-    ("POST", "/api/admin/brainbit/select-device"),
-    ("POST", "/api/admin/brainbit/start"),
-    ("POST", "/api/admin/brainbit/stop"),
     ("GET", "/api/admin/camera/live/status"),
     ("POST", "/api/admin/camera/start"),
     ("POST", "/api/admin/camera/stop"),
@@ -53,9 +49,6 @@ EXPECTED_ROUTES = {
     ("GET", "/api/admin/plugins/<plugin_key>/console/events"),
     ("POST", "/api/admin/plugins/<plugin_key>/console/input"),
     ("POST", "/api/admin/plugins/<plugin_key>/console/unlock"),
-    ("POST", "/api/admin/radar/restart"),
-    ("POST", "/api/admin/radar/start"),
-    ("POST", "/api/admin/radar/stop"),
     ("GET", "/api/admin/recovery"),
     ("POST", "/api/admin/recovery/discard"),
     ("POST", "/api/admin/recovery/finalize"),
@@ -84,15 +77,12 @@ EXPECTED_ROUTES = {
     ("POST", "/api/admin/update/download"),
     ("POST", "/api/admin/update/install"),
     ("GET", "/api/admin/update/status"),
-    ("POST", "/api/camera/frame"),
     ("GET", "/api/config"),
     ("POST", "/api/config"),
     ("GET", "/api/hardware-config"),
     ("POST", "/api/hardware-config"),
     ("GET", "/api/health"),
     ("POST", "/api/marker"),
-    ("POST", "/api/notion/flush-queue"),
-    ("GET", "/api/notion/status"),
     ("GET", "/api/finalization/status"),
     ("GET", "/api/finalization/<job_id>"),
     ("POST", "/api/finalization/<job_id>/retry"),
@@ -193,6 +183,26 @@ class RouteInventoryTests(unittest.TestCase):
 
             runtime = client.get("/api/study/runtime")
             self.assertEqual(runtime.status_code, 200)
+
+    def test_removed_compatibility_routes_return_not_found(self) -> None:
+        removed_routes = (
+            ("get", "/api/notion/status"),
+            ("post", "/api/notion/flush-queue"),
+            ("post", "/api/admin/brainbit/start"),
+            ("post", "/api/admin/brainbit/stop"),
+            ("post", "/api/admin/brainbit/restart"),
+            ("post", "/api/admin/brainbit/select-device"),
+            ("post", "/api/admin/radar/start"),
+            ("post", "/api/admin/radar/stop"),
+            ("post", "/api/admin/radar/restart"),
+            ("post", "/api/camera/frame"),
+        )
+        with tempfile.TemporaryDirectory() as data_dir:
+            client = _make_app(data_dir).test_client()
+            for method, path in removed_routes:
+                with self.subTest(path=path):
+                    response = getattr(client, method)(path, json={} if method == "post" else None)
+                    self.assertEqual(response.status_code, 404)
 
 
 class UpdaterWireFormatTests(unittest.TestCase):

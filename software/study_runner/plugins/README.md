@@ -1,9 +1,9 @@
-# Built-in extensions
+# Built-in plugins
 
 Each trusted plugin shipped with Study Runner owns one directory containing:
 
 ```text
-extensions/<category>/<folder>/
+plugins/<category>/<folder>/
   manifest.json
   plugin.py
   optional adapter.py, ui/*.js, assets, and focused helpers
@@ -24,8 +24,8 @@ stop other plugins or the server from loading.
 ## Manifest contract
 
 Every current manifest uses `api_version: 5` and declares identity, plugin version,
-category, config key, `plugin:PLUGIN` entry point, UI metadata, settings
-schemas, timing limits, and capabilities. Important capability names are:
+category, config key, `runtime.entrypoint` for its process driver, UI metadata,
+settings schemas, timing limits, and capabilities. Important capability names are:
 
 - `study_sensor`: selectable for a study, required by default when selected.
 - `lsl_stream_provider`: owns stable stream/source IDs and channel metadata.
@@ -35,11 +35,8 @@ schemas, timing limits, and capabilities. Important capability names are:
   guarantee heartbeat, sequence, and source timestamps.
 - `runtime_modes`, `health`, and `admin_actions`: lifecycle, diagnostics, and
   generic manifest-declared operator actions. `health` gates whether the
-  admin coordinator polls this plugin's status at all -- declare it only if
-  there's something worth polling. `runtime_modes` (renamed from `readiness`
-  in api_version 5; `runtime_control` was retired the same release, both
-  traced to have zero effect before the change) declares optional
-  platform-mode support.
+  admin coordinator polls this plugin's status. `runtime_modes` declares
+  optional platform-mode support.
 - `readiness_requirements`: distinct from `runtime_modes` above - what a study
   needs before this plugin can actually deliver results:
   `requires_secret`, `requires_settings` (a list; any one satisfies it), and
@@ -60,10 +57,11 @@ resolved inside its own folder after schema and duplicate checks pass.
 
 Optional rich UI stays inside the plugin. Declare entry modules as
 `ui.extensions.dashboard` and/or `ui.extensions.participant`; declare relative
-JavaScript imports under `ui.assets`. Discovery rejects absolute, traversing,
-missing, or non-JavaScript paths, and the asset endpoint serves only those exact
-manifest entries. A failed extension is isolated and the generic UI remains
-usable. `ui.timeline.lane_aliases` and `preferred_channels` control completed-
+JavaScript and CSS files under `ui.assets`. Extension entries remain JavaScript
+modules. Discovery rejects absolute, traversing, unsupported, or missing paths,
+and the asset endpoint serves only exact manifest entries. A failed extension
+is isolated and the generic UI remains usable. `ui.timeline.lane_aliases` and
+`preferred_channels` control completed-
 session lanes without adding sensor keys to the renderer.
 
 Admin actions use a closed `payload_schema`. Dynamic buttons may map cached

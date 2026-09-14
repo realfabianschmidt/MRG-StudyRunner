@@ -10,7 +10,12 @@ from typing import Any
 from study_runner.shared.atomic_io import atomic_write_json
 from study_runner.shared.study_identifiers import normalize_study_id
 
-from .study_plugin_config import migrate_study_plugin_config
+from .migrate import migrate_study_config
+from .study_plugin_config import (
+    LEGACY_CARD_FIELDS,
+    normalize_card_plugin_actions,
+    normalize_study_settings_plugins,
+)
 
 STUDY_FILE_SUFFIXES = (".study-runner", ".json")
 _STUDY_SAVE_LOCK = threading.RLock()
@@ -21,40 +26,14 @@ class StudyRevisionConflict(ValueError):
     """A client tried to replace a study revision it did not load."""
 
 
-# Frozen input for migrating the pre-card stimulus_duration_ms field. Current
-# defaults come from the stimulus extension through card_defaults.
-LEGACY_STIMULUS_MIGRATION_TEMPLATE: dict[str, Any] = {
-    "type": "stimulus",
-    "title": "Observe the material",
-    "subtitle": "Pay attention to all sensory impressions. The questionnaire will appear automatically.",
-    "warmup_duration_ms": 0,
-    "duration_ms": 30000,
-    "trigger_type": "timer",
-    "trigger_content": "",
-    "plugin_actions": {},
-}
-
-
 def normalize_config(config_data: dict[str, Any]) -> dict[str, Any]:
     """Migrate old config keys into the current card-based study structure."""
-    if "stimulus_duration_ms" in config_data:
-        card = dict(LEGACY_STIMULUS_MIGRATION_TEMPLATE)
-        card["duration_ms"] = config_data.pop("stimulus_duration_ms")
-        questions = config_data.get("questions", [])
-        if not any(q.get("type") == "stimulus" for q in questions):
-            config_data["questions"] = [card] + questions
-    config_data.pop("stimulus_duration_ms", None)
-
-    for question_data in config_data.get("questions", []):
-        if (
-            isinstance(question_data, dict)
-            and question_data.get("type") == "choice"
-            and question_data.get("multiple") is False
-        ):
-            question_data["type"] = "single"
-            question_data.pop("multiple", None)
-
-    return migrate_study_plugin_config(config_data)
+    return migrate_study_config(
+        config_data,
+        normalize_settings=normalize_study_settings_plugins,
+        normalize_actions=normalize_card_plugin_actions,
+        legacy_card_fields=LEGACY_CARD_FIELDS,
+    )
 
 
 def load_config(config_file: Path) -> dict[str, Any]:

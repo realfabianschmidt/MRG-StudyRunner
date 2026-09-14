@@ -13,9 +13,8 @@ from typing import Any
 
 
 PLUGIN_API_VERSION = 5
-# v3 (in-process import via entry_point) removed in Phase 3.1
-# (docs/architecture-1.0-umbau.md) -- every shipped manifest was already
-# api_version 4 (process-host) before this narrowed. v4 -> v5 in Phase 3.4:
+# The in-process v3 import path was removed in Phase 3.1. Every shipped manifest
+# was already api_version 4 (process-host) before this narrowed. v4 -> v5 in Phase 3.4:
 # `runtime_control` retired (traced every call site; it had zero effect --
 # process_host's only use was a fallback dead in practice because every
 # declaring plugin already sets runtime.actions explicitly), `readiness`
@@ -50,7 +49,8 @@ UI_VISIBILITY_AREAS = (
     "destination_settings",
 )
 UI_EXTENSION_SURFACES = ("dashboard", "participant", "card")
-_UI_ASSET_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]*\.js$")
+_UI_ASSET_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]*\.(?:js|css)$")
+_UI_EXTENSION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]*\.js$")
 _TIMELINE_CHANNEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _PLATFORM_TARGET_PATTERN = re.compile(r"^(?:default|[a-z][a-z0-9]*-[a-z0-9_]+)$")
 ACQUISITION_TRANSPORTS = {
@@ -93,10 +93,6 @@ _LSL_CHANNEL_FORMATS = {
     "double64",
     "string",
 }
-ENTRY_POINT_PATTERN = re.compile(
-    r"^(?P<module>[a-zA-Z_][a-zA-Z0-9_.]*):(?P<attribute>[a-zA-Z_][a-zA-Z0-9_]*)$"
-)
-
 # Historic capability names are accepted while reading a manifest, but the
 # public API-v4 catalog always exposes one current vocabulary.
 CAPABILITY_ALIASES = {
@@ -125,20 +121,6 @@ def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dic
     config_key = _required_key(payload, "config_key")
     version = _required_text(payload, "version")
     category = _required_text(payload, "category")
-    # Optional as of Phase 3.1 (docs/architecture-1.0-umbau.md): every
-    # supported api_version (4) loads through the process host via
-    # runtime.entrypoint, not this field. Kept validated-if-present rather
-    # than deleted outright so an operator-edited manifest that still
-    # carries it from before the rebuild keeps loading; the key itself is
-    # scheduled for removal from manifests a release later (T4).
-    entry_point = _optional_text(payload.get("entry_point"))
-    if entry_point:
-        entry_match = ENTRY_POINT_PATTERN.fullmatch(entry_point)
-        if entry_match is None:
-            raise PluginManifestError("entry_point must use 'module:attribute' syntax")
-        if entry_match.group("module").startswith(".") or ".." in entry_match.group("module"):
-            raise PluginManifestError("entry_point must remain inside its plugin directory")
-
     ui = payload.get("ui")
     if not isinstance(ui, dict):
         raise PluginManifestError("ui must be a JSON object")
@@ -193,7 +175,6 @@ def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dic
         "config_key": config_key,
         "version": version,
         "category": category,
-        "entry_point": entry_point,
         "directory": directory_name,
         "ui": {
             "label": label,
@@ -1145,6 +1126,7 @@ def _normalize_ui_extensions(value: Any) -> dict[str, str]:
         extensions[surface] = _normalize_ui_asset_path(
             value[surface],
             f"ui.extensions.{surface}",
+            javascript_only=True,
         )
     return extensions
 
@@ -1163,10 +1145,17 @@ def _normalize_ui_assets(value: Any) -> list[str]:
     return assets
 
 
-def _normalize_ui_asset_path(value: Any, name: str) -> str:
+def _normalize_ui_asset_path(
+    value: Any,
+    name: str,
+    *,
+    javascript_only: bool = False,
+) -> str:
     path = _optional_text(value)
-    if not path or not _UI_ASSET_PATTERN.fullmatch(path):
-        raise PluginManifestError(f"{name} must be a relative POSIX .js path")
+    pattern = _UI_EXTENSION_PATTERN if javascript_only else _UI_ASSET_PATTERN
+    if not path or not pattern.fullmatch(path):
+        suffixes = ".js" if javascript_only else ".js or .css"
+        raise PluginManifestError(f"{name} must be a relative POSIX {suffixes} path")
     pure_path = PurePosixPath(path)
     if pure_path.is_absolute() or any(part in {"", ".", ".."} for part in pure_path.parts):
         raise PluginManifestError(f"{name} must remain inside the plugin directory")
@@ -1513,5 +1502,3 @@ def _non_negative_int(value: Any, name: str) -> int:
     if result < 0:
         raise PluginManifestError(f"{name} must be a non-negative integer")
     return result
-
-
