@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.0.0 - 2026-09-14
+
 Study Runner 1.0 rebuilds the application on a clearer internal architecture
 (`docs/architecture-1.0-umbau.md`) with no removed capability. The user- and
 operator-facing highlights:
