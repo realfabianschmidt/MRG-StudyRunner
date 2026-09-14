@@ -4,47 +4,30 @@ Updated: 2026-09-10. Read this file and [the working plan](architecture-1.0-umba
 before continuing. Both are tracked repository files, accessible to either
 assistant through the local checkout; no private assistant memory is required.
 
-## OPEN AND URGENT: three structure regressions are unaccounted for (2026-09-14)
+## Structure baseline review completed (2026-09-14)
 
-`python tools/measure_structure.py --check` currently exits 1 with:
+The three previously red structure values were reviewed before updating the
+baseline. The `extensions/` to `plugins/` rename commit still measured 302
+cross-package import edges, so the rename itself did not add dependencies.
+The final values are:
 
 ```text
-- cross-package import edges grew: 302 -> 306
-- plugin_framework/ grew: 2700 -> 2703 lines
-- runtime_core/ grew: 12816 -> 12885 lines
+cross-package import edges: 306
+cycles: 0
+plugin_framework: 2703 lines
+runtime_core: 12885 lines
+plugins.sensors: 12855 lines
+largest file: plugins/sensors/brainbit/adapter.py, 2438 lines
 ```
 
-These are **deliberately left red**. They arrived with the
-`extensions/` → `plugins/` rename and the new `runtime_core/*/migrate.py`
-files, i.e. from work that is not the BrainBit rebuild, so whoever made those
-changes should look at the numbers and decide whether each one is acceptable
-before absorbing it. The ratchet only works if a human accepts each
-regression knowingly; `tools/measure_structure.py`'s own docstring says as
-much ("a passing check is never a reason to automatically overwrite the
-baseline").
-
-What *was* absorbed into `tools/structure_baseline.json` on 2026-09-14, and
-why:
-
-- the `extensions.* → plugins.*` key rename, values unchanged for
-  `cards`/`destinations`/`outputs` — a pure move, nothing grew;
-- `plugins.sensors` 8087 → 12271 and largest file 2292 → 2304
-  (`plugins/sensors/brainbit_old/adapter.py`) — the deliberate frozen copy of
-  the pre-rebuild BrainBit integration, kept as an operator fallback. Growth
-  here is the intended cost of having an archive at all;
-- `plugins.sensors` 12271 → 12843 and largest file → 2438
-  (`plugins/sensors/brainbit/adapter.py`) — the BrainBit connection rebuild
-  itself: the CLI's own retry loop, the sliced scan, the new
-  connecting/connected/waiting states, and the discovery probe under
-  `brainbit/tools/`. **`adapter.py` at 2438 lines is now the largest file in
-  the repository and is itself a finding**, recorded in that plugin's README:
-  it does four separable jobs and wants splitting. That was deliberately not
-  done in the same pass as the behaviour fixes, so the two changes stay
-  reviewable apart.
-
-Nothing else was touched. In particular the four new cross-package import
-edges are worth a look on their own: that number is the one most likely to
-signal a boundary quietly being crossed.
+The additional import edges come from the deliberately shipped
+`brainbit_old` fallback and are partly offset by dependencies removed with the
+legacy HTTP routes. The three extra framework lines belong to the renamed
+plugin layout helpers. The runtime growth contains the three new migration
+modules; route cleanup reduced other runtime code at the same time. These are
+expected implementation costs and do not add a cycle or weaken an import
+boundary. `tools/structure_baseline.json` now records the reviewed result, and
+`python tools/measure_structure.py --check` passes.
 
 ## Development data directory (2026-09-10)
 

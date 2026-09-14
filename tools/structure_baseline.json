@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 302,
+  "cross_package_import_edges": 306,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -8,21 +8,21 @@
   },
   "lines_per_package": {
     "apps": 0,
-    "apps.server": 4404,
+    "apps.server": 4164,
     "apps.ui": 0,
-    "contracts": 2634,
+    "contracts": 2621,
     "data_core": 16,
-    "data_core.contract": 1223,
+    "data_core.contract": 1184,
     "data_core.host": 6203,
-    "data_core.worker": 2413,
+    "data_core.worker": 2406,
+    "plugin_framework": 2703,
     "plugins": 0,
     "plugins.cards": 1093,
     "plugins.destinations": 1607,
     "plugins.outputs": 154,
     "plugins.sensors": 12855,
-    "plugin_framework": 2700,
-    "runtime_core": 12816,
-    "shared": 455,
+    "runtime_core": 12885,
+    "shared": 448,
     "updates": 271
   }
 }

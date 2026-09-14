@@ -6,7 +6,7 @@
   "category": "output",
   "ui": {
     "label": "Example output",
-    "description": "Plugin SDK template for a new output/infrastructure extension. Rename plugin_key/config_key and every 'example_output' occurrence (manifest, plugin.py, driver.py) before shipping -- tools/plugin_sdk.py new does this for you.",
+    "description": "Plugin SDK template for a new output/infrastructure plugin. Rename plugin_key/config_key and every 'example_output' occurrence (manifest, plugin.py, driver.py) before shipping -- tools/plugin_sdk.py new does this for you.",
     "order": 9999
   },
   "capabilities": ["health"],

@@ -1,19 +1,7 @@
 """Probe the native XDF core library without constructing a writer.
 
-Moved out of `recording_worker.core` during the 1.0 rebuild
-(docs/architecture-1.0-umbau.md, Phase 2.5): `recording/worker_binary.py`
-(the host-side fail-closed core locator) needs this to validate a build
-before it ever starts the worker, and `recording` may not import
-`recording_worker` (invariant #1) -- the worker owns the actual writer, not
-probing.
-
-Split cleanly from `NativeXdfCore`/`NativeXdfWriter` (which stay in
-`recording_worker.core`, per invariant #5: only the worker may write XDF
-bytes): probing never constructs a writer, so nothing here depends on
-anything writer-specific. `recording_worker.core` imports `NativeXdfError`,
-`CoreProbe` and `probe_core_library` back from here for its own internal use
-(the writer probes its own library on construction) and re-exports them so
-existing callers keep working unchanged.
+Both ``data_core.host.worker_binary`` and ``data_core.worker.core`` use this
+dependency-free contract. Actual XDF writer construction remains worker-owned.
 """
 from __future__ import annotations
 

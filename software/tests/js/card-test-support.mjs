@@ -28,7 +28,11 @@ export async function importCard(url) {
 
 export async function loadShippedCards() {
   configurePluginCatalog(snapshot.catalog);
-  await loadCards({ importer: importCard, fetchDefaults: async plugin => ({ defaults: snapshot.defaults[plugin.plugin_key] }) });
+  await loadCards({
+    importer: importCard,
+    fetchDefaults: async plugin => ({ defaults: snapshot.defaults[plugin.plugin_key] }),
+    stylesheetLoader: async () => {},
+  });
   return CARDS;
 }
 

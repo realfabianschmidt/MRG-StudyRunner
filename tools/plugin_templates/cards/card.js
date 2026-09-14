@@ -2,7 +2,7 @@
 //
 // Rename the question type ('example-question') here, in manifest.json, and
 // in plugin.py before shipping -- it must be globally unique across every
-// card extension, so the SDK's `new` command does not rename it for you.
+// card plugin, so the SDK's `new` command does not rename it for you.
 // This file is a browser (ES module) asset: tools/plugin_sdk.py's
 // Python-only `validate`/`check-runtime` commands do not exercise it.
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';

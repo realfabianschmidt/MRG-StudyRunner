@@ -116,6 +116,15 @@ class PluginManifestTests(unittest.TestCase):
             },
         )
 
+    def test_legacy_entry_point_is_ignored(self) -> None:
+        payload = _manifest("fixture")
+        payload["entry_point"] = "legacy_module:PLUGIN"
+
+        manifest = validate_and_normalize_manifest(payload, directory_name="fixture")
+
+        self.assertNotIn("entry_point", manifest)
+        self.assertEqual(manifest["runtime"]["entrypoint"], "driver.py")
+
     def test_upload_destination_policy_and_legacy_aliases_are_normalized(self) -> None:
         payload = _manifest("fixture_export")
         payload["capabilities"]["upload_destination"] = {

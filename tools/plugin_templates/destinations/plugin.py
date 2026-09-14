@@ -1,4 +1,4 @@
-"""Example upload-destination extension -- Study Runner plugin SDK template.
+"""Example upload-destination plugin -- Study Runner plugin SDK template.
 
 Rename `example_destination` everywhere (this file's PLUGIN.key/config_key
 and the manifest's plugin_key/config_key) before shipping;

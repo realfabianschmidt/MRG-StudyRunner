@@ -4,7 +4,6 @@
   "version": "1.0.0",
   "category": "biosignal",
   "config_key": "brainbit_old",
-  "entry_point": "plugin:PLUGIN",
   "runtime": {
     "entrypoint": "driver.py",
     "protocol": "study-runner-stdio/v1",

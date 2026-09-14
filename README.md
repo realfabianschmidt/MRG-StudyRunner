@@ -56,7 +56,7 @@ study_runner/
 |-- contracts/         Pure shared manifest and plugin contracts.
 |-- data_core/         Host, worker and wire-contract recording packages.
 |-- runtime_core/      Study, settings and delivery orchestration.
-|-- plugins/        Sensors, destinations, outputs and future cards.
+|-- plugins/           Sensors, cards, destinations, and outputs.
 |-- plugin_framework/  The machinery that finds and runs those plugins.
 |-- shared/            Dependency-light common utilities.
 `-- updates/           Verifying and applying a signed update.

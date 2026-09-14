@@ -1,7 +1,7 @@
 """Minimal plugin SDK for building a new plugin (Phase 5j).
 
 Writing a new sensor, card, destination, or output today means copying an
-existing extension folder and editing it by hand. This tool gives that
+existing plugin folder and editing it by hand. This tool gives that
 starting point a name and three simple checks -- it does not invent a second
 copy of the real validation rules (CONTRIBUTING.md #7: extend what exists,
 do not build a second system next to it).
@@ -139,7 +139,7 @@ def _fake_runtime_env(plugin_dir: Path) -> Iterator[None]:
     """Make a plugin folder outside `plugins/` findable by its own subprocess.
 
     When a plugin boots, its driver.py runs as a brand-new subprocess that
-    only knows the real extension folders plus one extra path, set via two
+    only knows the real plugin folders plus one extra path, set via two
     environment variables (`plugin_layout.py`). This function sets those
     two variables temporarily so a template folder can be found the same
     way, then restores whatever was there before. The test suite
@@ -192,7 +192,7 @@ def cmd_check_runtime(plugin_dir: Path) -> int:
 
     Calls `plugin_framework.process_host.build_process_plugin` -- the same
     function that turns a discovered manifest into the `Plugin` object every
-    shipped extension is driven through -- then calls the resulting
+    shipped plugin is driven through -- then calls the resulting
     `initialize(context)`/`get_status(context)` exactly as the admin status
     poll does. This is the SDK's "fake runtime": real production machinery
     pointed at a bundle outside the trusted tree, not a simulated stand-in.
@@ -209,7 +209,7 @@ def cmd_check_runtime(plugin_dir: Path) -> int:
         print(f"FAIL: manifest is invalid: {error}", file=sys.stderr)
         return 1
 
-    tmp_data_dir = Path(tempfile.mkdtemp(prefix="extension-sdk-"))
+    tmp_data_dir = Path(tempfile.mkdtemp(prefix="plugin-sdk-"))
     context = PluginContext(
         base_dir=REPO_ROOT,
         data_dir=tmp_data_dir,
@@ -299,8 +299,8 @@ def generate_schema() -> dict[str, Any]:
     visibility_properties = {area: {"type": "boolean"} for area in UI_VISIBILITY_AREAS}
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": f"https://study-runner.internal/schemas/extension-manifest-v{PLUGIN_API_VERSION}.json",
-        "title": f"study_runner extension manifest envelope (api_version {PLUGIN_API_VERSION})",
+        "$id": f"https://study-runner.internal/schemas/plugin-manifest-v{PLUGIN_API_VERSION}.json",
+        "title": f"study_runner plugin manifest envelope (api_version {PLUGIN_API_VERSION})",
         "x-generated-by": "tools/plugin_sdk.py generate_schema()",
         "x-generated-from": "study_runner.contracts.manifest",
         "x-note": (
@@ -420,9 +420,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    new_parser = subparsers.add_parser("new", help="Scaffold a new extension from a template.")
+    new_parser = subparsers.add_parser("new", help="Scaffold a new plugin from a template.")
     new_parser.add_argument("category", choices=sorted(CATEGORY_DEFAULT_KEYS))
-    new_parser.add_argument("key", help="snake_case plugin key for the new extension")
+    new_parser.add_argument("key", help="snake_case plugin key for the new plugin")
     new_parser.add_argument("--out", type=Path, default=None, help="Parent directory (default: cwd)")
 
     validate_parser = subparsers.add_parser("validate", help="Validate one plugin bundle.")

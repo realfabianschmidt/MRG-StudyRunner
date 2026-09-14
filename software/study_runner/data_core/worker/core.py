@@ -7,14 +7,9 @@ from pathlib import Path
 import threading
 from typing import Any, Iterable, Sequence
 
-# CoreProbe/NativeXdfError/probe_core_library moved to
-# shared.native_core_probe during the 1.0 rebuild
-# (docs/architecture-1.0-umbau.md, Phase 2.5): `recording/worker_binary.py`
-# (host) needs to probe a build without depending on `recording_worker`
-# (invariant #1). Imported here for this module's own internal use (the
-# writer probes its own library on construction below) and re-exported so
-# existing callers of `recording_worker.core.{CoreProbe,NativeXdfError,
-# probe_core_library}` keep working unchanged.
+# The neutral probe contract is imported from data_core.contract so the host
+# can validate the library without importing this worker-owned writer module.
+# These names remain public through data_core.worker.__init__.
 from study_runner.data_core.contract.native_core_probe import (
     EXPECTED_ABI_VERSION,
     REQUIRED_CANONICAL_FEATURES,

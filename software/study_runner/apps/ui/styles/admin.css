@@ -686,12 +686,6 @@ body.admin::before { display: none; }
   overflow-y: auto;
 }
 
-.sidebar-header {
-  display: flex; align-items: center; gap: var(--s-3);
-  padding: var(--s-4) var(--s-5);
-  border-bottom: 1px solid var(--ink-08);
-  flex-shrink: 0;
-}
 .sidebar-section {
   padding: var(--s-4) var(--s-5);
   border-bottom: 1px solid var(--ink-08);

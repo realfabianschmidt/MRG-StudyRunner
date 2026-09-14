@@ -65,16 +65,19 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
         ui = payload.get("ui") if isinstance(payload.get("ui"), dict) else {}
         extensions = ui.get("extensions") if isinstance(ui.get("extensions"), dict) else {}
         extra_assets = ui.get("assets") if isinstance(ui.get("assets"), list) else []
-        declared_assets = [*extensions.values(), *extra_assets]
+        declared_assets = [
+            *((asset, {".js"}) for asset in extensions.values()),
+            *((asset, {".js", ".css"}) for asset in extra_assets),
+        ]
         seen_assets: set[str] = set()
         plugin_root = manifest.parent.resolve()
-        for raw_asset in declared_assets:
+        for raw_asset, allowed_suffixes in declared_assets:
             if not isinstance(raw_asset, str):
                 raise RuntimeError(f"Plugin UI asset path must be text in {manifest}")
             relative = PurePosixPath(raw_asset)
             if (
                 relative.is_absolute()
-                or relative.suffix != ".js"
+                or relative.suffix not in allowed_suffixes
                 or any(part in {"", ".", ".."} for part in relative.parts)
             ):
                 raise RuntimeError(f"Unsafe plugin UI asset path {raw_asset!r} in {manifest}")

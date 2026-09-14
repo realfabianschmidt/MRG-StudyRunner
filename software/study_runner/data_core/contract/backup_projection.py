@@ -1,15 +1,8 @@
-"""Slowest-grid backup projection scheduling.
+"""Slowest-grid backup projection scheduling shared by host and worker.
 
-The backup stream is a derived QC/recovery stream.  It samples the latest
-cached projection at fixed monotonic deadlines; it never polls hardware at a
-deadline and never carries stale values forward.
-
-Moved here from `recording.backup` during the 1.0 rebuild
-(docs/architecture-1.0-umbau.md, Phase 2.5): `recording_worker/lsl_recording.py`
-(the worker) needs this, and `recording_worker` may not import `recording`
-(invariant #1). It was already fully self-contained (stdlib only), so the
-whole file moved unchanged. `recording.backup` re-exports it so existing
-host-side callers keep working unchanged.
+The derived QC/recovery stream samples the latest cached projection at fixed
+monotonic deadlines. It never polls hardware at a deadline or carries stale
+values forward.
 """
 
 from __future__ import annotations

@@ -1,10 +1,7 @@
-"""Persistent 15-minute recording lease used after web-server loss.
+"""Persistent recording lease shared across the host/worker boundary.
 
-Moved here from `recording.recovery` during the 1.0 rebuild
-(docs/architecture-1.0-umbau.md, Phase 2.5): `recording_worker/runtime.py`
-(the worker) needs this, and `recording_worker` may not import `recording`
-(invariant #1). `recording.recovery` re-exports this module so existing
-host-side callers keep working unchanged.
+The worker reads the lease without importing host orchestration, and the host
+updates it without importing worker implementation code.
 """
 
 from __future__ import annotations

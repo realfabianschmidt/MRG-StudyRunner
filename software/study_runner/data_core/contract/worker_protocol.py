@@ -1,11 +1,6 @@
 """Authenticated, idempotent loopback protocol for the bundled XDF worker.
 
-Moved here from `recording.worker_protocol` during the 1.0 rebuild
-(docs/architecture-1.0-umbau.md, Phase 2.5): this is the wire contract both
-`recording/` (host) and `recording_worker/` (worker) speak, and the two may
-not import each other (invariant #1). `recording.worker_protocol`
-re-exports this module so existing callers on both sides keep working
-unchanged.
+Host and worker import this neutral contract instead of importing each other.
 """
 
 from __future__ import annotations

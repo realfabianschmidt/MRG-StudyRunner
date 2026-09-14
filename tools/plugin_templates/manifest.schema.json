@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://study-runner.internal/schemas/extension-manifest-v5.json",
-  "title": "study_runner extension manifest envelope (api_version 5)",
+  "$id": "https://study-runner.internal/schemas/plugin-manifest-v5.json",
+  "title": "study_runner plugin manifest envelope (api_version 5)",
   "x-generated-by": "tools/plugin_sdk.py generate_schema()",
   "x-generated-from": "study_runner.contracts.manifest",
   "x-note": "Structural reference for the manifest ENVELOPE only -- top-level fields, the ui block, and the runtime block, all of which validate_and_normalize_manifest checks with a closed field set. Capability-internal shapes are NOT covered; run `python tools/plugin_sdk.py validate <dir>` for the real, authoritative check instead of trusting this file for that.",

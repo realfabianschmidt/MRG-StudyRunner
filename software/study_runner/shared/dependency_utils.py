@@ -1,15 +1,8 @@
-"""Install an optional runtime dependency on demand, or fail with a plain message.
+"""Install optional runtime dependencies for trusted plugins and host sources.
 
-Moved out of `plugin_framework.dependency_utils` during the 1.0 rebuild
-(docs/architecture-1.0-umbau.md, Phase 2.4): `recording/markers.py` and
-`recording/clock_diagnostics.py` need this to lazily require `pylsl`, and
-`recording` (data_core) may not depend on `plugin_framework` (invariant #2,
-extended in this rebuild to cover this direction too -- see the doc's
-Ist/Soll table). This module was already fully self-contained (stdlib plus
-`shared.runtime_mode`), so the whole thing moved rather than splitting it.
-
-`plugin_framework.dependency_utils` re-exports this so its six existing
-plugin callers keep working unchanged.
+The helper stays in ``shared`` because both ``plugins`` and ``data_core.host``
+use it and neither package may depend on the other. It uses only the standard
+library and ``shared.runtime_mode``.
 """
 from __future__ import annotations
 

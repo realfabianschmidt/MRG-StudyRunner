@@ -1,1 +1,1 @@
-"""Example output extension (Study Runner plugin SDK template)."""
+"""Example output plugin (Study Runner plugin SDK template)."""

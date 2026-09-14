@@ -1,13 +1,13 @@
-"""Example question-card extension -- Study Runner plugin SDK template.
+"""Example question-card plugin -- Study Runner plugin SDK template.
 
 `tools/plugin_sdk.py new cards <your_key>` renames the plugin key
 (`example_card`) for you. The question type itself (`example-question`,
 hyphenated per convention) must be renamed by hand here, in manifest.json,
-and in card.js -- it has to be globally unique across every card extension,
+and in card.js -- it has to be globally unique across every card plugin,
 which the SDK cannot know in advance.
 
 Card defaults, config normalization, and answer validation all live here,
-in the extension's own process (Phase 5g.B5) -- never as a type-specific
+in the plugin's own process (Phase 5g.B5) -- never as a type-specific
 branch in core code (CONTRIBUTING.md #7). See docs/developer-guide.md,
 "Adding A Card Type".
 """

@@ -101,6 +101,43 @@ class PyInstallerCommonTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "DeepFace model weights are missing"):
                 common.common_datas(root)
 
+    def test_card_javascript_and_css_assets_are_bundled(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "study_runner" / "apps" / "ui").mkdir(parents=True)
+            plugin = root / "study_runner" / "plugins" / "cards" / "example"
+            plugin.mkdir(parents=True)
+            (root / "study_content").mkdir()
+            _touch_internal_recording_manifests(root)
+            manifest = plugin / "manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "plugin_key": "example",
+                        "ui": {
+                            "extensions": {"card": "card.js"},
+                            "assets": ["card.js", "card.css"],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (plugin / "card.js").write_text("export {};", encoding="utf-8")
+            (plugin / "card.css").write_text(".example {}", encoding="utf-8")
+
+            with mock.patch.object(common, "collect_data_files"):
+                datas = common.common_datas(root)
+
+            bundled = {Path(source).name for source, _destination in datas}
+            self.assertIn("card.js", bundled)
+            self.assertIn("card.css", bundled)
+
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["ui"]["extensions"]["card"] = "card.css"
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "Unsafe plugin UI asset"):
+                common.common_datas(root)
+
 
 if __name__ == "__main__":
     unittest.main()

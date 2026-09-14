@@ -19,8 +19,8 @@ Recommended starting points:
   why durations use the monotonic clock, and what the lifecycle states say.
 - `developer-guide.md`: code structure, naming rules and integration plugin pattern.
 - `file-guide.md`: one line per source file - what it does and how safely it can be edited.
-- [20260914_hotfix.md](20260914_hotfix.md): README cleanup and the open implementation
-  plan for unused code, compatibility routes, Plugin naming, migrations, and card CSS.
+- [20260914_hotfix.md](20260914_hotfix.md): implementation record for README cleanup,
+  compatibility-route removal, Plugin naming, migrations, and card CSS.
 - `release-and-update.md`: source archives, manual updates, release tags, and platform acceptance gates.
 - `architecture-1.0-handoff.md`: shared Claude/Codex continuation notes, tested
   commits, active ownership and next steps. Read this before resuming the rebuild.

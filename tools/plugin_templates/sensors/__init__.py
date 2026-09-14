@@ -1,1 +1,1 @@
-"""Example sensor extension (Study Runner plugin SDK template)."""
+"""Example sensor plugin (Study Runner plugin SDK template)."""

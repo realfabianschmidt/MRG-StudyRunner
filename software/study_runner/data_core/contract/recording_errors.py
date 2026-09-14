@@ -1,11 +1,4 @@
-"""Typed errors at the recording/worker boundary.
-
-Moved here from `recording.errors` during the 1.0 rebuild
-(docs/architecture-1.0-umbau.md, Phase 2.5): both `recording/` (host) and
-`recording_worker/` (worker) raise and catch these, and the two may not
-import each other (invariant #1). `recording.errors` re-exports this module
-so existing callers on both sides keep working unchanged.
-"""
+"""Typed errors shared across the ``data_core.host``/worker boundary."""
 from __future__ import annotations
 
 

@@ -29,7 +29,7 @@
   },
   "ui": {
     "label": "Example card",
-    "description": "Plugin SDK template for a new question card. tools/plugin_sdk.py new renames plugin_key/config_key ('example_card') for you; the question type ('example-question', hyphenated per convention -- see manifest.py's _QUESTION_TYPE_PATTERN) must still be renamed by hand in this manifest, plugin.py, and card.js, since it must be globally unique across every card extension.",
+    "description": "Plugin SDK template for a new question card. tools/plugin_sdk.py new renames plugin_key/config_key ('example_card') for you; the question type ('example-question', hyphenated per convention -- see manifest.py's _QUESTION_TYPE_PATTERN) must still be renamed by hand in this manifest, plugin.py, and card.js, since it must be globally unique across every card plugin.",
     "order": 9999,
     "visibility": {
       "dashboard": false,

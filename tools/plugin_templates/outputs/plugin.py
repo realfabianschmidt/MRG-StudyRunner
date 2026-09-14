@@ -1,4 +1,4 @@
-"""Example output extension -- Study Runner plugin SDK template.
+"""Example output plugin -- Study Runner plugin SDK template.
 
 Rename `example_output` everywhere (this file's PLUGIN.key/config_key and
 the manifest's plugin_key/config_key) before shipping;

@@ -115,31 +115,6 @@ Turn it on only if this plugin fails in a way that stops a study, and then:
   comparable with existing ones;
 - treat it as temporary, and say what happened, so it can be fixed here.
 
-## Findings
-
-**Dead code.** `diagnose_backends.py` (22 KB) is a hand-run diagnostic tool that
-no runtime code imports; it is kept deliberately, but it is not part of the
-plugin and could equally live in `tools/`. `HelloEEG_HelloMYO_01.3.toe` is an
-example file for a different application and is only here for convenience.
-
-**Room for improvement.**
-
-- `adapter.py` is very large (~2,300 lines) and does four separable jobs:
-  supervising a process, parsing a line protocol, deriving status, and
-  publishing to LSL/OSC. Splitting it is the obvious next structural step —
-  deliberately not done together with the connection fixes, so that the two
-  changes stay reviewable apart.
-- Three Markdown files (`README.md`, `README_ENHANCED.md`,
-  `OUTPUT_REFERENCE.md`) describe one plugin. `README_ENHANCED.md` could fold
-  into this file once its SDK notes are confirmed still current.
-- The derived attention/relaxation values are computed inside the acquisition
-  program. They are useful live, but for analysis they can be recomputed from
-  the raw EEG, so the dependency on the vendor's maths library is heavier than
-  the recording strictly needs.
-- `logs/` is written next to the code. For a packaged build this already
-  redirects to a writable folder, but a source checkout still writes into the
-  repository.
-
 ## Tests
 
 - `software/tests/test_brainbit_contract.py` — packet decoding, channel
