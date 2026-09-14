@@ -1907,6 +1907,97 @@ incompatibility instead of forcing a migration to appear successful.
       Evidence: `test_extension_sdk.py` (9 tests, includes the schema-drift
       check and the synthetic-source tests) plus the full suite below.
 
+## Update path: source-mode self-update (2026-09-14)
+
+Not a numbered Phase item -- part of the release/update planning round that
+also produced the MIT license switch above. One update path, not two: the
+admin dashboard's existing Update panel (`apps/server/routes/update.py`,
+`update_service.py`) already had a full signed-manifest-and-zip flow for a
+packaged (frozen) build; it unconditionally refused in source mode
+("use git pull or a fresh ZIP"). Owner decision: make the same panel actually
+update a git checkout, instead of adding a second install path (a
+resurrected Tkinter Manager, a signed feed) that would need a release-signing
+key and, on macOS, notarization credentials the project does not have.
+
+**What changed, in `update_service.py`:** `check_for_update`,
+`download_and_stage_update`, and `request_update_install` each now dispatch
+on `sys.frozen` at their very top -- source mode (not frozen) calls three new
+private functions instead of the packaged-build logic that follows:
+
+- `_check_for_source_update` fetches `study-runner-source-release.json` from
+  the latest GitHub Release (`release_tools/build_source_release.py` already
+  publishes it for every tag) and compares its `version` the same way the
+  packaged flow already does (`compare_versions`) -- no signing key involved,
+  since a source update is trusted through git and the release tag, not a
+  signature.
+- `_apply_source_update` is the fail-closed step: refuses (changing nothing)
+  if no update was checked, a study session is active
+  (`ACTIVE_STUDY_HARDWARE_CONFIG`), the checkout has no `.git`, it is not on
+  `main` (the only branch that receives tagged releases), or it has local
+  changes to tracked files. Only then does it run `git pull --ff-only`
+  followed by the platform install script, and re-reads
+  `study_runner/version.py` from disk afterward rather than trusting the
+  network response for what version the checkout actually became.
+- `_request_source_restart` reuses `_spawn_installer` as-is (it already had a
+  non-frozen branch that runs `study_runner.updates.installer` as a module);
+  only `installer.py` itself gained a source-mode branch
+  (`_restart_source_checkout`), since the packaged branch's "launch this
+  downloaded executable" logic has no source-mode equivalent -- there is
+  nothing to launch but `server.py`, in place.
+
+`is_install_supported` and `_base_status` both gained a source-mode
+short-circuit (always supported; always "configured", no key needed) ahead of
+their packaged-build logic, which is otherwise unchanged.
+
+**A real design correction made mid-package:** the first draft dispatched on
+"is a signing key configured" (matching the *old* code's own condition
+literally), which would have kept running the packaged flow in a source
+checkout that happened to have a key configured for testing. Four existing
+tests relied on exactly that quirk. Re-read them against what they were
+actually testing (not what they happened to exercise) and concluded the
+`sys.frozen`-based dispatch is the correct one -- a source checkout should
+never need a signing key at all. Fixed the dispatch and updated those four
+tests to patch `sys.frozen` explicitly where they mean to test the packaged
+path, matching the one test that already did this correctly.
+
+**UI**: reused the existing three-button panel and its 46 `update.*` keys
+entirely -- no new buttons, no new panel. `setUpdateActions` no longer
+hard-disables Check in source mode; eight new locale keys (both `en.json` and
+`de.json`) supply source-mode wording for the same states the packaged flow
+already renders (checking, updating, ready, error), and two keys for a
+dead branch (`source_mode` could never combine with `!configured` once
+source mode became always-configured) were removed.
+
+**Docs**: `docs/release-and-update.md`'s "Updating A Source Checkout" section
+now leads with the dashboard panel, keeps the manual `git pull` steps as the
+documented fallback (also what runs under the hood), and its "Legacy
+Packaging Code" section now names `tools/study_runner_manager.py` explicitly
+and states exactly what reviving it would need (signing key, and on macOS,
+Apple credentials) -- neither this package nor any prior one touches that
+file. Also corrected an unrelated latent inaccuracy found in passing: the
+"Release Files" section implied `.zip` was Windows-only and `.tar.gz`
+macOS-only; both are already built from the identical tagged commit
+(`ARCHIVES` in `build_source_release.py`) and either works on any platform.
+
+**Verified against real infrastructure, not only mocks:** a live dev server
+in source mode reported `source_mode: true`, `configured: true`,
+`install_supported: true` from `/api/admin/update/status`; a real POST to
+`/api/admin/update/check` fetched the actual published
+`study-runner-source-release.json` from GitHub and correctly reported
+`1.0.0-dev` as newer than the latest published tag. `_apply_source_update`'s
+fast-forward path is proven with real `git` subprocesses against a real
+bare-repo-and-clone fixture (push a second commit to the "remote", pull it in
+the "local" checkout, confirm `version.py` actually changed on disk) rather
+than mocked git calls, since the whole safety argument rests on `--ff-only`
+itself.
+
+Evidence: 984 Python passed / 4 skipped (974 baseline + 10 net new/changed:
+6 new `SourceUpdateTests`, 2 new `test_update_installer.py` tests, 2 rewritten
+route tests, plus a live-server smoke test with a real GitHub round trip), 43
+JavaScript passed, structure baseline rewritten (line growth in
+`runtime_core/` and `updates/` from the new functions above; no new
+cross-package edges or cycles).
+
 ### Phase 6 — Acceptance
 
 - [ ] **6.1** Bundle builds and starts

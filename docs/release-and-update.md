@@ -14,8 +14,10 @@ used only to attach validated files to the tagged GitHub Release.
 
 The latest GitHub Release provides:
 
-- `study-runner-source.zip` for Windows;
-- `study-runner-source.tar.gz` for macOS;
+- `study-runner-source.zip` and `study-runner-source.tar.gz` -- identical
+  content in two archive formats, built from the exact same tagged commit.
+  Pick whichever your system opens more conveniently (`.zip` on Windows,
+  `.tar.gz` on macOS/Linux); either works on any of the three platforms;
 - `study-runner-source-release.json` with version, commit, platform, install,
   recording, and license metadata;
 - `SHA256SUMS` for manual integrity verification.
@@ -83,7 +85,18 @@ platform-specific wheel files and hashes maintained for all three targets.
 
 ## Updating A Source Checkout
 
-Stop the server, then run:
+**From the admin dashboard** (a git clone on `main`, the recommended install
+method): open the Update panel and click Check, then Update now. This runs
+exactly the steps below itself -- `git pull --ff-only`, then the platform
+install script -- and restarts the server for you once both succeed. It
+refuses to run, changing nothing, if: a study session is active, the checkout
+has local changes to tracked files, the checkout is not on `main`, or it is
+not a git clone at all (see the next paragraph for that last case).
+
+**By hand**, or if the checkout is not a git clone (a downloaded archive
+extracted in place, with no `.git` folder -- the admin panel's Update step
+does not apply there; download a fresh archive instead). Stop the server,
+then run:
 
 ```powershell
 git pull --ff-only
@@ -104,11 +117,12 @@ rebuilds a missing or stale native core. It never removes study content or
 results. A merge conflict or incompatible virtual environment stops with a
 clear error instead of changing or deleting user files.
 
-A downloaded source archive has no in-app self-update path. For repeated manual
-archive replacement, configure `STUDY_RUNNER_DATA_DIR` outside the extracted
-folder before collecting real data, or copy the old data directory explicitly.
-Never delete an old checkout until its `software/saved_results/` and local
-settings have been secured.
+A downloaded archive (not a git clone) has no in-app update path -- replace it
+with a fresh archive instead. For repeated manual archive replacement,
+configure `STUDY_RUNNER_DATA_DIR` outside the extracted folder before
+collecting real data, or copy the old data directory explicitly. Never delete
+an old checkout until its `software/saved_results/` and local settings have
+been secured.
 
 ## Creating A Release
 
@@ -170,11 +184,16 @@ python release_tools/build_source_release.py --verify-output release-assets
 
 ## Legacy Packaging Code
 
-Some PyInstaller, Manager, signing, and packaged-updater helpers remain in
+Some PyInstaller, signing, and packaged-updater helpers remain in
 `release_tools/` for historical reference or possible future non-recording
-experiments. They are not outputs of the active release workflow and must not be
-described as recording-ready. Reintroducing a packaged release requires a new
-explicit acceptance gate for the verified native core, all runtime libraries,
-data-directory preservation, and platform installation behavior. Apple signing
-and notarization can be addressed then; they are deliberately outside the
-current source-server release.
+experiments, along with the standalone Install & Repair Wizard,
+`tools/study_runner_manager.py` (a Tkinter GUI that downloads, verifies, and
+installs a packaged build). None of this is output by the active release
+workflow and must not be described as recording-ready. Reintroducing a
+packaged release requires a new explicit acceptance gate for the verified
+native core, all runtime libraries, data-directory preservation, and platform
+installation behavior -- plus, for the Manager specifically, an
+Ed25519 release-signing key and, on macOS, Apple signing and notarization
+credentials, none of which this project currently has. All are deliberately
+outside the current source-server release; the admin dashboard's Update panel
+(previous section) is the one supported update path today.

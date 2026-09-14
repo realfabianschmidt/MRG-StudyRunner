@@ -26,9 +26,22 @@ DEFAULT_MANIFEST_URL = (
     "https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest/download/"
     "study-runner-python-latest.json"
 )
+# Source-mode updates (git checkout, no packaged build) use a different,
+# already-published file instead of the signed Python-package manifest above
+# -- see release_tools/build_source_release.py, which writes this file for
+# every tagged release.
+DEFAULT_SOURCE_RELEASE_URL = (
+    "https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest/download/"
+    "study-runner-source-release.json"
+)
+# Tagged releases only ever land on this branch (see release.ps1); pulling on
+# any other branch would not be "updating to the latest release" at all.
+SOURCE_RELEASE_BRANCH = "main"
 STATE_FILE_NAME = "update-state.json"
 MANIFEST_TIMEOUT_SECONDS = 15
 DOWNLOAD_TIMEOUT_SECONDS = 60
+GIT_TIMEOUT_SECONDS = 30
+INSTALL_SCRIPT_TIMEOUT_SECONDS = 1800
 
 
 class UpdateError(Exception):
@@ -63,7 +76,9 @@ def build_update_status(app_config: dict[str, Any]) -> dict[str, Any]:
 
 
 def check_for_update(app_config: dict[str, Any]) -> dict[str, Any]:
-    _require_public_key(app_config)
+    if not getattr(sys, "frozen", False):
+        return _check_for_source_update(app_config)
+    _require_public_key()
     paths = resolve_update_paths(app_config)
     manifest_url = get_manifest_url()
     manifest = fetch_manifest(manifest_url)
@@ -92,7 +107,9 @@ def check_for_update(app_config: dict[str, Any]) -> dict[str, Any]:
 
 
 def download_and_stage_update(app_config: dict[str, Any]) -> dict[str, Any]:
-    _require_public_key(app_config)
+    if not getattr(sys, "frozen", False):
+        return _apply_source_update(app_config)
+    _require_public_key()
     paths = resolve_update_paths(app_config)
     state = _read_state(paths.state_file)
     update_info = state.get("update") if isinstance(state.get("update"), dict) else {}
@@ -162,6 +179,8 @@ def download_and_stage_update(app_config: dict[str, Any]) -> dict[str, Any]:
 
 
 def request_update_install(app_config: dict[str, Any]) -> dict[str, Any]:
+    if not getattr(sys, "frozen", False):
+        return _request_source_restart(app_config)
     if not is_install_supported(app_config):
         raise UpdateError("Install/restart is only available in Python packaged builds, not source mode or legacy desktop mode.")
 
@@ -187,6 +206,225 @@ def request_update_install(app_config: dict[str, Any]) -> dict[str, Any]:
     _write_state(paths.state_file, state)
     _spawn_installer(paths.state_file, app_config)
     return build_update_status(app_config)
+
+
+# --------------------------------------------------------------------------
+# Source mode: git checkout, no packaged build.
+#
+# A source checkout has no signed executable to download, so it cannot use
+# the packaged flow above at all. Instead it verifies itself the same way an
+# operator following docs/release-and-update.md would by hand: fetch the
+# already-published release metadata, `git pull --ff-only`, then re-run the
+# platform install script. The three functions below are called from
+# check_for_update / download_and_stage_update / request_update_install --
+# the same three HTTP endpoints and the same admin panel, just a different
+# path once inside.
+# --------------------------------------------------------------------------
+
+def _check_for_source_update(app_config: dict[str, Any]) -> dict[str, Any]:
+    """Compare this checkout's version against the latest tagged release.
+
+    No signing key is involved: a source update is trusted through git and
+    the GitHub release itself, not through the Python-package signature
+    scheme the packaged flow above uses.
+    """
+    paths = resolve_update_paths(app_config)
+    url = get_source_release_url()
+    metadata = fetch_source_release_metadata(url)
+    latest_version = str(metadata.get("version") or "").strip()
+    if not _is_semver(latest_version):
+        raise UpdateError("The latest release has no valid version number.")
+    available = compare_versions(latest_version, __version__) > 0
+    tag = str(metadata.get("tag") or f"app-v{latest_version}")
+
+    state = {
+        "state": "available" if available else "current",
+        "checked_at": _utc_now(),
+        "current_version": __version__,
+        "update": {
+            "available": available,
+            "version": latest_version,
+            "notes_url": f"https://github.com/realfabianschmidt/MRG-StudyRunner/releases/tag/{tag}",
+            "asset": None,
+        },
+        "error": "",
+    }
+    _write_state(paths.state_file, state)
+    return build_update_status(app_config)
+
+
+def _apply_source_update(app_config: dict[str, Any]) -> dict[str, Any]:
+    """Update this checkout in place: `git pull --ff-only`, then the install script.
+
+    Fails closed at the first problem it finds -- an active study session, a
+    checkout that is not a git clone, the wrong branch, or local changes to
+    tracked files -- and changes nothing on disk before that point. Once the
+    pull itself starts, `--ff-only` is what keeps it safe: git either
+    fast-forwards cleanly or refuses and leaves the checkout exactly as it
+    was, never a half-merged tree.
+    """
+    base_dir = Path(app_config.get("BASE_DIR") or ".").resolve()
+    repo_root = base_dir.parent
+    paths = resolve_update_paths(app_config)
+    state = _read_state(paths.state_file)
+    update_info = state.get("update") if isinstance(state.get("update"), dict) else {}
+    if not update_info.get("available"):
+        raise UpdateError("No checked update is available. Check for updates first.")
+
+    if app_config.get("ACTIVE_STUDY_HARDWARE_CONFIG"):
+        raise UpdateError("A study session is active. Finish or stop it before updating.")
+    if not (repo_root / ".git").is_dir():
+        raise UpdateError(
+            "This checkout is not a git clone, so it cannot update itself here. "
+            "Download a fresh release archive instead -- see docs/release-and-update.md."
+        )
+    branch = _current_git_branch(repo_root)
+    if branch != SOURCE_RELEASE_BRANCH:
+        raise UpdateError(
+            f"This checkout is on branch '{branch}', not '{SOURCE_RELEASE_BRANCH}'. "
+            f"Only '{SOURCE_RELEASE_BRANCH}' receives tagged releases; switch "
+            "branches and update manually if that is intended."
+        )
+    dirty = _git_tracked_changes(repo_root)
+    if dirty:
+        raise UpdateError(
+            "This checkout has local changes to tracked files. Commit, stash, "
+            "or discard them before updating."
+        )
+
+    state["state"] = "downloading"
+    state["error"] = ""
+    _write_state(paths.state_file, state)
+
+    try:
+        _run_checked(
+            ["git", "pull", "--ff-only"], repo_root, "git pull --ff-only failed",
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+        _run_checked(
+            _install_script_command(repo_root), repo_root, "install script failed",
+            timeout=INSTALL_SCRIPT_TIMEOUT_SECONDS,
+        )
+    except UpdateError as error:
+        _set_error(paths.state_file, state, str(error))
+        raise
+
+    # No "executable" key here, unlike the packaged flow's staged info --
+    # source mode restarts by re-running server.py in place, not by
+    # launching a separate downloaded executable. installer.py tells the two
+    # apart by this "mode" field.
+    staged_info = {
+        "mode": "source",
+        "version": _read_checkout_version(base_dir),
+        "staged_at": _utc_now(),
+    }
+    state = _read_state(paths.state_file)
+    state.update({"state": "staged", "error": "", "staged": staged_info})
+    _write_state(paths.state_file, state)
+    return build_update_status(app_config)
+
+
+def _request_source_restart(app_config: dict[str, Any]) -> dict[str, Any]:
+    """Restart into the just-updated checkout by re-running `python server.py`.
+
+    Reuses the same detached helper process as the packaged flow
+    (`study_runner.updates.installer`) and the same shutdown sequence in the
+    HTTP route -- only `installer.py`'s own source-mode branch differs,
+    since there is no downloaded executable to launch here.
+    """
+    base_dir = Path(app_config.get("BASE_DIR") or ".").resolve()
+    paths = resolve_update_paths(app_config)
+    state = _read_state(paths.state_file)
+    staged = state.get("staged") if isinstance(state.get("staged"), dict) else None
+    if not staged:
+        raise UpdateError("No update is ready to restart into.")
+
+    state["state"] = "installing"
+    state["install_requested_at"] = _utc_now()
+    state["error"] = ""
+    state["source_restart"] = {"base_dir": str(base_dir)}
+    _write_state(paths.state_file, state)
+    _spawn_installer(paths.state_file, app_config)
+    return build_update_status(app_config)
+
+
+def get_source_release_url() -> str:
+    return os.getenv("STUDY_RUNNER_SOURCE_RELEASE_URL", DEFAULT_SOURCE_RELEASE_URL).strip() or DEFAULT_SOURCE_RELEASE_URL
+
+
+def fetch_source_release_metadata(url: str) -> dict[str, Any]:
+    try:
+        response = requests.get(url, timeout=MANIFEST_TIMEOUT_SECONDS, headers={"Accept": "application/json"})
+        response.raise_for_status()
+        payload = response.json()
+    except requests.RequestException as error:
+        raise UpdateError(f"Could not fetch the latest release metadata: {error}") from error
+    except ValueError as error:
+        raise UpdateError("Release metadata is not valid JSON.") from error
+    if not isinstance(payload, dict):
+        raise UpdateError("Release metadata must be a JSON object.")
+    return payload
+
+
+def _current_git_branch(repo_root: Path) -> str:
+    result = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], repo_root)
+    return result.strip()
+
+
+def _git_tracked_changes(repo_root: Path) -> str:
+    # --untracked-files=no: a stray local file (e.g. a scratch note) should
+    # not block an update; only edits to files git already tracks should.
+    return _run_git(["status", "--porcelain", "--untracked-files=no"], repo_root).strip()
+
+
+def _run_git(args: list[str], cwd: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", *args], cwd=str(cwd), capture_output=True, text=True,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise UpdateError(f"git {' '.join(args)} failed: {error}") from error
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise UpdateError(f"git {' '.join(args)} failed: {detail}" if detail else f"git {' '.join(args)} failed")
+    return result.stdout
+
+
+def _run_checked(cmd: list[str], cwd: Path, error_prefix: str, *, timeout: int) -> None:
+    try:
+        result = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        raise UpdateError(f"{error_prefix}: timed out after {int(error.timeout)}s") from error
+    except OSError as error:
+        raise UpdateError(f"{error_prefix}: {error}") from error
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise UpdateError(f"{error_prefix}: {detail}" if detail else error_prefix)
+
+
+def _install_script_command(repo_root: Path) -> list[str]:
+    if os.name == "nt":
+        return [
+            "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+            str(repo_root / "tools" / "install-windows.ps1"),
+        ]
+    return ["bash", str(repo_root / "tools" / "install-macos.sh")]
+
+
+def _read_checkout_version(base_dir: Path) -> str:
+    # Re-read version.py from disk instead of trusting the version string the
+    # network response claimed -- this reports what the checkout actually
+    # became, which is what matters if the two ever disagreed.
+    version_file = base_dir / "study_runner" / "version.py"
+    try:
+        text = version_file.read_text(encoding="utf-8")
+    except OSError as error:
+        raise UpdateError(f"Could not read the updated version: {error}") from error
+    match = re.search(r'^__version__\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    if match is None:
+        raise UpdateError("Could not read the version from the updated checkout.")
+    return match.group(1)
 
 
 def resolve_update_paths(app_config: dict[str, Any]) -> UpdatePaths:
@@ -318,21 +556,27 @@ def verify_asset_signature(version: str, platform_key: str, asset: dict[str, Any
 
 
 def is_install_supported(app_config: dict[str, Any]) -> bool:
+    if not getattr(sys, "frozen", False):
+        # Source mode restarts by re-running `python server.py` from the
+        # same checkout -- always possible, no packaged build required.
+        return True
     app_mode = str(app_config.get("APP_MODE") or "").strip().lower()
-    return bool(getattr(sys, "frozen", False) and app_mode != "desktop")
+    return app_mode != "desktop"
 
 
 def _base_status(app_config: dict[str, Any], key_status: dict[str, Any]) -> dict[str, Any]:
     packaged = bool(getattr(sys, "frozen", False))
     source_mode = not packaged
     public_key_configured = bool(key_status.get("configured"))
-    configuration_error = str(key_status.get("error") or "")
+    configuration_error = ""
     recommended_action = ""
-    if not public_key_configured:
-        if source_mode:
-            configuration_error = "Source mode updates use git pull or a fresh ZIP from GitHub Releases."
-            recommended_action = "Use git pull in this checkout, or download the latest release ZIP."
-        else:
+    if source_mode:
+        # Source mode verifies an update through git and the release tag
+        # instead of a signing key, so it needs no key to be "configured".
+        configured = True
+    else:
+        configured = public_key_configured
+        if not configured:
             configuration_error = "This packaged release is missing the trusted Python updater public key."
             recommended_action = "Install a newer release ZIP or rebuild the release with PYTHON_UPDATER_PUBLIC_KEY configured."
     return {
@@ -343,18 +587,19 @@ def _base_status(app_config: dict[str, Any], key_status: dict[str, Any]) -> dict
         "app_mode": str(app_config.get("APP_MODE") or ""),
         "packaged": packaged,
         "source_mode": source_mode,
-        "configured": public_key_configured,
+        "configured": configured,
         "public_key_configured": public_key_configured,
         "configuration_error": configuration_error,
         "recommended_action": recommended_action,
     }
 
 
-def _require_public_key(app_config: dict[str, Any] | None = None) -> None:
+def _require_public_key() -> None:
+    # Only reached from the packaged branches below -- source mode returns
+    # from its own functions before ever calling this (see check_for_update,
+    # download_and_stage_update, request_update_install above).
     status = get_public_key_status()
     if not status.get("configured"):
-        if app_config is not None and not bool(getattr(sys, "frozen", False)):
-            raise UpdateError("Source mode updates use git pull or a fresh ZIP from GitHub Releases.")
         message = status.get("error") or "No Python updater public key is configured."
         raise UpdateError(str(message))
 

@@ -4,6 +4,7 @@ import base64
 import io
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -92,17 +93,179 @@ class UpdateServiceTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             app_config = {"STORAGE_ROOT": temp_dir, "APP_MODE": "python", "BASE_DIR": PROJECT_ROOT}
-            with patch.dict(os.environ, {"STUDY_RUNNER_UPDATE_PUBLIC_KEY": public_key}, clear=False):
-                with patch.object(update_service, "fetch_manifest", return_value=update_service.normalize_manifest(manifest)):
-                    check_status = update_service.check_for_update(app_config)
-                self.assertTrue(check_status["update"]["available"])
+            # The signed-manifest/zip flow below is the packaged-build path
+            # (check_for_update/download_and_stage_update both dispatch to
+            # the git-based source-mode path instead when sys.frozen is not
+            # set); simulate a packaged build the same way
+            # test_packaged_update_status_reports_release_key_problem does.
+            with patch.object(sys, "frozen", True, create=True):
+                with patch.dict(os.environ, {"STUDY_RUNNER_UPDATE_PUBLIC_KEY": public_key}, clear=False):
+                    with patch.object(update_service, "fetch_manifest", return_value=update_service.normalize_manifest(manifest)):
+                        check_status = update_service.check_for_update(app_config)
+                    self.assertTrue(check_status["update"]["available"])
 
-                with patch.object(update_service.requests, "get", return_value=FakeDownloadResponse(zip_bytes)):
-                    staged_status = update_service.download_and_stage_update(app_config)
+                    with patch.object(update_service.requests, "get", return_value=FakeDownloadResponse(zip_bytes)):
+                        staged_status = update_service.download_and_stage_update(app_config)
 
-                self.assertEqual(staged_status["state"], "staged")
-                self.assertEqual(staged_status["staged"]["version"], "9.9.9")
-                self.assertTrue(Path(staged_status["staged"]["path"]).exists())
+                    self.assertEqual(staged_status["state"], "staged")
+                    self.assertEqual(staged_status["staged"]["version"], "9.9.9")
+                    self.assertTrue(Path(staged_status["staged"]["path"]).exists())
+
+
+class SourceUpdateTests(unittest.TestCase):
+    """`download_and_stage_update`/`request_update_install` in a git checkout.
+
+    These drive real `git` subprocesses against a real repository built for
+    the test, not mocks -- the whole point of `_apply_source_update` is
+    that `git pull --ff-only` itself is what makes it safe, so a mock of
+    git would not prove that.
+    """
+
+    def setUp(self) -> None:
+        self._frozen_patch = patch.object(sys, "frozen", False, create=True)
+        self._frozen_patch.start()
+        self.addCleanup(self._frozen_patch.stop)
+
+    def _write_checkout_files(self, repo_root: Path, version: str) -> None:
+        study_runner = repo_root / "software" / "study_runner"
+        study_runner.mkdir(parents=True, exist_ok=True)
+        (study_runner / "version.py").write_text(f'__version__ = "{version}"\n', encoding="utf-8")
+        (repo_root / "software" / "server.py").write_text("# test stub\n", encoding="utf-8")
+        tools_dir = repo_root / "tools"
+        tools_dir.mkdir(exist_ok=True)
+        # A harmless install script: real subprocess, no real install.
+        (tools_dir / "install-windows.ps1").write_text("exit 0\n", encoding="utf-8")
+        script = tools_dir / "install-macos.sh"
+        script.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        if os.name != "nt":
+            script.chmod(0o755)
+
+    def _git(self, repo_root: Path, *args: str) -> None:
+        subprocess.run(["git", "-C", str(repo_root), *args], check=True, capture_output=True, text=True)
+
+    def _init_repo(self, repo_root: Path, version: str) -> None:
+        repo_root.mkdir(parents=True, exist_ok=True)
+        self._write_checkout_files(repo_root, version)
+        subprocess.run(["git", "init", "--quiet", str(repo_root)], check=True, capture_output=True)
+        # Fixed branch name regardless of the machine's init.defaultBranch.
+        subprocess.run(
+            ["git", "symbolic-ref", "HEAD", "refs/heads/main"], check=True, cwd=str(repo_root), capture_output=True,
+        )
+        self._git(repo_root, "config", "user.email", "test@example.com")
+        self._git(repo_root, "config", "user.name", "Test")
+        self._git(repo_root, "add", "-A")
+        self._git(repo_root, "commit", "--quiet", "-m", version)
+
+    def _app_config(self, base_dir: Path, storage_root: Path, *, active: bool = False) -> dict:
+        config: dict = {"BASE_DIR": base_dir, "STORAGE_ROOT": str(storage_root)}
+        if active:
+            config["ACTIVE_STUDY_HARDWARE_CONFIG"] = {"brainbit": {"enabled": True}}
+        return config
+
+    def _mark_update_available(self, app_config: dict, version: str) -> None:
+        paths = update_service.resolve_update_paths(app_config)
+        update_service._write_state(
+            paths.state_file,
+            {"state": "available", "update": {"available": True, "version": version, "notes_url": "", "asset": None}},
+        )
+
+    def test_refuses_when_no_update_was_checked(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._init_repo(root / "repo", "1.0.0")
+            app_config = self._app_config(root / "repo" / "software", root / "storage")
+            with self.assertRaisesRegex(update_service.UpdateError, "Check for updates first"):
+                update_service.download_and_stage_update(app_config)
+
+    def test_refuses_during_an_active_study_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._init_repo(root / "repo", "1.0.0")
+            app_config = self._app_config(root / "repo" / "software", root / "storage", active=True)
+            self._mark_update_available(app_config, "1.1.0")
+            with self.assertRaisesRegex(update_service.UpdateError, "session is active"):
+                update_service.download_and_stage_update(app_config)
+
+    def test_refuses_a_checkout_that_is_not_a_git_clone(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._write_checkout_files(root / "repo", "1.0.0")  # no git init
+            app_config = self._app_config(root / "repo" / "software", root / "storage")
+            self._mark_update_available(app_config, "1.1.0")
+            with self.assertRaisesRegex(update_service.UpdateError, "not a git clone"):
+                update_service.download_and_stage_update(app_config)
+
+    def test_refuses_a_branch_other_than_main(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._init_repo(root / "repo", "1.0.0")
+            self._git(root / "repo", "checkout", "-b", "feature/other")
+            app_config = self._app_config(root / "repo" / "software", root / "storage")
+            self._mark_update_available(app_config, "1.1.0")
+            with self.assertRaisesRegex(update_service.UpdateError, "not 'main'"):
+                update_service.download_and_stage_update(app_config)
+
+    def test_refuses_local_changes_to_tracked_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._init_repo(root / "repo", "1.0.0")
+            (root / "repo" / "software" / "server.py").write_text("# edited locally\n", encoding="utf-8")
+            app_config = self._app_config(root / "repo" / "software", root / "storage")
+            self._mark_update_available(app_config, "1.1.0")
+            with self.assertRaisesRegex(update_service.UpdateError, "local changes"):
+                update_service.download_and_stage_update(app_config)
+
+    def test_pulls_a_real_fast_forward_and_reruns_the_install_script(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            remote = root / "remote.git"
+            subprocess.run(["git", "init", "--quiet", "--bare", str(remote)], check=True, capture_output=True)
+
+            seed = root / "seed"
+            self._init_repo(seed, "1.0.0")
+            self._git(seed, "remote", "add", "origin", str(remote))
+            self._git(seed, "push", "-u", "origin", "main")
+
+            subprocess.run(
+                # --branch pins the checkout explicitly: a fresh bare repo's
+                # own HEAD symref may still point at whatever
+                # init.defaultBranch was on this machine (often "master",
+                # which was never pushed), and clone would otherwise leave
+                # an empty, branch-less working tree.
+                ["git", "clone", "--quiet", "--branch", "main", str(remote), str(root / "local")],
+                check=True, capture_output=True,
+            )
+            local_repo = root / "local"
+            self._git(local_repo, "config", "user.email", "test@example.com")
+            self._git(local_repo, "config", "user.name", "Test")
+
+            # A second commit lands on the shared remote, as a real release
+            # would -- local is now one fast-forwardable commit behind it.
+            self._write_checkout_files(seed, "1.1.0")
+            self._git(seed, "add", "-A")
+            self._git(seed, "commit", "--quiet", "-m", "1.1.0")
+            self._git(seed, "push", "origin", "main")
+
+            base_dir = local_repo / "software"
+            app_config = self._app_config(base_dir, root / "storage")
+            self._mark_update_available(app_config, "1.1.0")
+
+            status = update_service.download_and_stage_update(app_config)
+
+            self.assertEqual(status["state"], "staged")
+            self.assertEqual(status["staged"]["version"], "1.1.0")
+            self.assertEqual(
+                (base_dir / "study_runner" / "version.py").read_text(encoding="utf-8"),
+                '__version__ = "1.1.0"\n',
+            )
+
+    def test_restart_is_refused_without_a_staged_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._init_repo(root / "repo", "1.0.0")
+            app_config = self._app_config(root / "repo" / "software", root / "storage")
+            with self.assertRaisesRegex(update_service.UpdateError, "No update is ready"):
+                update_service.request_update_install(app_config)
 
 
 def _make_keypair() -> tuple[Ed25519PrivateKey, str]:

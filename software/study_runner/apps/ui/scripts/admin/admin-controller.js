@@ -980,11 +980,14 @@ async function checkForPythonUpdate() {
 
 async function downloadPythonUpdate() {
   const version = state.updateStatus?.update?.version || '';
-  const message = t('update.downloadConfirm', 'Download and verify update {version}?').replace('{version}', version);
+  const sourceMode = Boolean(state.updateStatus?.source_mode);
+  const message = sourceMode
+    ? t('update.updateSourceConfirm', 'Update this checkout to {version} now? This runs git pull and the install script.').replace('{version}', version)
+    : t('update.downloadConfirm', 'Download and verify update {version}?').replace('{version}', version);
   const proceed = await confirmWithModal({
-    title: t('update.downloadTitle', 'Download update'),
+    title: sourceMode ? t('update.updateSourceTitle', 'Update checkout') : t('update.downloadTitle', 'Download update'),
     message,
-    confirmLabel: t('update.download', 'Download'),
+    confirmLabel: sourceMode ? t('update.updateSourceAction', 'Update now') : t('update.download', 'Download'),
     cancelLabel: t('common.cancel', 'Cancel'),
   });
   if (!proceed) {
@@ -997,10 +1000,13 @@ async function downloadPythonUpdate() {
     const status = await postJson('/api/admin/update/download', {});
     state.updateStatus = status;
     renderUpdateStatus(status);
-    showToast(t('update.downloadedToast', 'Update downloaded and verified'), 'success');
+    showToast(
+      sourceMode ? t('update.updatedSourceToast', 'Checkout updated') : t('update.downloadedToast', 'Update downloaded and verified'),
+      'success',
+    );
   } catch (error) {
     console.error('[admin] Update download failed:', error);
-    showToast(error.message || t('update.downloadFailed', 'Update download failed'), 'error');
+    showToast(error.message || (sourceMode ? t('update.updateSourceFailed', 'Update failed') : t('update.downloadFailed', 'Update download failed')), 'error');
     await loadUpdateStatus({ silent: true });
   } finally {
     stopUpdatePolling();
@@ -1094,13 +1100,11 @@ function renderUpdateStatus(status) {
   let message = t('update.idleDetail', 'Check GitHub Releases for Python-only updates.');
 
   if (!status.configured) {
+    // Source mode is always "configured" (git needs no signing key), so
+    // this branch is packaged-mode-only: no trusted updater key is set up.
     pillState = 'disabled';
-    pillText = status.source_mode ? t('update.sourceMode', 'Source mode') : t('update.disabled', 'Disabled');
-    message = status.configuration_error || (
-      status.source_mode
-        ? t('update.sourceModeDetail', 'Source checkouts update through git pull or a fresh release ZIP.')
-        : t('update.notConfiguredDetail', 'No Python updater public key is configured for this build.')
-    );
+    pillText = t('update.disabled', 'Disabled');
+    message = status.configuration_error || t('update.notConfiguredDetail', 'No Python updater public key is configured for this build.');
   } else if (stateName === 'error' || stateName === 'install_failed') {
     pillState = 'error';
     pillText = t('update.error', 'Error');
@@ -1108,7 +1112,9 @@ function renderUpdateStatus(status) {
   } else if (stateName === 'downloading') {
     pillState = 'starting';
     pillText = t('update.downloading', 'Downloading');
-    message = formatUpdateDownload(status.download);
+    message = status.source_mode
+      ? t('update.updatingSourceDetail', 'Running git pull and the install script -- this can take a few minutes.')
+      : formatUpdateDownload(status.download);
   } else if (stateName === 'verifying') {
     pillState = 'starting';
     pillText = t('update.verifying', 'Verifying');
@@ -1117,9 +1123,13 @@ function renderUpdateStatus(status) {
     pillState = 'ready';
     pillText = t('update.ready', 'Ready');
     line = t('update.readyLine', 'Version {version} staged').replace('{version}', status.staged?.version || version);
-    message = status.install_supported
-      ? t('update.readyDetail', 'The update is verified and ready for restart.')
-      : t('update.manualRestartDetail', 'The update is staged. Automatic restart is only available in Python packaged builds.');
+    if (!status.install_supported) {
+      message = t('update.manualRestartDetail', 'The update is staged. Automatic restart is only available in Python packaged builds.');
+    } else if (status.source_mode) {
+      message = t('update.readySourceDetail', 'The checkout was updated and dependencies refreshed; ready to restart.');
+    } else {
+      message = t('update.readyDetail', 'The update is verified and ready for restart.');
+    }
   } else if (stateName === 'installing') {
     pillState = 'starting';
     pillText = t('update.restarting', 'Restarting');
@@ -1128,7 +1138,9 @@ function renderUpdateStatus(status) {
     pillState = 'ready';
     pillText = t('update.available', 'Available');
     line = t('update.availableLine', 'Version {version} available').replace('{version}', version);
-    message = t('update.availableDetail', 'Download starts only after confirmation.');
+    message = status.source_mode
+      ? t('update.availableSourceDetail', 'Updating runs git pull and the install script only after confirmation.')
+      : t('update.availableDetail', 'Download starts only after confirmation.');
   } else if (stateName === 'current') {
     pillState = 'running';
     pillText = t('update.current', 'Current');
@@ -1154,11 +1166,15 @@ function setUpdateActions(status) {
   const hasStaged = Boolean(status.staged?.version);
 
   if (checkButton) {
-    checkButton.disabled = busy || Boolean(status.source_mode) || status.configured === false;
+    checkButton.disabled = busy || status.configured === false;
   }
   if (downloadButton) {
     downloadButton.hidden = !status.configured || !hasUpdate || hasStaged || busy;
     downloadButton.disabled = busy;
+    const label = downloadButton.querySelector('span');
+    if (label) {
+      label.textContent = status.source_mode ? t('update.updateSourceAction', 'Update now') : t('update.download', 'Download');
+    }
   }
   if (installButton) {
     installButton.hidden = !hasStaged;

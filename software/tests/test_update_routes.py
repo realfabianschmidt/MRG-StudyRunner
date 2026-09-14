@@ -21,7 +21,10 @@ from study_runner.runtime_core.settings import update_service
 
 
 class UpdateRoutesTests(unittest.TestCase):
-    def test_update_status_reports_missing_public_key(self) -> None:
+    def test_source_update_status_needs_no_public_key(self) -> None:
+        # Source mode verifies an update through git and the release tag
+        # instead of a signing key, so it is "configured" without one --
+        # unlike a packaged build (see the next test).
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
                 "STUDY_RUNNER_DATA_DIR": data_dir,
@@ -34,10 +37,9 @@ class UpdateRoutesTests(unittest.TestCase):
 
         payload = response.get_json()
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(payload["configured"])
+        self.assertTrue(payload["configured"])
         self.assertTrue(payload["source_mode"])
         self.assertEqual(payload["state"], "idle")
-        self.assertIn("git pull", payload["recommended_action"])
 
     def test_packaged_update_status_reports_release_key_problem(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
@@ -57,7 +59,7 @@ class UpdateRoutesTests(unittest.TestCase):
         self.assertFalse(payload["source_mode"])
         self.assertIn("public key", payload["configuration_error"].lower())
 
-    def test_source_update_check_without_key_reports_git_pull(self) -> None:
+    def test_source_update_check_reports_already_current(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
                 "STUDY_RUNNER_DATA_DIR": data_dir,
@@ -65,12 +67,15 @@ class UpdateRoutesTests(unittest.TestCase):
             }
             with patch.dict(os.environ, env, clear=True):
                 app = create_app()
-                response = app.test_client().post("/api/admin/update/check")
+                metadata = {"version": update_service.__version__, "tag": "app-vcurrent"}
+                with patch.object(update_service, "fetch_source_release_metadata", return_value=metadata):
+                    response = app.test_client().post("/api/admin/update/check")
 
         payload = response.get_json()
-        self.assertEqual(response.status_code, 400)
-        self.assertFalse(payload["ok"])
-        self.assertIn("git pull", payload["error"])
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["state"], "current")
+        self.assertFalse(payload["update"]["available"])
 
     def test_update_check_returns_available_update(self) -> None:
         private_key, public_key = _make_keypair()
@@ -87,14 +92,16 @@ class UpdateRoutesTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
+                "STUDY_RUNNER_APP_MODE": "packaged",
                 "STUDY_RUNNER_DATA_DIR": data_dir,
                 "STUDY_RUNNER_DISABLE_HARDWARE": "1",
                 "STUDY_RUNNER_UPDATE_PUBLIC_KEY": public_key,
             }
             with patch.dict(os.environ, env, clear=True):
-                app = create_app()
-                with patch.object(update_service, "fetch_manifest", return_value=manifest):
-                    response = app.test_client().post("/api/admin/update/check")
+                with patch.object(sys, "frozen", True, create=True):
+                    app = create_app()
+                    with patch.object(update_service, "fetch_manifest", return_value=manifest):
+                        response = app.test_client().post("/api/admin/update/check")
 
         payload = response.get_json()
         self.assertEqual(response.status_code, 200)
@@ -102,6 +109,26 @@ class UpdateRoutesTests(unittest.TestCase):
         self.assertEqual(payload["state"], "available")
         self.assertTrue(payload["update"]["available"])
         self.assertEqual(payload["update"]["version"], "9.9.9")
+
+    def test_source_update_check_reports_an_available_release(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+            }
+            with patch.dict(os.environ, env, clear=True):
+                app = create_app()
+                metadata = {"version": "99.0.0", "tag": "app-v99.0.0"}
+                with patch.object(update_service, "fetch_source_release_metadata", return_value=metadata):
+                    response = app.test_client().post("/api/admin/update/check")
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["configured"])
+        self.assertTrue(payload["source_mode"])
+        self.assertEqual(payload["state"], "available")
+        self.assertEqual(payload["update"]["version"], "99.0.0")
+        self.assertIn("app-v99.0.0", payload["update"]["notes_url"])
 
 
 def _make_keypair() -> tuple[Ed25519PrivateKey, str]:

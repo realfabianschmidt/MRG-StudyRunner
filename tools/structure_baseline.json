@@ -21,8 +21,8 @@
     "extensions.outputs": 154,
     "extensions.sensors": 8087,
     "plugin_framework": 2700,
-    "runtime_core": 12571,
+    "runtime_core": 12816,
     "shared": 455,
-    "updates": 247
+    "updates": 271
   }
 }

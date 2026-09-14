@@ -23,28 +23,14 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(staged, dict):
             raise RuntimeError("No staged update is recorded.")
 
-        executable = Path(str(staged.get("executable") or "")).expanduser().resolve()
-        if not executable.exists():
-            raise RuntimeError(f"Staged executable not found: {executable}")
+        if staged.get("mode") == "source":
+            _restart_source_checkout(state, log_file)
+        else:
+            _restart_packaged_build(state, staged, log_file)
 
-        helper = state.get("helper") if isinstance(state.get("helper"), dict) else {}
-        env = os.environ.copy()
-        storage_root = str(helper.get("storage_root") or "").strip()
-        if storage_root:
-            env["STUDY_RUNNER_DATA_DIR"] = storage_root
-        env["STUDY_RUNNER_APP_MODE"] = "packaged"
-
-        for key in ("STUDY_RUNNER_HOST", "STUDY_RUNNER_PORT", "STUDY_RUNNER_HTTPS"):
-            value = str(helper.get(key.lower().replace("study_runner_", "")) or env.get(key) or "").strip()
-            if value:
-                env[key] = value
-
-        time.sleep(1.4)
-        _spawn_detached([str(executable)], executable.parent, env)
         state["state"] = "applied"
         state["applied_at"] = _utc_now()
         _write_json(state_file, state)
-        _append_log(log_file, f"Launched staged update: {executable}")
         return 0
     except Exception as error:
         _append_log(log_file, f"Update helper failed: {error}")
@@ -57,6 +43,44 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             pass
         return 1
+
+
+def _restart_packaged_build(state: dict[str, Any], staged: dict[str, Any], log_file: Path) -> None:
+    executable = Path(str(staged.get("executable") or "")).expanduser().resolve()
+    if not executable.exists():
+        raise RuntimeError(f"Staged executable not found: {executable}")
+
+    helper = state.get("helper") if isinstance(state.get("helper"), dict) else {}
+    env = os.environ.copy()
+    storage_root = str(helper.get("storage_root") or "").strip()
+    if storage_root:
+        env["STUDY_RUNNER_DATA_DIR"] = storage_root
+    env["STUDY_RUNNER_APP_MODE"] = "packaged"
+
+    for key in ("STUDY_RUNNER_HOST", "STUDY_RUNNER_PORT", "STUDY_RUNNER_HTTPS"):
+        value = str(helper.get(key.lower().replace("study_runner_", "")) or env.get(key) or "").strip()
+        if value:
+            env[key] = value
+
+    time.sleep(1.4)
+    _spawn_detached([str(executable)], executable.parent, env)
+    _append_log(log_file, f"Launched staged update: {executable}")
+
+
+def _restart_source_checkout(state: dict[str, Any], log_file: Path) -> None:
+    # No separate executable to launch here: the checkout was already
+    # updated in place (git pull + install script, in update_service.py's
+    # _apply_source_update), so restarting means re-running server.py from
+    # the same folder with the same environment this process already has.
+    source_restart = state.get("source_restart") if isinstance(state.get("source_restart"), dict) else {}
+    base_dir = Path(str(source_restart.get("base_dir") or ".")).expanduser().resolve()
+    server_script = base_dir / "server.py"
+    if not server_script.is_file():
+        raise RuntimeError(f"server.py not found for restart: {server_script}")
+
+    time.sleep(1.4)
+    _spawn_detached([sys.executable, str(server_script)], base_dir, os.environ.copy())
+    _append_log(log_file, f"Restarted source checkout: {server_script}")
 
 
 def _spawn_detached(cmd: list[str], cwd: Path, env: dict[str, str]) -> None:
