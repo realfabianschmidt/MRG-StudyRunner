@@ -46,7 +46,7 @@ while (($#)); do
   shift
 done
 
-[[ "$(uname -s)" == "Darwin" ]] || fail "this script supports macOS only; on Windows use tools/install-windows.ps1"
+[[ "$(uname -s)" == "Darwin" ]] || fail "this script supports macOS only; on Windows use tools/install-windows.cmd"
 host_arch="$(uname -m)"
 case "$host_arch" in
   arm64|x86_64) ;;

@@ -43,8 +43,8 @@ https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
 Windows PowerShell from a cloned or extracted checkout:
 
 ```powershell
-.\tools\install-windows.ps1 -InstallSystemDependencies
-.\tools\start-windows.ps1
+.\tools\install-windows.cmd -InstallSystemDependencies
+.\tools\start-windows.cmd
 ```
 
 macOS after installing the Xcode Command Line Tools and Homebrew:
@@ -100,8 +100,8 @@ then run:
 
 ```powershell
 git pull --ff-only
-.\tools\install-windows.ps1
-.\tools\start-windows.ps1
+.\tools\install-windows.cmd
+.\tools\start-windows.cmd
 ```
 
 or on macOS:

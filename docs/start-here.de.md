@@ -83,23 +83,22 @@ Danach ein neues PowerShell-Fenster oeffnen und ausfuehren:
 ```powershell
 git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
 cd MRG-StudyRunner
-.\tools\install-windows.ps1 -InstallSystemDependencies
+.\tools\install-windows.cmd -InstallSystemDependencies
 ```
 
 Das Skript installiert fehlendes Python 3.12, CMake und die Visual-Studio-C++-
 Build-Tools ueber WinGet. Windows kann dabei nach Administratorrechten fragen.
-Blockiert PowerShell lokale Skripte, funktioniert einmalig:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\install-windows.ps1 -InstallSystemDependencies
-```
+Der `.cmd`-Starter ruft nur das mitgelieferte PowerShell-Skript mit einer fuer
+diesen Prozess geltenden Ausnahme auf. Er veraendert keine dauerhafte
+Execution Policy. Erzwingt eine Organisation die Sperre ueber AppLocker, WDAC
+oder Group Policy, muss deren Administration den Start freigeben.
 
 ### Windows: spaeter starten
 
 Im Projektordner genuegt:
 
 ```powershell
-.\tools\start-windows.ps1
+.\tools\start-windows.cmd
 ```
 
 ### macOS Intel oder Apple Silicon: erste Installation
@@ -163,7 +162,7 @@ ausfuehren. Es aktualisiert die Python-Abhaengigkeiten und verwendet einen
 bereits gueltigen XDF-Kern weiter:
 
 ```powershell
-.\tools\install-windows.ps1
+.\tools\install-windows.cmd
 ```
 
 ```bash
@@ -300,8 +299,8 @@ im Projektordner ausfuehren:
 
 ```powershell
 git pull --ff-only
-.\tools\install-windows.ps1
-.\tools\start-windows.ps1
+.\tools\install-windows.cmd
+.\tools\start-windows.cmd
 ```
 
 Auf dem Mac:

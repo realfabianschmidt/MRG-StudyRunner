@@ -35,7 +35,7 @@ Two different jobs, deliberately not merged into one file:
   `py312-local-emotion.txt`** say exactly *which* versions within those
   ranges are the ones actually tested and shipped, split by install phase
   (bootstrapping pip itself, the common runtime, and the optional local
-  emotion-detection stack). The install scripts (`tools/install-windows.ps1`,
+  emotion-detection stack). The install flows (`tools/install-windows.cmd`,
   `tools/install-macos.sh`) install `requirements.txt` constrained by these
   files, so "it works on my machine" and "it works in the release" are
   pinned to the same versions.

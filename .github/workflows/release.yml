@@ -185,8 +185,8 @@ jobs:
       - name: Run the real Windows first-install workflow
         if: runner.os == 'Windows'
         working-directory: ${{ steps.source-root.outputs.path }}
-        shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/install-windows.ps1
+        shell: cmd
+        run: tools\install-windows.cmd
 
       - name: Run the real macOS first-install workflow
         if: runner.os == 'macOS'
@@ -202,16 +202,31 @@ jobs:
           cd "${{ steps.source-root.outputs.path }}/software"
           "../${{ matrix.venv_python }}" -m unittest -v tests.test_hybrid_recording_worker.NativeCoreSmokeTests
 
-      - name: Verify the locally built core and start-command contract
+      - name: Verify the locally built core
         shell: bash
         run: |
           test -f "${{ steps.source-root.outputs.path }}/${{ matrix.core_path }}"
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            grep -q "server.py" "${{ steps.source-root.outputs.path }}/tools/start-windows.ps1"
-          else
-            bash "${{ steps.source-root.outputs.path }}/tools/start-macos.sh" --help
-          fi
           echo "The native core was built locally from the clean source archive."
+
+      - name: Run the real Windows daily-start self-check
+        if: runner.os == 'Windows'
+        working-directory: ${{ steps.source-root.outputs.path }}
+        shell: cmd
+        env:
+          STUDY_RUNNER_DATA_DIR: ${{ runner.temp }}/study-runner-self-check
+          STUDY_RUNNER_DISABLE_HARDWARE: "1"
+          STUDY_RUNNER_DISABLE_BACKGROUND: "1"
+        run: tools\start-windows.cmd -SelfCheck
+
+      - name: Run the real macOS daily-start self-check
+        if: runner.os == 'macOS'
+        working-directory: ${{ steps.source-root.outputs.path }}
+        shell: bash
+        env:
+          STUDY_RUNNER_DATA_DIR: ${{ runner.temp }}/study-runner-self-check
+          STUDY_RUNNER_DISABLE_HARDWARE: "1"
+          STUDY_RUNNER_DISABLE_BACKGROUND: "1"
+        run: bash tools/start-macos.sh --self-check
 
   publish:
     name: Publish source release

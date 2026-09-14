@@ -5,6 +5,20 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Added
+
+- Windows source installs and daily starts now use `.cmd` entry points that
+  invoke the checked-in PowerShell scripts with a process-local execution-policy
+  bypass. Downloaded source archives therefore work without changing the user's
+  or machine's PowerShell policy.
+- Windows and macOS daily-start scripts expose a non-persistent self-check used
+  by the clean platform release matrix.
+
+### Fixed
+
+- Source releases again exclude the optional BrainBit TouchDesigner reference
+  after the plugin-directory rename.
+
 ## 1.0.0 - 2026-09-14
 
 Study Runner 1.0 rebuilds the application on a clearer internal architecture

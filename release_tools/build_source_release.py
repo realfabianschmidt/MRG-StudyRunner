@@ -34,7 +34,9 @@ REQUIRED_SOURCE_FILES = (
     "software/constraints/py312-bootstrap.txt",
     "software/constraints/py312-common.txt",
     "software/constraints/py312-local-emotion.txt",
+    "tools/install-windows.cmd",
     "tools/install-windows.ps1",
+    "tools/start-windows.cmd",
     "tools/start-windows.ps1",
     "tools/install-macos.sh",
     "tools/start-macos.sh",
@@ -95,11 +97,8 @@ SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SUPPORTED_RECORDING_TARGETS = ("windows-x64", "macos-x64", "macos-arm64")
 INSTALL_COMMANDS = {
-    "windows_first_install": (
-        "powershell -NoProfile -ExecutionPolicy Bypass -File "
-        "tools/install-windows.ps1 -InstallSystemDependencies"
-    ),
-    "windows_later_start": ".\\tools\\start-windows.ps1",
+    "windows_first_install": ".\\tools\\install-windows.cmd -InstallSystemDependencies",
+    "windows_later_start": ".\\tools\\start-windows.cmd",
     "macos_first_install": (
         "bash tools/install-macos.sh --install-system-dependencies"
     ),
@@ -452,7 +451,7 @@ def _verification_script(expected: dict[str, str]) -> str:
 
 
 def _release_notes(version: str, changes: str) -> str:
-    return f"""# Study Runner {version}\n\nThis is the MIT-licensed source-server release for Windows x64, macOS Intel, and macOS Apple Silicon; see `LICENSE`. Third-party provenance and upstream license texts are listed in `THIRD_PARTY_NOTICES.md`.\n\n## Install and start\n\nAfter downloading and extracting `study-runner-source.zip` on Windows:\n\n```powershell\npowershell -NoProfile -ExecutionPolicy Bypass -File tools/install-windows.ps1 -InstallSystemDependencies\n.\\tools\\start-windows.ps1\n```\n\nAfter downloading and extracting `study-runner-source.tar.gz` on macOS:\n\n```bash\nbash tools/install-macos.sh --install-system-dependencies\nbash tools/start-macos.sh\n```\n\nThe native XDF core is intentionally not prebuilt or bundled. First install builds and verifies it locally from the pinned, vendored LabRecorder/XDFWriter sources. Linux may run non-recording development checks, but recording is not supported. Verify manual downloads with `SHA256SUMS`.\n\nThis is not a packaged-updater release and does not require Apple signing, notarization, or updater signing secrets.\n\n## Changes\n\n{changes}\n"""
+    return f"""# Study Runner {version}\n\nThis is the MIT-licensed source-server release for Windows x64, macOS Intel, and macOS Apple Silicon; see `LICENSE`. Third-party provenance and upstream license texts are listed in `THIRD_PARTY_NOTICES.md`.\n\n## Install and start\n\nAfter downloading and extracting `study-runner-source.zip` on Windows:\n\n```powershell\n.\\tools\\install-windows.cmd -InstallSystemDependencies\n.\\tools\\start-windows.cmd\n```\n\nThe `.cmd` launchers invoke only their adjacent checked-in PowerShell scripts with a process-local execution-policy bypass; they do not change the machine or user policy.\n\nAfter downloading and extracting `study-runner-source.tar.gz` on macOS:\n\n```bash\nbash tools/install-macos.sh --install-system-dependencies\nbash tools/start-macos.sh\n```\n\nThe native XDF core is intentionally not prebuilt or bundled. First install builds and verifies it locally from the pinned, vendored LabRecorder/XDFWriter sources. Linux may run non-recording development checks, but recording is not supported. Verify manual downloads with `SHA256SUMS`.\n\nThis is not a packaged-updater release and does not require Apple signing, notarization, or updater signing secrets.\n\n## Changes\n\n{changes}\n"""
 
 
 def verify_output(output_dir: Path) -> dict[str, object]:

@@ -36,7 +36,7 @@ Use the platform installer to create `.venv`, install the applicable pinned
 Python dependencies, and build and verify the native core:
 
 ```powershell
-.\tools\install-windows.ps1 -InstallSystemDependencies
+.\tools\install-windows.cmd -InstallSystemDependencies
 ```
 
 ```bash
@@ -76,7 +76,7 @@ a recording source. The readiness response includes the setup command.
 After setup, normal operation is:
 
 ```powershell
-.\tools\start-windows.ps1
+.\tools\start-windows.cmd
 ```
 
 ```bash

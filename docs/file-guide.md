@@ -25,8 +25,9 @@ Edit-safety legend:
 | `tools/measure_structure.py` | 1.0 rebuild structure ratchet: cross-package import edges, import cycles, lines per package, largest file, checked against `tools/structure_baseline.json` | careful |
 | `tools/plugin_sdk.py` | Plugin SDK: scaffold (`new`), validate, and boot-test (`check-runtime`) a new plugin outside `plugins/`, plus a generated manifest reference (`schema`) — see `tools/plugin_templates/` | careful |
 | `tools/synthetic_lsl_source.py` | Pushes fake-but-plausible LSL samples for a sensor extension's own declared stream, so it can be tested without real hardware | careful |
-| `tools/install-windows.ps1` / `tools/install-macos.sh` | Idempotent first-install/repair flows: system prerequisites on request, `.venv`, Python requirements, and verified XDF core | careful |
-| `tools/start-windows.ps1` / `tools/start-macos.sh` | Daily source-server launchers that use the repository `.venv` directly | careful |
+| `tools/install-windows.cmd` / `tools/start-windows.cmd` | Primary Windows entry points; quote their adjacent scripts, use a process-local PowerShell execution-policy bypass, forward arguments, and preserve exit codes | careful |
+| `tools/install-windows.ps1` / `tools/install-macos.sh` | Idempotent first-install/repair implementations: system prerequisites on request, `.venv`, Python requirements, and verified XDF core | careful |
+| `tools/start-windows.ps1` / `tools/start-macos.sh` | Daily source-server implementations that use the repository `.venv` directly and expose a non-persistent self-check | careful |
 | `software/constraints/py312-*.txt` | Bounded release-tested Python 3.12 compatibility pins: bootstrap, common runtime, and platform-selected local emotion stack | careful |
 
 ## Contracts (`software/study_runner/contracts/`)

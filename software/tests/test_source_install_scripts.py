@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 
@@ -15,6 +19,56 @@ def text(relative_path: str) -> str:
 
 
 class SourceInstallScriptTests(unittest.TestCase):
+    def test_windows_cmd_entrypoints_are_process_local_and_forward_everything(self) -> None:
+        for wrapper_name, script_name in (
+            ("install-windows.cmd", "install-windows.ps1"),
+            ("start-windows.cmd", "start-windows.ps1"),
+        ):
+            wrapper = text(f"tools/{wrapper_name}")
+            self.assertIn(
+                '"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"',
+                wrapper,
+            )
+            self.assertIn("-NoLogo -NoProfile -ExecutionPolicy Bypass", wrapper)
+            self.assertIn(f'-File "%~dp0{script_name}" %*', wrapper)
+            self.assertIn("%ERRORLEVEL%", wrapper)
+            self.assertNotIn("Set-ExecutionPolicy", wrapper)
+
+    @unittest.skipUnless(os.name == "nt", "Windows command-wrapper behavior")
+    def test_windows_cmd_entrypoints_work_in_a_path_with_spaces_and_parentheses(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tools_dir = Path(temporary) / "Study Runner (3)" / "tools"
+            tools_dir.mkdir(parents=True)
+            result_path = tools_dir / "result.txt"
+            for wrapper_name, script_name in (
+                ("install-windows.cmd", "install-windows.ps1"),
+                ("start-windows.cmd", "start-windows.ps1"),
+            ):
+                shutil.copy2(REPOSITORY_ROOT / "tools" / wrapper_name, tools_dir / wrapper_name)
+                (tools_dir / script_name).write_text(
+                    "param([string]$ProbeValue)\n"
+                    "Set-Content -LiteralPath (Join-Path $PSScriptRoot 'result.txt') "
+                    "-Value $ProbeValue\n"
+                    "exit 23\n",
+                    encoding="utf-8",
+                )
+                completed = subprocess.run(
+                    [
+                        os.environ.get("COMSPEC", "cmd.exe"),
+                        "/d",
+                        "/c",
+                        f"tools\\{wrapper_name}",
+                        "-ProbeValue",
+                        "forwarded value",
+                    ],
+                    cwd=tools_dir.parent,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                self.assertEqual(completed.returncode, 23, completed.stderr)
+                self.assertEqual(result_path.read_text(encoding="utf-8").strip(), "forwarded value")
+
     def test_windows_installer_has_explicit_system_packages_and_recording_gate(self) -> None:
         script = text("tools/install-windows.ps1")
         for required in (
@@ -70,6 +124,10 @@ class SourceInstallScriptTests(unittest.TestCase):
             self.assertNotIn("pip install", script)
             self.assertNotIn("setup_recording_worker", script)
             self.assertNotRegex(script, r"(?im)^\s*(?:rm|rmdir|del|Remove-Item)\b")
+        self.assertIn("[switch]$SelfCheck", windows)
+        self.assertIn('$ServerArguments += "--self-check"', windows)
+        self.assertIn("--self-check", macos)
+        self.assertIn("server_arguments+=(--self-check)", macos)
 
     def test_installers_never_delete_an_existing_environment_or_user_data(self) -> None:
         for relative_path in ("tools/install-windows.ps1", "tools/install-macos.sh"):
@@ -81,13 +139,14 @@ class SourceInstallScriptTests(unittest.TestCase):
     def test_github_readme_documents_first_install_and_later_start(self) -> None:
         readme = text("README.md")
         for command in (
-            ".\\tools\\install-windows.ps1 -InstallSystemDependencies",
-            ".\\tools\\start-windows.ps1",
+            ".\\tools\\install-windows.cmd -InstallSystemDependencies",
+            ".\\tools\\start-windows.cmd",
             "bash tools/install-macos.sh --install-system-dependencies",
             "bash tools/start-macos.sh",
             "brew install",
         ):
             self.assertIn(command, readme)
+        self.assertLess(readme.index("install-windows.cmd"), readme.index("## Project Layout"))
         self.assertRegex(readme, re.compile(r"xcode-select --install", re.IGNORECASE))
 
     def test_macos_intel_keeps_local_tensorflow_out_of_the_base_install(self) -> None:

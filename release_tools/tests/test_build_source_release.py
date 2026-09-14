@@ -310,9 +310,11 @@ class SourceReleaseTests(unittest.TestCase):
     def test_release_notes_include_install_commands_and_changelog(self) -> None:
         notes = release._release_notes(VERSION, "- Canonical recording architecture.")
 
-        self.assertIn("install-windows.ps1", notes)
+        self.assertIn("install-windows.cmd", notes)
+        self.assertIn("start-windows.cmd", notes)
         self.assertIn("-InstallSystemDependencies", notes)
         self.assertIn("install-macos.sh", notes)
+        self.assertIn("process-local execution-policy bypass", notes)
         self.assertIn("not prebuilt or bundled", notes)
         self.assertIn("THIRD_PARTY_NOTICES.md", notes)
         self.assertIn("Canonical recording architecture", notes)
@@ -326,8 +328,10 @@ class SourceReleaseTests(unittest.TestCase):
         self.assertNotIn("PYTHON_UPDATER_SIGNING_PRIVATE_KEY", workflow)
         self.assertNotIn("study-runner-python-latest.json", workflow)
         self.assertIn("study-runner-source.zip", workflow)
-        self.assertIn("tools/install-windows.ps1", workflow)
+        self.assertIn("tools\\install-windows.cmd", workflow)
+        self.assertIn("tools\\start-windows.cmd -SelfCheck", workflow)
         self.assertIn("tools/install-macos.sh", workflow)
+        self.assertIn("tools/start-macos.sh --self-check", workflow)
         self.assertIn("macos-15-intel", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertEqual(workflow.count("contents: write"), 1)
@@ -339,6 +343,9 @@ class SourceReleaseTests(unittest.TestCase):
         self.assertIn("Source regression suite (Linux, non-recording)", workflow)
         self.assertIn("python -m pytest", workflow)
         self.assertNotIn("ubuntu-latest", workflow)
+
+        self.assertIn("tools/install-windows.cmd", release.REQUIRED_SOURCE_FILES)
+        self.assertIn("tools/start-windows.cmd", release.REQUIRED_SOURCE_FILES)
 
         workflows = "\n".join(
             path.read_text(encoding="utf-8")
@@ -361,6 +368,16 @@ class SourceReleaseTests(unittest.TestCase):
         self.assertTrue(checkout_steps)
         for step in checkout_steps:
             self.assertIn("persist-credentials: false", step)
+
+    def test_release_attributes_exclude_the_current_brainbit_reference_path(self) -> None:
+        attributes = (release.REPOSITORY_ROOT / ".gitattributes").read_text(encoding="utf-8")
+        current_path = (
+            "software/study_runner/plugins/sensors/brainbit/"
+            "HelloEEG_HelloMYO_01.3.toe export-ignore"
+        )
+        self.assertIn("*.cmd text eol=crlf", attributes)
+        self.assertIn(current_path, attributes)
+        self.assertNotIn("study_runner/extensions/sensors/brainbit", attributes)
 
     def test_maintainer_release_commands_do_not_build_packaged_assets(self) -> None:
         helper = (release.REPOSITORY_ROOT / "release_tools/release-study-runner.mjs").read_text(

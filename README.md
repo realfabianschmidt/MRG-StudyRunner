@@ -3,6 +3,30 @@
 Study Runner is a local app for running small user studies in a lab, classroom,
 workshop, or design research setting.
 
+## Install and start
+
+From the repository root, run the installer once and use the start command for
+every later session:
+
+**Windows x64:**
+
+```powershell
+.\tools\install-windows.cmd -InstallSystemDependencies
+.\tools\start-windows.cmd
+```
+
+**macOS Intel or Apple Silicon:**
+
+```bash
+bash tools/install-macos.sh --install-system-dependencies
+bash tools/start-macos.sh
+```
+
+The installers are safe to run again after an update. They reuse the local
+`.venv` and a verified native recording core without deleting studies or
+results. See [Installation details](#installation-details) below for Git,
+WinGet, Homebrew, Xcode, and platform-specific camera support.
+
 Start here if you are not developing the code:
 
 ```text
@@ -65,7 +89,7 @@ study_runner/
 Local study results are written to `software/saved_results/` and are ignored by
 Git.
 
-## Quick Install From GitHub
+## Installation details
 
 The supported source-server setup uses Python 3.12 and a repository-local
 `.venv`. The install scripts also build and test the small native XDF core.
@@ -91,21 +115,20 @@ Open a new PowerShell window, then clone and install:
 ```powershell
 git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
 cd MRG-StudyRunner
-.\tools\install-windows.ps1 -InstallSystemDependencies
+.\tools\install-windows.cmd -InstallSystemDependencies
 ```
 
 The explicit switch installs missing Python 3.12, CMake, and Visual Studio C++
-Build Tools through WinGet. Windows may show a UAC prompt. If PowerShell blocks
-local scripts, run the installer once with:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\install-windows.ps1 -InstallSystemDependencies
-```
+Build Tools through WinGet. Windows may show a UAC prompt. The `.cmd` launcher
+invokes only the adjacent checked-in PowerShell script with a process-local
+execution-policy bypass. It does not change the machine or user policy. A policy
+enforced by an organization through AppLocker, WDAC, or Group Policy still needs
+to be resolved by that organization's administrator.
 
 Every later start is one command:
 
 ```powershell
-.\tools\start-windows.ps1
+.\tools\start-windows.cmd
 ```
 
 ### macOS Intel or Apple Silicon

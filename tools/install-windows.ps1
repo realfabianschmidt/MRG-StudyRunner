@@ -107,7 +107,7 @@ function Resolve-Python312 {
     }
     throw @"
 Python 3.12 x64 was not found. Re-run with:
-  .\tools\install-windows.ps1 -InstallSystemDependencies
+  .\tools\install-windows.cmd -InstallSystemDependencies
 or install the official WinGet package manually:
   winget install --id Python.Python.3.12 --exact --source winget
 "@
@@ -200,4 +200,4 @@ if (-not $SkipRecordingCore) {
 
 Write-Host ""
 Write-Host "Study Runner is ready. Later starts need only:"
-Write-Host "  .\tools\start-windows.ps1"
+Write-Host "  .\tools\start-windows.cmd"

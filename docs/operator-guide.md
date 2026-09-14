@@ -2,7 +2,7 @@
 
 Study Runner is a local Python server with an admin page, a participant page,
 and trusted built-in plugins for lab integrations. After the one-time source
-installation, start it with `tools/start-windows.ps1` or
+installation, start it with `tools/start-windows.cmd` or
 `bash tools/start-macos.sh`; no virtual-environment activation is needed.
 
 ## Main Parts
@@ -29,7 +29,7 @@ installation, start it with `tools/start-windows.ps1` or
 From a fresh GitHub checkout, use the platform installer once:
 
 ```powershell
-.\tools\install-windows.ps1 -InstallSystemDependencies
+.\tools\install-windows.cmd -InstallSystemDependencies
 ```
 
 ```bash
@@ -53,7 +53,7 @@ final compatibility check.
 Daily start:
 
 ```powershell
-.\tools\start-windows.ps1
+.\tools\start-windows.cmd
 ```
 
 ```bash
