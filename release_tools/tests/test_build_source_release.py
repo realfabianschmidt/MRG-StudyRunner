@@ -101,6 +101,68 @@ class SourceReleaseTests(unittest.TestCase):
 
             release.validate_archive(path, version=VERSION)
 
+    def test_archive_carries_the_one_curated_demo_result(self) -> None:
+        """README.md: "the one curated demo under software/saved_results/"
+        ships on purpose; every other saved_results/ path stays forbidden
+        (the next test). This regressed silently for the 0.6.0 and 0.7.0
+        source releases -- validate_archive rejected the archive at
+        publish time, after the tag was already pushed, so neither release
+        ever actually got its source archives published."""
+        with temporary_directory() as temporary:
+            path = Path(temporary) / release.ARCHIVES[0]
+            write_zip(path, members(
+                "software/saved_results/Demo_Completed_Study/participants/p1/sessions/s1/result.json",
+                "software/saved_results/Demo_Completed_Study/participants/p1/sessions/s1/derived/session.xdf",
+            ))
+
+            release.validate_archive(path, version=VERSION)
+
+    def test_archive_carries_the_bare_saved_results_directory_entry(self) -> None:
+        """`git archive`'s real zip/tar output (unlike this file's own
+        write_zip helper) emits a directory entry for saved_results/ itself,
+        with no filename, purely to hold the demo folder. This is the exact
+        member that broke the real 1.0.0 tag's release workflow -- the
+        previous test's synthetic fixture does not reproduce it, since
+        writestr() never adds one on its own."""
+        with temporary_directory() as temporary:
+            path = Path(temporary) / release.ARCHIVES[0]
+            write_zip(path, members(
+                "software/saved_results/",
+                "software/saved_results/Demo_Completed_Study/participants/p1/sessions/s1/result.json",
+            ))
+
+            release.validate_archive(path, version=VERSION)
+
+    def test_tar_style_directory_entries_without_a_trailing_slash_are_allowed(self) -> None:
+        """tarfile (git archive's actual tar.gz output) names a directory
+        entry with no trailing slash at all, unlike zip -- both the
+        saved_results/ parent and the demo folder itself can appear this
+        way. This is the exact member that broke the real tar.gz archive
+        after the previous two fixes already covered the zip case."""
+        for name in ("software/saved_results", "software/saved_results/Demo_Completed_Study"):
+            with self.subTest(name=name), temporary_directory() as temporary:
+                path = Path(temporary) / release.ARCHIVES[0]
+                write_zip(path, members(
+                    name,
+                    "software/saved_results/Demo_Completed_Study/participants/p1/sessions/s1/result.json",
+                ))
+
+                release.validate_archive(path, version=VERSION)
+
+    def test_archive_still_rejects_every_other_saved_results_path(self) -> None:
+        """The exemption is the one named demo folder, not the whole directory."""
+        for name in (
+            "software/saved_results/Some_Real_Study/participants/p1/sessions/s1/result.json",
+            "software/saved_results/Demo_Completed_Study_Copy/result.json",
+            "software/saved_results/runtime/lock.json",
+        ):
+            with self.subTest(name=name), temporary_directory() as temporary:
+                path = Path(temporary) / release.ARCHIVES[0]
+                write_zip(path, members(name))
+
+                with self.assertRaisesRegex(release.ReleaseError, "leaked"):
+                    release.validate_archive(path, version=VERSION)
+
     def test_archive_rejects_parent_traversal(self) -> None:
         with temporary_directory() as temporary:
             path = Path(temporary) / release.ARCHIVES[0]

@@ -86,6 +86,11 @@ LICENSED_FONT_DIRECTORIES = (
     "software/study_runner/apps/ui/vendor/geist/",
 )
 LICENSED_FONT_SUFFIXES = (".ttf", ".woff2")
+# The one curated demo session the project ships on purpose (README.md: "the
+# one curated demo under software/saved_results/"; .gitignore un-ignores
+# exactly this folder). Everything else under saved_results/ is an
+# operator's real data and must never reach an archive.
+CURATED_DEMO_RESULT_DIRECTORY = "/software/saved_results/demo_completed_study/"
 SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SUPPORTED_RECORDING_TARGETS = ("windows-x64", "macos-x64", "macos-arm64")
@@ -193,7 +198,11 @@ def validate_archive(path: Path, *, version: str | None = None) -> None:
             raise ReleaseError(f"required source file is absent from {path.name}: {relative}")
     for name in normalized:
         lowered = name.casefold()
-        if any(part.casefold() in lowered for part in FORBIDDEN_ARCHIVE_PARTS):
+        for part in FORBIDDEN_ARCHIVE_PARTS:
+            if part.casefold() not in lowered:
+                continue
+            if part == "/saved_results/" and is_curated_demo_result(lowered):
+                continue
             raise ReleaseError(f"generated, native, or private path leaked into {path.name}: {name}")
         if lowered.endswith(FORBIDDEN_SOURCE_SUFFIXES) and not is_licensed_font(lowered):
             raise ReleaseError(f"binary or secret-like file leaked into {path.name}: {name}")
@@ -214,6 +223,29 @@ def is_licensed_font(lowered_name: str) -> bool:
         if start >= 0 and "/" not in lowered_name[start + len(marker):]:
             return True
     return False
+
+
+def is_curated_demo_result(lowered_name: str) -> bool:
+    """True for a file inside the one curated demo session, and nothing else.
+
+    Every other path under saved_results/ is real operator data and must
+    keep failing this check -- only the exact demo directory is exempt.
+    Matched trailing-slash-anchored so a folder like
+    "demo_completed_study_copy" cannot ride along on the same prefix.
+
+    Also true for a bare directory-entry member (no file of its own) for
+    saved_results/ itself or for the demo folder itself: zip and tar
+    archives represent these differently (a zip directory entry keeps a
+    trailing "/"; git archive's tar output does not), and either format
+    can emit one purely to hold the real content below it -- it carries no
+    content of its own and is not what this check exists to catch.
+    """
+    if CURATED_DEMO_RESULT_DIRECTORY in lowered_name:
+        return True
+    trimmed = lowered_name.rstrip("/")
+    if trimmed.endswith(CURATED_DEMO_RESULT_DIRECTORY.rstrip("/")):
+        return True
+    return trimmed.endswith("/software/saved_results")
 
 
 def git_archive(*, commit: str, version: str, output: Path, archive_format: str) -> None:
