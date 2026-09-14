@@ -2071,9 +2071,30 @@ cross-package edges or cycles).
       substance before this package -- the "Open questions" section closed
       in Package 3 records the decision trail, these active docs already
       stated the resulting facts, so no further prose was needed there.
-- [ ] **6.5** `version.py` → `1.0.0`, `CHANGELOG.md` -- deliberately last:
-      needs merging this branch to `main` first, which `release.ps1` itself
-      does as part of tagging. Owner decision pending on timing.
+- [x] **6.5** `version.py` → `1.0.0`, `CHANGELOG.md` -- done 2026-09-14. Owner
+      approved proceeding fully, including the tag. `feature/architecture-1.0`
+      fast-forwarded onto `main` (`main` was already a strict ancestor, 55
+      linear commits, no merge commit needed) and pushed. Before that:
+      found and stashed a real, uncommitted operator edit to
+      `study_config.json` sitting in the `main` worktree (a genuine
+      in-progress study, not test data) so the merge could not sweep it into
+      any commit; restored it as an uncommitted local edit again immediately
+      after, exactly as the operator had it. Also removed an orphaned,
+      entirely gitignored `software/study_runner/plugins/` directory left
+      over from the pre-1.0 layout (logs, `.pyc` caches, one model weight
+      file -- nothing tracked, nothing lost). Wrote a real, operator-facing
+      `## Unreleased` entry in `CHANGELOG.md` summarizing the whole rebuild
+      (redesigned UI, extension SDK, session lifecycle/quality/withdrawal
+      tracking, preflight checks, git-checkout self-update, API v5, the MIT
+      switch), committed and pushed it, then ran `release.ps1 1.0.0` for
+      real: it bumped `version.py`, promoted that entry to `## 1.0.0`, ran
+      the full local suite (990 tests via `unittest discover`, consistent
+      with `pytest`'s 986 plus subTest counting), committed
+      "Release Study Runner 1.0.0" on `main`, pushed it, and pushed tag
+      `app-v1.0.0` -- confirmed on the remote
+      (`git ls-remote --tags origin app-v1.0.0`). The GitHub Actions release
+      workflow is now building and verifying the source archives on
+      Windows x64, macOS Intel, and macOS Apple Silicon.
 - [x] **6.6** Target doc §17 acceptance list -- reviewed item by item
       2026-09-14, against real, already-passing tests, not re-derived:
       preflight fails closed on insufficient storage
