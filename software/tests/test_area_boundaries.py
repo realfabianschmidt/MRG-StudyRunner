@@ -84,7 +84,7 @@ class AreaBoundaryTests(unittest.TestCase):
         """host and worker may not import each other (invariant #1).
 
         Stronger than blocking `flask`: this blocks `study_runner.data_core.host`
-        itself. Before Phase 2.5 (docs/architecture-1.0-umbau.md), the worker
+        itself. Before Phase 2.5 (docs/archive/architecture-1.0-umbau.md), the worker
         genuinely could not have loaded here -- `worker_protocol`, `backup`
         and `recovery` lived under `recording/` and the worker imported them
         directly. They moved to `shared/`; this is the test that would have
@@ -131,7 +131,7 @@ class AreaBoundaryTests(unittest.TestCase):
         self.assertTrue(
             shared.is_dir(),
             f"{shared} does not exist -- update this path in the same commit "
-            "that moved it (see docs/architecture-1.0-umbau.md)",
+            "that moved it (see docs/archive/architecture-1.0-umbau.md)",
         )
         offenders = []
         for path in shared.rglob("*.py"):

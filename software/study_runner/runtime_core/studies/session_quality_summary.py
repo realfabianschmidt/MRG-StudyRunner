@@ -1,6 +1,6 @@
 """Turn a session's quality journal into three sentences, not thirty numbers.
 
-Package A1 (docs/architecture-1.0-umbau.md, "Sichtbarkeit zuerst"). 5c wrote
+Package A1 (docs/archive/architecture-1.0-umbau.md, "Sichtbarkeit zuerst"). 5c wrote
 ``quality.jsonl`` during recording and 5h taught it to also carry
 ``unconfirmed_tail`` events during recovery, but neither had a reader on the
 UI side -- ``summarize_quality_journal`` (contracts/quality_journal.py) had

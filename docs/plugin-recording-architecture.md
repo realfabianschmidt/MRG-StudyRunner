@@ -185,7 +185,7 @@ Supported capabilities include:
 
 `runtime_control` (a no-op fallback for `runtime.actions`) and the old
 `readiness` name were both retired in api_version 5 (Phase 3.4,
-docs/architecture-1.0-umbau.md): traced every call site first and found both
+docs/archive/architecture-1.0-umbau.md): traced every call site first and found both
 had zero effect on the running app. `health` now has real teeth --
 `sensor_coordinator_service.py` polls a plugin's status only if it declares
 `health`, so a plugin with nothing worth polling (every card extension, for

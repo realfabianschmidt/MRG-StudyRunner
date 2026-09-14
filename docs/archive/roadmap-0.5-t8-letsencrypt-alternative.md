@@ -1,6 +1,6 @@
 # Archived: T8 alternative design — publicly trusted HTTPS via Let's Encrypt
 
-**Status: not pursued.** Set aside by Fabian on 2026-07-30 in favour of keeping the local root CA and making its installation effortless (see T8 in `docs/roadmap-0.5.md`).
+**Status: not pursued.** Set aside by Fabian on 2026-07-30 in favour of keeping the local root CA and making its installation effortless (see T8 in `docs/archive/roadmap-0.5.md`).
 
 Reason for archiving rather than deleting: the design is sound and would become the right answer if the setup grows to many tablets, frequently changing server computers, or operators who cannot be walked through a one-time certificate install.
 

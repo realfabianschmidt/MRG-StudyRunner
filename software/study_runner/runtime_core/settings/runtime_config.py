@@ -9,7 +9,7 @@ import socket
 from typing import Any
 
 # Moved to shared/runtime_mode.py so plugins and plugin_framework can depend
-# on them without depending on the server package (docs/architecture-1.0-umbau.md, Phase
+# on them without depending on the server package (docs/archive/architecture-1.0-umbau.md, Phase
 # 2.1). Imported here both for this module's own internal use below and as a
 # re-export for runtime callers (app_server.py, results_service.py,
 # trial_service.py, ...). Keep this

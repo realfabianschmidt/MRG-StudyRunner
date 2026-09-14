@@ -435,5 +435,3 @@ a good session leaves a small file rather than a large empty one.
 - `sensors-and-data.md` — where the data comes from and what ends up in
   the result files.
 - `plugin-recording-architecture.md` — the recording pipeline itself.
-- `architecture-1.0-umbau.md` — the rebuild this work is part of
-  (packages 5a, 5c, 5d).

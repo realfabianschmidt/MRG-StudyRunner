@@ -12,5 +12,5 @@ Split by which process runs the code, not by topic:
                 handling, the ctypes binding to the native XDF core.
 
 ``host`` and ``worker`` both import ``contract`` and never each other
-(invariant #1, docs/architecture-1.0-umbau.md).
+(invariant #1, docs/archive/architecture-1.0-umbau.md).
 """

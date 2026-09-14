@@ -1,4 +1,4 @@
-"""Plugin SDK tests (Phase 5j, docs/architecture-1.0-umbau.md).
+"""Plugin SDK tests (Phase 5j, docs/archive/architecture-1.0-umbau.md).
 
 Proves the SDK's promise for real: each template is scaffolded with `new`,
 then actually validated and booted -- through the exact same code the real

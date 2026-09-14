@@ -134,7 +134,7 @@ def upload_study_result(
     study config file itself the way it used to. Instead it reports what
     changed via `study_config_updates` in the result; the host
     (`upload_runtime.py`, which owns that dependency) persists it after this
-    call returns. See docs/architecture-1.0-umbau.md, Phase 2.3.
+    call returns. See docs/archive/architecture-1.0-umbau.md, Phase 2.3.
     """
     if config_data is None:
         config_data = {}

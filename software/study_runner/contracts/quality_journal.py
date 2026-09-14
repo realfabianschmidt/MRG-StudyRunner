@@ -1,6 +1,6 @@
 """Quality and timing observations made *while* recording, not afterwards.
 
-Package 5c (docs/architecture-1.0-umbau.md), target doc §9: "Qualität
+Package 5c (docs/archive/architecture-1.0-umbau.md), target doc §9: "Qualität
 entsteht **während** der Aufnahme in ``quality.jsonl``, nicht erst bei der
 Finalisierung. Eine abgebrochene Session hinterlässt sonst kein QC."
 

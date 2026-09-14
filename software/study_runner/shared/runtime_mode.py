@@ -1,7 +1,7 @@
 """Is this a packaged build, and where does it live?
 
 Moved out of the former backend settings package during the 1.0 rebuild
-(docs/architecture-1.0-umbau.md, Phase 2.1). Extensions and
+(docs/archive/architecture-1.0-umbau.md, Phase 2.1). Extensions and
 `plugin_framework` need to know whether they are running frozen, and this
 dependency-light module keeps that question outside the HTTP server.
 

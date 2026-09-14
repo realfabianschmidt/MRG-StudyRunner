@@ -21,7 +21,7 @@ plugin-specific code (Notion's own status route and its one-time legacy
 queue migration, sensor admin routes) that this round did not touch and does
 not claim to be generic.
 
-Widened for the 1.0 rebuild (docs/architecture-1.0-umbau.md, invariant #4 --
+Widened for the 1.0 rebuild (docs/archive/architecture-1.0-umbau.md, invariant #4 --
 "no core module names a plugin key") to also cover destination-policy
 resolution and plugin discovery itself: `destination_definitions_from_manifests`
 and `discover_plugin_catalog` are the same shape of generic mechanism as the

@@ -140,7 +140,7 @@ def discover_plugin_catalog(
             # cleanly (validate_and_normalize_manifest rejects anything
             # outside SUPPORTED_PLUGIN_API_VERSIONS = (5,)), so the process
             # host is the only path -- see Phase 3.1,
-            # docs/architecture-1.0-umbau.md, for the v3 in-process import
+            # docs/archive/architecture-1.0-umbau.md, for the v3 in-process import
             # path this replaced. No separate object-shape validation
             # follows: build_process_plugin derives every handler directly
             # and unconditionally from this same manifest's own capabilities

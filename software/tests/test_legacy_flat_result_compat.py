@@ -5,7 +5,7 @@ Target doc `MRG_Recorder_Core_Architektur_1.0.md` section 13 proposes removing
 not test data -- it is on disk right now, for real, on this developer's
 machine (`software/saved_results/Example_Sensors_Study/<participant>/`). A
 release that can no longer make sense of a researcher's earlier recordings is
-not cleanup. docs/architecture-1.0-umbau.md (decision D2) keeps the read path
+not cleanup. docs/archive/architecture-1.0-umbau.md (decision D2) keeps the read path
 and asks for a fixture test; this is that test.
 
 The fixture at `fixtures/legacy_flat_result/` is a synthetic stand-in for that

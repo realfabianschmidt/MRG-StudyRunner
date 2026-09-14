@@ -29,7 +29,7 @@ All notable Study Runner changes are documented here. Release tags use
 ## 1.0.0 - 2026-09-14
 
 Study Runner 1.0 rebuilds the application on a clearer internal architecture
-(`docs/architecture-1.0-umbau.md`) with no removed capability. The user- and
+(`docs/archive/architecture-1.0-umbau.md`) with no removed capability. The user- and
 operator-facing highlights:
 
 ### Added
@@ -82,7 +82,7 @@ operator-facing highlights:
   still declaring the old names is rejected with a message naming the
   replacement.
 - Recording, plugin discovery, and delivery are reorganized into clearer
-  internal packages (`docs/architecture-1.0-umbau.md` has the full record).
+  internal packages (`docs/archive/architecture-1.0-umbau.md` has the full record).
   No recording format, HTTP route, or operator-facing behavior changed as a
   result; existing studies, settings, and sessions from 0.7.0 continue to
   work unchanged, including sessions saved before this release.

@@ -1,6 +1,6 @@
 """How far a recording is known to be on disk, and what lies beyond that.
 
-Package 5h (docs/architecture-1.0-umbau.md), target doc §7: an interrupted
+Package 5h (docs/archive/architecture-1.0-umbau.md), target doc §7: an interrupted
 recording must never lose data *silently*. The existing machinery already
 survives a crash -- the dying generation's XDF segment is left in place and
 a new segment is opened (``recording_runtime._reattach_or_recover``) -- but

@@ -1,6 +1,6 @@
 """Append-only quality and timing journals, written while recording.
 
-Package 5c (docs/architecture-1.0-umbau.md). One writer per worker process,
+Package 5c (docs/archive/architecture-1.0-umbau.md). One writer per worker process,
 shared by every recorder in that session, because the two journals are
 session-scoped (target doc §8's layout puts them at the session root) while
 recorders are per plugin.

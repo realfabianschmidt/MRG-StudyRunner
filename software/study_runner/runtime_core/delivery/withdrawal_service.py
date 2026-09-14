@@ -1,6 +1,6 @@
 """Carry out a consent withdrawal, replayably and without overclaiming.
 
-Package 5i (docs/architecture-1.0-umbau.md), target doc §10. Package 5a
+Package 5i (docs/archive/architecture-1.0-umbau.md), target doc §10. Package 5a
 already defined the destination -- ``WITHDRAWN`` is reachable from every
 other lifecycle state, including from ``SEALED`` months later, and nothing
 is reachable from it -- so this module only has to get there safely.

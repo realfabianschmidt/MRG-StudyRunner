@@ -88,7 +88,7 @@ class SelfCheckIsolationTests(unittest.TestCase):
                 self.assertEqual(self_check.main(), 1)
 
     def test_packaging_fixture_is_valid_without_importing_plugin_code_in_the_host(self) -> None:
-        """Phase 3.1 (docs/architecture-1.0-umbau.md) removed the v3
+        """Phase 3.1 (docs/archive/architecture-1.0-umbau.md) removed the v3
         in-process import path this used to guard against directly
         (``plugin_catalog.importlib``); v4 discovery only reads
         ``manifest.json`` and checks that ``driver.py`` exists on disk, so

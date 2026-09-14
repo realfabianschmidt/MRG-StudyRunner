@@ -125,7 +125,7 @@ jobs:
     name: Packaging smoke test (fixture plugin RPC)
     runs-on: ubuntu-24.04
     # PyInstaller is not built by the release workflow either (see
-    # docs/architecture-1.0-umbau.md, trap T5) -- this is the only place a
+    # docs/archive/architecture-1.0-umbau.md, trap T5) -- this is the only place a
     # packaging break (a bad `datas` mapping, a missing hidden import, a moved
     # frontend path) gets caught before it reaches an operator's machine.
     # A fixture-only tree needs no BrainBit SDKs or DeepFace weights

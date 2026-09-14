@@ -137,7 +137,7 @@ class NotionParticipantMetadataTests(unittest.TestCase):
     def test_auto_created_database_is_reported_as_a_study_config_update(self) -> None:
         """`_ensure_database` cannot save its own discovery anymore.
 
-        docs/architecture-1.0-umbau.md Phase 2.3: this file runs inside the
+        docs/archive/architecture-1.0-umbau.md Phase 2.3: this file runs inside the
         plugin's own subprocess and may not import backend, so it can no
         longer save the auto-created database id itself (that used to be
         `_persist_study_database_id`, which silently never worked once

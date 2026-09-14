@@ -9,7 +9,7 @@ gives Codex or a second agent working in parallel a way to see, commit by
 commit, whether a change made things better or worse.
 
 Instead: `KNOWN_VIOLATIONS` lists every current violation, found mechanically
-(see the discovery script in docs/architecture-1.0-umbau.md Phase 1.2 -- not
+(see the discovery script in docs/archive/architecture-1.0-umbau.md Phase 1.2 -- not
 hand-transcribed, which already missed two real edges once). It is empty as
 of Phase 2's completion.
 

@@ -1,6 +1,6 @@
 """The one explicit session lifecycle, mapped from the machines that own it.
 
-Package 5a (docs/architecture-1.0-umbau.md), target doc §10. Until now a
+Package 5a (docs/archive/architecture-1.0-umbau.md), target doc §10. Until now a
 session's overall state was implicit, spread across three files that each
 answer a different question:
 

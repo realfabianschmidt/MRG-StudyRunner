@@ -557,7 +557,7 @@ def _journal_xdf_mismatches(
     event set to compare against, so this reports nothing rather than
     treating every XDF marker as an unexplained extra. A mismatch is
     reported as a quality warning, never a hard failure -- Package 5e
-    (docs/architecture-1.0-umbau.md): "kein stiller Datenverlust; Marker
+    (docs/archive/architecture-1.0-umbau.md): "kein stiller Datenverlust; Marker
     werden priorisiert, aber nicht unrealistisch garantiert." The one
     exception (a *required* terminal marker missing entirely) is still a
     hard `CardSummaryError`, raised earlier in `build()` before this runs.

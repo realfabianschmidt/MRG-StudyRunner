@@ -1,6 +1,6 @@
 """Preflight: does the target disk actually have room for this session?
 
-Package 5b (docs/architecture-1.0-umbau.md). The target architecture's own
+Package 5b (docs/archive/architecture-1.0-umbau.md). The target architecture's own
 wording talks about checking free space against "die geplante Sessiondauer
 und die gemessene Schreibrate" (the planned session duration and the
 *measured write rate*). This module deliberately does not measure disk

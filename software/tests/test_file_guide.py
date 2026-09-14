@@ -10,7 +10,7 @@ renamed source root makes this test pass while checking nothing at all --
 it would scan two small script folders and call the application documented.
 `test_source_roots_exist` closes that hole: rename a root and this file
 fails loudly instead of going quiet. It matters most during the 1.0
-package restructure (see docs/architecture-1.0-umbau.md), which moves
+package restructure (see docs/archive/architecture-1.0-umbau.md), which moves
 every path in SOURCE_DIRS.
 """
 from __future__ import annotations

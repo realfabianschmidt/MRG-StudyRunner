@@ -1,7 +1,7 @@
 """The one place a study's stable id gets normalized.
 
 Moved out of `backend.services.studies.study_config_service` during the 1.0
-rebuild (docs/architecture-1.0-umbau.md, Phase 2.2): `plugin_framework`'s
+rebuild (docs/archive/architecture-1.0-umbau.md, Phase 2.2): `plugin_framework`'s
 credential resolution needs the exact same normalization a study's filename
 and its credential-storage key already use, so a rename can never strand
 secrets under the old key. Putting it in `shared/` lets both areas use the

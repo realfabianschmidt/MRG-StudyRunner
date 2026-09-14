@@ -29,7 +29,7 @@ def build_context(
 
     `secret_resolver` is accepted, not looked up here: `study_secrets_service`
     lives in `plugin_framework`, and the registry keeps resolution injected
-    (docs/architecture-1.0-umbau.md invariant #2). The caller that owns that
+    (docs/archive/architecture-1.0-umbau.md invariant #2). The caller that owns that
     dependency supplies the callable; production's is
     `apps/server/__init__.py::_plugin_context`.
     """

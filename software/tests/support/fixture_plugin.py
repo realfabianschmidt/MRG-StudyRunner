@@ -7,7 +7,7 @@ environment survives the spawn (``env = os.environ.copy()`` in
 with ``plugin_layout``'s test-only environment seam so a real subprocess
 can resolve and import the fixture plugin exactly like a real one, instead of
 faking the v3 in-process import path that Phase 3.1
-(docs/architecture-1.0-umbau.md) removed.
+(docs/archive/architecture-1.0-umbau.md) removed.
 """
 from __future__ import annotations
 

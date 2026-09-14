@@ -70,7 +70,7 @@ class StudySettingsContractTests(unittest.TestCase):
                 "sensors",
                 "plugins",
                 "progress_bar_enabled",
-                # Package 5b (docs/architecture-1.0-umbau.md): preflight's
+                # Package 5b (docs/archive/architecture-1.0-umbau.md): preflight's
                 # capacity check needs this; no dedicated settings-panel UI
                 # exists for it yet, but the round-trip through
                 # normalizeStudySettings() must not drop it.

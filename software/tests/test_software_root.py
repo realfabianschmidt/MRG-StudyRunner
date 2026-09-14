@@ -6,7 +6,7 @@ directory, so `get_project_base_dir()` resolves `study_content/` and
 `saved_results/` one folder too high with nothing raising and no test failing.
 
 These tests pin the replacement rather than the symptom, because the 1.0
-package restructure (docs/architecture-1.0-umbau.md) changes the depth of
+package restructure (docs/archive/architecture-1.0-umbau.md) changes the depth of
 every one of those modules.
 """
 from __future__ import annotations

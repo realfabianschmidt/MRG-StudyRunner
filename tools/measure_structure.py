@@ -6,7 +6,7 @@ and the largest file. `--check` fails only when a number gets WORSE than a
 committed baseline (tools/structure_baseline.json) -- not against an
 absolute threshold. An absolute threshold set today would either do nothing
 (several of today's numbers already reflect real, known, and still-being-fixed
-violations -- see docs/architecture-1.0-umbau.md's KNOWN_VIOLATIONS) or block
+violations -- see docs/archive/architecture-1.0-umbau.md's KNOWN_VIOLATIONS) or block
 every commit before Phase 2 even starts.
 
 "Package" means today's `study_runner/<area>/` directories, plus the

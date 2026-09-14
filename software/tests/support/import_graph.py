@@ -2,7 +2,7 @@
 
 String-matching (`"study_runner.apps.server" in text`) misses the shape most
 real violations take: 8 of the 11 import-boundary violations known at the
-start of the 1.0 rebuild (docs/architecture-1.0-umbau.md) are function-local
+start of the 1.0 rebuild (docs/archive/architecture-1.0-umbau.md) are function-local
 imports, deliberately placed inside a function body to dodge a cycle at
 module-load time rather than at call time. A textual scan finds those only
 by accident; walking the AST finds them by construction, at any nesting

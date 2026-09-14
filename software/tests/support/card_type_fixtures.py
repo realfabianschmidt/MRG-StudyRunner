@@ -1,6 +1,6 @@
 """One golden fixture per registered card type (package 5g.B1).
 
-Package 5g (docs/architecture-1.0-umbau.md): before any card-type logic in
+Package 5g (docs/archive/architecture-1.0-umbau.md): before any card-type logic in
 `validation.py` is touched -- moved into a table (5g.B3), delivered as an
 extension manifest (5g.B5), or anything else -- there must be a way to prove
 the new shape means exactly what the old one meant. This module is that

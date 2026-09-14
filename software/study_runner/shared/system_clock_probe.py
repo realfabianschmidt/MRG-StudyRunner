@@ -1,6 +1,6 @@
 """Is the system clock plausible, and is a time-sync service running?
 
-Package 5b (docs/architecture-1.0-umbau.md): the target architecture requires
+Package 5b (docs/archive/architecture-1.0-umbau.md): the target architecture requires
 preflight to check "die Systemuhr auf Plausibilität und einen laufenden
 Zeitdienst" (the system clock for plausibility, and a running time service)
 before a recording session may start.

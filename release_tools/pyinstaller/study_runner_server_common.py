@@ -34,7 +34,7 @@ def common_datas(root: Path) -> list[tuple[str, str]]:
     # import, so PyInstaller's static analysis cannot find them on its own.
     # Missing either one crashes create_app() at startup -- caught by the
     # packaging-smoke CI job, which is the only place that actually runs a
-    # built bundle (see docs/architecture-1.0-umbau.md, trap T5).
+    # built bundle (see docs/archive/architecture-1.0-umbau.md, trap T5).
     for manifest_name in ("markers.manifest.json", "clock_diagnostics.manifest.json"):
         manifest_path = root / "study_runner" / "data_core" / "host" / manifest_name
         if not manifest_path.is_file():
@@ -149,7 +149,7 @@ def common_hidden_imports(root: Path) -> list[str]:
             "study_runner.updates.trusted_keys",
             "study_runner.version",
             # Launched as "<own executable> --self-check"; see
-            # docs/architecture-1.0-umbau.md trap T5 for why this exists.
+            # docs/archive/architecture-1.0-umbau.md trap T5 for why this exists.
             "study_runner.self_check",
         ]
     )

@@ -53,7 +53,7 @@ LSL_CHANNEL_UNITS = {
     "emotion": ("probability",) * len(_EMOTIONS) + ("probability", "boolean", "count"),
     "face_quality": ("boolean", "probability", "pixel", "pixel", "count"),
 }
-# Package 5d (docs/architecture-1.0-umbau.md): this plugin's own frozen
+# Package 5d (docs/archive/architecture-1.0-umbau.md): this plugin's own frozen
 # stream contract, for the desc/study_runner XDF header block only -- the
 # LSL_SOURCE_IDS/LSL_CHANNEL_UNITS constants above remain the source of
 # truth for outlet creation itself, unchanged.

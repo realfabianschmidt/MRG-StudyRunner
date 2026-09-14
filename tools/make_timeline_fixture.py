@@ -145,7 +145,7 @@ def _stream_header_xml(stream: dict, stream_id: int) -> bytes:
         f"<plugin_key>{stream['plugin_key']}</plugin_key>"
         # Same field names as contracts/stream_contract.py's real
         # apply_stream_contract_desc(), so this fixture matches a genuine
-        # 5d-era recording (docs/architecture-1.0-umbau.md, T8) instead of
+        # 5d-era recording (docs/archive/architecture-1.0-umbau.md, T8) instead of
         # drifting from it. "unknown" is honest: no adapter has a real
         # measured capture delay yet either.
         f"<source_id>{stream['plugin_key']}</source_id>"

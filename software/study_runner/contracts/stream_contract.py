@@ -1,6 +1,6 @@
 """Turn one manifest-declared stream contract into XDF header fields.
 
-Package 5d (docs/architecture-1.0-umbau.md): every LSL-producing module
+Package 5d (docs/archive/architecture-1.0-umbau.md): every LSL-producing module
 calls this before creating its outlet, so the ``desc/study_runner/...``
 namespace in the recorded XDF carries one single-source-of-truth
 projection of the stream's identity and timing provenance, instead of a

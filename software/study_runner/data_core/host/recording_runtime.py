@@ -486,7 +486,7 @@ class RecordingRuntimeService:
             except RecordingContractError as error:
                 raise RecordingRuntimeError(str(error)) from error
 
-            # Package 5d (docs/architecture-1.0-umbau.md): a publishable
+            # Package 5d (docs/archive/architecture-1.0-umbau.md): a publishable
             # projection of the same frozen contract, as its own top-level
             # session artifact (target doc §8) -- written once, here, at the
             # same freeze point as recording-plan.json itself, never
@@ -740,7 +740,7 @@ class RecordingRuntimeService:
         """Start/reconcile one generation and allocate append-never segments."""
 
         manifests, streams_by_source, backup_contract = _recording_inputs_from_plan(plan)
-        # The actual start boundary (Package 5b, docs/architecture-1.0-umbau.md):
+        # The actual start boundary (Package 5b, docs/archive/architecture-1.0-umbau.md):
         # every path that reaches this point is about to spawn a worker
         # process. Gate it here, once, rather than at each of the three call
         # sites (fresh start, partial-start reissue, crash recovery) -- a

@@ -1,7 +1,7 @@
 """Per-study credentials, kept out of the study file.
 
 Moved here from `backend.services.studies.study_secrets_service` during the
-1.0 rebuild (docs/architecture-1.0-umbau.md, Phase 2.2). Despite the old
+1.0 rebuild (docs/archive/architecture-1.0-umbau.md, Phase 2.2). Despite the old
 location, nothing here ever depended on Flask or an app context -- every
 function takes plain dicts and returns a value. The real reason it needed to
 move: `PluginContext.secret()` calls `resolve_plugin_secret`, and that call
