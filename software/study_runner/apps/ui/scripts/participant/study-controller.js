@@ -659,13 +659,20 @@ function bindEvents() {
   questionContainer.addEventListener('participantid:changed', handleQuestionChange);
 }
 
+/**
+ * The participant view still enters fullscreen on its own; only the visible
+ * toggle is switched off for now. Set this back to true to show the button
+ * again - markup, styles, locale keys and handlers are all still in place.
+ */
+const SHOW_FULLSCREEN_BUTTON = false;
+
 function initFullscreenUi() {
   const fullscreenUi = getElement('study-fullscreen-ui');
   if (!fullscreenUi || !isFullscreenSupported()) {
     return;
   }
 
-  fullscreenUi.hidden = false;
+  fullscreenUi.hidden = !SHOW_FULLSCREEN_BUTTON;
   updateFullscreenUi();
 
   document.addEventListener('fullscreenchange', updateFullscreenUi);
@@ -702,7 +709,7 @@ function updateFullscreenUi() {
     return;
   }
 
-  fullscreenUi.hidden = false;
+  fullscreenUi.hidden = !SHOW_FULLSCREEN_BUTTON;
   fullscreenUi.classList.toggle('study-fullscreen-ui--active', isActive);
   fullscreenButton.setAttribute('aria-label', isActive ? t('study.exitFullscreenAria', 'Exit fullscreen') : t('study.fullscreenAria', 'Enter fullscreen'));
   fullscreenButton.title = isActive ? t('study.exitFullscreenTitle', 'Exit fullscreen') : t('study.fullscreenTitle', 'Fullscreen');
