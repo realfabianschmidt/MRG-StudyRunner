@@ -28,7 +28,8 @@ accident otherwise.
 #### First installation
 
 1. Download `study-runner-source.zip` from the latest release and extract it.
-2. Move the extracted Study Runner folder into **Documents**.
+2. Move the extracted Study Runner folder to a permanent location --
+   **Documents** is a good default.
 3. Open that folder in File Explorer, click the address bar, type `powershell`,
    and press Enter. PowerShell now opens in the correct folder.
 4. Copy this command into PowerShell and press Enter:
@@ -66,7 +67,8 @@ that window to stop it.
 
 1. Download `study-runner-source.tar.gz` from the latest release. Double-click
    it in Finder if the browser did not extract it automatically.
-2. Move the extracted Study Runner folder into **Documents**.
+2. Move the extracted Study Runner folder to a permanent location --
+   **Documents** is a good default.
 3. Open Terminal. Type `cd `, including the space, drag the Study Runner folder
    from Finder into the Terminal window, and press Enter.
 4. Ask macOS to install Apple's Command Line Tools and finish the displayed
