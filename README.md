@@ -7,9 +7,10 @@ workshop, or design research setting.
 
 These steps use the tested files from the
 [latest GitHub Release](https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest).
-Choose a permanent folder under **Documents** before installing. Study Runner
-stores its local setup and, by default, study data inside this folder, so do not
-run it permanently from Downloads or move/delete the folder later.
+Choose a permanent folder before installing -- **Documents** is a good
+default, not a requirement, see below. Study Runner stores its local setup
+and, by default, study data inside this folder, so do not run it permanently
+from Downloads or move/delete the folder later.
 
 There is no separate installer step that asks where to put it: the folder you
 move the extracted download into is the install, and step 2 below is the only
