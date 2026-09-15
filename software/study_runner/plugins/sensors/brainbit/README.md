@@ -155,6 +155,71 @@ including a native access violation -- under the same generic "crashed, will
 retry" bucket as ordinary supervision failures, with no separate label for
 diagnosis.
 
+## Known issue: a clean-exit report on current code, cause not yet isolated
+
+Reported 2026-09-15, running a source checkout downloaded fresh from
+`origin/main` at commit `496319c` -- unlike the report above, this one
+**does** reproduce on current, shipped code, not an old install.
+
+BrainBit connected, ran its six-second contact measurement with poor contact
+on all four electrodes throughout (`RESIST` samples mostly `null`, `QUALITY`
+`0.0` on every channel the whole window), then calibration stalled and
+finished anyway -- none of that is a bug. `CALIB STALLED` only sets a flag and
+keeps raw acquisition running (`brainbit_realtime_cli.py@496319c:1624-1638`);
+nothing about a stalled or poor-contact calibration sets a failure exit code
+or raises. `CALIB FINISHED` after a stall is cosmetic, not an error.
+
+What happened next is the part worth recording. About 26 seconds after `CALIB
+FINISHED`, the log printed the same two lines the process prints at its very
+first startup -- "TouchDesigner OSC proxy ready" and "Base LSL outlet ready;
+waiting for the device channel map" -- meaning `adapter.py`'s `initialize()`
+ran again inside the same session
+(`_initialize_touchdesigner_client`/`_initialize_lsl_outlets`,
+`adapter.py@496319c:1713`/`1876`, both called only from `initialize()` at
+`adapter.py@496319c:367-370`). The only path that reruns `initialize()`
+without a full stop is the `"restart"` RPC (`plugin.py@496319c:245-256`,
+`_restart()`). Ten seconds after that, the CLI exited with code `0` and did
+not restart: "External CLI exited with code 0" then "External CLI stopped,"
+with no retry line.
+
+That is not a bug in itself. `EXIT_OK = 0`
+(`brainbit_realtime_cli.py@496319c:38`) means "stopped on purpose or the
+configured duration elapsed," and `adapter.py` deliberately treats it as
+final: `_exit_reason()` returns `None` for exit code 0
+(`adapter.py@496319c:788-792`, excluded from both `_EXIT_REASONS` and
+`_CRASH_REASON`), and `_maybe_restart_after_exit()` returns `False` the
+moment `reason is None` (`adapter.py@496319c:2334-2336`), before the retry
+budget is even checked. `test_brainbit_launch.py`'s
+`test_clean_exit_stops_the_watchdog` asserts exactly this. **The actual gap:
+exit 0 does not distinguish "stopped after a genuinely good connection" from
+"stopped after contact was never verified good."** A session whose electrodes
+never made real contact can end exactly like a session that worked, with no
+distinct signal telling the operator the recording that follows may be
+meaningless.
+
+What is still unconfirmed, and why nothing was changed here to fix it: which
+caller sent that `"restart"` RPC. Nothing in the committed `adapter.py` or
+`brainbit_realtime_cli.py` wires calibration stall or poor contact into a
+restart -- that trigger, if it is automatic at all, lives outside these two
+files, most likely in `ui/dashboard.js`, which (along with `adapter.py`,
+`plugin.py`, `brainbit_realtime_cli.py` and `manifest.json`) currently carries
+substantial uncommitted work rebuilding exactly this connection-state and
+calibration handling. Reading or editing that in-progress version, rather
+than the committed one the report reproduced on, would not have answered the
+question and risks colliding with work already underway. Confirming the
+trigger needs either that rework to land first, or a live reproduction with
+logging on the dashboard side.
+
+**For today:** if `CALIB STALLED` reports `contact_quality_state: "poor"` for
+more than a few seconds, reseat the electrodes and confirm contact before
+starting the study -- a later `CALIB FINISHED` is not a guarantee the signal
+was ever good, whatever exit code the session ends on.
+
+A third open spot, in addition to the two already listed above: exit code `0`
+carries no memory of whether calibration ever left the stalled state, so nothing
+downstream can tell "clean stop, good data" apart from "clean stop, contact
+never verified" without re-reading the whole session log.
+
 ## Falling back to "BrainBit (old)"
 
 The folder next door, `brainbit_old/`, is a frozen copy of this plugin as it was
