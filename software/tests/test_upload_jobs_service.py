@@ -17,7 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from study_runner.apps.server import create_app
 from study_runner.runtime_core.settings.folder_open_service import (
     FolderOpenError,
-    resolve_results_folder,
+    open_session_folder,
     resolve_session_folder,
 )
 from study_runner.runtime_core.delivery.upload_jobs_service import (
@@ -196,15 +196,6 @@ class UploadJobServiceTests(unittest.TestCase):
 
 
 class FolderOpenServiceTests(unittest.TestCase):
-    def test_folder_resolution_is_bounded_to_results_root(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            expected = root / "study" / "p01"
-            expected.mkdir(parents=True)
-            self.assertEqual(resolve_results_folder(root, "study", "p01"), expected.resolve())
-            with self.assertRaises(FolderOpenError):
-                resolve_results_folder(root, "../study", "p01")
-
     def test_session_folder_resolution_requires_exact_canonical_layout(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -252,17 +243,53 @@ class UploadRoutesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             app = self._app(temp_dir)
             with patch(
-                "study_runner.apps.server.routes.uploads.open_results_folder",
-                return_value={"ok": True, "path": "/results/study/p01"},
+                "study_runner.apps.server.routes.uploads.open_session_folder",
+                return_value={"ok": True, "path": "/results/study/participants/p01/sessions/session-1"},
             ) as opener:
                 response = app.test_client().post(
                     "/api/admin/system/open-results-folder",
-                    json={"study_id": "study", "participant_id": "p01"},
+                    json={"session_path": "study/participants/p01/sessions/session-1"},
                 )
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["ok"])
-        opener.assert_called_once_with(app.config["DATA_DIR"], "study", "p01")
+        opener.assert_called_once_with(app.config["DATA_DIR"], "study/participants/p01/sessions/session-1")
+
+    def test_open_folder_route_resolves_a_real_v3_session_on_disk(self) -> None:
+        """The regression this guards: the route used to target the flat
+        study_id/participant_id layout the app stopped producing in 2026-08
+        (commit a65ceaf), so it failed for every real completed session. This
+        exercises the actual resolver against an on-disk v3 fixture -- the
+        route, not a mock, decides whether the folder was found -- and only
+        stubs the final OS-level "open a window" call.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = self._app(temp_dir)
+            data_dir = Path(app.config["DATA_DIR"])
+            session_relative = "study/participants/p01/sessions/20260811T163356Z__session-1"
+            (data_dir / session_relative).mkdir(parents=True)
+
+            with patch("study_runner.runtime_core.settings.folder_open_service.os.startfile", create=True),                  patch("study_runner.runtime_core.settings.folder_open_service.subprocess.Popen"):
+                response = app.test_client().post(
+                    "/api/admin/system/open-results-folder",
+                    json={"session_path": session_relative},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(Path(payload["path"]), (data_dir / session_relative).resolve())
+
+    def test_open_folder_route_rejects_a_missing_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = self._app(temp_dir)
+            response = app.test_client().post(
+                "/api/admin/system/open-results-folder",
+                json={"session_path": "study/participants/p01/sessions/never-recorded"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.get_json()["ok"])
 
 
 if __name__ == "__main__":

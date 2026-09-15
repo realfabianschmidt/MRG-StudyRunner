@@ -304,7 +304,7 @@ function renderLegacyBody(session) {
     button.addEventListener('click', () => void retryLegacyJob(button.dataset.retryJob));
   });
   modal.body.querySelector('[data-action="open-files"]')?.addEventListener('click', () => {
-    void openLegacyResultsFolder(session.study_id, session.participant_id);
+    void openLegacyResultsFolder(session.session_path);
   });
 }
 
@@ -328,6 +328,7 @@ function localCompletionSession(session, jobs = []) {
   return {
     session_key: completionId(session),
     session_id: session.session_id,
+    session_path: session.session_path,
     study_id: session.study_id,
     participant_id: session.participant_id,
     created_at: session.saved_at,
@@ -386,9 +387,9 @@ async function retryLegacyJob(jobId) {
   }
 }
 
-async function openLegacyResultsFolder(studyId, participantId) {
+async function openLegacyResultsFolder(sessionPath) {
   try {
-    await postJson('/api/admin/system/open-results-folder', { study_id: studyId, participant_id: participantId });
+    await postJson('/api/admin/system/open-results-folder', { session_path: sessionPath });
   } catch (error) {
     console.error('[uploads] Could not open results folder:', error);
     callbacks.showToast?.(t('uploads.openFilesFailed', 'Could not open the results folder'), 'error');

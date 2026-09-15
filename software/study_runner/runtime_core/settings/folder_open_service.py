@@ -6,34 +6,19 @@ from pathlib import Path
 import platform
 import subprocess
 
-from study_runner.shared.filename_sanitizer import sanitize_identifier_for_filename
-
 
 class FolderOpenError(RuntimeError):
     """Plain-language error safe to return to the operator."""
 
 
-def resolve_results_folder(data_dir: Path, study_id: str, participant_id: str) -> Path:
-    normalized_study = str(study_id or "").strip()
-    normalized_participant = str(participant_id or "").strip()
-    if not normalized_study or sanitize_identifier_for_filename(normalized_study) != normalized_study:
-        raise FolderOpenError("A valid study_id is required.")
-    if not normalized_participant or sanitize_identifier_for_filename(normalized_participant) != normalized_participant:
-        raise FolderOpenError("A valid participant_id is required.")
-
-    root = Path(data_dir).resolve()
-    target = (root / normalized_study / normalized_participant).resolve()
-    if not target.is_relative_to(root) or not target.is_dir():
-        raise FolderOpenError("The results folder was not found on this computer.")
-    return target
-
-
 def resolve_session_folder(data_dir: Path, session_path: str) -> Path:
-    """Resolve one canonical finalization session without accepting traversal.
+    """Resolve one canonical v3 session without accepting traversal.
 
-    ``session_path`` comes from the durable finalization state, but this
-    boundary still treats it as untrusted.  It must name the exact v3 layout
-    below ``DATA_DIR`` rather than a study- or participant-wide directory.
+    ``session_path`` comes from durable finalization state or the admin
+    session index, but this boundary still treats it as untrusted. It must
+    name the exact v3 layout below ``DATA_DIR`` (``study/participants/<id>/
+    sessions/<folder>``) rather than a study- or participant-wide directory --
+    there is no flat legacy layout to resolve any more.
     """
 
     normalized = str(session_path or "").strip().replace("\\", "/")
@@ -56,13 +41,8 @@ def resolve_session_folder(data_dir: Path, session_path: str) -> Path:
     return target
 
 
-def open_results_folder(data_dir: Path, study_id: str, participant_id: str) -> dict[str, str | bool]:
-    target = resolve_results_folder(data_dir, study_id, participant_id)
-    return _open_folder(target)
-
-
 def open_session_folder(data_dir: Path, session_path: str) -> dict[str, str | bool]:
-    """Open the exact canonical session associated with a finalization job."""
+    """Open the exact canonical v3 session folder on the server computer."""
 
     return _open_folder(resolve_session_folder(data_dir, session_path))
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
 
-from study_runner.runtime_core.settings.folder_open_service import FolderOpenError, open_results_folder
+from study_runner.runtime_core.settings.folder_open_service import FolderOpenError, open_session_folder
 from study_runner.runtime_core.delivery.upload_jobs_service import (
     DEFAULT_STATUS_DAYS,
     MAX_STATUS_DAYS,
@@ -48,10 +48,9 @@ def open_results_folder_route():
     payload = request.get_json(silent=True) or {}
     try:
         return jsonify(
-            open_results_folder(
+            open_session_folder(
                 current_app.config["DATA_DIR"],
-                str(payload.get("study_id") or ""),
-                str(payload.get("participant_id") or ""),
+                str(payload.get("session_path") or ""),
             )
         )
     except FolderOpenError as error:
