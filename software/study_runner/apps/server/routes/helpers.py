@@ -257,6 +257,10 @@ def _stop_study_run(study_id: str = "") -> dict:
     return _study_run_state_store().stop(study_id)
 
 
+def _abort_study_run(reason: str, study_id: str = "") -> dict:
+    return _study_run_state_store().abort(study_id, reason)
+
+
 def _participant_study_run_state(client_id: str | None = None, study_id: str | None = None) -> dict:
     run_state = _study_run_state(study_id)
     public_state = dict(run_state)

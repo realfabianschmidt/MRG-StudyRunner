@@ -144,6 +144,77 @@ class WithdrawalServiceTests(unittest.TestCase):
                 with self.assertRaises(WithdrawalError):
                     service.withdraw(session_id=bad, session_root=Path(temp_dir) / "x")
 
+    def test_a_consent_withdrawal_tombstone_says_so(self) -> None:
+        """The default kind, written explicitly rather than left implicit."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            session = data_dir / "sessions" / SESSION_ID
+            _populate_session(session)
+            WithdrawalService(data_dir).withdraw(session_id=SESSION_ID, session_root=session)
+            marker = json.loads((session / WITHDRAWN_MARKER).read_text(encoding="utf-8"))
+            self.assertEqual(marker["kind"], "consent_withdrawal")
+
+    def test_an_unknown_kind_is_refused_rather_than_guessed_at(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            session = data_dir / "sessions" / SESSION_ID
+            _populate_session(session)
+            with self.assertRaises(WithdrawalError):
+                WithdrawalService(data_dir).withdraw(
+                    session_id=SESSION_ID, session_root=session, kind="not_a_real_kind"
+                )
+
+
+class AdminAbortTests(unittest.TestCase):
+    """kind="admin_abort" (via .abort()): same tombstone, nothing deleted."""
+
+    def test_abort_stops_recording_and_keeps_every_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            session = data_dir / "sessions" / SESSION_ID
+            _populate_session(session)
+            before = sorted(path.name for path in session.iterdir())
+
+            stopped_for: list[str] = []
+            service = WithdrawalService(
+                data_dir, recording_stopper=lambda session_id: stopped_for.append(session_id) or {"frozen": True}
+            )
+            state = service.abort(
+                session_id=SESSION_ID, session_root=session, reason="tablet unresponsive", requested_by="operator",
+            )
+
+            self.assertEqual(state["status"], "withdrawn")
+            self.assertEqual(stopped_for, [SESSION_ID])
+            # Nothing removed -- every pre-existing file, plus the new tombstone.
+            after = sorted(path.name for path in session.iterdir())
+            self.assertEqual(after, sorted(before + [WITHDRAWN_MARKER]))
+            marker = json.loads((session / WITHDRAWN_MARKER).read_text(encoding="utf-8"))
+            self.assertEqual(marker["kind"], "admin_abort")
+            self.assertEqual(marker["reason"], "tablet unresponsive")
+            self.assertEqual(marker["requested_by"], "operator")
+
+    def test_an_abort_without_a_reason_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            session = data_dir / "sessions" / SESSION_ID
+            _populate_session(session)
+            service = WithdrawalService(data_dir)
+            for empty in ("", "   "):
+                with self.assertRaises(WithdrawalError):
+                    service.abort(session_id=SESSION_ID, session_root=session, reason=empty)
+            # Refused before any step ran.
+            self.assertIsNone(service.load_state(SESSION_ID))
+
+    def test_abort_never_touches_uploads_or_journals(self) -> None:
+        """Only stop_recording and write_tombstone run -- nothing else."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            session = data_dir / "sessions" / SESSION_ID
+            _populate_session(session)
+            service = WithdrawalService(data_dir)
+            state = service.abort(session_id=SESSION_ID, session_root=session, reason="stuck")
+            self.assertEqual(set(state["steps"]), {"stop_recording", "write_tombstone"})
+
 
 class WithdrawalAndUploadsTests(unittest.TestCase):
     def _service(self, data_dir: Path) -> UploadJobService:
@@ -264,6 +335,65 @@ class WithdrawnSessionVisibilityTests(unittest.TestCase):
             summary = list_sessions(data_dir)[0]
             self.assertEqual(summary["answers_count"], 0)
             self.assertEqual(summary["files"], [])
+
+    def test_the_listing_names_the_withdrawal_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            self._tombstoned_tree(data_dir)
+            self.assertEqual(list_sessions(data_dir)[0]["withdrawal_kind"], "consent_withdrawal")
+
+    def test_a_tombstone_written_before_the_kind_field_existed_still_reads(self) -> None:
+        """A rolling deploy must not crash on a marker an older build wrote."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            session = self._tombstoned_tree(data_dir)
+            marker_path = session / WITHDRAWN_MARKER
+            marker = json.loads(marker_path.read_text(encoding="utf-8"))
+            del marker["kind"]
+            marker_path.write_text(json.dumps(marker), encoding="utf-8")
+
+            summary = list_sessions(data_dir)[0]
+            self.assertEqual(summary["lifecycle"], WITHDRAWN)
+            self.assertEqual(summary["withdrawal_kind"], "consent_withdrawal")
+
+    def test_an_aborted_session_is_listed_with_its_own_kind(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            session = data_dir / "study-a" / "participants" / "p1" / "sessions" / SESSION_ID
+            _populate_session(session)
+            WithdrawalService(data_dir).abort(session_id=SESSION_ID, session_root=session, reason="stuck")
+
+            summary = list_sessions(data_dir)[0]
+            self.assertEqual(summary["lifecycle"], WITHDRAWN)
+            self.assertEqual(summary["withdrawal_kind"], "admin_abort")
+            # The point of an abort: the recording's files are still there.
+            self.assertTrue((session / "result.json").is_file())
+
+    def test_a_session_with_no_completion_marker_becomes_visible_once_aborted(self) -> None:
+        """The actual gap this exists to close: a live session, never
+        completed, is invisible to the session list until something -- here,
+        the abort's own tombstone -- gives it a final marker.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            session = data_dir / "study-a" / "participants" / "p1" / "sessions" / SESSION_ID
+            session.mkdir(parents=True)
+            raw = session / "raw" / "plugins" / "fixture"
+            raw.mkdir(parents=True)
+            (raw / "fixture.xdf").write_bytes(b"XDF")
+            # No result.json, no COMPLETE.json: this session never finished.
+
+            self.assertEqual(list_sessions(data_dir), [])
+
+            WithdrawalService(data_dir).abort(
+                session_id=SESSION_ID, session_root=session, reason="hung mid-recording",
+            )
+
+            sessions = list_sessions(data_dir)
+            self.assertEqual(len(sessions), 1)
+            self.assertEqual(sessions[0]["lifecycle"], WITHDRAWN)
+            self.assertEqual(sessions[0]["withdrawal_kind"], "admin_abort")
+            self.assertTrue((raw / "fixture.xdf").is_file())
 
 
 if __name__ == "__main__":

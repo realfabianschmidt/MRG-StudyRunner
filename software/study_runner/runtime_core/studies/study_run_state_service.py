@@ -16,6 +16,10 @@ INITIAL_STATUS = "loaded"
 RUNNING_STATUS = "running"
 COMPLETED_STATUS = "completed"
 STOPPED_STATUS = "stopped"
+# A deliberate, reason-carrying stop by the admin, distinct from the plain
+# STOPPED_STATUS a card-prepare failure or a manual "stop" leaves behind --
+# the participant page shows the reason instead of an empty waiting room.
+ABORTED_STATUS = "aborted"
 
 
 class StudyRunStateStore:
@@ -152,6 +156,30 @@ class StudyRunStateStore:
                 "study_id": normalized,
                 "sequence": previous_sequence + 1,
                 "active_client_id": str(self._state.get("active_client_id") or "").strip(),
+                "updated_at": _format_time(now),
+                "updated_at_epoch": now,
+            }
+            self._persist_locked()
+            return self.public()
+
+    def abort(self, study_id: str = "", reason: str = "") -> dict[str, Any]:
+        """Stop the run the way an admin-initiated abort needs: with a reason
+        the participant page can show, kept apart from a plain ``stop()`` so
+        an ordinary "stopped, waiting for the next start" is never confused
+        with "the supervisor ended this deliberately, here is why."
+        """
+        normalized = _clean_study_id(study_id or self._state.get("study_id") or "")
+        now = self._now()
+        with self._lock:
+            _expire_console_interventions(self._state.get("run_id"))
+            previous_sequence = int(self._state.get("sequence") or 0)
+            self._state = {
+                **self._state,
+                "status": ABORTED_STATUS,
+                "study_id": normalized,
+                "sequence": previous_sequence + 1,
+                "active_client_id": str(self._state.get("active_client_id") or "").strip(),
+                "aborted_reason": str(reason or "").strip(),
                 "updated_at": _format_time(now),
                 "updated_at_epoch": now,
             }

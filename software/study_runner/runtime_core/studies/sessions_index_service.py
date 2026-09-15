@@ -231,6 +231,9 @@ def _withdrawn_payload(session_root: Path, marker: Path) -> dict[str, Any]:
         "session_id": str(payload.get("session_id") or session_root.name),
         "answers": {},
         "withdrawn": True,
+        # Absent on tombstones written before this field existed; those were
+        # all consent withdrawals, the only kind there was then.
+        "kind": str(payload.get("kind") or "consent_withdrawal"),
     }
 
 
@@ -360,6 +363,11 @@ def _session_summary(
         ),
         "files": [_file_metadata(session_root, path) for path in _related_files(session_root, manifest)],
         "recovered": bool(payload.get("recovered")),
+        # Read from the WITHDRAWN.json marker directly, not from ``payload``:
+        # an abort deliberately leaves result.json in place, so ``payload``
+        # here is the ordinary result, not the tombstone, even though the
+        # session is withdrawn.
+        "withdrawal_kind": _withdrawal_kind(session_root),
     }
 
 
@@ -487,6 +495,19 @@ def _has_final_marker(session_root: Path) -> bool:
 def _marker_payload(session_root: Path) -> dict[str, Any]:
     attention = session_root / "ATTENTION_REQUIRED.json"
     return _optional_json(attention if attention.is_file() else session_root / "COMPLETE.json")
+
+
+def _withdrawal_kind(session_root: Path) -> str:
+    """Empty for a session that was never withdrawn or aborted.
+
+    A withdrawal always writes a tombstone, so the marker existing but
+    lacking a ``kind`` means only one thing: it predates the field, back
+    when consent withdrawal was the only kind there was.
+    """
+    marker_path = session_root / WITHDRAWN_MARKER
+    if not marker_path.is_file():
+        return ""
+    return str(_optional_json(marker_path).get("kind") or "consent_withdrawal")
 
 
 def _saved_at(session_root: Path, result_file: Path, payload: dict[str, Any]) -> str:

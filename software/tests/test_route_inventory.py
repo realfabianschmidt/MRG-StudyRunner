@@ -64,6 +64,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/admin/study-run/load"),
     ("POST", "/api/admin/study-run/start"),
     ("POST", "/api/admin/study-run/stop"),
+    ("POST", "/api/admin/study-run/abort"),
     ("POST", "/api/admin/trials/prepare-overrides"),
     ("GET", "/api/admin/trials/prepare-overrides/<event_id>"),
     ("GET", "/api/admin/studies"),

@@ -5,6 +5,14 @@ already defined the destination -- ``WITHDRAWN`` is reachable from every
 other lifecycle state, including from ``SEALED`` months later, and nothing
 is reachable from it -- so this module only has to get there safely.
 
+A second, unrelated reason to land in the same place: an operator stopping a
+session that is stuck or misbehaving is not withdrawing anyone's consent and
+must not delete their data on the way out. ``kind="admin_abort"`` (see
+``abort()``) reuses the exact same ledger, tombstone file and terminal
+lifecycle state -- stopping any live recording, keeping everything already
+captured -- and skips only the steps that would remove or cancel anything.
+The tombstone's ``kind`` field is the one place the two are told apart.
+
 Three things shape the design, and each of them is a constraint the
 obvious implementation gets wrong:
 
@@ -53,6 +61,13 @@ WITHDRAWAL_STEPS = (
     "write_tombstone",
 )
 
+# An abort stops the same way but deletes nothing: no cancel/delete steps,
+# just freeze whatever is recording and leave a tombstone next to the data
+# it is not touching.
+ABORT_STEPS = ("stop_recording", "write_tombstone")
+
+_KNOWN_KINDS = {"consent_withdrawal": WITHDRAWAL_STEPS, "admin_abort": ABORT_STEPS}
+
 
 class WithdrawalError(RuntimeError):
     """A withdrawal could not be carried out safely."""
@@ -98,13 +113,23 @@ class WithdrawalService:
         session_root: Path,
         reason: str = "",
         requested_by: str = "",
+        kind: str = "consent_withdrawal",
     ) -> dict[str, Any]:
-        """Withdraw one session, resuming an interrupted run if there is one.
+        """Withdraw (or abort) one session, resuming an interrupted run if any.
 
         Safe to call again after any interruption: every step records its
         own completion in the ledger and is a no-op once done, so a crash
         between two steps costs a repeat of at most one of them.
+
+        ``kind`` selects which steps run -- the full, destructive
+        ``"consent_withdrawal"`` (default, unchanged) or the data-preserving
+        ``"admin_abort"`` (see ``ABORT_STEPS``/``abort()``). Fails closed on
+        an unrecognized kind rather than silently running one or the other.
         """
+        try:
+            steps = _KNOWN_KINDS[kind]
+        except KeyError:
+            raise WithdrawalError(f"unknown withdrawal kind: {kind!r}") from None
         safe_id = _safe_session_id(session_id)
         root = Path(session_root)
         state = self.load_state(safe_id) or {
@@ -114,14 +139,16 @@ class WithdrawalService:
             "requested_at_epoch": float(self._clock()),
             "requested_by": str(requested_by or ""),
             "reason": str(reason or ""),
+            "kind": kind,
             "status": "running",
-            "steps": {key: {"status": "pending"} for key in WITHDRAWAL_STEPS},
+            "steps": {key: {"status": "pending"} for key in steps},
             "already_published": [],
         }
         state.setdefault("steps", {})
+        state.setdefault("kind", kind)
         self._persist(state)
 
-        for step in WITHDRAWAL_STEPS:
+        for step in steps:
             entry = state["steps"].setdefault(step, {"status": "pending"})
             if entry.get("status") == "done":
                 continue
@@ -142,6 +169,33 @@ class WithdrawalService:
         state["completed_at_epoch"] = float(self._clock())
         self._persist(state)
         return state
+
+    def abort(
+        self,
+        *,
+        session_id: str,
+        session_root: Path,
+        reason: str,
+        requested_by: str = "",
+    ) -> dict[str, Any]:
+        """Stop a live session and mark it aborted, keeping everything captured.
+
+        A thin, purpose-named entry point onto ``withdraw(kind="admin_abort")``
+        so a caller stopping a stuck or misbehaving session never has to name
+        the destructive default kind to avoid it. ``reason`` is required here
+        (unlike ``withdraw``'s optional one) -- an abort with no stated reason
+        is exactly the silent "something happened" this project's tombstones
+        exist to rule out.
+        """
+        if not str(reason or "").strip():
+            raise WithdrawalError("an abort needs a non-empty reason")
+        return self.withdraw(
+            session_id=session_id,
+            session_root=session_root,
+            reason=reason,
+            requested_by=requested_by,
+            kind="admin_abort",
+        )
 
     # -- steps ---------------------------------------------------------
 
@@ -220,6 +274,10 @@ class WithdrawalService:
         marker = {
             "schema": WITHDRAWAL_SCHEMA,
             "status": "withdrawn",
+            # Absent on tombstones written before this field existed; every
+            # reader must treat a missing kind as "consent_withdrawal", the
+            # only kind there was.
+            "kind": state.get("kind") or "consent_withdrawal",
             "session_id": state["session_id"],
             "withdrawn_at_epoch": float(self._clock()),
             "requested_by": state.get("requested_by") or "",

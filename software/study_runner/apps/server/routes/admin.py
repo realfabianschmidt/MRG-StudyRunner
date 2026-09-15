@@ -5,6 +5,7 @@ import threading
 from flask import Blueprint, current_app, jsonify, request
 
 from study_runner.plugin_framework.registry import initialize_plugin, run_runtime_action
+from study_runner.runtime_core.delivery.withdrawal_service import WithdrawalError
 from study_runner.runtime_core.settings.admin_status_service import build_admin_status
 from study_runner.runtime_core.settings.runtime_config import build_runtime_info
 from study_runner.runtime_core.settings.shortcut_service import ShortcutError, create_desktop_shortcut
@@ -21,6 +22,7 @@ from study_runner.plugin_framework.plugin_secrets import (
 from study_runner.data_core.host.study_sensor_runtime import STUDY_SENSOR_KEYS
 from study_runner.runtime_core.studies.validation import validate_and_normalize_config
 from .helpers import (
+    _abort_study_run,
     _clear_session_overrides,
     _delayed_shutdown,
     _plugin_context,
@@ -332,6 +334,47 @@ def admin_stop_study_run():
     sensor_result = _stop_study_sensor_runtime()
     print(f"[STUDY-RUN] Stopped study: {run_state.get('study_id')}")
     return jsonify({"ok": True, "run_state": run_state, **sensor_result})
+
+
+@bp.route("/api/admin/study-run/abort", methods=["POST"])
+def admin_abort_study_run():
+    """End the currently recording session on the admin's word, reason required.
+
+    Unlike ``/stop`` (a plain gate release), this reaches into the live
+    recording: freezes it the same way a normal completion does, keeps every
+    captured file, and leaves the same WITHDRAWN.json tombstone a consent
+    withdrawal would -- with ``kind: "admin_abort"`` and the given reason, so
+    an operator or a later reader never mistakes it for a participant
+    withdrawing consent (see withdrawal_service.py).
+    """
+    payload = request.get_json(silent=True) or {}
+    reason = str(payload.get("reason") or "").strip()
+    if not reason:
+        return jsonify({"ok": False, "error": "A reason is required to abort a study."}), 400
+
+    recording_runtime = current_app.config.get("RECORDING_RUNTIME_SERVICE")
+    current = recording_runtime.current_status() if recording_runtime is not None else None
+    if current is None:
+        return jsonify({"ok": False, "error": "No study is currently recording."}), 404
+    session_id = str(current.get("session_id") or "")
+    paths = recording_runtime.find_paths(session_id) if session_id else None
+    if paths is None:
+        return jsonify({"ok": False, "error": "Could not locate the active session on disk."}), 404
+
+    try:
+        withdrawal_state = current_app.config["WITHDRAWAL_SERVICE"].abort(
+            session_id=session_id,
+            session_root=paths.root,
+            reason=reason,
+            requested_by=str(payload.get("requested_by") or "admin"),
+        )
+    except WithdrawalError as error:
+        return jsonify({"ok": False, "error": str(error)}), 500
+
+    run_state = _abort_study_run(reason)
+    sensor_result = _stop_study_sensor_runtime()
+    print(f"[STUDY-RUN] Aborted study: {run_state.get('study_id')} -- {reason}")
+    return jsonify({"ok": True, "run_state": run_state, "withdrawal": withdrawal_state, **sensor_result})
 
 
 @bp.route("/api/admin/session-overrides/reset", methods=["POST"])
