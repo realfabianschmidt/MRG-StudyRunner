@@ -295,6 +295,16 @@ function handleStudyRunState(runState) {
     });
     return;
   }
+  if (runState.status === 'aborted') {
+    const reason = runState.aborted_reason || '';
+    showWaitingForAdminStart({
+      title: t('study.aborted.title', 'This session was ended by the study supervisor'),
+      body: reason
+        ? t('study.aborted.body', 'Reason: {reason}').replace('{reason}', reason)
+        : t('study.aborted.bodyNoReason', 'Please wait for the next study to begin.'),
+    });
+    return;
+  }
   if (state.completedLocally) {
     return;
   }

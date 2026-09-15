@@ -33,7 +33,7 @@ import {
 } from '../cards/card-info.js';
 import { initI18n, setLanguage, getLanguage, t } from '../shared/i18n.js';
 import { createQrSvg } from '../shared/qr-code.js';
-import { byId, escapeHtml, setText } from '../shared/dom-utils.js';
+import { byId, escapeHtml, setHidden, setText } from '../shared/dom-utils.js';
 import { loadPluginCatalog, pluginByKey } from '../shared/plugin-catalog.js';
 
 const STUDY_RUN_POLL_INTERVAL_MS = 1500;
@@ -504,6 +504,7 @@ function renderStudyRunState() {
   const hint = $('hub-active-run-hint');
   const startButton = $('btn-hub-start-study');
   const startLabel = $('btn-hub-start-study-label');
+  const abortButton = $('btn-hub-abort-study');
   const dashboardButton = $('btn-admin-dashboard');
 
   if (label) {
@@ -524,6 +525,11 @@ function renderStudyRunState() {
     startButton.classList.toggle('is-running', running);
     startButton.classList.toggle('is-blocked', gateBlocksStart || notReady);
   }
+  // Only while a study is actually running is there a live recording to end
+  // -- offering it any earlier would have nothing to target.
+  if (abortButton) {
+    abortButton.hidden = status !== 'running';
+  }
   renderReadinessCta();
   if (startLabel) {
     startLabel.textContent = status === 'running'
@@ -541,6 +547,7 @@ function renderStudyRunState() {
 function runStatusLabel(status) {
   if (status === 'running') return t('hub.runStatus.running', 'RUNNING');
   if (status === 'completed') return t('hub.runStatus.completed', 'COMPLETED');
+  if (status === 'aborted') return t('hub.runStatus.aborted', 'ABORTED');
   if (status === 'stopped') return t('hub.runStatus.stopped', 'STOPPED');
   return t('hub.runStatus.loaded', 'LOADED');
 }
@@ -552,6 +559,12 @@ function runStatusHint(status, runState) {
   }
   if (status === 'completed') {
     return gateHint || t('hub.runHint.completed', 'The last run was saved. Start again when the tablet should continue.');
+  }
+  if (status === 'aborted') {
+    const reason = runState?.aborted_reason || '';
+    return reason
+      ? t('hub.runHint.aborted', 'Aborted: {reason}').replace('{reason}', reason)
+      : t('hub.runHint.abortedNoReason', 'Aborted. The tablet waits for the next start.');
   }
   if (status === 'stopped') {
     return gateHint || t('hub.runHint.stopped', 'The run was stopped. The tablet waits for the next start.');
@@ -665,6 +678,69 @@ async function startLoadedStudyRun({ buttonId = 'btn-hub-start-study', goToDashb
   }
 }
 
+// Ends the currently recording session on the admin's word: freezes the
+// recording (nothing captured is deleted, unlike Withdraw consent on a
+// completed session), then marks the run aborted with the operator's
+// reason. Built with createModal() directly, like sessions-browser.js's
+// withdrawal modal, because a plain yes/no confirm cannot gate a button on
+// typed input -- an abort with no stated reason is exactly the kind of
+// silent "something happened" this project avoids elsewhere.
+async function openAbortStudyModal() {
+  const modal = createModal({
+    title: t('hub.abort.title', 'Abort study'),
+    closeLabel: t('common.cancel', 'Cancel'),
+  });
+
+  modal.body.innerHTML = `
+    <p class="settings-hint">${escapeHtml(
+      t(
+        'hub.abort.warning',
+        'This ends the current recording right away. Everything captured so far is kept, but the session stops here.',
+      ),
+    )}</p>
+    <div class="field">
+      <label for="abort-reason-input">${escapeHtml(t('hub.abort.reasonLabel', 'Reason'))}</label>
+      <textarea id="abort-reason-input" rows="3"></textarea>
+    </div>
+    <p class="settings-hint" id="abort-error" hidden></p>
+    <div class="dashboard-actions confirm-modal-actions">
+      <button type="button" class="btn-secondary" data-abort-cancel>${escapeHtml(t('common.cancel', 'Cancel'))}</button>
+      <button type="button" class="btn-primary btn-primary--danger" data-abort-confirm disabled>
+        ${escapeHtml(t('hub.abort.confirmButton', 'Abort study'))}
+      </button>
+    </div>
+  `;
+
+  const input = modal.body.querySelector('#abort-reason-input');
+  const confirmButton = modal.body.querySelector('[data-abort-confirm]');
+  const errorText = modal.body.querySelector('#abort-error');
+
+  input.addEventListener('input', () => {
+    confirmButton.disabled = input.value.trim() === '';
+  });
+  modal.body.querySelector('[data-abort-cancel]').addEventListener('click', () => modal.destroy());
+
+  confirmButton.addEventListener('click', async () => {
+    confirmButton.disabled = true;
+    setHidden('abort-error', true);
+    try {
+      const response = await postJson('/api/admin/study-run/abort', { reason: input.value.trim() });
+      modal.destroy();
+      state.studyRunState = response?.run_state || null;
+      renderStudyRunState();
+      showToast(t('hub.abort.done', 'Study aborted.'), 'success');
+    } catch (error) {
+      console.error('[admin] Abort failed:', error);
+      errorText.textContent = error.message || t('hub.abort.failed', 'Could not abort the study.');
+      setHidden('abort-error', false);
+      confirmButton.disabled = input.value.trim() === '';
+    }
+  });
+
+  modal.open();
+  input.focus();
+}
+
 /**
  * The single funnel for every admin view change.
  *
@@ -735,6 +811,7 @@ function bindEvents() {
   $('btn-hub-editor').addEventListener('click', () => switchView('view-workspace'));
   $('btn-admin-dashboard').addEventListener('click', () => switchView('view-dashboard'));
   $('btn-hub-start-study')?.addEventListener('click', () => void startLoadedStudyRun());
+  $('btn-hub-abort-study')?.addEventListener('click', () => void openAbortStudyModal());
   $('btn-readiness-settings')?.addEventListener('click', () => void openReadinessSettings());
   $('btn-workspace-start')?.addEventListener('click', () => void confirmAndStartFromEditor());
   $('btn-hub-settings')?.addEventListener('click', () => void openSettingsHub());

@@ -1245,7 +1245,8 @@ body.admin::before { display: none; }
 .status-pill--warnings,
 .status-pill--recording,
 .status-pill--finalizing,
-.status-pill--preflight { background: var(--warn-14); color: var(--warn); }
+.status-pill--preflight,
+.status-pill--aborted { background: var(--warn-14); color: var(--warn); }
 .status-pill--attention,
 .status-pill--withdrawn { background: var(--neg-14);  color: var(--neg); }
 .status-pill--unknown,

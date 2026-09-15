@@ -162,7 +162,17 @@ function renderLifecycleBadge(session) {
   const badge = byId('session-lifecycle-badge');
   if (!badge) return;
   const lifecycle = String(session.lifecycle || '');
-  const labelKey = LIFECYCLE_LABEL_KEYS[lifecycle];
+  let labelKey = LIFECYCLE_LABEL_KEYS[lifecycle];
+  // WITHDRAWN covers two very different events -- a participant's consent
+  // withdrawal (destructive, everything deleted) and an admin's abort of a
+  // stuck/misbehaving session (nothing deleted). Same lifecycle state, same
+  // tombstone file, so the distinction lives only in withdrawal_kind
+  // (sessions_index_service.py) -- never conflate the two labels here.
+  let modifier = lifecycle.toLowerCase();
+  if (lifecycle === 'WITHDRAWN' && session.withdrawal_kind === 'admin_abort') {
+    labelKey = 'sessions.lifecycle.aborted';
+    modifier = 'aborted';
+  }
   // SEALED is the ordinary, expected outcome for a completed session; a
   // badge that fires on every session is one nobody reads. Only the
   // exceptional states earn a badge here.
@@ -170,7 +180,7 @@ function renderLifecycleBadge(session) {
     setHidden('session-lifecycle-badge', true);
     return;
   }
-  badge.className = `status-pill status-pill--${lifecycle.toLowerCase()}`;
+  badge.className = `status-pill status-pill--${modifier}`;
   badge.textContent = t(labelKey, lifecycle);
   setHidden('session-lifecycle-badge', false);
 }
