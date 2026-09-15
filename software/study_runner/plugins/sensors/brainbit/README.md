@@ -100,6 +100,61 @@ Other things worth checking, in order:
 - Set `serial_number` once, and the guessing stops for good.
 - Charge it. A low battery shortens Bluetooth range noticeably.
 
+## Known issue: a crash-and-hang report from before the connection rework
+
+Reported 2026-09-15, running a source checkout at a **different, older**
+install location (`C:\Users\fabia\MRG-StudyRunner`) than the one this
+repository builds from -- one still laid out as `extensions/sensors/brainbit/`,
+from before the folder was renamed to `plugins/`, and predating the connection
+rework described above (commit `a31b6f4`, "BrainBit: hold a connection instead
+of hoping for one"). **Not reproduced on the current code**, and the specific
+mechanics below are what the old, one-shot-per-attempt process model made
+possible -- not necessarily what the current, persistent-connection model does.
+
+Two separate symptoms, from two attempts in the same session:
+
+1. **First attempt**, with BrainBit and the radar already connected from an
+   earlier admin-hub check: pressing Start hung for a long time, then the
+   BrainBit driver was terminated, and the participant page reported the study
+   could not start.
+2. **Second attempt**, connecting fresh: scan, connect and the six-second
+   contact measurement all completed cleanly, then `brainbit_realtime_cli.py`
+   exited with code `3221225786` about a minute after calibration finished.
+   That number is `0xC0000005`, Windows' own name for a native memory access
+   violation -- a fault inside the vendor SDK's compiled code, not a Python
+   exception, and not something any `try`/`except` in this folder can catch.
+   Retrying reproduced the identical crash.
+
+A third thing in the same log is probably unrelated to both: for about 45
+minutes, the log repeated "State file write skipped because the file is
+locked" -- the status-file writer (write to a temp file, then rename) makes
+exactly one attempt per call and gives up silently on a Windows sharing
+violation. The log shows this clearing on its own (later connections wrote
+normally again), which doesn't line up with either crash, and points more at
+something external holding the file open -- a virus scanner, an indexer, a
+sync client -- than at anything in this folder's own handle hygiene.
+
+What is verifiably different in the current code, read directly rather than
+assumed: the one-shot "scan, connect, stream, exit" process this log implies
+is gone. A device that is already connected is reused immediately, not
+reconnected. Waiting for the stream contract is bounded (`scan_seconds +
+resist_seconds + 20s`, about 31s by default) instead of open-ended. A crash
+lands in the same retry path as any other exit code -- up to three attempts
+with backoff, then a clear "tried N times, use Restart" failure -- instead of
+leaving the connection in an unrecoverable state. What that does *not* mean:
+that a native `0xC0000005` fault inside the vendor SDK cannot still happen on
+the current architecture. It is a fault in code this project does not own,
+and confirming whether it still occurs needs a fresh run on real hardware, not
+a reading of the Python around it.
+
+Two specific spots stay open for whoever picks this up next, deliberately
+left unchanged here while a larger connection-reliability rework is in
+progress: `_set_state` in `adapter.py` has no retry at all on a locked state
+file, and `_EXIT_REASONS`/`_CRASH_REASON` file every unrecognized exit code --
+including a native access violation -- under the same generic "crashed, will
+retry" bucket as ordinary supervision failures, with no separate label for
+diagnosis.
+
 ## Falling back to "BrainBit (old)"
 
 The folder next door, `brainbit_old/`, is a frozen copy of this plugin as it was
