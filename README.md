@@ -11,6 +11,17 @@ Choose a permanent folder under **Documents** before installing. Study Runner
 stores its local setup and, by default, study data inside this folder, so do not
 run it permanently from Downloads or move/delete the folder later.
 
+There is no separate installer step that asks where to put it: the folder you
+move the extracted download into is the install, and step 2 below is the only
+place that decision gets made. Any writable, permanent folder works, on the
+main drive or a network share, named however helps you find it again --
+**Documents** is only the concrete example these steps use. Each installed
+folder is fully self-contained (its own `.venv`, settings and study data);
+nothing ties two installs together or tells the app which one you are running.
+If more than one copy ever exists on the same computer, give each a name that
+says which is which -- a stale or misplaced install is easy to open by
+accident otherwise.
+
 ### Windows x64
 
 #### First installation
