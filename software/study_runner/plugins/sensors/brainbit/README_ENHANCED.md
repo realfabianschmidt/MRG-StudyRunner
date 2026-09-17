@@ -47,8 +47,8 @@ NeuroSDK supplies packet numbers but no source timestamp per sample. The CLI
 reconstructs timestamps at the reported sampling rate, preserves observable
 `PackNum` gaps in the timeline, and publishes gap/reset counters. It uses a
 monotonic clock for durations so an operating-system clock correction cannot
-shorten calibration or a measurement stage. The adapter converts Unix sample
-timestamps to the local LSL clock domain and calls `push_chunk` with all sample
+shorten calibration or a measurement stage. The CLI anchors source epoch time to a monotone clock once per connection.
+The adapter uses that anchor to convert sample timestamps to the local LSL clock domain and calls `push_chunk` with all sample
 timestamps.
 
 ## EmotionalMath contract
@@ -93,3 +93,13 @@ reports. The same band cannot be owned by both backends simultaneously, so run
 them one after another and close Study Runner and the manufacturer application
 first. See `README.md` for exact commands. BrainFlow is diagnostic-only and is
 never selected silently as a production fallback.
+
+The plugin-owned monitor adds connection identifiers, snapshot diagnostics and
+bounded graph history. Python plugin logs use stderr; framed plugin responses
+use stdout, so threaded logs cannot corrupt status replies. The acquisition CLI
+serializes its own tagged JSON and textual writes with a shared lock.
+
+Raw acquisition is independent of optional analytics failures. Analytic windows
+and calibration reset after packet discontinuities; output validity is carried
+into diagnostics and sidecar summaries. Repeated initialization for a study with
+unchanged settings preserves existing EEG outlets and the live BLE process.

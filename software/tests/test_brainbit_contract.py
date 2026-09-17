@@ -188,7 +188,7 @@ class EmotionalMathContractTests(unittest.TestCase):
         with mock.patch.object(cli, "emotional_math", FakeModule, create=True):
             cli._validate_sdk_api_surface()
 
-    def test_startup_fails_closed_before_any_device_work_if_push_bipolars_is_gone(self) -> None:
+    def test_missing_optional_math_api_reports_degradation_without_aborting_raw(self) -> None:
         class DriftedMathLib:
             def push_data(self, samples):
                 ...
@@ -199,11 +199,11 @@ class EmotionalMathContractTests(unittest.TestCase):
         buffer = io.StringIO()
         with mock.patch.object(cli, "emotional_math", FakeModule, create=True):
             with redirect_stdout(buffer):
-                with self.assertRaises(SystemExit) as raised:
-                    cli._validate_sdk_api_surface()
+                cli._validate_sdk_api_surface()
 
-        self.assertEqual(raised.exception.code, cli.EXIT_MISSING_DEPENDENCY)
-        self.assertIn("SETUP_FAIL", buffer.getvalue())
+        self.assertIn("EMO_INIT_FAIL", buffer.getvalue())
+        line = next(line for line in buffer.getvalue().splitlines() if line.startswith("EMO_INIT_FAIL "))
+        self.assertTrue(json.loads(line.split(" ", 1)[1])["raw_stream_continues"])
         self.assertIn("push_bipolars", buffer.getvalue())
 
     def test_measured_hz_is_none_before_enough_time_has_elapsed(self) -> None:
@@ -246,6 +246,7 @@ class EmotionalMathContractTests(unittest.TestCase):
 
 class TimingAndLslTests(unittest.TestCase):
     def setUp(self) -> None:
+        adapter._lsl_epoch_offset = None
         adapter._lsl_outlets = {}
         adapter._lsl_local_clock = None
         adapter._eeg_lsl_channels = ()

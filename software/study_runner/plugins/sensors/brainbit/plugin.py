@@ -14,6 +14,7 @@ DEFAULT_BRAINBIT = {
     "working_dir": "study_runner/plugins/sensors/brainbit",
     "log_dir": "study_runner/plugins/sensors/brainbit/logs",
 }
+_remembered_connection = None
 
 
 def _read_json_file(path: Path) -> dict[str, Any]:
@@ -63,6 +64,8 @@ def _initialize(context: PluginContext) -> None:
     from . import adapter
 
     lsl_config = config.get("lsl") or {}
+    last_connected = config.get("last_connected_device") or {}
+    has_target = bool(config.get("serial_number") or config.get("device_address") or config.get("device_name"))
     adapter.initialize(
         script_path=context.resolve_project_path(
             context.resolve_platform_value(config.get("script_path")) or DEFAULT_BRAINBIT["script_path"]
@@ -73,9 +76,10 @@ def _initialize(context: PluginContext) -> None:
         osc_port=config.get("osc_port", 8000),
         scan_seconds=config.get("scan_seconds", 5),
         device_index=config.get("device_index", 0),
-        device_address=context.resolve_platform_value(config.get("device_address")),
-        serial_number=context.resolve_platform_value(config.get("serial_number")),
+        device_address=context.resolve_platform_value(config.get("device_address") if has_target else last_connected.get("address")),
+        serial_number=context.resolve_platform_value(config.get("serial_number") if has_target else last_connected.get("serial_number")),
         device_name=context.resolve_platform_value(config.get("device_name")),
+        require_selection=bool(config.get("require_selection", False)),
         resist_seconds=config.get("resist_seconds", 6),
         signal_seconds=config.get("signal_seconds", 0),
         pretty=config.get("pretty", True),
@@ -99,6 +103,7 @@ def _initialize(context: PluginContext) -> None:
 
 
 def _status(context: PluginContext) -> dict[str, Any]:
+    global _remembered_connection
     config = config_section(context, "brainbit")
     from . import adapter
 
@@ -109,13 +114,24 @@ def _status(context: PluginContext) -> dict[str, Any]:
     )
     state_path = log_dir / "brainbit_state.json"
     state_payload = _read_json_file(state_path)
-    latest = adapter_status.get("latest") or state_payload
+    latest = adapter_status.get("latest") or {}
+    connection_id = adapter_status.get("connection_id")
+    connected = (adapter_status.get("diagnostic_state") or {}).get("CONNECTED") or {}
+    if (connection_id and connection_id != _remembered_connection and connected
+            and context.persist_hardware_config):
+        identity = {"serial_number": connected.get("serial") or "",
+                    "address": connected.get("address") or "", "name": connected.get("name") or ""}
+        if identity["serial_number"] or identity["address"]:
+            updated = json.loads(json.dumps(context.hardware_config))
+            updated.setdefault("brainbit", {})["last_connected_device"] = identity
+            context.persist_hardware_config(updated)
+            _remembered_connection = connection_id
 
     status_value = adapter_status.get("status")
     if not config.get("enabled"):
         status_value = "disabled"
     elif not status_value or status_value == "not_configured":
-        status_value = state_payload.get("status", "waiting") if state_payload else "waiting"
+        status_value = "waiting"
 
     health = adapter_status.get("health") if isinstance(adapter_status.get("health"), dict) else {}
     eeg_batch = latest.get("eeg_batch") if isinstance(latest.get("eeg_batch"), dict) else {}
@@ -151,13 +167,15 @@ def _status(context: PluginContext) -> dict[str, Any]:
         "last_gap_samples": eeg_batch.get("packet_gap_frames", 0),
         "state_file": str(state_path),
         "latest": latest,
+        "historical_state": state_payload if not latest else {},
+        "runtime_locked": context.runtime_locked,
         "lsl_enabled": bool(config.get("enabled", False)),
         "touchdesigner_target": f"{config.get('osc_host', '127.0.0.1')}:{config.get('osc_port', 8000)}",
         "scan_timeout_seconds": int(config.get("scan_seconds", 5)),
-        "scan_mode": "one_shot_on_start",
+        "scan_mode": adapter_status.get("scan_mode", "repeated_while_enabled"),
         "last_scan_started_at": adapter_status.get("last_scan_started_at") or latest.get("last_scan_started_at"),
         "last_scan_finished_at": adapter_status.get("last_scan_finished_at") or latest.get("last_scan_finished_at"),
-        "next_retry_at": None,
+        "next_retry_at": adapter_status.get("next_retry_at"),
     }
 
 
@@ -298,7 +316,7 @@ def _run_admin_action(
     action_key: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    if action_key != "select_device":
+    if action_key not in {"select_device", "scan_devices", "check_contact"}:
         raise ValueError(f"Unknown BrainBit admin action: {action_key}")
     if context.runtime_locked:
         return {
@@ -307,19 +325,30 @@ def _run_admin_action(
         }
     if context.persist_hardware_config is None:
         raise RuntimeError("BrainBit device selection requires a machine-settings context.")
+    if action_key == "check_contact":
+        return _restart(context)
+    if action_key == "scan_devices":
+        # A temporary discovery restart must not erase the saved preferred band.
+        config = json.loads(json.dumps(context.hardware_config))
+        section = config.setdefault("brainbit", {})
+        for key in ("serial_number", "device_address", "device_name", "last_connected_device"):
+            section.pop(key, None)
+        # Require a choice even if only one band appears during an explicit scan.
+        section["require_selection"] = True
+        return _restart(replace(context, hardware_config=config))
 
     serial_number = str(payload.get("serial_number") or "").strip()
     device_address = str(payload.get("address") or "").strip()
     device_name = str(payload.get("name") or "").strip()
     device_index = payload.get("index")
-    # A band is only reliably re-findable by serial, address or name. A position
+    # A band is only reliably re-findable by serial or address. A position
     # in the scan list is not: the next scan can order the bands differently, so
     # saving a bare index would quietly point at whichever band answers first
     # next time. Refusing is better than saving a selection that drifts.
-    if not (serial_number or device_address or device_name):
+    if not (serial_number or device_address):
         return {
             "last_message": (
-                "This band reported no serial number, address or name, so it "
+                "This band reported no serial number or address, so it "
                 "cannot be saved. Switch the band off and on and scan again."
             ),
             "saved": False,

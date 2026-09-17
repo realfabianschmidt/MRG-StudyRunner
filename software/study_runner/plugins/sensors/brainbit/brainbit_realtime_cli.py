@@ -13,8 +13,10 @@ Required packages are pinned in ``REQUIRED_MODULES`` below.
 from __future__ import annotations
 
 import argparse
+import builtins
 import atexit
 import importlib.util
+from importlib.metadata import version, PackageNotFoundError
 import json
 import math
 import os
@@ -61,6 +63,13 @@ EEG_STDOUT_INTERVAL_SECONDS = 0.1
 # blocked stdout pipe, a stuck host reader) must never grow this list without
 # bound -- better to surface a visible, counted drop than to OOM silently.
 EEG_PENDING_QUEUE_MAX_SAMPLES = 2500
+_CONSOLE_LOCK = threading.RLock()
+
+
+def _print(*args, **kwargs):
+    """Keep tagged samples and callback diagnostics on separate complete lines."""
+    with _CONSOLE_LOCK:
+        builtins.print(*args, **kwargs)
 
 
 def _is_module_available(module_name: str) -> bool:
@@ -68,7 +77,7 @@ def _is_module_available(module_name: str) -> bool:
 
 
 def _install_package(package_name: str) -> None:
-    print(f"[SETUP] Installing {package_name} ...", flush=True)
+    _print(f"[SETUP] Installing {package_name} ...", flush=True)
     subprocess.check_call([
         sys.executable,
         "-m",
@@ -101,15 +110,15 @@ def _ensure_requirements() -> None:
     """
     missing = [
         (module_name, package_name)
-        for module_name, package_name in REQUIRED_MODULES
+        for module_name, package_name in REQUIRED_MODULES if module_name != "em_st_artifacts"
         if not _is_module_available(module_name)
     ]
     if not missing:
-        print(f"[SETUP] Required libraries are installed: {', '.join(m for m, _ in REQUIRED_MODULES)}", flush=True)
+        _print(f"[SETUP] Required libraries are installed: {', '.join(m for m, _ in REQUIRED_MODULES)}", flush=True)
         return
 
     names = ", ".join(package_name for _, package_name in missing)
-    print(f"[SETUP] Missing required libraries: {names}", flush=True)
+    _print(f"[SETUP] Missing required libraries: {names}", flush=True)
 
     if _runtime_pip_install_disabled():
         _print_json("SETUP_FAIL", {"missing": [p for _, p in missing], "auto_install": False})
@@ -119,17 +128,17 @@ def _ensure_requirements() -> None:
         try:
             _install_package(package_name)
         except Exception as exc:
-            print(f"[ERROR] Could not install {package_name}: {exc}", flush=True)
+            _print(f"[ERROR] Could not install {package_name}: {exc}", flush=True)
             _print_json("SETUP_FAIL", {"missing": [p for _, p in missing], "error": str(exc)})
             raise SystemExit(EXIT_MISSING_DEPENDENCY)
 
     still_missing = [package_name for module_name, package_name in missing if not _is_module_available(module_name)]
     if still_missing:
-        print(f"[ERROR] Missing required module after installation: {', '.join(still_missing)}", flush=True)
+        _print(f"[ERROR] Missing required module after installation: {', '.join(still_missing)}", flush=True)
         _print_json("SETUP_FAIL", {"missing": still_missing, "after_install": True})
         raise SystemExit(EXIT_MISSING_DEPENDENCY)
 
-    print(f"[SETUP] Required libraries are installed: {', '.join(m for m, _ in REQUIRED_MODULES)}", flush=True)
+    _print(f"[SETUP] Required libraries are installed: {', '.join(m for m, _ in REQUIRED_MODULES)}", flush=True)
 
 
 def _load_sdk_modules() -> None:
@@ -152,28 +161,24 @@ def _load_sdk_modules() -> None:
         GenCurrent,
     )
     from pythonosc.udp_client import SimpleUDPClient
-    from em_st_artifacts.utils import lib_settings, support_classes
-    from em_st_artifacts import emotional_math
+    try:
+        from em_st_artifacts.utils import lib_settings, support_classes
+        from em_st_artifacts import emotional_math
+    except Exception as error:
+        lib_settings = support_classes = emotional_math = None
+        _print_json("EMO_INIT_FAIL", {"error": str(error), "raw_stream_continues": True})
 
 
 def _validate_sdk_api_surface() -> None:
-    """Fail fast if the pinned EmotionalMath API surface has drifted.
-
-    push_bipolars is only otherwise checked lazily, on the first EEG batch of
-    an already-running session (see _push_bipolar_samples) -- discovering its
-    absence there means losing a session that had already started. Checking
-    the class here (EmotionalMath needs live settings to construct an
-    instance, so this cannot check a real instance) reports a wheel mismatch
-    before any device scan or connection begins.
-    """
-    if not hasattr(emotional_math.EmotionalMath, "push_bipolars"):
+    """Report optional math API mismatches before scanning; raw EEG can continue."""
+    if not hasattr(getattr(emotional_math, "EmotionalMath", None), "push_bipolars"):
         message = (
             "Pinned pyem-st-artifacts wheel does not expose "
-            "EmotionalMath.push_bipolars; refusing to start."
+            "EmotionalMath.push_bipolars; derived metrics are unavailable."
         )
-        print(f"[ERROR] {message}", flush=True)
-        _print_json("SETUP_FAIL", {"missing_api": "EmotionalMath.push_bipolars", "message": message})
-        raise SystemExit(EXIT_MISSING_DEPENDENCY)
+        _print(f"[ERROR] {message}", flush=True)
+        _print_json("EMO_INIT_FAIL", {"missing_api": "EmotionalMath.push_bipolars", "message": message,
+                                      "raw_stream_continues": True})
 
 
 # ----------------- small utils -----------------
@@ -437,6 +442,8 @@ class SourceTimestampEstimator:
             event: dict[str, Any] = {"gap_before": 0}
             if previous is None or current is None:
                 advance = 1
+                if current is None:
+                    event["counter_event"] = "unknown"
             else:
                 advance, counter_event = self._packet_advance(previous, current)
                 if counter_event == "gap":
@@ -469,7 +476,7 @@ class SourceTimestampEstimator:
         within_batch_steps = sum(steps[1:])
         first = float(received_epoch) - (within_batch_steps * self.sample_interval)
         if self.last_timestamp is not None:
-            first = max(first, self.last_timestamp + (steps[0] * self.sample_interval))
+            first = self.last_timestamp + (steps[0] * self.sample_interval)
 
         timestamps = [first]
         for advance in steps[1:]:
@@ -554,7 +561,7 @@ atexit.register(_release_active_sensor)
 def _print_json(tag: str, data: dict):
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     with _OUTPUT_LOCK:
-        print(f"{tag} {payload}", flush=True)
+        _print(f"{tag} {payload}", flush=True)
 
 
 def _set_output_mode(debug: bool, pretty: bool) -> None:
@@ -566,21 +573,21 @@ def _set_output_mode(debug: bool, pretty: bool) -> None:
 
 def _status(*args, **kwargs):
     if PRETTY or DEBUG:
-        print("[STATUS]", *args, **kwargs, flush=True)
+        _print("[STATUS]", *args, **kwargs, flush=True)
 
 
 def _debug(*args, **kwargs):
     if DEBUG:
-        print("[DEBUG]", *args, **kwargs, flush=True)
+        _print("[DEBUG]", *args, **kwargs, flush=True)
 
 
 def _warn(*args, **kwargs):
-    print("[WARN]", *args, **kwargs, flush=True)
+    _print("[WARN]", *args, **kwargs, flush=True)
 
 
 def _pretty_line(label: str, line: str) -> None:
     if PRETTY:
-        print(f"[{label}] {line}", flush=True)
+        _print(f"[{label}] {line}", flush=True)
 
 
 def _print_sensor_summary(sensor) -> None:
@@ -594,9 +601,18 @@ def _print_sensor_summary(sensor) -> None:
         "serial": _safe(sensor, "serial_number"),
         "sampling_frequency": str(_safe(sensor, "sampling_frequency")),
         "battery": _safe(sensor, "batt_power"),
+        "firmware": str(_safe(sensor, "version", "unknown")),
         "features": [f.name for f in features] if isinstance(features, (list, tuple)) else str(features),
         "commands": [c.name for c in commands] if isinstance(commands, (list, tuple)) else str(commands),
     }
+    for package in ("pyneurosdk2", "pyem-st-artifacts"):
+        try:
+            sensor_info[package] = version(package)
+        except PackageNotFoundError:
+            sensor_info[package] = "unknown"
+    _print_json("DEVICE", sensor_info)
+    if sensor_info["battery"] is not None:
+        _print_json("BATTERY", {"percent": sensor_info["battery"]})
     _status("Connected sensor info:")
     for key, value in sensor_info.items():
         _status(f"  {key}: {value}")
@@ -678,6 +694,8 @@ def _scan_candidates() -> List[Any]:
 
 
 def _select_sensor_info(sensors: List[Any], args) -> Tuple[Optional[int], Optional[Any], str]:
+    if getattr(args, "require_selection", False):
+        return None, None, "selection_required"
     serial_target = _normalize_target(args.serial_number)
     address_target = _normalize_address(args.device_address)
     name_target = _normalize_target(args.device_name)
@@ -692,13 +710,10 @@ def _select_sensor_info(sensors: List[Any], args) -> Tuple[Optional[int], Option
                 return idx, info, "device_address"
         return None, None, f"device_address '{args.device_address}' not found"
     if name_target:
-        for idx, info in enumerate(sensors):
-            if _normalize_target(_safe(info, "Name")) == name_target:
-                return idx, info, "device_name"
-        return None, None, f"device_name '{args.device_name}' not found"
-    if args.device_index < 0 or args.device_index >= len(sensors):
-        return None, None, f"device_index {args.device_index} out of range"
-    return int(args.device_index), sensors[int(args.device_index)], "device_index"
+        return None, None, "selection_required"
+    if len(sensors) == 1 and (_safe(sensors[0], "SerialNumber") or _safe(sensors[0], "Address")):
+        return 0, sensors[0], "single_device"
+    return None, None, "selection_required"
 
 
 def _format_values(**kwargs) -> str:
@@ -784,10 +799,10 @@ def _start_scan_or_explain(scanner) -> None:
     except Exception as e:
         msg = str(e)
         if "Code 103" in msg or "BLE adapter not found or disabled" in msg:
-            print("# FATAL: BLE adapter not found or disabled.", flush=True)
+            _print("# FATAL: BLE adapter not found or disabled.", flush=True)
             _print_json("BLE_UNAVAILABLE", {"message": "Bluetooth adapter not found or disabled."})
             if platform.system() == "Darwin":
-                print("# macOS checklist:\n#  1) Bluetooth ON.\n#  2) Privacy → Bluetooth: allow your terminal.\n#  3) Headband not connected elsewhere.\n#  4) If stuck: sudo killall -9 bluetoothd; toggle BT.\n#  5) which python3", flush=True)
+                _print("# macOS checklist:\n#  1) Bluetooth ON.\n#  2) Privacy → Bluetooth: allow your terminal.\n#  3) Headband not connected elsewhere.\n#  4) If stuck: sudo killall -9 bluetoothd; toggle BT.\n#  5) which python3", flush=True)
             raise SystemExit(EXIT_BLE_UNAVAILABLE)
         else:
             raise
@@ -819,7 +834,6 @@ def _scan_for_target(scanner, args, stop_event: threading.Event) -> List[Any]:
     has_named_target = bool(
         _normalize_target(args.serial_number)
         or _normalize_address(args.device_address)
-        or _normalize_target(args.device_name)
     )
     # A named band is worth waiting three windows for, because BLE devices
     # legitimately take seconds to start advertising -- especially one that was
@@ -875,6 +889,7 @@ def main(argv: Optional[List[str]] = None):
     ap.add_argument("--device-address", type=str, default="")
     ap.add_argument("--serial-number", type=str, default="")
     ap.add_argument("--device-name", type=str, default="")
+    ap.add_argument("--require-selection", action="store_true")
     ap.add_argument(
         "--max-session-attempts",
         type=int,
@@ -930,7 +945,7 @@ def main(argv: Optional[List[str]] = None):
     stop_event = threading.Event()
 
     def _on_stop_signal(signum, frame):
-        print(f"\n# Stop signal {signum} — stopping streams ...", flush=True)
+        _print(f"\n# Stop signal {signum} — stopping streams ...", flush=True)
         stop_event.set()
 
     # Every signal the host can actually send has to reach the same handler,
@@ -991,7 +1006,7 @@ def _run_until_stopped(args, osc, stop_event: threading.Event) -> int:
                 "SESSION_ERROR",
                 {"error_type": type(error).__name__, "error": str(error)},
             )
-            print(f"# Unexpected failure in this attempt: {error}", flush=True)
+            _print(f"# Unexpected failure in this attempt: {error}", flush=True)
             exit_code = EXIT_STREAM_FAILURE
         finally:
             # Whatever happened, do not walk into the next attempt still
@@ -1016,13 +1031,19 @@ def _run_until_stopped(args, osc, stop_event: threading.Event) -> int:
                 "next_retry_at": _wall_clock_in(RETRY_DELAY_SECONDS),
             },
         )
-        print(f"# Retrying in {RETRY_DELAY_SECONDS:.0f} s ...", flush=True)
+        _print(f"# Retrying in {RETRY_DELAY_SECONDS:.0f} s ...", flush=True)
         stop_event.wait(RETRY_DELAY_SECONDS)
     return EXIT_OK
 
 
 def _run_session(args, osc, stop_event: threading.Event) -> int:
     """One attempt: scan, connect, stream, disconnect. Returns an exit code."""
+    epoch_anchor, monotonic_anchor = time.time(), time.monotonic()
+    def source_now():
+        return epoch_anchor + time.monotonic() - monotonic_anchor
+    _print_json("SCANNING", {"scan_seconds": args.scan_seconds})
+    _print_json("CLOCK", {"epoch_anchor": epoch_anchor, "monotonic_anchor": monotonic_anchor,
+                          "timestamp_source": "host_callback_reconstructed"})
     # --- Scan / select device ---
     scanner = Scanner(_brainbit_sensor_families(SensorFamily))
 
@@ -1035,7 +1056,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             _print_json("SCAN", _sensor_info_payload(info, index))
     scanner.sensorsChanged = _on_sensors
 
-    print(f"# Scanning for up to {args.scan_seconds} s ...", flush=True)
+    _print(f"# Scanning for up to {args.scan_seconds} s ...", flush=True)
     _reset_scan_candidates()
     sensors = _scan_for_target(scanner, args, stop_event)
     if stop_event.is_set():
@@ -1043,9 +1064,15 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
     if not sensors:
         message = "No compatible BrainBit-family sensor found."
         _print_json("NO_DEVICE_FOUND", {"message": message, "scan_seconds": int(args.scan_seconds)})
-        print(f"# {message} Exiting.", flush=True)
+        _print(f"# {message} Exiting.", flush=True)
         return EXIT_NO_DEVICE_FOUND
     sel_idx, info, selection_source = _select_sensor_info(sensors, args)
+    if selection_source == "selection_required":
+        _print_json("SELECTION_REQUIRED", {"candidate_count": len(sensors)})
+        # The parent handles selection by restarting with a stable identity.
+        # No active sensor is held while the operator chooses.
+        stop_event.wait()
+        return EXIT_OK
     if info is None or sel_idx is None:
         target = {
             "serial_number": args.serial_number,
@@ -1058,12 +1085,12 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             "DEVICE_TARGET_MISSING",
             {"message": message, "target": target, "fallback": None},
         )
-        print(f"# {message}. Refusing to substitute a different headset.", flush=True)
+        _print(f"# {message}. Refusing to substitute a different headset.", flush=True)
         return EXIT_DEVICE_TARGET_MISSING
     selected_payload = _sensor_info_payload(info, sel_idx)
     selected_payload["selection_source"] = selection_source
     _print_json("DEVICE_SELECTED", selected_payload)
-    print(f"# Connecting to device index {sel_idx} ({selection_source}) ...", flush=True)
+    _print(f"# Connecting to device index {sel_idx} ({selection_source}) ...", flush=True)
     _print_json("CONNECTING", {"index": sel_idx, "selection_source": selection_source})
     # NeuroSDK Scanner.create_sensor() creates and connects the sensor. Calling
     # connect() a second time is an API error on some SDK/device combinations.
@@ -1086,10 +1113,15 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
                 "selection_source": selection_source,
             },
         )
-        print(f"# Could not connect to the selected band: {error}", flush=True)
+        _print(f"# Could not connect to the selected band: {error}", flush=True)
         return EXIT_CONNECT_FAILED
     _remember_active_sensor(sensor)
-    _print_json("CONNECTED", {"index": sel_idx, "selection_source": selection_source})
+    _print_json("CONNECTED", selected_payload)
+    # Pin all retries in this process to the successfully connected device.
+    if selected_payload.get("serial"):
+        args.serial_number = selected_payload["serial"]
+    elif selected_payload.get("address"):
+        args.device_address = selected_payload["address"]
     _status("Sensor created and connected successfully.")
 
     _print_sensor_summary(sensor)
@@ -1174,66 +1206,41 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
         },
     )
 
-    # ---------- Emotions init (requires the four canonical derivation channels) ----------
-    math_lib: Any = None
+    # Optional analytics never owns the lifetime of raw EEG acquisition.
+    def create_math():
+        mls_params = dict(sampling_rate=int(fs_hz), process_win_freq=int(args.process_win_freq),
+                          n_first_sec_skipped=int(args.skip_first_sec), fft_window=int(args.fft_window_samples),
+                          bipolar_mode=True, channels_number=4, channel_for_analysis=0)
+        ads_params = dict(art_bord=110, allowed_percent_artpoints=70, raw_betap_limit=800_000,
+                          global_artwin_sec=4, num_wins_for_quality_avg=125, hamming_win_spectrum=True,
+                          hanning_win_spectrum=False, total_pow_border=400_000_000, spect_art_by_totalp=True)
+        mss_params = dict(n_sec_for_instant_estimation=4, n_sec_for_averaging=2)
+        instance = emotional_math.EmotionalMath(lib_settings.MathLibSetting(**mls_params),
+                    lib_settings.ArtifactDetectSetting(**ads_params), lib_settings.MentalAndSpectralSetting(**mss_params))
+        _configure_emotional_math(instance, calibration_sec=args.calibration_sec,
+                                  skip_windows=args.nwins_skip_after_artifact)
+        versions = {}
+        for package in ("pyneurosdk2", "pyem-st-artifacts"):
+            try:
+                versions[package] = version(package)
+            except PackageNotFoundError:
+                versions[package] = "unknown"
+        _print_json("EMO_INIT", {"versions": versions, "math_settings": mls_params,
+                    "artifact_settings": ads_params, "mental_settings": mss_params,
+                    "derivations": ["T3-O1", "T4-O2"], "input_units": "V",
+                    "calibration_sec": args.calibration_sec,
+                    "skip_windows_after_artifact": args.nwins_skip_after_artifact, "squared_spectrum": True})
+        return instance
+
+    math_lib = None
     if derived_enabled:
-        mls = lib_settings.MathLibSetting(
-            sampling_rate=int(fs_hz),
-            process_win_freq=int(args.process_win_freq),
-            n_first_sec_skipped=int(args.skip_first_sec),
-            fft_window=int(args.fft_window_samples),
-            bipolar_mode=True,
-            channels_number=4,
-            channel_for_analysis=0,
-        )
-        ads = lib_settings.ArtifactDetectSetting(
-            art_bord=110,
-            allowed_percent_artpoints=70,
-            raw_betap_limit=800_000,
-            global_artwin_sec=4,
-            num_wins_for_quality_avg=125,
-            hamming_win_spectrum=True,
-            hanning_win_spectrum=False,
-            total_pow_border=400_000_000,
-            spect_art_by_totalp=True,
-        )
-        mss = lib_settings.MentalAndSpectralSetting(
-            n_sec_for_instant_estimation=4,
-            n_sec_for_averaging=2,
-        )
-
         try:
-            math_lib = emotional_math.EmotionalMath(mls, ads, mss)
-            _configure_emotional_math(
-                math_lib,
-                calibration_sec=args.calibration_sec,
-                skip_windows=args.nwins_skip_after_artifact,
-            )
+            math_lib = create_math()
         except Exception as error:
-            _print_json("EMO_INIT_FAIL", {"error": str(error)})
-            return EXIT_STREAM_FAILURE
-
-        _print_json(
-            "EMO_INIT",
-            {
-                "fs_hz": fs_hz,
-                "process_win_freq_hz": int(args.process_win_freq),
-                "fft_window_samples": int(args.fft_window_samples),
-                "bipolar_mode": True,
-                "channels_number": 4,
-                "eeg_scale": scale_name,
-            },
-        )
+            _print_json("EMO_INIT_FAIL", {"error": str(error), "raw_stream_continues": True})
     else:
-        _print_json(
-            "DERIVED_DISABLED",
-            {
-                "reason": "missing_required_channels",
-                "required_channels": list(EEG_CHANNELS),
-                "missing_channels": missing_derived_channels,
-                "raw_stream_continues": True,
-            },
-        )
+        _print_json("DERIVED_DISABLED", {"reason": "missing_required_channels",
+                    "missing_channels": missing_derived_channels, "raw_stream_continues": True})
 
     # ---------- smoothing for console/OSC EEG ----------
     detrenders = {channel: DCDetrender(alpha=args.detrend_alpha) for channel in raw_channel_labels}
@@ -1285,6 +1292,8 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
                 "channels": list(fields),
                 "samples": [[row[field] for field in fields] for row in rows],
                 "timestamps": [row["ts"] for row in rows],
+                "validity": "uncertain" if last_artifact_state != (0, 0) or not calib_finished or len(rows) > 1 else "valid",
+                "validity_scope": "conservative_output_batch",
             },
         )
         latest = rows[-1]
@@ -1321,6 +1330,8 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
                 "channels": list(fields),
                 "samples": [[row[field] for field in fields] for row in rows],
                 "timestamps": [row["ts"] for row in rows],
+                "validity": "uncertain" if last_artifact_state != (0, 0) or not calib_finished or len(rows) > 1 else "valid",
+                "validity_scope": "conservative_output_batch",
             },
         )
         latest = rows[-1]
@@ -1332,6 +1343,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
     callback_failure: dict[str, str] = {}
     callback_failure_lock = threading.Lock()
     callback_failed = threading.Event()
+    disconnected = threading.Event()
     timestamp_estimator = SourceTimestampEstimator(fs_hz)
     spectral_timestamp_estimator = SourceTimestampEstimator(args.process_win_freq)
     mental_timestamp_estimator = SourceTimestampEstimator(args.process_win_freq)
@@ -1369,6 +1381,8 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             "EEG_BATCH",
             {
                 "ts": rows[0]["timestamp"],
+                "received_epoch": rows[-1]["received_epoch"],
+                "received_monotonic": rows[-1]["received_monotonic"],
                 "end_ts": rows[-1]["timestamp"],
                 "sample_interval_sec": timestamp_estimator.sample_interval,
                 "sample_count": len(rows),
@@ -1427,6 +1441,9 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
         return guarded
 
     def on_state(s, state):
+        if any(value in _enum_name(state).lower() for value in ("disconnect", "outofrange")):
+            disconnected.set()
+            _print_json("DISCONNECTED", {"state": _enum_name(state)})
         _print_json("STATE", {"state": _enum_name(state)})
         _status("Sensor state:", _enum_name(state))
 
@@ -1436,7 +1453,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
         _pretty_line("BATTERY", f"Battery level is {pct}%")
 
     def on_resist(s, data):
-        ts = time.time()
+        ts = source_now()
         for pkt in _iter(data):
             decoded, packet_shape = _decode_packet_channels(
                 pkt,
@@ -1476,8 +1493,8 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
         nonlocal calib_started, calib_finished, calib_start_time
         nonlocal last_prog_time, last_prog_value, art_on, art_start, calib_stalled
         nonlocal last_reported_progress, last_artifact_state
-        nonlocal eeg_queue_overflow_dropped_total
-        now = time.time()
+        nonlocal eeg_queue_overflow_dropped_total, math_lib
+        now = source_now()
         monotonic_now = time.monotonic()
         decoded_packets: list[tuple[Any, dict[str, float], str]] = []
         decode_errors: list[str] = []
@@ -1499,7 +1516,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
         packet_events = [
             event
             for event in packet_timing
-            if event.get("counter_event") in {"gap", "reset", "duplicate"}
+            if event.get("counter_event") in {"gap", "reset", "duplicate", "unknown"}
         ]
         packet_gap_frames = sum(int(event.get("gap_before") or 0) for event in packet_timing)
         if decode_errors or packet_events:
@@ -1523,11 +1540,6 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             decoded_packets,
             strict=True,
         ):
-            if derived_enabled:
-                left_bip = values["T3"] - values["O1"]
-                right_bip = values["T4"] - values["O2"]
-                raw_channels.append(support_classes.RawChannels(left_bip, right_bip))
-
             raw_scaled = {channel: values[channel] * _scale for channel in raw_channel_labels}
             preview = {}
             for channel, raw_value in raw_scaled.items():
@@ -1539,6 +1551,8 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             output_rows.append(
                 {
                     "timestamp": timestamp,
+                    "received_epoch": time.time(),
+                    "received_monotonic": monotonic_now,
                     "pack": _json_number(_safe(pkt, "PackNum")),
                     "marker": _json_number(_safe(pkt, "Marker")),
                     "packet_gap_before": int(timing.get("gap_before") or 0),
@@ -1573,7 +1587,34 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
 
         if math_lib is None:
             return
+        if decode_errors or packet_events or overflow_dropped:
+            # Do not join an FFT/calibration window across missing or ambiguous samples.
+            calib_started = calib_finished = calib_stalled = False
+            last_reported_progress = last_artifact_state = None
+            spectral_timestamp_estimator.last_timestamp = None
+            mental_timestamp_estimator.last_timestamp = None
+            _print_json("CALIB", {"event": "RESET", "reason": "signal_discontinuity", "ts": now})
+            try:
+                math_lib = create_math()
+            except Exception as error:
+                math_lib = None
+                _print_json("EMO_INIT_FAIL", {"error": str(error), "raw_stream_continues": True})
+            return
+        try:
+            raw_channels = [support_classes.RawChannels(values["T3"] - values["O1"],
+                            values["T4"] - values["O2"]) for _, values, _ in decoded_packets]
+            # Drain each produced window before processing the next input frame.
+            # Otherwise a callback backlog's final artifact flag could label
+            # earlier, held SDK outputs as clean.
+            for bipolar, timestamp in zip(raw_channels, sample_timestamps, strict=True):
+                process_derived([bipolar], [timestamp], monotonic_now)
+        except Exception as error:
+            math_lib = None
+            _print_json("EMO_INIT_FAIL", {"phase": "processing", "error": str(error), "raw_stream_continues": True})
 
+    def process_derived(raw_channels, sample_timestamps, monotonic_now):
+        nonlocal calib_started, calib_finished, calib_start_time, calib_stalled
+        nonlocal last_prog_time, last_prog_value, last_reported_progress, last_artifact_state, art_on, art_start
         # Start calibration once (non-blocking)
         if not calib_started:
             _status("Starting emotion calibration.")
@@ -1590,8 +1631,8 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
         math_lib.process_data_arr()
 
         # Artifacts flags (always)
-        both_art = 1.0 if getattr(math_lib, "is_both_sides_artifacted", lambda: False)() else 0.0
-        seq_art  = 1.0 if getattr(math_lib, "is_artifacted_sequence",  lambda: False)() else 0.0
+        both_art = 1.0 if math_lib.is_both_sides_artifacted() else 0.0
+        seq_art  = 1.0 if math_lib.is_artifacted_sequence() else 0.0
         _send_num(osc, "ARTIFACT", "Both", both_art)
         _send_num(osc, "ARTIFACT", "Seq",  seq_art)
         artifact_state = (int(both_art), int(seq_art))
@@ -1611,7 +1652,6 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
                 if progress_value >= last_prog_value + 0.25:
                     last_prog_value = progress_value
                     last_prog_time = monotonic_now
-                    calib_stalled = False
                 if last_reported_progress is None or abs(progress_value - last_reported_progress) >= 0.25:
                     last_reported_progress = progress_value
                     _print_json("CALIB", {"progress_percent": progress_value})
@@ -1724,8 +1764,8 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
     def _run_stage(cmd_start: SensorCommand, cmd_stop: SensorCommand, seconds: int, label: str):
         if seconds <= 0: return
         if not sensor.is_supported_command(cmd_start):
-            print(f"# {label}: command not supported, skipping.", flush=True); return
-        print(f"# {label}: START ({seconds}s)", flush=True)
+            _print(f"# {label}: command not supported, skipping.", flush=True); return
+        _print(f"# {label}: START ({seconds}s)", flush=True)
         _print_json("STREAM", {"stream": label.lower(), "event": "START"})
         _debug(f"Executing command {cmd_start} for {label}")
         sensor.exec_command(cmd_start)
@@ -1737,7 +1777,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             sensor.exec_command(cmd_stop)
         _debug(f"Stopping command {cmd_stop} for {label}")
         _print_json("STREAM", {"stream": label.lower(), "event": "STOP"})
-        print(f"# {label}: STOP", flush=True)
+        _print(f"# {label}: STOP", flush=True)
         _raise_callback_failure()
 
     failure_exit_code: int | None = None
@@ -1750,21 +1790,24 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             _run_stage(SensorCommand.StartMEMS, SensorCommand.StopMEMS, args.mems_seconds, "MEMS")
         if sensor.is_supported_command(SensorCommand.StartSignal):
             dur = args.signal_seconds
-            print("# EEG: START (Ctrl+C to stop)" if dur == 0 else f"# EEG: START ({dur}s)", flush=True)
+            _print("# EEG: START (Ctrl+C to stop)" if dur == 0 else f"# EEG: START ({dur}s)", flush=True)
             _print_json("STREAM", {"stream": "eeg", "event": "START", "fs_hz": fs_hz})
             sensor.exec_command(SensorCommand.StartSignal)
             t_end = (time.monotonic() + dur) if dur > 0 else None
             while (
                 not stop_event.is_set()
                 and not callback_failed.is_set()
+                and not disconnected.is_set()
                 and (t_end is None or time.monotonic() < t_end)
             ):
                 callback_failed.wait(0.05)
             sensor.exec_command(SensorCommand.StopSignal)
             _emit_eeg_batch(force=True)
             _print_json("STREAM", {"stream": "eeg", "event": "STOP"})
-            print("# EEG: STOP", flush=True)
+            _print("# EEG: STOP", flush=True)
             _raise_callback_failure()
+            if disconnected.is_set() and not stop_event.is_set():
+                return EXIT_CONNECT_FAILED
         else:
             raise RuntimeError("EEG StartSignal command is not supported by the selected sensor")
     except KeyboardInterrupt:
@@ -1779,7 +1822,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
                 "callback_failure": bool(callback_failed.is_set()),
             },
         )
-        print(f"# ERROR during streaming: {e}", flush=True)
+        _print(f"# ERROR during streaming: {e}", flush=True)
     finally:
         try:
             sensor.signalDataReceived = None
@@ -1792,7 +1835,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             sensor.disconnect()
         except Exception:
             pass
-        print("# Disconnected.", flush=True)
+        _print("# Disconnected.", flush=True)
 
     return failure_exit_code if failure_exit_code is not None else EXIT_OK
 

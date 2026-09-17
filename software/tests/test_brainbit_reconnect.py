@@ -176,7 +176,7 @@ class ScanReliabilityTests(unittest.TestCase):
         for scanner in scanner_class.instances:
             self.assertEqual(scanner.started, scanner.stopped)
 
-    def test_announced_index_is_the_index_that_gets_connected(self) -> None:
+    def test_announced_identity_is_the_device_that_gets_connected(self) -> None:
         """The dashboard's 'Use this band' index must mean what it says.
 
         Candidates used to be announced with a position inside one callback
@@ -187,7 +187,7 @@ class ScanReliabilityTests(unittest.TestCase):
         scanner_class = _make_scanner(bands=bands)
         _, lines = _run_cli(
             scanner_class,
-            ["--device-index", "1", "--max-session-attempts", "1"],
+            ["--serial-number", "BBB", "--max-session-attempts", "1"],
         )
 
         announced = {payload["index"]: payload["serial"] for tag, payload in lines if tag == "SCAN"}
@@ -202,6 +202,7 @@ class ScanReliabilityTests(unittest.TestCase):
         for typed in ("AA-BB-CC-DD-EE-FF", "aa:bb:cc:dd:ee:ff", "AABBCCDDEEFF"):
             with self.subTest(typed=typed):
                 args = mock.Mock(
+                    require_selection=False,
                     serial_number="",
                     device_address=typed,
                     device_name="",

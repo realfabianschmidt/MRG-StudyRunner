@@ -29,6 +29,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+from .monitor import BrainBitMonitor
 
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 
@@ -51,6 +52,7 @@ LSL_SOURCE_IDS = {
     "mental": "study_runner.brainbit.mental",
     "quality": "study_runner.brainbit.quality",
     "battery": "study_runner.brainbit.battery",
+    "diagnostics": "study_runner.brainbit.diagnostics",
 }
 LSL_CHANNEL_UNITS = {
     "eeg": ("microvolt",) * 4,
@@ -58,6 +60,7 @@ LSL_CHANNEL_UNITS = {
     "mental": ("ratio",) * 4,
     "quality": ("ratio",) * 4,
     "battery": ("percent",),
+    "diagnostics": ("json",),
 }
 # Package 5d (docs/archive/architecture-1.0-umbau.md): this plugin's own frozen
 # stream contract, for the desc/study_runner XDF header block only -- the
@@ -183,6 +186,13 @@ _HISTORY_TAGS = {"BANDS", "MENTAL", "QUALITY", "BATTERY"}
 _DERIVED_TAGS = {"BANDS", "MENTAL", "BANDS_BATCH", "MENTAL_BATCH"}
 _BANDS_FIELDS = ("delta", "theta", "alpha", "beta", "gamma")
 _MENTAL_FIELDS = ("Inst_Attention", "Inst_Relaxation", "Rel_Attention", "Rel_Relaxation")
+_monitor = BrainBitMonitor()
+_lsl_epoch_offset: float | None = None
+_last_diagnostic_snapshot = 0.0
+_DIAGNOSTIC_TAGS = {"SCANNING", "DEVICE_SELECTED", "DEVICE", "CONNECTING", "CONNECTED", "DISCONNECTED",
+                    "WAITING", "CONNECT_FAILED", "SELECTION_REQUIRED", "STOPPED", "CLOCK",
+                    "RESIST", "QUALITY", "CALIB", "ARTIFACT", "DATA_WARNING", "CHANNEL_MAP",
+                    "EMO_INIT", "EMO_INIT_FAIL", "DERIVED_DISABLED", "CALLBACK_ERROR", "STREAM_ERROR"}
 
 
 def _default_python_executable(python_executable: str | None) -> str:
@@ -241,6 +251,8 @@ def _build_cli_command() -> list[str] | None:
         command.extend(["--device-address", str(_config["device_address"])])
     if _config.get("device_name"):
         command.extend(["--device-name", str(_config["device_name"])])
+    if _config.get("require_selection"):
+        command.append("--require-selection")
     if _config.get("pretty"):
         command.append("--pretty")
     if _config.get("debug"):
@@ -263,6 +275,7 @@ def initialize(
     device_address: str | None = None,
     serial_number: str | None = None,
     device_name: str | None = None,
+    require_selection: bool = False,
     resist_seconds: int = 6,
     signal_seconds: int = 0,
     pretty: bool = False,
@@ -317,7 +330,7 @@ def initialize(
         )
         return
 
-    _config = {
+    new_config = {
         "script_path": str(script_file),
         "working_dir": str(resolved_working_dir),
         "python_executable": resolved_python,
@@ -328,6 +341,7 @@ def initialize(
         "device_address": str(device_address or "").strip(),
         "serial_number": str(serial_number or "").strip(),
         "device_name": str(device_name or "").strip(),
+        "require_selection": bool(require_selection),
         "resist_seconds": int(resist_seconds),
         "signal_seconds": int(signal_seconds),
         "pretty": bool(pretty),
@@ -346,6 +360,25 @@ def initialize(
         "log_max_bytes": max(256 * 1024, int(log_max_bytes)),
         "log_backup_count": max(1, int(log_backup_count)),
     }
+    # Study preflight initializes selected plugins again. Recreating outlets
+    # while the CLI continues would discard EEG without another CHANNEL_MAP.
+    if _process is not None and _process.poll() is None:
+        selector_keys = {"serial_number", "device_address", "device_name", "device_index"}
+        same_options = all(new_config[key] == _config.get(key) for key in new_config if key not in selector_keys)
+        same_target = all(new_config[key] == _config.get(key) for key in selector_keys)
+        connected = _monitor.snapshot()["diagnostic_state"].get("CONNECTED", {})
+        serial = new_config["serial_number"]
+        address = new_config["device_address"]
+        matches_connected = bool(serial and serial.casefold() == str(connected.get("serial") or "").casefold())
+        if not serial and address:
+            normalize = lambda value: str(value).replace(":", "").replace("-", "").casefold()
+            matches_connected = normalize(address) == normalize(connected.get("address", ""))
+        if same_options and (same_target or matches_connected):
+            _config = new_config
+            _publish_diagnostic("INITIALIZE_REUSED", {"reason": "unchanged_acquisition"})
+            return
+        stop()
+    _config = new_config
     with _routing_lock:
         _routing_state["forward_to_lsl"] = bool(lsl_enabled)
         _routing_state["forward_to_touchdesigner"] = False
@@ -521,6 +554,9 @@ def stop() -> None:
     global _process, _reader_thread, _desired_running
 
     _desired_running = False
+    _publish_diagnostic("ACQUISITION_END", _monitor.snapshot())
+    _monitor.observe("STOPPED", {})
+    _publish_diagnostic("STOPPED", {})
     with _lock:
         process = _process
         reader_thread = _reader_thread
@@ -620,8 +656,13 @@ def get_status() -> dict[str, Any]:
     status_value = _derive_status(latest, running)
     seconds_since = _seconds_since_values(latest)
     health = _build_health(latest, running, contact_state)
+    monitoring = _monitor.snapshot()
+    if not running:
+        monitoring["connection_state"] = "failed" if _desired_running else "stopped"
+    _publish_diagnostic_snapshot()
     return {
         **latest,
+        **monitoring,
         "latest": latest,
         "enabled": bool(_config),
         "runtime_enabled": running,
@@ -684,10 +725,14 @@ def wait_for_stream_contract(timeout_seconds: float | None = None) -> dict[str, 
         + 20.0
     )
     status = get_status()
+    if status.get("connection_state") == "selection_required":
+        return status
     if status.get("actual_streams"):
         return status
     _stream_contract_ready.wait(max(0.1, timeout))
     status = get_status()
+    if status.get("connection_state") == "selection_required":
+        return status
     if status.get("actual_streams"):
         if _config.get("lsl_enabled", False) and "EEG" not in _lsl_outlets:
             _set_state(
@@ -699,6 +744,8 @@ def wait_for_stream_contract(timeout_seconds: float | None = None) -> dict[str, 
             )
             return get_status()
         return status
+    if status.get("connection_state") in {"searching", "selection_required", "reconnecting"}:
+        return {**status, "stream_contract_pending": True}
     if status.get("status") not in {"failed", "exited", "stopped"}:
         _set_state(
             {
@@ -752,6 +799,9 @@ def _read_output(process: subprocess.Popen[str], generation: int | None = None) 
         with _state_lock:
             previous_status = _latest_state.get("status")
             previous_message = _latest_state.get("last_message")
+        final_facts = _monitor.snapshot()
+        if _desired_running:
+            _update_state_from_line('DISCONNECTED {"reason":"acquisition_process_exit"}')
 
         reason = _exit_reason(exit_code)
         if not _desired_running and previous_status == "stopped":
@@ -780,6 +830,10 @@ def _read_output(process: subprocess.Popen[str], generation: int | None = None) 
         if detail_key:
             update["status_detail_key"] = detail_key
         _set_state(update, force=True)
+        _publish_diagnostic("PROCESS_EXIT", {"exit_code": exit_code,
+                            "exit_hex": f"0x{exit_code & 0xffffffff:08X}" if exit_code is not None else None,
+                            "requested_running": _desired_running,
+                            "state": final_facts})
         _stream_contract_ready.set()
         _close_log_handle()
         print(f"[BrainBit] External CLI exited with code {exit_code}. {final_message or ''}".rstrip())
@@ -789,6 +843,13 @@ def _exit_reason(exit_code: int | None) -> dict[str, Any] | None:
     """Translate a CLI exit code into an operator-facing reason, or None if clean."""
     if exit_code is None or exit_code == 0:
         return None
+    windows_code = exit_code & 0xffffffff
+    if windows_code == 0xC000013A:
+        return {"detail_key": "brainbit.error.consoleInterrupted", "retry": True,
+                "message": "BrainBit acquisition was interrupted by a Windows console signal (0xC000013A)."}
+    if windows_code == 0xC0000005:
+        return {"detail_key": "brainbit.error.nativeAccessViolation", "retry": True,
+                "message": "BrainBit acquisition ended with a native access violation (0xC0000005)."}
     return _EXIT_REASONS.get(exit_code, _CRASH_REASON)
 
 
@@ -831,6 +892,9 @@ def _actual_stream_contracts(
     derived_enabled: bool,
 ) -> list[dict[str, Any]]:
     streams = [
+        {"key": "diagnostics", "source_id": LSL_SOURCE_IDS["diagnostics"],
+         "type": "DIAGNOSTICS", "nominal_rate_hz": 0.0, "clock_domain": "lsl",
+         "channel_format": "string", "channels": ["event"], "channel_units": ["json"]},
         {
             "key": "eeg",
             "source_id": LSL_SOURCE_IDS["eeg"],
@@ -1000,12 +1064,14 @@ def _validated_metric_batch(
         raise ValueError("metric timestamps are not strictly increasing")
     latest = dict(zip(fields, values[-1], strict=True))
     latest["ts"] = parsed_timestamps[-1]
+    latest["validity"] = payload.get("validity", "unknown")
     return values, parsed_timestamps, latest
 
 
 def _update_state_from_line(line: str) -> bool:
     global _last_activity_at, _last_any_line_at, _last_sensor_activity_at
     global _last_eeg_at, _last_quality_at, _last_derived_at, _signal_started_at, _connected_at
+    global _lsl_epoch_offset
 
     important = False
     now = time.time()
@@ -1026,6 +1092,33 @@ def _update_state_from_line(line: str) -> bool:
         except json.JSONDecodeError:
             payload = None
         if isinstance(payload, dict):
+            _monitor.observe(tag, payload)
+            if tag in {"SCANNING", "CONNECTING", "WAITING", "STOPPED", "DISCONNECTED"}:
+                _last_eeg_at = _last_quality_at = _last_derived_at = _signal_started_at = _connected_at = 0.0
+                state_update.update({key: None for key in (
+                    "eeg", "eeg_batch", "bands", "mental", "quality", "resist", "battery",
+                    "artifact", "calibration", "contact_quality_as_of", "contact_quality_state",
+                    "last_eeg_epoch", "last_derived_epoch", "last_quality_epoch", "last_sensor_activity_epoch",
+                    "last_raw_lsl_success_epoch", "callback_error", "stream_error", "selection_error",
+                    "derived_error", "connected_epoch", "connected_at", "last_eeg_at", "last_derived_at")})
+                _lsl_stream_health.clear()
+            if tag in {"SCANNING", "DEVICE_SELECTED", "CONNECTING", "CONNECTED", "WAITING"}:
+                state_update.update(status_detail_key=None, status_detail_hint_key=None)
+            if tag == "CONNECTED":
+                state_update.update(retry_attempt=None, next_retry_at=None)
+            if tag == "CLOCK" and callable(_lsl_local_clock):
+                _lsl_epoch_offset = (float(_lsl_local_clock()) - time.monotonic()
+                                     + float(payload["monotonic_anchor"]) - float(payload["epoch_anchor"]))
+            if tag == "SCANNING":
+                state_update.update(status="scanning", scan_candidates=[], next_retry_at=None,
+                                    actual_streams=None, supported_channels=None)
+                _stream_contract_ready.clear()
+            if tag == "DISCONNECTED":
+                state_update.update(status="waiting", next_retry_at=None)
+            if tag == "SELECTION_REQUIRED":
+                state_update.update(status="waiting", next_retry_at=None,
+                                    last_message="Select a BrainBit headset to connect.")
+                _stream_contract_ready.set()
             if tag in _HISTORY_TAGS:
                 _append_history_projection(tag, payload, received_epoch=now, received_at=now_text)
             if tag == "SCAN":
@@ -1198,6 +1291,7 @@ def _update_state_from_line(line: str) -> bool:
                         for row, timestamp in zip(values, timestamps, strict=True):
                             projection = dict(zip(fields, row, strict=True))
                             projection["ts"] = timestamp
+                            projection["validity"] = payload.get("validity", "unknown")
                             _append_history_projection(
                                 base_tag,
                                 projection,
@@ -1218,11 +1312,11 @@ def _update_state_from_line(line: str) -> bool:
                 state_update["sensor_state"] = payload
                 important = True
             elif tag == "CALIB":
-                state_update["calibration"] = payload
+                state_update["calibration"] = _monitor.snapshot()["diagnostic_state"].get("CALIB", payload)
                 if payload.get("event"):
                     state_update["last_message"] = f"Calibration: {payload['event']}"
                     important = True
-                if payload.get("event") == "START" or "progress_percent" in payload:
+                if payload.get("event") in {"START", "RESET"} or "progress_percent" in payload:
                     state_update["status"] = "calibrating"
                 elif payload.get("event") in {"FINISHED", "FORCED_FINISH"}:
                     state_update["status"] = "warming_up"
@@ -1286,7 +1380,8 @@ def _update_state_from_line(line: str) -> bool:
                 )
                 important = True
             elif tag == "EMO_INIT_FAIL":
-                state_update["status"] = "failed"
+                state_update["derived_error"] = payload
+                state_update["bands"] = state_update["mental"] = None
                 state_update["last_message"] = payload.get("error", "EmotionalMath init failed.")
                 important = True
             elif tag == "STREAM":
@@ -1478,6 +1573,22 @@ def _mirror_line_to_lsl(line: str) -> None:
         return
 
     tag, payload = parsed
+    if tag == "CLOCK":
+        payload = {**payload, "lsl_epoch_offset": _lsl_epoch_offset}
+    if tag in _DIAGNOSTIC_TAGS:
+        _publish_diagnostic(tag, payload)
+    if tag in {"BANDS_BATCH", "MENTAL_BATCH"}:
+        _publish_diagnostic("METRIC_VALIDITY", {
+            "stream": tag.split("_")[0].lower(), "start_ts": payload.get("ts"),
+            "end_ts": payload.get("end_ts"), "validity": payload.get("validity", "unknown"),
+            "timestamp_scope": "conservative_output_batch"})
+    if tag == "EEG_BATCH":
+        _publish_diagnostic("EEG_TIMING", {key: payload.get(key) for key in (
+            "ts", "end_ts", "sample_count", "received_epoch", "received_monotonic",
+            "packet_gap_frames_total", "packet_counter_events", "measured_hz",
+            "queue_overflow_dropped_total", "timestamp_source")}
+            | {"lsl_epoch_offset": _lsl_epoch_offset})
+    _publish_diagnostic_snapshot()
 
     if tag == "EEG_BATCH":
         _push_eeg_chunk(payload)
@@ -1652,6 +1763,7 @@ def _payload_timestamp_to_lsl(value: Any) -> float | None:
 
 
 def _epoch_timestamps_to_lsl(values: list[Any]) -> list[float] | None:
+    global _lsl_epoch_offset
     try:
         timestamps = [float(value) for value in values]
     except (TypeError, ValueError):
@@ -1664,8 +1776,32 @@ def _epoch_timestamps_to_lsl(values: list[Any]) -> list[float] | None:
         return timestamps
     if not callable(_lsl_local_clock):
         return None
-    offset = float(_lsl_local_clock()) - time.time()
-    return [timestamp + offset for timestamp in timestamps]
+    if _lsl_epoch_offset is None:
+        _lsl_epoch_offset = float(_lsl_local_clock()) - time.time()
+    return [timestamp + _lsl_epoch_offset for timestamp in timestamps]
+
+
+def _publish_diagnostic(tag: str, payload: dict[str, Any]) -> None:
+    outlet = _lsl_outlets.get("DIAGNOSTICS")
+    if outlet is None:
+        return
+    try:
+        event = {"schema_version": 1, "event": tag,
+                 "connection_id": _monitor.snapshot()["connection_id"], "payload": payload}
+        outlet.push_sample([json.dumps(event, ensure_ascii=True, allow_nan=False)], float(_lsl_local_clock()))
+    except Exception as error:
+        _record_lsl_failure("DIAGNOSTICS", str(error))
+
+
+def _publish_diagnostic_snapshot() -> None:
+    global _last_diagnostic_snapshot
+    now = time.monotonic()
+    if now - _last_diagnostic_snapshot < 1 or "DIAGNOSTICS" not in _lsl_outlets:
+        return
+    _last_diagnostic_snapshot = now
+    state = _monitor.snapshot()
+    state.pop("preview", None)
+    _publish_diagnostic("SNAPSHOT", state)
 
 
 def set_routing(
@@ -1845,7 +1981,7 @@ def _initialize_lsl_outlets() -> None:
             type=stream_suffix,
             channel_count=len(channel_labels),
             nominal_srate=float(nominal_rate_hz),
-            channel_format="float32",
+            channel_format="string" if stream_suffix == "DIAGNOSTICS" else "float32",
             source_id=LSL_SOURCE_IDS[stream_suffix.lower()],
         )
         channels = info.desc().append_child("channels")
@@ -1872,7 +2008,8 @@ def _initialize_lsl_outlets() -> None:
     # Device-dependent outlets are created only after CHANNEL_MAP. Publishing a
     # guessed four-channel EEG outlet would freeze the wrong XDF contract for
     # Pro/Flex devices before discovery has completed.
-    _lsl_outlets = {"BATTERY": create_outlet("BATTERY", ("percent",))}
+    _lsl_outlets = {"BATTERY": create_outlet("BATTERY", ("percent",)),
+                    "DIAGNOSTICS": create_outlet("DIAGNOSTICS", ("event",))}
     print("[BrainBit] Base LSL outlet ready; waiting for the device channel map.")
 
 
@@ -2038,7 +2175,9 @@ def _build_health(latest: dict[str, Any], running: bool, contact_state: str) -> 
         log_state = "failed" if latest.get("log_error") else "stopped"
     else:
         raw_state = "receiving" if _has_recent_eeg(latest) else ("stale" if latest.get("last_eeg_at") else "waiting")
-        if latest.get("derived_enabled") is False:
+        if latest.get("derived_error"):
+            derived_state = "unavailable"
+        elif latest.get("derived_enabled") is False:
             derived_state = "not_applicable"
         else:
             derived_state = "ready" if _has_recent_derived(latest) else (
@@ -2195,12 +2334,14 @@ def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]
             **truncation_info(_history, start_epoch),
         }
 
-    mental_payloads = [sample["payload"] for sample in samples if sample.get("tag") == "MENTAL"]
-    band_payloads = [sample["payload"] for sample in samples if sample.get("tag") == "BANDS"]
+    usable = [sample for sample in samples if sample["payload"].get("validity", "unknown") == "valid"]
+    mental_payloads = [sample["payload"] for sample in usable if sample.get("tag") == "MENTAL"]
+    band_payloads = [sample["payload"] for sample in usable if sample.get("tag") == "BANDS"]
 
     return {
         "available": bool(mental_payloads or band_payloads),
         "sample_count": len(samples),
+        "valid_derived_sample_count": len(mental_payloads) + len(band_payloads),
         "avg_attention": _mean_payload(mental_payloads, "Rel_Attention"),
         "avg_relaxation": _mean_payload(mental_payloads, "Rel_Relaxation"),
         "avg_alpha": _mean_payload(band_payloads, "alpha"),
@@ -2331,6 +2472,9 @@ def _maybe_restart_after_exit(now_value: float) -> bool:
     global _auto_restart_count, _last_auto_restart_at
 
     reason = _exit_reason(_last_exit_code)
+    if reason is None and _last_exit_code == 0 and _desired_running and not _config.get("signal_seconds", 0):
+        reason = {"detail_key": "brainbit.error.unexpectedStop", "retry": True,
+                  "message": "BrainBit acquisition ended while continuous acquisition was requested."}
     if reason is None:
         return False  # clean exit: signal-seconds elapsed or stopped on purpose
     if not reason.get("retry") or not _config.get("auto_restart", True):
@@ -2434,5 +2578,3 @@ def _maybe_auto_restart(age: float, stale_timeout: float, now_value: float) -> N
             {"status": "failed", "last_message": f"Automatic BrainBit restart failed: {error}"},
             force=True,
         )
-
-

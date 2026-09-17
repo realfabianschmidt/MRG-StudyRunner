@@ -1,0 +1,62 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>BrainBit dashboard fixture</title>
+<link rel="stylesheet" href="/software/study_runner/apps/ui/styles/main.css">
+<link rel="stylesheet" href="/software/study_runner/apps/ui/styles/admin.css">
+<style>body { display: block; min-height: 0; } #test-result { white-space: pre-wrap; padding: 24px; }</style>
+<body><button id="btn-admin-dashboard">Dashboard</button><button id="btn-admin-edit-view">Editor</button>
+<main id="admin-dashboard" style="padding:24px;max-width:1100px;margin:auto"><div id="dashboard-sensor-tiles" class="dashboard-grid"></div></main>
+<pre id="test-result">RUNNING</pre>
+<script type="module">
+import { configurePluginCatalog, loadPluginUiExtensions } from '../../study_runner/apps/ui/scripts/shared/plugin-catalog.js';
+import { initializeAdminDashboard, renderSensorTiles } from '../../study_runner/apps/ui/scripts/admin/admin-dashboard-controller.js';
+const assert = (value, message) => { if (!value) throw new Error(message); };
+try {
+  const raw = await (await fetch('/software/study_runner/plugins/sensors/brainbit/manifest.json')).json();
+  const manifest = {...raw, status:'valid', capabilities:Object.keys(raw.capabilities), capability_config:raw.capabilities};
+  configurePluginCatalog({api_version:5, plugins:[manifest]});
+  await loadPluginUiExtensions('dashboard');
+  const now = Date.now() / 1000;
+  const points = Array.from({length:60}, (_,i) => ({at:now-59+i,received_at:now-59+i,connection_id:'fixture',
+    validity:i>20 && i<27 ? 'uncertain':'valid', values:{alpha:.5+Math.sin(i/8)*.15,beta:.2,theta:.15,delta:.1,gamma:.05,
+    Inst_Attention:.5+Math.sin(i/7)*.2,Inst_Relaxation:.4,Rel_Attention:.6,Rel_Relaxation:.3}}));
+  const state = {plugins:{brainbit:{status:'connected',connection_state:'connected',connection_id:'fixture',
+    configured_enabled:true, runtime_enabled:true, health:{raw_eeg:'receiving'}, preview:{bands:points,mental:points},
+    scan_candidates:[{name:'BrainBit',serial:'LAB-A',address:'AA'},{name:'BrainBit',serial:'LAB-B',address:'BB'}],
+    latest:{battery:{percent:80},status_detail_key:'stale.reconnecting',last_message:'Reconnecting to BrainBit'}}}};
+  const originalFetch = window.fetch;
+  let posts = 0;
+  window.fetch = async (url, options={}) => {
+    if (String(url).includes('/actions/')) {
+      posts++;
+      assert(JSON.parse(options.body).serial_number === 'LAB-B', 'wrong selected identity');
+      await new Promise(resolve => setTimeout(resolve, 50));
+      return new Response(JSON.stringify({ok:true,result:{saved:true}}), {headers:{'Content-Type':'application/json'}});
+    }
+    if (url === '/api/admin/status') return new Response(JSON.stringify(state));
+    if (url === '/api/runtime-info') return new Response('{}');
+    return originalFetch(url, options);
+  };
+  initializeAdminDashboard();
+  const target = document.querySelector('#dashboard-sensor-tiles');
+  renderSensorTiles(target, state);
+  const select = target.querySelector('select');
+  assert(select, 'missing device dropdown');
+  select.value = select.options[2].value;
+  select.focus();
+  for (let i=0;i<10;i++) renderSensorTiles(target, state);
+  assert(document.activeElement === select, 'polling lost keyboard focus');
+  assert(target.querySelector('select') === select, 'polling replaced the native dropdown');
+  assert(JSON.parse(select.value).serial_number === 'LAB-B', 'polling lost selection');
+  const button = target.querySelector('[data-plugin-admin-action="select_device"]');
+  button.click(); button.click();
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert(posts === 1, `one confirmation sent ${posts} actions`);
+  assert(target.querySelectorAll('svg').length === 2, 'missing trend graphs');
+  assert(!target.textContent.includes('Reconnecting to BrainBit'), 'obsolete message still visible');
+  assert(document.documentElement.scrollWidth <= window.innerWidth, 'horizontal overflow');
+  document.querySelector('#test-result').textContent = 'PASS: dropdown identity, focus, single action, graphs, current message, layout';
+  document.body.dataset.testStatus = 'passed';
+} catch(error) {
+  document.querySelector('#test-result').textContent = error.stack;
+  document.body.dataset.testStatus = 'failed';
+}
+</script></body></html>

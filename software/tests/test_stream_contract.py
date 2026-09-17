@@ -100,7 +100,7 @@ class LoadOwnStreamContractsTests(unittest.TestCase):
         contracts = load_own_stream_contracts(adapter_file)
         self.assertEqual(
             set(contracts),
-            {"eeg", "bands", "mental", "quality", "battery"},
+            {"eeg", "bands", "mental", "quality", "battery", "diagnostics"},
         )
         self.assertEqual(contracts["eeg"]["timing"]["capture_delay_ns"]["source"], "unknown")
 

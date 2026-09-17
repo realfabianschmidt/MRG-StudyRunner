@@ -117,38 +117,24 @@ def _plugin_context(
     # LocalProxy now so the callback never depends on thread-local Flask state.
     app = current_app._get_current_object()
     selected_config = hardware_config
-    persist_hardware_config = None
-    runtime_locked = False
     if machine_admin:
-        selected_config = json.loads(
-            json.dumps(app.config.get("HARDWARE_CONFIG", {}))
-        )
-        baseline_config = json.loads(json.dumps(selected_config))
-        runtime_locked = isinstance(
-            app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"),
-            dict,
-        )
+        selected_config = app.config.get("HARDWARE_CONFIG", {})
+    if selected_config is None:
+        selected_config = _runtime_hardware_config()
+    selected_config = json.loads(json.dumps(selected_config))
+    baseline_config = json.loads(json.dumps(selected_config))
+    runtime_locked = isinstance(app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"), dict)
 
-        def persist_hardware_config(updated_config: dict) -> None:
-            safe_config = json.loads(json.dumps(updated_config))
-            config_path = app.config["HARDWARE_CONFIG_FILE"]
-            # Apply only leaves changed by this plugin to the latest on-disk
-            # document. Replacing the child's complete, potentially stale
-            # context would silently erase a concurrent admin save.
-            def apply_plugin_delta(current_config: dict) -> None:
-                _apply_config_delta_checked(
-                    current_config,
-                    baseline_config,
-                    safe_config,
-                )
+    def persist_hardware_config(updated_config: dict) -> None:
+        safe_config = json.loads(json.dumps(updated_config))
+        # Apply only changed leaves, including automatic device identity updates.
+        def apply_plugin_delta(current_config: dict) -> None:
+            _apply_config_delta_checked(current_config, baseline_config, safe_config)
 
-            with app.app_context():
-                persisted, _, _ = update_hardware_config(
-                    config_path,
-                    apply_plugin_delta,
-                )
-                app.config["HARDWARE_CONFIG"] = persisted
-                _refresh_trial_runtime()
+        with app.app_context():
+            persisted, _, _ = update_hardware_config(app.config["HARDWARE_CONFIG_FILE"], apply_plugin_delta)
+            app.config["HARDWARE_CONFIG"] = persisted
+            _refresh_trial_runtime()
 
     return build_context(
         base_dir=app.config["BASE_DIR"],

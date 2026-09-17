@@ -999,7 +999,7 @@ def _normalize_admin_action_instances(
         raise PluginManifestError(
             f"admin_actions.actions[{index}].instances must be a JSON object"
         )
-    extra = sorted(set(value) - {"status_paths", "payload_map", "label_fields"})
+    extra = sorted(set(value) - {"status_paths", "payload_map", "label_fields", "presentation"})
     if extra:
         raise PluginManifestError(
             f"admin_actions.actions[{index}].instances contains unsupported fields: "
@@ -1031,7 +1031,11 @@ def _normalize_admin_action_instances(
         f"admin_actions.actions[{index}].instances.label_fields",
         allow_empty=True,
     )
+    presentation = value.get("presentation", "buttons")
+    if presentation not in {"buttons", "select"}:
+        raise PluginManifestError("admin action instances.presentation must be buttons or select")
     return {
+        **({"presentation": presentation} if "presentation" in value else {}),
         "status_paths": status_paths,
         "payload_map": payload_map,
         "label_fields": label_fields,

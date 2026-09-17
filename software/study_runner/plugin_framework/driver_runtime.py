@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import redirect_stdout
 import importlib
 import json
 from pathlib import Path
@@ -17,9 +18,22 @@ from .process_host import PROTOCOL_PREFIX
 
 
 _OUTPUT_LOCK = threading.Lock()
+_PROTOCOL_OUTPUT = None
 
 
 def run_plugin_driver(plugin_key: str) -> int:
+    """Keep plugin/thread prints off the machine protocol's stdout pipe."""
+    global _PROTOCOL_OUTPUT
+    previous = _PROTOCOL_OUTPUT
+    _PROTOCOL_OUTPUT = sys.stdout
+    try:
+        with redirect_stdout(sys.stderr):
+            return _serve_plugin_driver(plugin_key)
+    finally:
+        _PROTOCOL_OUTPUT = previous
+
+
+def _serve_plugin_driver(plugin_key: str) -> int:
     """Load a plugin helper inside the child and serve stdin until shutdown."""
 
     normalized = str(plugin_key or "").strip()
@@ -76,6 +90,8 @@ def run_plugin_driver(plugin_key: str) -> int:
                 continue
             request_id = str(request.get("id") or "")
             operation = str(request.get("operation") or "")
+            if operation in {"initialize", "start", "stop", "restart", "admin_action", "shutdown"}:
+                _emit_diagnostic(f"Control request {request_id}: {operation}", level="info")
             payload = request.get("payload")
             payload = payload if isinstance(payload, dict) else {}
             try:
@@ -287,7 +303,7 @@ def _context_from_payload(value: Any) -> PluginContext:
         local_secrets=_dict(value.get("local_secrets")),
         local_secrets_file=Path(str(value.get("local_secrets_file") or ".")).resolve(),
         runtime_locked=bool(value.get("runtime_locked", False)),
-        persist_hardware_config=persist,
+        persist_hardware_config=persist if value.get("can_persist_hardware_config", True) else None,
         secret_resolver=resolve_plugin_secret,
     )
 
@@ -320,7 +336,9 @@ def _emit_diagnostic(message: str, *, level: str) -> None:
 def _emit(payload: Mapping[str, Any]) -> None:
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
     with _OUTPUT_LOCK:
-        print(PROTOCOL_PREFIX + encoded, flush=True)
+        stream = _PROTOCOL_OUTPUT if _PROTOCOL_OUTPUT is not None else sys.stdout
+        stream.write(PROTOCOL_PREFIX + encoded + "\n")
+        stream.flush()
 
 
 def main(argv: list[str] | None = None) -> int:

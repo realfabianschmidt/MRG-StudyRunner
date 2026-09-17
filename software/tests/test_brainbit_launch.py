@@ -168,9 +168,15 @@ class RestartAfterExitTests(unittest.TestCase):
 
     def test_clean_exit_stops_the_watchdog(self) -> None:
         adapter._last_exit_code = 0
+        adapter._config["signal_seconds"] = 30
 
         self.assertFalse(adapter._maybe_restart_after_exit(now_value=500.0))
         self.assertEqual(self.starts, [])
+
+    def test_unexpected_clean_exit_recovers_continuous_acquisition(self) -> None:
+        adapter._last_exit_code = 0
+        self.assertTrue(adapter._maybe_restart_after_exit(now_value=500.0))
+        self.assertEqual(self.starts, [True])
 
     def test_exhausted_attempts_report_a_final_state(self) -> None:
         adapter._last_exit_code = brainbit_realtime_cli.EXIT_NO_DEVICE_FOUND

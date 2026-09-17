@@ -77,7 +77,7 @@
       "actions": [
         {
           "key": "select_device",
-          "label": "Use this band",
+          "label": "Connect",
           "description": "Persist this discovered BrainBit band and restart its adapter.",
           "payload_schema": {
             "index": {"type": "integer", "minimum": 0},
@@ -85,8 +85,9 @@
             "address": {"type": "string", "max_length": 256},
             "serial_number": {"type": "string", "max_length": 256}
           },
-          "any_of_required": ["index", "name", "address", "serial_number"],
+          "any_of_required": ["address", "serial_number"],
           "instances": {
+            "presentation": "select",
             "status_paths": ["scan_candidates", "latest.scan_candidates"],
             "payload_map": {
               "index": "index",
@@ -96,11 +97,18 @@
             },
             "label_fields": ["name", "serial", "serial_number", "address"]
           }
-        }
+        },
+        {"key": "scan_devices", "label": "Search again", "description": "Disconnect and search for BrainBit headsets.", "confirm": true},
+        {"key": "check_contact", "label": "Check electrode contact", "description": "Restart acquisition to measure contact before EEG resumes.", "confirm": true}
       ]
     }
   },
   "streams": [
+    {
+      "key": "diagnostics", "source_id": "study_runner.brainbit.diagnostics", "type": "DIAGNOSTICS",
+      "nominal_rate_hz": 0, "clock_domain": "lsl", "channel_format": "string",
+      "channels": ["event"], "channel_units": ["json"]
+    },
     {
       "key": "eeg", "source_id": "study_runner.brainbit.eeg", "type": "EEG",
       "nominal_rate_hz": 250, "clock_domain": "lsl", "channel_format": "float32",

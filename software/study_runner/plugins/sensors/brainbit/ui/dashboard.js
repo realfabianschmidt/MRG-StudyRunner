@@ -1,4 +1,39 @@
 /** Optional trusted dashboard renderer for the BrainBit plugin. */
+function connectionLabel(plugin, ui) {
+  const state = plugin.connection_state || 'unknown';
+  return ui.t(`brainbit.connection.${state}`, state.replaceAll('_', ' '));
+}
+
+export function renderTrend(kind, plugin, ui, now = Date.now() / 1000) {
+  const names = kind === 'bands' ? ['delta', 'theta', 'alpha', 'beta', 'gamma']
+    : ['Inst_Attention', 'Inst_Relaxation', 'Rel_Attention', 'Rel_Relaxation'];
+  const colors = ['#2166ac', '#b2182b', '#008060', '#7950a3', '#936000'];
+  const points = (plugin.preview?.[kind] || []).filter((p) => p.connection_id === plugin.connection_id);
+  const last = points.at(-1);
+  const end = last ? last.at + Math.max(0, now - last.received_at) : now;
+  const title = ui.t(`brainbit.monitor.${kind}`, kind === 'bands' ? 'Band power' : 'SDK attention / relaxation indices');
+  const paths = names.map((name, index) => {
+    let d = '', previous = null;
+    for (const point of points) {
+      const value = point.values?.[name];
+      if (point.at < end - 60 || point.validity !== 'valid' || !Number.isFinite(value)) { previous = null; continue; }
+      const x = 32 + (point.at - (end - 60)) / 60 * 306;
+      const y = 110 - Math.max(0, Math.min(1, value)) * 92;
+      d += `${previous !== null && point.at - previous < 1.6 ? 'L' : 'M'}${x.toFixed(2)},${y.toFixed(2)} `;
+      previous = point.at;
+    }
+    return `<path d="${d}" fill="none" stroke="${colors[index]}" stroke-width="2" stroke-dasharray="${index % 2 ? '5 2' : 'none'}" />`;
+  }).join('');
+  const legend = names.map((name, index) => `<span style="color:${colors[index]}">${ui.escapeHtml(ui.t(`brainbit.channel.${name}`, name))}</span>`).join(' · ');
+  return `<section aria-label="${ui.escapeHtml(title)}"><strong>${ui.escapeHtml(title)}</strong>
+    <svg viewBox="0 0 360 140" width="100%" role="img" aria-label="${ui.escapeHtml(title)}">
+      <path d="M32 18V110H338" fill="none" stroke="currentColor" opacity=".4" />
+      <g fill="currentColor" font-size="10"><text x="2" y="22">100%</text><text x="12" y="114">0%</text>
+      <text x="32" y="130">−60 s</text><text x="318" y="130">0 s</text></g>${paths}</svg>
+    <small>${legend}<br>${ui.escapeHtml(ui.t('brainbit.monitor.previewNote', '60-second preview, at most 1 Hz. Gaps indicate unavailable or uncertain values.'))}
+    ${last ? ` · ${ui.escapeHtml(ui.t('brainbit.monitor.age', 'Age'))}: ${Math.max(0, now - last.received_at).toFixed(0)} s` : ''}</small></section>`;
+}
+
 export function renderDashboard({ plugin: brainbit }, ui) {
   const latest = brainbit.latest || {};
   const battery = latest.battery || {};
@@ -16,16 +51,20 @@ export function renderDashboard({ plugin: brainbit }, ui) {
 
   return `
     <div class="status-row">
-      <span class="status-pill status-pill--${ui.escapeHtml(brainbit.status || 'unknown')}">${ui.escapeHtml(ui.statusLabel(brainbit.status))}</span>
+      <span class="status-pill status-pill--${ui.escapeHtml(brainbit.status || 'unknown')}">${ui.escapeHtml(connectionLabel(brainbit, ui))}</span>
       <strong>${ui.formatEnabled(brainbit.configured_enabled ?? brainbit.enabled)}</strong>
     </div>
+    <p role="status">${formatMessage(brainbit, latest, ui)}</p>
+    ${renderTrend('bands', brainbit, ui)}
+    ${renderTrend('mental', brainbit, ui)}
+    <details><summary>${ui.escapeHtml(ui.t('brainbit.monitor.details', 'Acquisition details'))}</summary>
     <dl class="status-list">
       <dt>${ui.fieldLabel('scanWindow', 'Scan window')}</dt><dd>${ui.formatValue(brainbit.scan_timeout_seconds, ' s')} (${ui.escapeHtml(brainbit.scan_mode || 'one-shot')})</dd>
       <dt>${ui.fieldLabel('lastScan', 'Last scan')}</dt><dd>${ui.escapeHtml(brainbit.last_scan_started_at || '-')}</dd>
       ${renderRetryRow(brainbit, ui)}
       <dt>${ui.fieldLabel('band', 'Band')}</dt><dd>${renderBand(brainbit, ui)}</dd>
       <dt>${ui.fieldLabel('channels', 'Channels')}</dt><dd>${channels.length ? ui.escapeHtml(channels.join(', ')) : '-'}</dd>
-      <dt>${ui.fieldLabel('battery', 'Battery')}</dt><dd>${ui.formatValue(battery.percent, '%')}</dd>
+      <dt>${ui.fieldLabel('battery', 'Battery')}</dt><dd>${ui.formatValue(battery.percent, '%')} ${brainbit.battery_stale ? ui.escapeHtml(ui.t('brainbit.monitor.outdated', 'outdated / unknown')) : ''}</dd>
       <dt>${ui.fieldLabel('rawEeg', 'Latest raw EEG')}</dt><dd>${formatExactChannels(eeg, channels, ui, latest.eeg_batch?.units || '')}</dd>
       <dt>${ui.fieldLabel('resistance', 'Resistance')}</dt><dd>${formatExactChannels(resistance, channels, ui, resistance.units || 'Ohm')}</dd>
       <dt>${ui.fieldLabel('quality', 'Quality')}</dt><dd>${formatQuality(quality, channels, contactState, brainbit.contact_quality_as_of || latest.contact_quality_as_of, ui)}</dd>
@@ -39,8 +78,11 @@ export function renderDashboard({ plugin: brainbit }, ui) {
       <dt>${ui.fieldLabel('touchdesigner', 'TouchDesigner')}</dt><dd>${ui.formatEnabled(brainbit.touchdesigner_forwarding_enabled)}</dd>
       <dt>${ui.fieldLabel('lastActive', 'Last active')}</dt><dd>${ui.formatTimestampAge(latest.last_activity_at || brainbit.last_activity_at, brainbit.seconds_since_last_activity)}</dd>
       <dt>${ui.fieldLabel('diagnostics', 'Diagnostics')}</dt><dd>${formatDiagnostics(brainbit, latest, ui)}</dd>
-      <dt>${ui.fieldLabel('message', 'Message')}</dt><dd>${formatMessage(brainbit, latest, ui)}</dd>
+      <dt>${ui.escapeHtml(ui.t('brainbit.monitor.lastEvent', 'Last connection event'))}</dt><dd>${ui.escapeHtml(brainbit.last_event?.tag || '-')} ${brainbit.last_event?.at ? ui.escapeHtml(new Date(brainbit.last_event.at * 1000).toLocaleString()) : ''}</dd>
+      <dt>${ui.escapeHtml(ui.t('brainbit.monitor.artifacts', 'Live artifacts'))}</dt><dd>${ui.escapeHtml(ui.t(`brainbit.monitor.${latest.artifact?.both_now || latest.artifact?.sequence ? 'detected' : latest.artifact ? 'notDetected' : 'unknown'}`, 'unknown'))}</dd>
+      <dt>${ui.escapeHtml(ui.t('brainbit.monitor.artifactFraction', 'Artifact time since connection'))}</dt><dd>${ui.formatValue(Number.isFinite(brainbit.artifact_fraction) ? brainbit.artifact_fraction * 100 : null, '%')}</dd>
     </dl>
+    </details>
     ${ui.renderRuntimeButtons(brainbit)}
   `;
 }
@@ -61,6 +103,23 @@ function renderRetryRow(brainbit, ui) {
 }
 
 function formatMessage(brainbit, latest, ui) {
+  if (brainbit.connection_state) {
+    const parts = [connectionLabel(brainbit, ui)];
+    if (brainbit.connection_state === 'connected') {
+      const receiving = ['live', 'receiving'].includes(brainbit.health?.raw_eeg);
+      parts.push(ui.t(`brainbit.monitor.${receiving ? 'eegReceiving' : 'checkEeg'}`, receiving ? 'EEG is arriving' : 'EEG not currently arriving'));
+      if (brainbit.low_battery) parts.push(ui.t('brainbit.monitor.lowBattery', 'low battery'));
+      if (brainbit.contact_quality_state === 'poor') parts.push(ui.t('brainbit.monitor.poorContact', 'poor contact at last measurement'));
+      if (latest.artifact?.both_now || latest.artifact?.sequence) parts.push(ui.t('brainbit.monitor.artifacts', 'Live artifacts'));
+      if (latest.derived_error) parts.push(ui.t('brainbit.monitor.derivedUnavailable', 'Derived metrics unavailable; raw EEG is independent'));
+      if (['START', 'RESET', 'PROGRESS', 'STALLED'].includes(latest.calibration?.event)) {
+        parts.push(ui.t('brainbit.monitor.calibrating', 'Derived metrics are calibrating'));
+      }
+    } else if (brainbit.connection_state === 'failed' && latest.last_message) {
+      parts.push(ui.t(latest.status_detail_key || '', latest.last_message));
+    }
+    return parts.map((part) => ui.escapeHtml(part)).join(' · ');
+  }
   const fallback = latest.last_message || brainbit.last_message || '-';
   const detailKey = latest.status_detail_key || brainbit.status_detail_key;
   const hintKey = latest.status_detail_hint_key || brainbit.status_detail_hint_key;
@@ -79,7 +138,7 @@ function formatQuality(quality, channelNames, contactState, measuredAt, ui) {
   // long session reads as if it were live.
   const measured = measuredAt ? ` · ${ui.escapeHtml(ui.t('dashboard.measuredAt', 'measured'))} ${ui.escapeHtml(measuredAt)}` : '';
   if (channels === '-') return contact === '-' ? '-' : `${contact}${measured}`;
-  return `${channels}<br><span class="status-muted">${ui.escapeHtml(ui.t('dashboard.contactPrefix', 'contact'))}: ${contact}${measured}</span>`;
+  return `${channels}<br><span class="status-muted">${ui.escapeHtml(ui.t('brainbit.monitor.contactDiagnostic', 'Diagnostic conversion, not a validated quality percentage'))}<br>${ui.escapeHtml(ui.t('dashboard.contactPrefix', 'contact'))}: ${contact}${measured}</span>`;
 }
 
 function channelLabels(brainbit, latest) {
@@ -178,7 +237,7 @@ function renderBand(brainbit, ui) {
   const selected = brainbit.selected_device || latest.selected_device || latest.device || {};
   return [
     `<div>${ui.escapeHtml(ui.t('dashboard.brainbitBandTarget', 'Target'))}: ${formatDevice(target, ui) || ui.escapeHtml(ui.t('dashboard.noBandTarget', 'no target set'))}</div>`,
-    `<div>${ui.escapeHtml(ui.t('dashboard.brainbitBandSelected', 'Connected'))}: ${formatDevice(selected, ui) || '-'}</div>`,
+    `<div>${ui.escapeHtml(ui.t('brainbit.monitor.selected', 'Selected device'))}: ${formatDevice(selected, ui) || '-'}</div>`,
   ].join('');
 }
 

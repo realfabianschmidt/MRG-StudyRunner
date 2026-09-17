@@ -954,6 +954,7 @@ def _serialize_context(context: PluginContext) -> dict[str, Any]:
         "local_secrets": deepcopy(context.local_secrets),
         "local_secrets_file": str(context.local_secrets_file),
         "runtime_locked": bool(context.runtime_locked),
+        "can_persist_hardware_config": context.persist_hardware_config is not None,
     }
 
 

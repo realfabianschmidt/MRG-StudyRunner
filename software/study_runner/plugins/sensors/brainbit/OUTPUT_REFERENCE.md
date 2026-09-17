@@ -131,7 +131,7 @@ to the stable output names above.
 
 Derived arrays are emitted and forwarded to LSL as timestamped batches. This
 retains a 25 Hz backlog without performing one flushed terminal write per
-result inside the native SDK callback. The dashboard keeps only the latest row;
+result inside the native SDK callback. The dashboard keeps a bounded 60-second, 1-Hz preview;
 the full-rate rows remain in LSL/XDF and the sidecar is an explicit 1 Hz backup.
 
 EmotionalMath has no force-finish function. A stalled calibration is reported
@@ -146,14 +146,8 @@ calibration actually finished.
 
 ## Failures
 
-Before any device scan or connection begins, the CLI checks that the pinned
-`pyem-st-artifacts` wheel actually exposes `EmotionalMath.push_bipolars`.
-Exit code 2 either way, but this check fails at startup rather than only on
-the first EEG batch of an already-running session:
-
-```text
-SETUP_FAIL {"missing_api":"EmotionalMath.push_bipolars","message":"Pinned pyem-st-artifacts wheel does not expose EmotionalMath.push_bipolars; refusing to start."}
-```
+Optional analytics setup or processing errors emit `EMO_INIT_FAIL` with
+`raw_stream_continues: true`. They do not stop valid raw EEG acquisition.
 
 Callback exceptions cannot propagate out of NeuroSDK's ctypes callback. The
 CLI catches them, reports exactly one structured failure, stops the stream, and
@@ -182,3 +176,32 @@ Codes 5 to 9 end one session and are retried. Only 2 and 103 end the process.
 The adapter health model reports log output, raw EEG, derived metrics, data
 integrity, contact, and successful LSL publication separately. Battery lines,
 warnings, outlet existence, and tracebacks do not count as fresh recorded EEG.
+
+## Connection-scoped diagnostics
+
+`SCANNING`, `SELECTION_REQUIRED`, `CONNECTING`, `CONNECTED`, `DISCONNECTED` and
+`WAITING` describe transport lifecycle separately from calibration/contact.
+`CLOCK` provides an epoch/monotonic anchor; EEG batches also carry the observed
+`received_epoch` and `received_monotonic`, separately from reconstructed sample
+timestamps. The latter retain nominal packet spacing and observable gaps.
+
+Derived batches carry `validity` (`valid`, `uncertain`, or `unknown` for older
+producers). Analytics drains each input frame's output before advancing, so an
+artifact flag cannot label a whole callback backlog as clean. An unexpected
+multi-output backlog is conservatively uncertain. The nominal 25-Hz streams
+retain all returned SDK values; uncertain/held values are marked in the companion
+diagnostics and excluded from sidecar averages and valid graph segments.
+
+The `diagnostics` LSL stream carries one JSON string per sample, with
+`schema_version`, `event`, `connection_id` and `payload`. Events include raw
+resistances, calibration/artifact transitions, `METRIC_VALIDITY` with source-time
+bounds, `EEG_TIMING`, `PROCESS_EXIT`, `ACQUISITION_END` and `INITIALIZE_REUSED`.
+`SNAPSHOT` repeats the current measurement/provenance state at most once per
+second during status/acquisition updates, so recorders joining later can obtain
+the pre-recording calibration and contact measurement. Diagnostic timestamps are
+observations in the LSL clock domain; embedded source-time bounds identify the
+metric interval. `CLOCK` allows conversion of those source epoch values to LSL.
+
+On Windows, `3221225786` / `0xC000013A` identifies a console interruption;
+`3221225477` / `0xC0000005` identifies a native access violation. Both are
+distinct from successful acquisition or a physiological quality judgement.

@@ -18,6 +18,7 @@ const POLL_INTERVAL_MS = 2000;
 
 let pollTimer = null;
 let callbacks = {};
+const pendingPluginActions = new Set();
 
 export function initializeAdminDashboard(options = {}) {
   callbacks = options;
@@ -98,14 +99,20 @@ async function runPluginAdminAction(button, elements, showToast) {
   const declared = (pluginByKey(pluginKey)?.capability_config?.admin_actions?.actions || [])
     .find((candidate) => candidate.key === actionKey);
   if (!declared) return;
-  if (declared.confirm && !window.confirm(declared.description || declared.label || actionKey)) return;
+  const pendingKey = `${pluginKey}:${actionKey}`;
+  if (pendingPluginActions.has(pendingKey)) return;
+  if (declared.confirm && !window.confirm(t(`plugins.${pluginKey}.actions.${actionKey}.confirm`, declared.description || declared.label || actionKey))) return;
 
   button.disabled = true;
+  pendingPluginActions.add(pendingKey);
   try {
     let payload = {};
-    if (button.dataset.pluginAdminPayload) {
+    const selector = button.closest('[data-plugin-action-select]')?.querySelector('select');
+    const encodedPayload = selector ? selector.value : button.dataset.pluginAdminPayload;
+    if (selector && !encodedPayload) return;
+    if (encodedPayload) {
       try {
-        payload = JSON.parse(button.dataset.pluginAdminPayload);
+        payload = JSON.parse(encodedPayload);
       } catch {
         throw new Error(t('dashboard.pluginActionPayloadInvalid', 'Plugin action payload is invalid'));
       }
@@ -124,6 +131,7 @@ async function runPluginAdminAction(button, elements, showToast) {
     console.error('[admin] Plugin action failed:', error);
     showToast?.(error.message || t('dashboard.pluginActionFailed', 'Plugin action failed'), 'error');
   } finally {
+    pendingPluginActions.delete(pendingKey);
     button.disabled = false;
   }
 }
@@ -192,7 +200,7 @@ function renderAdminStatus(elements, status) {
   applyRunScope(status);
 }
 
-function renderSensorTiles(target, status) {
+export function renderSensorTiles(target, status) {
   if (!target) return;
   const plugins = status.plugins || {};
   const items = getPluginCatalog().plugins
@@ -208,15 +216,46 @@ function renderSensorTiles(target, status) {
     return;
   }
 
-  target.innerHTML = items.map((item) => {
+  const keys = new Set(items.map((item) => item.key));
+  target.querySelectorAll('[data-plugin-tile]').forEach((tile) => {
+    if (!keys.has(tile.dataset.pluginTile)) tile.remove();
+  });
+  items.forEach((item) => {
     const detail = renderPluginDashboardDetail(item, status);
     const icon = pluginUiIcon(item.manifest);
-    return `
+    let tile = [...target.querySelectorAll('[data-plugin-tile]')].find((node) => node.dataset.pluginTile === item.key);
+    if (!tile) {
+      target.insertAdjacentHTML('beforeend', `
       <article class="dashboard-card" data-plugin-tile="${escapeHtml(item.key)}">
         <div class="dashboard-card-title"><i class="${escapeHtml(icon)}"></i> <span>${escapeHtml(item.label || item.key)}</span></div>
-        <div class="dashboard-card-body">${detail}${renderPluginAdminActions(item.manifest, item)}${renderPluginConsoleButton(item.manifest)}</div>
-      </article>`;
-  }).join('');
+        <div class="dashboard-card-body"><div data-plugin-detail></div><div data-plugin-actions></div>${renderPluginConsoleButton(item.manifest)}</div>
+      </article>`);
+      tile = target.lastElementChild;
+    }
+    const body = tile.querySelector('[data-plugin-detail]');
+    if (!body.contains(document.activeElement)) {
+      const openDetails = [...body.querySelectorAll('details')].map((node) => node.open);
+      body.innerHTML = detail;
+      body.querySelectorAll('details').forEach((node, index) => { node.open = openDetails[index] || false; });
+    }
+    const actions = tile.querySelector('[data-plugin-actions]');
+    // Keep the real select element while it is focused, including its native popup.
+    if (!actions.contains(document.activeElement)) {
+      const values = new Map([...actions.querySelectorAll('select')].map((node) => [node.id, node.value]));
+      const html = renderPluginAdminActions(item.manifest, item);
+      if (actions._rendered !== html) {
+        actions.innerHTML = html;
+        actions._rendered = html;
+        actions.querySelectorAll('select').forEach((node) => {
+          const value = values.get(node.id);
+          if ([...node.options].some((option) => option.value === value)) node.value = value;
+        });
+      }
+    }
+    actions.querySelectorAll('button, select').forEach((node) => {
+      node.disabled = !!item.runtime_locked || pendingPluginActions.has(`${item.key}:${node.dataset.pluginAdminAction || node.dataset.actionKey}`);
+    });
+  });
 }
 
 function renderPluginDashboardDetail(item, status) {
@@ -270,6 +309,21 @@ function renderManifestActionInstances(action, manifest, pluginStatus) {
   const instances = (instanceConfig.status_paths || [])
     .map((path) => readObjectPath(pluginStatus, path))
     .find((value) => Array.isArray(value)) || [];
+  if (instanceConfig.presentation === 'select') {
+    const id = `plugin-action-${manifest.plugin_key}-${action.key}`;
+    const options = instances.map((instance) => {
+      const payload = {};
+      Object.entries(instanceConfig.payload_map || {}).forEach(([target, source]) => {
+        const value = readObjectPath(instance, source);
+        if (value !== undefined && value !== null && value !== '') payload[target] = value;
+      });
+      const label = [...new Set((instanceConfig.label_fields || []).map((path) => readObjectPath(instance, path)).filter(Boolean))].join(' - ');
+      return `<option value="${escapeHtml(JSON.stringify(payload))}">${escapeHtml(label)}</option>`;
+    });
+    return [`<div data-plugin-action-select><label for="${escapeHtml(id)}">${escapeHtml(t('dashboard.selectDevice', 'Select device'))}</label>
+      <select id="${escapeHtml(id)}" data-action-key="${escapeHtml(action.key)}"><option value="">${escapeHtml(t('dashboard.chooseDevice', 'Choose a device'))}</option>${options.join('')}</select>
+      ${renderManifestActionButton(action, manifest, {}, '')}</div>`];
+  }
   return instances
     .filter((instance) => instance && typeof instance === 'object' && !Array.isArray(instance))
     .map((instance) => {
@@ -287,7 +341,7 @@ function renderManifestActionInstances(action, manifest, pluginStatus) {
 }
 
 function renderManifestActionButton(action, manifest, payload, detail) {
-  const actionLabel = action.label || formatPluginName(action.key);
+  const actionLabel = t(`plugins.${manifest.plugin_key}.actions.${action.key}`, action.label || formatPluginName(action.key));
   const label = detail ? `${actionLabel}: ${detail}` : actionLabel;
   return `
     <button type="button" class="btn-secondary${action.danger ? ' plugin-admin-action--danger' : ''}"

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from flask import Flask, request
 
-from study_runner.plugin_framework.registry import build_context, initialize_plugins
+from study_runner.plugin_framework.registry import initialize_plugins
 from study_runner.data_core.host import clock_diagnostics as recording_clock_diagnostics
 from study_runner.data_core.host import markers as recording_markers
 from .routes import register_routes
@@ -75,14 +75,11 @@ def _hardware_disabled() -> bool:
 
 
 def _plugin_context(app: Flask):
-    return build_context(
-        base_dir=app.config["BASE_DIR"],
-        data_dir=app.config["DATA_DIR"],
-        hardware_config=app.config.get("HARDWARE_CONFIG", {}),
-        local_secrets=app.config.get("LOCAL_SECRETS", {}),
-        local_secrets_file=app.config["LOCAL_SECRETS_FILE"],
-        secret_resolver=resolve_plugin_secret,
-    )
+    from dataclasses import replace
+    from .routes.helpers import _plugin_context as route_plugin_context
+    with app.app_context():
+        return replace(route_plugin_context(app.config.get("HARDWARE_CONFIG", {})),
+                       secret_resolver=resolve_plugin_secret)
 
 
 def create_app() -> Flask:
