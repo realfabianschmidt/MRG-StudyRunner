@@ -29,7 +29,6 @@ export function initializeAdminDashboard(options = {}) {
   }
 
   elements.dashboardButton.addEventListener('click', () => showDashboard(elements));
-  elements.backButton?.addEventListener('click', () => showEditor(elements));
   elements.dashboard.addEventListener('click', (event) => {
     const consoleButton = event.target.closest('[data-plugin-console]');
     if (consoleButton?.dataset.pluginConsole) {
@@ -165,7 +164,6 @@ function getDashboardElements() {
     editView: document.getElementById('admin-edit-view'),
     dashboard: document.getElementById('admin-dashboard'),
     dashboardButton: document.getElementById('btn-admin-dashboard'),
-    backButton: document.getElementById('btn-admin-edit-view'),
     clients: document.getElementById('dashboard-clients'),
     sensorTiles: document.getElementById('dashboard-sensor-tiles'),
     controls: document.getElementById('dashboard-plugin-controls'),
@@ -544,13 +542,9 @@ function renderXdf(target, status) {
       <strong>${escapeHtml(worker.session_id || t('dashboard.noActiveSession', 'No active recording session'))}</strong>
     </div>
     <dl class="status-list">
-      <dt>${fieldLabel('primarySync', 'Primary sync')}</dt><dd>${escapeHtml(status.timestamp_strategy?.primary || 'LSL')}</dd>
-      <dt>${fieldLabel('format', 'Format')}</dt><dd>${escapeHtml(status.timestamp_strategy?.recording_format || '.xdf')}</dd>
       <dt>${fieldLabel('recordingWorker', 'Recording worker')}</dt><dd>${escapeHtml(state)}</dd>
       <dt>${fieldLabel('workerHealthAge', 'Worker health age')}</dt><dd>${escapeHtml(healthAge)}</dd>
       <dt>${fieldLabel('workerHealthFailures', 'Health poll failures')}</dt><dd>${escapeHtml(worker.worker_health_failures ?? 0)}</dd>
-      <dt>${fieldLabel('canonicalXdf', 'Canonical XDF')}</dt><dd>${formatBoolean(infrastructure.canonical_xdf)}</dd>
-      <dt>${fieldLabel('merge', 'Lossless merge')}</dt><dd>${formatBoolean(infrastructure.supports_merge)}</dd>
       <dt>${fieldLabel('message', 'Message')}</dt><dd>${escapeHtml(worker.last_error || infrastructure.reason || '-')}</dd>
     </dl>
     ${issueList}
@@ -560,11 +554,6 @@ function renderXdf(target, status) {
 function showDashboard(elements) {
   elements.editView.hidden = true;
   elements.dashboard.hidden = false;
-}
-
-function showEditor(elements) {
-  elements.dashboard.hidden = true;
-  elements.editView.hidden = false;
 }
 
 function statusLabel(status) {

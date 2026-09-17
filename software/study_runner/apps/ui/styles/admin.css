@@ -943,6 +943,7 @@ body.admin::before { display: none; }
 .admin-dashboard {
   max-width: 1040px;
   margin: 0 auto;
+  padding-top: var(--s-6);
 }
 /* The page title is the page, not a card on it. */
 .dashboard-hero {
@@ -972,6 +973,9 @@ body.admin::before { display: none; }
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--s-4);
+}
+.dashboard-grid + .dashboard-grid {
+  margin-top: var(--s-4);
 }
 .dashboard-card {
   background: var(--bg-elevated);
