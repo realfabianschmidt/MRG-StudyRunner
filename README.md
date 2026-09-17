@@ -138,6 +138,18 @@ local studies, settings, and results are secured; follow
 Developers and operators who want `git pull` updates can use the
 [Git clone alternative](#git-clone-alternative).
 
+Already installed? `tools/start-windows.cmd` / `tools/start-macos.sh` only wrap
+one call each. Once a checkout has its `.venv` (from either installer, or the
+[Git clone alternative](#git-clone-alternative)), start the server directly:
+
+```bash
+cd software && ../.venv/bin/python server.py        # macOS
+```
+
+```powershell
+cd software; ..\.venv\Scripts\python.exe server.py   # Windows
+```
+
 Start here if you are not developing the code:
 
 ```text

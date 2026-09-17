@@ -154,6 +154,68 @@ class RecordingCoreSetupTests(unittest.TestCase):
             self.assertFalse(build_dir.exists())
             self.assertFalse(stage_dir.exists())
 
+    def test_macos_sdk_path_is_resolved_via_xcrun(self) -> None:
+        with mock.patch.object(
+            setup, "_run_command", return_value="/Applications/Xcode.app/.../MacOSX.sdk\n"
+        ) as run_command, mock.patch.object(setup.Path, "is_dir", return_value=True):
+            sdk_path = setup._macos_sdk_path()
+
+        self.assertEqual(sdk_path, "/Applications/Xcode.app/.../MacOSX.sdk")
+        run_command.assert_called_once_with(
+            ["xcrun", "--sdk", "macosx", "--show-sdk-path"], quiet=True
+        )
+
+    def test_macos_sdk_path_fails_fast_when_xcrun_errors(self) -> None:
+        with mock.patch.object(
+            setup, "_run_command", side_effect=setup.SetupError("command failed (1): xcrun")
+        ):
+            with self.assertRaisesRegex(setup.SetupError, "xcode-select --reset"):
+                setup._macos_sdk_path()
+
+    def test_macos_sdk_path_fails_fast_when_the_sdk_directory_is_missing(self) -> None:
+        with mock.patch.object(setup, "_run_command", return_value="/no/such/sdk\n"):
+            with self.assertRaisesRegex(setup.SetupError, "xcode-select --reset"):
+                setup._macos_sdk_path()
+
+    def test_macos_configure_command_includes_the_resolved_sysroot(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            root = Path(temp_dir)
+            build_dir = root / "build"
+            stage_dir = root / "stage"
+            target = setup.supported_target("Darwin", "arm64")
+            commands: list[list[str]] = []
+
+            def fake_run_command(command, *, quiet):
+                command = [str(part) for part in command]
+                commands.append(command)
+                if command[:2] == ["xcrun", "--sdk"]:
+                    return "/fake/sdk\n"
+                if "-S" in command:
+                    return ""  # configure "succeeded"
+                # Stop right after configure -- only that call matters here.
+                raise setup.SetupError("stop here after configure")
+
+            with mock.patch.object(setup, "_run_command", side_effect=fake_run_command), \
+                mock.patch.object(setup.shutil, "which", return_value="/usr/bin/cmake"), \
+                mock.patch.object(
+                    setup, "verify_upstream_sources", return_value={"source_lock_sha256": "x"}
+                ), \
+                mock.patch.object(setup.Path, "is_dir", return_value=True):
+                with self.assertRaisesRegex(setup.SetupError, "stop here after configure"):
+                    setup.build_core(
+                        target=target,
+                        build_dir=build_dir,
+                        stage_dir=stage_dir,
+                        configuration="Release",
+                        skip_tests=True,
+                        require_canonical=False,
+                        quiet=True,
+                    )
+
+            configure_calls = [c for c in commands if c[:1] == ["cmake"] and "-S" in c]
+            self.assertEqual(len(configure_calls), 1)
+            self.assertIn("-DCMAKE_OSX_SYSROOT=/fake/sdk", configure_calls[0])
+
     def test_probe_only_verifies_manifest_hash_and_canonical_features(self) -> None:
         with workspace_temporary_directory() as temp_dir:
             stage = Path(temp_dir) / "stage"

@@ -383,6 +383,34 @@ def _run_command(command: Sequence[str], *, quiet: bool) -> str:
     return result.stdout
 
 
+def _macos_sdk_path() -> str:
+    """Resolve the active macOS SDK sysroot, failing fast with a clear reason.
+
+    CMake's own SDK autodetection trusts whatever ``cc``/``c++`` resolves to by
+    default, which silently breaks on a misconfigured Command Line Tools
+    install (seen as a missing ``<cstdint>`` deep inside an unrelated vendor
+    file, far from the real cause). Resolving and passing the sysroot
+    ourselves turns that into an immediate, actionable error instead.
+    """
+
+    try:
+        raw = _run_command(["xcrun", "--sdk", "macosx", "--show-sdk-path"], quiet=True)
+    except SetupError as error:
+        raise SetupError(
+            "no valid macOS SDK found (xcrun --show-sdk-path failed) -- run "
+            "'sudo xcode-select --reset' or reinstall the Command Line Tools, "
+            "then retry"
+        ) from error
+    sdk_path = raw.strip()
+    if not sdk_path or not Path(sdk_path).is_dir():
+        raise SetupError(
+            "no valid macOS SDK found (xcrun --show-sdk-path returned a "
+            "missing directory) -- run 'sudo xcode-select --reset' or "
+            "reinstall the Command Line Tools, then retry"
+        )
+    return sdk_path
+
+
 def _validate_generated_path(path: Path, *, label: str) -> Path:
     resolved = Path(path).expanduser().resolve()
     if resolved == REPOSITORY_ROOT or resolved == SOFTWARE_ROOT:
@@ -511,6 +539,7 @@ def build_core(
         configure_command.append(
             f"-DCMAKE_OSX_ARCHITECTURES={target['cmake_architecture']}"
         )
+        configure_command.append(f"-DCMAKE_OSX_SYSROOT={_macos_sdk_path()}")
     _run_command(configure_command, quiet=quiet)
     _run_command(
         ["cmake", "--build", str(build_dir), "--config", configuration],
