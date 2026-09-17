@@ -220,7 +220,7 @@ def finalize_recovery_candidate(
         "classification": "legacy_recovery_noncanonical",
         "source": "runtime_memory",
         "canonical": False,
-        "canonical_artifact": "card-summary.json",
+        "canonical_artifact": "answers/card-summary.json",
     }
 
     saved_output = save_results_payload(data_dir, study_id, result_payload, hardware_config, context=context)

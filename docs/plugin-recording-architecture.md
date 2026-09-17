@@ -362,31 +362,20 @@ Any mismatch is a finalization failure, never a warning-only success.
 
 ## Canonical Session Layout
 
-```text
-saved_results/
-  <study>/
-    participants/
-      <participant>/
-        sessions/
-          <YYYYMMDDTHHMMSSZ>__<session-id>/
-            submission.json
-            result.json
-            card-summary.json
-            manifest.json
-            checksums.sha256
-            finalization-state.json
-            logs/finalization.jsonl
-            raw/plugins/<plugin>/part-0001.xdf
-            raw/backup/slowest-grid_<rate>hz.xdf
-            derived/session.xdf
-            COMPLETE.json | ATTENTION_REQUIRED.json
-```
+See [sensors-and-data.md](sensors-and-data.md#canonical-session-data) for the
+current on-disk tree (`answers/`, `meta/`, `raw/`, `derived/`, the top-level
+CSV export and status markers) -- kept in one place so the two docs cannot
+drift apart.
 
 The original participant identifier remains in JSON. Path components are
 bounded and sanitized. UTC start plus immutable session ID prevents collisions.
 Pre-1.0 flat result folders are an archival compatibility surface: they stay
 readable (fixture-pinned in `tests/test_legacy_flat_result_compat.py`) but are
 not part of the canonical session browser, and nothing writes that shape anymore.
+The `answers`/`meta` split (2026-09) is not similarly back-compatible: sessions
+recorded before it keep their old flat shape on disk but are not read by the
+current session browser -- see `test_real_0_7_0_session_compat.py`'s skip
+reason for why that guarantee was deliberately not carried forward.
 
 ## Timer And Event Journal
 

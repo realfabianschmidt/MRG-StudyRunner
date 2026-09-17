@@ -29,12 +29,12 @@ _INDEX_CACHE: dict[str, tuple[tuple[tuple[str, int, int], ...], list[dict[str, A
 _STREAM_CACHE_LOCK = threading.RLock()
 _STREAM_CACHE: tuple[str, int, int, list[dict[str, Any]]] | None = None
 _PUBLIC_CONTROL_FILES = {
-    "submission.json",
-    "result.json",
-    "card-summary.json",
-    "manifest.json",
-    "checksums.sha256",
-    "session-identity.json",
+    "answers/submission.json",
+    "answers/result.json",
+    "answers/card-summary.json",
+    "meta/manifest.json",
+    "meta/checksums.sha256",
+    "meta/session-identity.json",
     "COMPLETE.json",
     "ATTENTION_REQUIRED.json",
 }
@@ -332,7 +332,7 @@ def _session_summary(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     identity = _identity(session_root)
-    manifest = _optional_json(session_root / "manifest.json")
+    manifest = _optional_json(session_root / "meta" / "manifest.json")
     marker = _marker_payload(session_root)
     answers = payload.get("answers")
     answer_details = payload.get("answer_details")
@@ -349,8 +349,8 @@ def _session_summary(
         # Package 5a: one name for "where is this session overall", derived
         # from the per-machine documents rather than stored a second time.
         "lifecycle": derive_session_lifecycle(
-            recording_plan=_optional_json(session_root / "recording-plan.json"),
-            finalization_state=_optional_json(session_root / "finalization-state.json"),
+            recording_plan=_optional_json(session_root / "meta" / "recording-plan.json"),
+            finalization_state=_optional_json(session_root / "meta" / "finalization-state.json"),
             terminal_marker=marker,
             withdrawn=(session_root / WITHDRAWN_MARKER).is_file(),
         ),
@@ -451,7 +451,7 @@ def _stream_descriptor(stream: dict[str, Any]) -> dict[str, Any]:
 
 def _select_result_payload(session_root: Path) -> tuple[Path, dict[str, Any]] | None:
     for name in ("result.json", "submission.json"):
-        path = session_root / name
+        path = session_root / "answers" / name
         if not path.is_file() or not path.resolve().is_relative_to(session_root.resolve()):
             continue
         try:
@@ -521,7 +521,7 @@ def _saved_at(session_root: Path, result_file: Path, payload: dict[str, Any]) ->
 
 
 def _identity(session_root: Path) -> dict[str, Any]:
-    return _optional_json(session_root / "session-identity.json")
+    return _optional_json(session_root / "meta" / "session-identity.json")
 
 
 def _file_metadata(session_root: Path, path: Path) -> dict[str, Any]:

@@ -191,7 +191,7 @@ class SessionJournalStore:
             "source_sha256": combined_digest.hexdigest(),
             "streams": streams,
         }
-        archive_path = Path(session_root) / "logs" / "session-journals.archive.json"
+        archive_path = Path(session_root) / "meta" / "logs" / "session-journals.archive.json"
         encoded = _canonical_json(payload) + b"\n"
 
         with atomic_path_lock(archive_path):

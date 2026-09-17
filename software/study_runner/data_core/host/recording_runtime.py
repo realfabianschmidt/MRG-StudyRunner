@@ -412,7 +412,7 @@ class RecordingRuntimeService:
     ) -> dict[str, Any]:
         identity = _identity_from_session(session)
         candidate_paths = self.artifacts.paths_for(identity)
-        existing_plan = (candidate_paths.root / "recording-plan.json").is_file()
+        existing_plan = (candidate_paths.recording_plan_file).is_file()
         selected = list(selected_recording_plugins(config_data))
         required = list(required_recording_plugins(config_data))
         if not selected and not existing_plan:
@@ -429,7 +429,7 @@ class RecordingRuntimeService:
             raise RecordingRuntimeError(str(lsl_dependencies["reason"]))
 
         paths = self.artifacts.reserve(identity)
-        plan_path = paths.root / "recording-plan.json"
+        plan_path = paths.recording_plan_file
         with self._lock:
             if plan_path.is_file():
                 plan = _read_object(plan_path)
@@ -492,7 +492,7 @@ class RecordingRuntimeService:
             # same freeze point as recording-plan.json itself, never
             # rewritten on a later reattach/recovery of this same session.
             atomic_write_json(
-                paths.root / "stream-contracts.json",
+                paths.stream_contracts_file,
                 stream_contracts_document(
                     recording_contract,
                     session_id=identity.session_id,
@@ -589,7 +589,7 @@ class RecordingRuntimeService:
                             f"{freeze_reason}"
                         ),
                     )
-                    atomic_write_json(paths.root / "recording-plan.json", plan)
+                    atomic_write_json(paths.recording_plan_file, plan)
                     return _public_plan(plan, reused=True)
                 if plan.get("status") == "recording":
                     lease_store = RecordingLeaseStore(paths.recording_lease_file)
@@ -608,7 +608,7 @@ class RecordingRuntimeService:
                         worker_health_failures=0,
                         last_error=None,
                     )
-                    atomic_write_json(paths.root / "recording-plan.json", plan)
+                    atomic_write_json(paths.recording_plan_file, plan)
                     return _public_plan(plan, reused=True)
 
                 # Flask may have died after launching the worker but before all
@@ -645,7 +645,7 @@ class RecordingRuntimeService:
             recovery_started_at_epoch=self._clock(),
             last_error=plan.get("last_reconcile_error") or plan.get("last_error"),
         )
-        atomic_write_json(paths.root / "recording-plan.json", plan)
+        atomic_write_json(paths.recording_plan_file, plan)
         try:
             self._start_worker_generation(
                 paths,
@@ -659,7 +659,7 @@ class RecordingRuntimeService:
                 last_error=str(error),
                 failed_at_epoch=self._clock(),
             )
-            atomic_write_json(paths.root / "recording-plan.json", plan)
+            atomic_write_json(paths.recording_plan_file, plan)
             raise RecordingRuntimeError(
                 f"recording worker recovery failed: {error}"
             ) from error
@@ -855,7 +855,7 @@ class RecordingRuntimeService:
             "relative_path": str(segments[0]["relative_path"]),
             "segments": segments,
         }
-        atomic_write_json(paths.root / "recording-plan.json", plan)
+        atomic_write_json(paths.recording_plan_file, plan)
         response = client.send(
             "start_backup_projection",
             {
@@ -909,7 +909,7 @@ class RecordingRuntimeService:
             optional_source_warnings=optional_source_warnings,
             last_error=None,
         )
-        atomic_write_json(paths.root / "recording-plan.json", plan)
+        atomic_write_json(paths.recording_plan_file, plan)
 
     def refresh_lease(self, session_id: str) -> dict[str, Any] | None:
         paths = self.find_paths(session_id)
@@ -959,7 +959,7 @@ class RecordingRuntimeService:
                     last_worker_health_error=str(error),
                     last_worker_health_failure_at_epoch=self._clock(),
                 )
-                atomic_write_json(paths.root / "recording-plan.json", plan)
+                atomic_write_json(paths.recording_plan_file, plan)
                 if failures < 3:
                     return {
                         **lease.as_dict(),
@@ -985,7 +985,7 @@ class RecordingRuntimeService:
                 recording_worker_health=dict(health_response.result),
                 recording_worker_health_at_epoch=self._clock(),
             )
-            atomic_write_json(paths.root / "recording-plan.json", plan)
+            atomic_write_json(paths.recording_plan_file, plan)
             return {**lease.as_dict(), "worker_health": dict(health_response.result)}
 
     def current_status(self) -> dict[str, Any] | None:
@@ -994,7 +994,7 @@ class RecordingRuntimeService:
         with self._lock:
             for session_id, root in reversed(tuple(self._active_paths.items())):
                 try:
-                    plan = _read_object(Path(root) / "recording-plan.json")
+                    plan = _read_object(Path(root) / "meta" / "recording-plan.json")
                 except RecordingRuntimeError:
                     continue
                 if plan.get("status") not in {
@@ -1029,7 +1029,7 @@ class RecordingRuntimeService:
                 frozen_at_epoch=self._clock(),
                 freeze_mode="lease_already_closed",
             )
-            atomic_write_json(paths.root / "recording-plan.json", plan)
+            atomic_write_json(paths.recording_plan_file, plan)
             return {"already_closed": True, "lease_state": lease.state}
         try:
             backend = self._backend_for(paths)
@@ -1051,7 +1051,7 @@ class RecordingRuntimeService:
             frozen_at_epoch=self._clock(),
             freeze_mode=freeze_mode,
         )
-        atomic_write_json(paths.root / "recording-plan.json", plan)
+        atomic_write_json(paths.recording_plan_file, plan)
         return details
 
     def source_artifacts(self, paths: ArtifactPaths) -> list[tuple[str, Path]]:
@@ -1165,7 +1165,7 @@ class RecordingRuntimeService:
                 worker_shutdown_requested_at_epoch=self._clock(),
                 worker_shutdown_generation=endpoint.generation,
             )
-            atomic_write_json(paths.root / "recording-plan.json", plan)
+            atomic_write_json(paths.recording_plan_file, plan)
             return {"ok": True, **dict(response.result)}
         except Exception as error:
             return {"ok": False, "warning": f"{type(error).__name__}: {error}"}
@@ -1216,7 +1216,7 @@ class RecordingRuntimeService:
                 merge_worker_recovered_at_epoch=self._clock(),
                 merge_worker_recovery_reason=str(error),
             )
-            atomic_write_json(paths.root / "recording-plan.json", plan)
+            atomic_write_json(paths.recording_plan_file, plan)
 
         # A lossless merge can legitimately exceed the short command timeout
         # used for health/freeze operations. The worker still journals the
@@ -1242,7 +1242,7 @@ class RecordingRuntimeService:
         )
 
     def _load_plan(self, paths: ArtifactPaths) -> dict[str, Any]:
-        plan = _read_object(paths.root / "recording-plan.json")
+        plan = _read_object(paths.recording_plan_file)
         if plan.get("schema") != RECORDING_PLAN_SCHEMA:
             raise RecordingRuntimeError("recording plan is missing or invalid")
         _validate_recording_contract_in_plan(plan)
@@ -1262,9 +1262,9 @@ class RecordingRuntimeService:
         root = self._active_paths.get(session_key)
         candidates: Iterable[Path]
         if root is not None:
-            candidates = (root / "session-identity.json",)
+            candidates = (root / "meta" / "session-identity.json",)
         else:
-            candidates = self.data_dir.glob("*/participants/*/sessions/*/session-identity.json")
+            candidates = self.data_dir.glob("*/participants/*/sessions/*/meta/session-identity.json")
         for identity_file in candidates:
             try:
                 payload = _read_object(identity_file)

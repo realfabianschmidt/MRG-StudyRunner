@@ -248,7 +248,7 @@ class RecoveryServiceTests(unittest.TestCase):
                 "classification": "legacy_recovery_noncanonical",
                 "source": "runtime_memory",
                 "canonical": False,
-                "canonical_artifact": "card-summary.json",
+                "canonical_artifact": "answers/card-summary.json",
             },
         )
         self.assertTrue(

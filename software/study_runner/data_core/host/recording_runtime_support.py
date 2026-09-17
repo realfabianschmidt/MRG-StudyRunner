@@ -222,7 +222,7 @@ def report_unconfirmed_tail(paths: ArtifactPaths, *, generation: int, monotonic:
     if generation < 1:
         return 0
     checkpoint = last_checkpoint_for_generation(
-        read_checkpoints(paths.root / CHECKPOINT_JOURNAL_FILENAME),
+        read_checkpoints(paths.checkpoint_journal_file),
         generation=int(generation),
     )
     if checkpoint is not None and str(checkpoint.get("reason") or "") == "freeze":
@@ -260,7 +260,7 @@ def report_unconfirmed_tail(paths: ArtifactPaths, *, generation: int, monotonic:
             )
         ]
     try:
-        with (paths.root / QUALITY_JOURNAL_FILENAME).open("a", encoding="utf-8", newline="\n") as handle:
+        with (paths.quality_journal_file).open("a", encoding="utf-8", newline="\n") as handle:
             for record in records:
                 handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
             handle.flush()

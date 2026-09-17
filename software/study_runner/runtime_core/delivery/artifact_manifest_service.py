@@ -45,7 +45,7 @@ class ArtifactManifestStore:
         artifacts = [self._metadata(paths.root, path) for path in self._artifact_files(paths.root)]
         checksum_lines = [f"{item['sha256']}  {item['path']}" for item in artifacts]
         atomic_write_bytes(
-            paths.root / "checksums.sha256",
+            paths.checksums_file,
             (("\n".join(checksum_lines) + "\n") if checksum_lines else "").encode("utf-8"),
         )
         manifest = {
@@ -58,7 +58,7 @@ class ArtifactManifestStore:
             "provenance": dict(provenance or {}),
             "artifacts": artifacts,
         }
-        atomic_write_json(paths.root / "manifest.json", manifest)
+        atomic_write_json(paths.manifest_file, manifest)
         return manifest
 
     def publish_marker(
@@ -110,7 +110,7 @@ class ArtifactManifestStore:
             raise ArtifactManifestError("Local sources may only be purged from a completed session.")
         if not merge_parity:
             raise ArtifactManifestError("Local sources may not be purged without merge parity.")
-        manifest_path = paths.root / "manifest.json"
+        manifest_path = paths.manifest_file
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:
@@ -237,7 +237,7 @@ class ArtifactManifestStore:
             relative = path.relative_to(root)
             if path.name in _MUTABLE_OR_SELF_REFERENTIAL:
                 continue
-            if relative.parts and relative.parts[0] == "logs":
+            if relative.parts[:2] == ("meta", "logs"):
                 continue
             if path.name.startswith(".") or path.suffix == ".tmp":
                 continue
@@ -258,16 +258,18 @@ class ArtifactManifestStore:
 
 
 def _artifact_role(relative_path: str) -> str:
-    if relative_path == "submission.json":
+    if relative_path == "answers/submission.json":
         return "submission"
-    if relative_path == "result.json":
+    if relative_path == "answers/result.json":
         return "result"
-    if relative_path == "card-summary.json":
+    if relative_path == "answers/card-summary.json":
         return "card_summary"
-    if relative_path == "session-identity.json":
+    if relative_path == "meta/session-identity.json":
         return "session_identity"
     if relative_path == "derived/session.xdf":
         return "merged_xdf"
+    if relative_path.endswith(".csv"):
+        return "csv_export"
     if relative_path.startswith("raw/plugins/"):
         return "native_plugin_xdf"
     if relative_path.startswith("raw/backup/"):

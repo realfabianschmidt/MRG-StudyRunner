@@ -181,7 +181,7 @@ class RecordingRuntimeTests(unittest.TestCase):
             self.assertEqual(len(session_roots), 1)
             self.assertTrue((session_roots[0] / "raw/plugins/brainbit/segments.json").is_file())
             plan = json.loads(
-                (session_roots[0] / "recording-plan.json").read_text(encoding="utf-8")
+                (session_roots[0] / "meta" / "recording-plan.json").read_text(encoding="utf-8")
             )
             contract = load_recording_contract(plan)
             self.assertIsNotNone(contract)
@@ -195,7 +195,7 @@ class RecordingRuntimeTests(unittest.TestCase):
             self.assertEqual(len(contract["sha256"]), 64)
 
             stream_contracts = json.loads(
-                (session_roots[0] / "stream-contracts.json").read_text(encoding="utf-8")
+                (session_roots[0] / "meta" / "stream-contracts.json").read_text(encoding="utf-8")
             )
             self.assertEqual(stream_contracts["schema"], "study-runner/stream-contracts/v1")
             self.assertEqual(stream_contracts["session_id"], "session-1")
@@ -258,7 +258,7 @@ class RecordingRuntimeTests(unittest.TestCase):
                 },
             )
 
-            plan_path = next((root / "saved_results").glob("*/participants/*/sessions/*/recording-plan.json"))
+            plan_path = next((root / "saved_results").glob("*/participants/*/sessions/*/meta/recording-plan.json"))
             contract = load_recording_contract(json.loads(plan_path.read_text(encoding="utf-8")))
             self.assertIsNotNone(contract)
 
@@ -367,7 +367,7 @@ class RecordingRuntimeTests(unittest.TestCase):
             self.assertEqual([item["number"] for item in ledger["segments"]], [1, 2])
             self.assertEqual(ledger["segments"][0]["state"], "interrupted")
             self.assertEqual(ledger["segments"][1]["state"], "recording")
-            plan = json.loads((session_root / "recording-plan.json").read_text(encoding="utf-8"))
+            plan = json.loads((session_root / "meta" / "recording-plan.json").read_text(encoding="utf-8"))
             self.assertEqual(len(plan["backup"]["segments"]), 2)
             self.assertIn("recovery-0002.xdf", plan["backup"]["segments"][1]["relative_path"])
             self.assertEqual(plan["backup"]["segments"][1]["grid_anchor_epoch"], 112.0)
@@ -720,7 +720,7 @@ class RecordingRuntimeTests(unittest.TestCase):
             )
             runtime = RecordingRuntimeService(root, PROJECT_ROOT)
             paths = runtime.artifacts.reserve(identity)
-            (paths.root / "recording-plan.json").write_text(
+            (paths.recording_plan_file).write_text(
                 json.dumps(
                     {
                         "schema": "study-runner/recording-plan/v1",
@@ -880,7 +880,7 @@ class RecordingRuntimeTests(unittest.TestCase):
                 {"lsl": {"enabled": True}},
             )
             session_root = next((root / "saved_results").glob("*/participants/*/sessions/*"))
-            plan_path = session_root / "recording-plan.json"
+            plan_path = session_root / "meta" / "recording-plan.json"
             plan = json.loads(plan_path.read_text(encoding="utf-8"))
             plan["status"] = "frozen"
             plan_path.write_text(json.dumps(plan), encoding="utf-8")

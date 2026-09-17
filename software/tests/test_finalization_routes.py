@@ -42,7 +42,8 @@ class FinalizationRoutesTests(unittest.TestCase):
             session_path = "study/participants/p01/sessions/20260731T100000Z__session-1"
             session_root = root / session_path
             session_root.mkdir(parents=True)
-            (session_root / "manifest.json").write_text(
+            (session_root / "meta").mkdir(parents=True, exist_ok=True)
+            (session_root / "meta" / "manifest.json").write_text(
                 json.dumps(
                     {
                         "artifacts": [
@@ -69,7 +70,7 @@ class FinalizationRoutesTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         artifacts = response.get_json()["job"]["artifacts"]
-        self.assertEqual([item["path"] for item in artifacts], ["derived/session.xdf", "manifest.json"])
+        self.assertEqual([item["path"] for item in artifacts], ["derived/session.xdf", "meta/manifest.json"])
         self.assertEqual(artifacts[0]["sha256"], "a" * 64)
 
     def test_open_folder_uses_job_session_path_not_client_identifiers(self) -> None:

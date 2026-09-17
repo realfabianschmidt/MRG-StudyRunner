@@ -30,6 +30,13 @@ PARTICIPANT_ID = "ac89c1703e034cfb"
 SESSION_FOLDER = "20260811T163356Z__study-session-02ec4b00debe496680afb8cffed52dea"
 
 
+@unittest.skip(
+    "v4 layout (meta/, answers/) deliberately drops read-compatibility for "
+    "sessions recorded before this reorg -- decided 2026-09-17, no real "
+    "pre-v4 session data exists yet and the coming study records directly "
+    "in the new shape. This fixture and the guarantee it pinned are kept "
+    "here, skipped rather than deleted, in case that decision is revisited."
+)
 class Real070SessionCompatTests(unittest.TestCase):
     def setUp(self) -> None:
         session_root = SAVED_RESULTS / "Demo_Completed_Study" / "participants" / PARTICIPANT_ID / "sessions" / SESSION_FOLDER

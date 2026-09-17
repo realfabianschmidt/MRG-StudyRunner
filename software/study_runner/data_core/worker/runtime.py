@@ -73,7 +73,7 @@ class RecordingWorkerRuntime:
         # are per plugin. The session's single UTC anchor at start is
         # written here -- target doc §6 allows wall time only as one anchor
         # at start and one at end, never as a duration.
-        self.journals = SessionJournalWriter(self.session_dir)
+        self.journals = SessionJournalWriter(self.session_dir / "meta")
         self._clock_jump_detector = WallClockJumpDetector()
         self.journals.append_timing(
             timing_record(
@@ -616,7 +616,7 @@ class RecordingWorkerRuntime:
                 with self._lease_lock:
                     expired = not self._frozen and self._wall_clock() >= self._lease_until_epoch
                 if expired:
-                    lease_path = self.session_dir / "recording-lease.json"
+                    lease_path = self.session_dir / "meta" / "recording-lease.json"
                     if lease_path.is_file():
                         RecordingLeaseStore(lease_path, clock=self._wall_clock).expire_if_due()
                     self.freeze(reason="web_server_lease_expired")

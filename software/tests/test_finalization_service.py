@@ -167,8 +167,8 @@ class FinalizationServiceTests(unittest.TestCase):
             self.assertFalse(repeated["created"])
             self.assertEqual(created["job_id"], repeated["job_id"])
             session_root = root / created["session_path"]
-            self.assertTrue((session_root / "submission.json").is_file())
-            self.assertTrue((session_root / "finalization-state.json").is_file())
+            self.assertTrue((session_root / "answers" / "submission.json").is_file())
+            self.assertTrue((session_root / "meta" / "finalization-state.json").is_file())
             self.assertEqual(service.get(created["job_id"])["status"], "queued")
 
             self.assertEqual(service.process_due_jobs_once(), 1)
@@ -176,10 +176,10 @@ class FinalizationServiceTests(unittest.TestCase):
             self.assertEqual(completed["status"], "completed")
             self.assertEqual(completed["quality_status"], "valid")
             self.assertTrue((session_root / "derived" / "session.xdf").is_file())
-            self.assertTrue((session_root / "card-summary.json").is_file())
-            self.assertTrue((session_root / "result.json").is_file())
-            self.assertTrue((session_root / "manifest.json").is_file())
-            self.assertTrue((session_root / "checksums.sha256").is_file())
+            self.assertTrue((session_root / "answers" / "card-summary.json").is_file())
+            self.assertTrue((session_root / "answers" / "result.json").is_file())
+            self.assertTrue((session_root / "meta" / "manifest.json").is_file())
+            self.assertTrue((session_root / "meta" / "checksums.sha256").is_file())
             self.assertTrue((session_root / "COMPLETE.json").is_file())
             self.assertFalse((session_root / "ATTENTION_REQUIRED.json").exists())
 
@@ -225,7 +225,7 @@ class FinalizationServiceTests(unittest.TestCase):
                 completed["warnings"],
             )
 
-            summary = json.loads((root / created["session_path"] / "card-summary.json").read_text(encoding="utf-8"))
+            summary = json.loads((root / created["session_path"] / "answers" / "card-summary.json").read_text(encoding="utf-8"))
             mismatch = next(
                 warning
                 for warning in summary["quality_warnings"]
@@ -251,14 +251,14 @@ class FinalizationServiceTests(unittest.TestCase):
 
             self.assertTrue(created["created"])
             session_root = root / created["session_path"]
-            self.assertTrue((session_root / ".submission-commit.json").is_file())
-            self.assertFalse((session_root / "submission.json").exists())
+            self.assertTrue((session_root / "meta" / ".submission-commit.json").is_file())
+            self.assertFalse((session_root / "answers" / "submission.json").exists())
             self.assertEqual(service.get(created["job_id"])["status"], "queued")
             repeated = service.commit_submission(SUBMISSION, recording_expected=True)
             self.assertFalse(repeated["created"])
 
             restarted = self._service(root)
-            self.assertTrue((session_root / "submission.json").is_file())
+            self.assertTrue((session_root / "answers" / "submission.json").is_file())
             self.assertEqual(restarted.get(created["job_id"])["status"], "queued")
 
     def test_v3_destination_selection_overrides_legacy_flags(self) -> None:
@@ -474,7 +474,7 @@ class FinalizationServiceTests(unittest.TestCase):
             self.assertEqual(result["removed"], [relative])
             self.assertFalse(source.exists())
             self.assertTrue(context.paths.merged_xdf.exists())
-            persisted = json.loads((context.paths.root / "manifest.json").read_text(encoding="utf-8"))
+            persisted = json.loads((context.paths.manifest_file).read_text(encoding="utf-8"))
             source_entry = next(item for item in persisted["artifacts"] if item["path"] == relative)
             self.assertFalse(source_entry["local_present"])
             self.assertTrue(source_entry["remote_verified"])
@@ -504,7 +504,7 @@ class FinalizationServiceTests(unittest.TestCase):
                 "removed": [],
                 "remote": "nextcloud",
             }
-            (context.paths.root / "manifest.json").write_text(
+            (context.paths.manifest_file).write_text(
                 json.dumps(manifest),
                 encoding="utf-8",
             )
@@ -519,7 +519,7 @@ class FinalizationServiceTests(unittest.TestCase):
 
             self.assertEqual(result["removed"], [relative])
             reconciled = json.loads(
-                (context.paths.root / "manifest.json").read_text(encoding="utf-8")
+                (context.paths.manifest_file).read_text(encoding="utf-8")
             )
             self.assertEqual(reconciled["source_purge"]["status"], "completed")
             entry = next(item for item in reconciled["artifacts"] if item["path"] == relative)

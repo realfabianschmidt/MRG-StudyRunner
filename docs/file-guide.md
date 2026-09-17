@@ -119,6 +119,7 @@ Edit-safety legend:
 | `software/study_runner/runtime_core/settings/shortcut_service.py` | Creates the desktop shortcut | careful |
 | `software/study_runner/runtime_core/settings/admin_status_service.py` | Aggregates plugin status for the dashboard | careful |
 | `software/study_runner/runtime_core/delivery/artifact_manifest_service.py` | Owns artifact provenance, checksums, completion markers, and guarded source purge | no |
+| `software/study_runner/runtime_core/delivery/csv_export_service.py` | Converts the backup grid XDF into one SPSS/R-friendly CSV | no |
 | `software/study_runner/runtime_core/studies/card_summary_service.py` | Pure merged-XDF-to-card-statistics derivation | no |
 | `software/study_runner/runtime_core/delivery/finalization_runtime.py` | Wires the persistent finalizer to recording and upload adapters | no |
 | `software/study_runner/runtime_core/delivery/finalization_service.py` | Durable, idempotent session-finalization state machine and journal replay | no |

@@ -37,18 +37,33 @@ New results use one collision-safe session folder:
 software/saved_results/
   <study>/participants/<participant>/sessions/
     <YYYYMMDDTHHMMSSZ>__<session-id>/
-      submission.json
-      result.json
-      card-summary.json
-      manifest.json
-      checksums.sha256
-      finalization-state.json
-      logs/finalization.jsonl
+      answers/
+        submission.json
+        result.json
+        card-summary.json
+      meta/
+        session-identity.json
+        manifest.json
+        checksums.sha256
+        finalization-state.json
+        quality.jsonl
+        timing.jsonl
+        logs/finalization.jsonl
       raw/plugins/<plugin>/part-0001.xdf
       raw/backup/slowest-grid_<rate>hz.xdf
       derived/session.xdf
+      <session-id>.csv
       COMPLETE.json | ATTENTION_REQUIRED.json
 ```
+
+`answers/` holds everything a participant contributed; `meta/` holds
+internal/operational state nobody needs to read by hand. `<session-id>.csv`
+is a convenience export of the already-synchronized backup grid (see
+[plugin-recording-architecture.md](plugin-recording-architecture.md)) for
+loading straight into SPSS/R -- the raw per-sensor XDF under `raw/plugins/`
+stays the source of truth and can always be reprocessed at full resolution.
+Status markers (`COMPLETE.json`/`ATTENTION_REQUIRED.json`/`WITHDRAWN.json`)
+stay at the session root, same as before.
 
 The original pseudonymous participant ID is preserved in JSON. Sanitized path
 components, UTC start, and immutable session ID prevent collisions when one

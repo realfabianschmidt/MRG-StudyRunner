@@ -65,8 +65,12 @@ def _unwritable_dir(temp_dir: Path) -> Path:
 
 
 def _paths(root: Path) -> SimpleNamespace:
-    """A stand-in for ArtifactPaths: the reporter only reads ``root``."""
-    return SimpleNamespace(root=root)
+    """A stand-in for ArtifactPaths: the reporter only reads these two files."""
+    return SimpleNamespace(
+        root=root,
+        checkpoint_journal_file=root / CHECKPOINT_JOURNAL_FILENAME,
+        quality_journal_file=root / QUALITY_JOURNAL_FILENAME,
+    )
 
 
 class CheckpointJournalTests(unittest.TestCase):

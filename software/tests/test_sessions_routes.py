@@ -87,9 +87,11 @@ class SessionsRouteTests(unittest.TestCase):
     def _canonical_session(self, folder: str, result: dict) -> Path:
         root = self.data_dir / "study-a" / "participants" / "p01" / "sessions" / folder
         (root / "derived").mkdir(parents=True)
-        self._write_json(root / "result.json", result)
+        (root / "answers").mkdir(parents=True)
+        (root / "meta").mkdir(parents=True)
+        self._write_json(root / "answers" / "result.json", result)
         self._write_json(
-            root / "session-identity.json",
+            root / "meta" / "session-identity.json",
             {
                 "study_id": result["study_id"],
                 "participant_id": result["participant_id"],
@@ -98,11 +100,11 @@ class SessionsRouteTests(unittest.TestCase):
         )
         self._write_json(root / "COMPLETE.json", {"status": "completed", "published_at": result["timestamp_end"]})
         self._write_json(
-            root / "manifest.json",
+            root / "meta" / "manifest.json",
             {
                 "quality_status": "valid",
                 "artifacts": [
-                    {"path": "result.json", "role": "result"},
+                    {"path": "answers/result.json", "role": "result"},
                     {"path": "derived/session.xdf", "role": "merged_xdf"},
                 ],
             },
@@ -205,7 +207,7 @@ class SessionsRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.get_json()["ok"])
         # Nothing was touched: a rejected confirmation must not partially run.
-        self.assertTrue((self.session_one / "result.json").is_file())
+        self.assertTrue((self.session_one / "answers" / "result.json").is_file())
 
     def test_withdraw_empties_the_session_and_leaves_a_tombstone(self) -> None:
         response = self.client.post(
@@ -217,7 +219,7 @@ class SessionsRouteTests(unittest.TestCase):
         payload = response.get_json()
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["status"], "withdrawn")
-        self.assertFalse((self.session_one / "result.json").is_file())
+        self.assertFalse((self.session_one / "answers" / "result.json").is_file())
         self.assertTrue((self.session_one / "WITHDRAWN.json").is_file())
 
         listed = {item["session_id"]: item for item in self.client.get("/api/admin/sessions").get_json()}
@@ -298,7 +300,7 @@ class SessionsRouteTests(unittest.TestCase):
             self.assertGreater(reads_after_first_scan, 0)
             self.assertEqual(reader.call_count, reads_after_first_scan)
 
-            result_file = self.session_two / "result.json"
+            result_file = self.session_two / "answers" / "result.json"
             payload = json.loads(result_file.read_text(encoding="utf-8"))
             payload["answers"]["q3"] = "changed"
             self._write_json(result_file, payload)

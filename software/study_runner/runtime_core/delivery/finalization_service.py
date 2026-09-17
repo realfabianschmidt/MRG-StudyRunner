@@ -28,6 +28,7 @@ from study_runner.runtime_core.studies.session_journal_service import (
 from .artifact_manifest_service import ArtifactManifestError, ArtifactManifestStore
 from study_runner.shared.atomic_io import atomic_write_json
 from ..studies.card_summary_service import CardSummaryBuilder
+from .csv_export_service import CsvExportError, write_backup_csv
 from .destination_plugin_service import (
     DestinationPluginDefinition,
     definitions_from_state,
@@ -47,6 +48,7 @@ CORE_STEPS = (
     "merge_xdf",
     "validate_merge",
     "build_card_summary",
+    "export_csv",
     "write_result_manifest",
 )
 FINAL_STEPS = ("purge_local_sources", "archive_session_journals")
@@ -58,6 +60,7 @@ STEP_LABELS = {
     "merge_xdf": "XDF-Dateien zusammenführen",
     "validate_merge": "Merge-Parität prüfen",
     "build_card_summary": "Card-Statistiken berechnen",
+    "export_csv": "CSV-Export schreiben",
     "write_result_manifest": "Ergebnis und Manifest schreiben",
     "purge_local_sources": "Lokale Quelldateien freigeben",
     "archive_session_journals": "Session- und Trial-Journale archivieren",
@@ -235,24 +238,24 @@ class UploadJobDestinationHandler:
         return None
 
     def _payload(self, context: FinalizationContext) -> dict[str, Any]:
-        result_path = context.paths.root / "result.json"
+        result_path = context.paths.result_file
         result_payload = _read_json_object(result_path) if result_path.is_file() else dict(context.submission)
         relative_root = context.paths.root.relative_to(self.data_dir).as_posix()
         saved_output = {
             "participant_dir": relative_root,
             "session_dir": relative_root,
             "session_relative_path": relative_root,
-            "json_file": f"{relative_root}/result.json",
-            "card_summary_file": f"{relative_root}/card-summary.json",
-            "manifest_file": f"{relative_root}/manifest.json",
+            "json_file": f"{relative_root}/answers/result.json",
+            "card_summary_file": f"{relative_root}/answers/card-summary.json",
+            "manifest_file": f"{relative_root}/meta/manifest.json",
             "xdf_file": (
                 f"{relative_root}/derived/session.xdf"
                 if context.paths.merged_xdf.is_file()
                 else None
             ),
             "card_summary": (
-                _read_json_object(context.paths.root / "card-summary.json")
-                if (context.paths.root / "card-summary.json").is_file()
+                _read_json_object(context.paths.card_summary_file)
+                if context.paths.card_summary_file.is_file()
                 else {}
             ),
         }
@@ -416,7 +419,7 @@ class FinalizationService:
             }
             # One atomic source-of-truth file commits both objects logically.
             # The two canonical projections are repairable from it on restart.
-            atomic_write_json(paths.root / ".submission-commit.json", commit)
+            atomic_write_json(paths.submission_commit_file, commit)
             self._jobs[job_id] = state
             self._submission_index[submission_key] = job_id
 
@@ -427,8 +430,8 @@ class FinalizationService:
             # first also makes an immediate duplicate submit idempotent.
             projection_errors: list[str] = []
             for projection_path, projection_payload in (
-                (paths.root / "submission.json", payload),
-                (paths.root / "finalization-state.json", state),
+                (paths.submission_file, payload),
+                (paths.finalization_state_file, state),
             ):
                 try:
                     atomic_write_json(projection_path, projection_payload)
@@ -437,7 +440,7 @@ class FinalizationService:
             try:
                 self._append_log(paths, {"event": "submission_committed", "job_id": job_id})
             except Exception as error:
-                projection_errors.append(f"logs/finalization.jsonl: {error}")
+                projection_errors.append(f"meta/logs/finalization.jsonl: {error}")
             if projection_errors:
                 print(
                     "[FINALIZATION] Submission committed; repairable projection writes failed: "
@@ -798,12 +801,14 @@ class FinalizationService:
             return result
         if step_key == "build_card_summary":
             return self._build_card_summary(context)
+        if step_key == "export_csv":
+            return self._export_csv(context)
         if step_key == "write_result_manifest":
             return self._write_result_manifest(context)
         raise FinalizationError(f"Unsupported finalization step: {step_key}")
 
     def _build_card_summary(self, context: FinalizationContext) -> StepResult:
-        target = context.paths.root / "card-summary.json"
+        target = context.paths.card_summary_file
         if not context.paths.merged_xdf.is_file():
             if context.recording_expected:
                 raise FinalizationError("Validated merged XDF is missing.")
@@ -844,6 +849,34 @@ class FinalizationService:
         atomic_write_json(target, summary)
         return StepResult("done", {"card_count": summary["card_count"], "stream_count": summary["stream_count"]})
 
+    def _export_csv(self, context: FinalizationContext) -> StepResult:
+        """Convert the already-synchronized backup grid into one CSV.
+
+        A pure format conversion (see ``csv_export_service``'s docstring):
+        the backup grid already solved multi-sensor synchronization for
+        crash-recovery/QC, so this step reuses its bytes rather than
+        resampling anything itself. The CSV is a convenience projection,
+        never authoritative, so unlike ``build_card_summary`` this step
+        never raises: a missing or unreadable backup XDF is recorded as
+        "skipped" rather than putting the session into attention_required
+        over data that was never the scientific record.
+        """
+        backup_candidates = (
+            sorted(context.paths.raw_backup_dir.glob("*.xdf"))
+            if context.paths.raw_backup_dir.is_dir()
+            else []
+        )
+        if not backup_candidates:
+            return StepResult("skipped", {"reason": "no_backup_xdf"})
+        try:
+            details = write_backup_csv(backup_candidates[0], context.paths.csv_export_file)
+        except CsvExportError as error:
+            return StepResult("skipped", {"reason": "csv_export_failed", "error": str(error)})
+        return StepResult(
+            "done",
+            {"row_count": details["row_count"], "channel_count": details["channel_count"]},
+        )
+
     def _journal_event_ids(self, session_id: str) -> list[str] | None:
         """The durable session-journal's own record of every event id.
 
@@ -881,7 +914,7 @@ class FinalizationService:
                 "card_summary_file": "card-summary.json",
             },
         }
-        atomic_write_json(context.paths.root / "result.json", result)
+        atomic_write_json(context.paths.result_file, result)
         manifest = self.manifest_store.write(
             context.paths,
             identity=context.paths.identity,
@@ -1160,7 +1193,7 @@ class FinalizationService:
             self._persist_state(state, event={"event": "attention_required", "step": step_key, "error": error})
 
     def _ensure_degraded_result(self, context: FinalizationContext, reason: str) -> None:
-        summary_path = context.paths.root / "card-summary.json"
+        summary_path = context.paths.card_summary_file
         if not summary_path.is_file():
             atomic_write_json(
                 summary_path,
@@ -1176,7 +1209,7 @@ class FinalizationService:
                 },
             )
         atomic_write_json(
-            context.paths.root / "result.json",
+            context.paths.result_file,
             {
                 **context.submission,
                 "server_finalization": {
@@ -1233,7 +1266,7 @@ class FinalizationService:
             runtime.pop("merge_parity", None)
 
     def _context(self, state: dict[str, Any]) -> FinalizationContext:
-        commit_path = self.data_dir / state["session_path"] / ".submission-commit.json"
+        commit_path = self.data_dir / state["session_path"] / "meta" / ".submission-commit.json"
         commit = _read_json_object(commit_path)
         identity_data = _read_json_object(commit_path.parent / "session-identity.json")
         identity = SessionIdentity(
@@ -1245,7 +1278,7 @@ class FinalizationService:
         bound_root = (self.data_dir / state["session_path"]).resolve()
         if (
             not bound_root.is_relative_to(self.data_dir.resolve())
-            or bound_root != commit_path.parent.resolve()
+            or bound_root != commit_path.parent.parent.resolve()
         ):
             raise FinalizationError(
                 "Finalization state path does not match its immutable session identity."
@@ -1269,14 +1302,14 @@ class FinalizationService:
         state["updated_epoch"] = self._clock()
         state["updated_at"] = _iso_time(state["updated_epoch"])
         paths = self.data_dir / state["session_path"]
-        atomic_write_json(paths / "finalization-state.json", state)
+        atomic_write_json(paths / "meta" / "finalization-state.json", state)
         self._append_log_path(paths, {**event, "job_id": state["job_id"]})
 
     def _append_log(self, paths: ArtifactPaths, event: dict[str, Any]) -> None:
         self._append_log_path(paths.root, event)
 
     def _append_log_path(self, root: Path, event: dict[str, Any]) -> None:
-        path = root / "logs" / "finalization.jsonl"
+        path = root / "meta" / "logs" / "finalization.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         persisted = {**event, "at": _iso_time(self._clock()), "at_epoch": self._clock()}
         encoded = json.dumps(persisted, ensure_ascii=False, separators=(",", ":")) + "\n"
@@ -1291,7 +1324,7 @@ class FinalizationService:
                 if commit.get("schema") != SUBMISSION_COMMIT_SCHEMA:
                     continue
                 state_path = commit_path.parent / "finalization-state.json"
-                submission_path = commit_path.parent / "submission.json"
+                submission_path = commit_path.parent.parent / "answers" / "submission.json"
                 state = _read_json_object(state_path) if state_path.is_file() else deepcopy(commit["state"])
                 if state.get("schema") != FINALIZATION_SCHEMA or state.get("job_id") in self._jobs:
                     continue

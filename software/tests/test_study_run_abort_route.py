@@ -49,7 +49,7 @@ class StudyRunAbortRouteTests(unittest.TestCase):
             started_at=dt.datetime.now(dt.timezone.utc),
         )
         paths = ArtifactStore(Path(data_dir) / "saved_results").reserve(identity)
-        (paths.root / "recording-plan.json").write_text(
+        (paths.recording_plan_file).write_text(
             json.dumps({"status": "recording"}), encoding="utf-8"
         )
         recording_runtime = app.config["RECORDING_RUNTIME_SERVICE"]
@@ -95,7 +95,7 @@ class StudyRunAbortRouteTests(unittest.TestCase):
             self.assertEqual(marker["reason"], "tablet unresponsive")
             # The recording plan this fixture wrote is untouched -- nothing
             # about an abort deletes what was already on disk.
-            self.assertTrue((session_root / "recording-plan.json").is_file())
+            self.assertTrue((session_root / "meta" / "recording-plan.json").is_file())
 
     def test_a_second_abort_of_the_same_session_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

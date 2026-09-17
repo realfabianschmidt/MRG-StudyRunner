@@ -130,8 +130,20 @@ class ArtifactPaths:
     identity: SessionIdentity
 
     @property
+    def meta_dir(self) -> Path:
+        return self.root / "meta"
+
+    @property
+    def meta_logs_dir(self) -> Path:
+        return self.meta_dir / "logs"
+
+    @property
+    def answers_dir(self) -> Path:
+        return self.root / "answers"
+
+    @property
     def identity_file(self) -> Path:
-        return self.root / "session-identity.json"
+        return self.meta_dir / "session-identity.json"
 
     @property
     def raw_dir(self) -> Path:
@@ -150,24 +162,85 @@ class ArtifactPaths:
         return self.root / "derived"
 
     @property
-    def logs_dir(self) -> Path:
-        return self.root / "logs"
-
-    @property
     def merged_xdf(self) -> Path:
         return self.derived_dir / "session.xdf"
 
     @property
     def worker_state_file(self) -> Path:
-        return self.root / "worker-state.json"
+        return self.meta_dir / "worker-state.json"
 
     @property
     def worker_commands_file(self) -> Path:
-        return self.root / "worker-commands.json"
+        return self.meta_dir / "worker-commands.json"
 
     @property
     def recording_lease_file(self) -> Path:
-        return self.root / "recording-lease.json"
+        return self.meta_dir / "recording-lease.json"
+
+    @property
+    def recording_plan_file(self) -> Path:
+        return self.meta_dir / "recording-plan.json"
+
+    @property
+    def stream_contracts_file(self) -> Path:
+        return self.meta_dir / "stream-contracts.json"
+
+    @property
+    def submission_commit_file(self) -> Path:
+        return self.meta_dir / ".submission-commit.json"
+
+    @property
+    def finalization_state_file(self) -> Path:
+        return self.meta_dir / "finalization-state.json"
+
+    @property
+    def manifest_file(self) -> Path:
+        return self.meta_dir / "manifest.json"
+
+    @property
+    def checksums_file(self) -> Path:
+        return self.meta_dir / "checksums.sha256"
+
+    @property
+    def quality_journal_file(self) -> Path:
+        return self.meta_dir / "quality.jsonl"
+
+    @property
+    def timing_journal_file(self) -> Path:
+        return self.meta_dir / "timing.jsonl"
+
+    @property
+    def checkpoint_journal_file(self) -> Path:
+        return self.meta_dir / "checkpoints.jsonl"
+
+    @property
+    def finalization_log_file(self) -> Path:
+        return self.meta_logs_dir / "finalization.jsonl"
+
+    @property
+    def recording_worker_log_file(self) -> Path:
+        return self.meta_logs_dir / "recording-worker.log"
+
+    @property
+    def session_journals_archive_file(self) -> Path:
+        return self.meta_logs_dir / "session-journals.archive.json"
+
+    @property
+    def submission_file(self) -> Path:
+        return self.answers_dir / "submission.json"
+
+    @property
+    def result_file(self) -> Path:
+        return self.answers_dir / "result.json"
+
+    @property
+    def card_summary_file(self) -> Path:
+        return self.answers_dir / "card-summary.json"
+
+    @property
+    def csv_export_file(self) -> Path:
+        component = safe_path_component(self.identity.session_id, fallback="session")
+        return self.root / f"{component}.csv"
 
     def plugin_dir(self, plugin_key: str) -> Path:
         component = safe_path_component(plugin_key, fallback="plugin")
@@ -206,6 +279,7 @@ class ArtifactStore:
 
         paths = self.paths_for(identity)
         paths.root.mkdir(parents=True, exist_ok=True)
+        paths.meta_dir.mkdir(parents=True, exist_ok=True)
         expected = identity.as_dict()
         if paths.identity_file.exists():
             try:
@@ -217,13 +291,14 @@ class ArtifactStore:
         else:
             atomic_write_json(paths.identity_file, expected)
 
-        # These are the only mutable artifact containers.  Top-level result
+        # These are the only mutable artifact containers.  Answers/meta result
         # files are published atomically by the finalization service.
         for directory in (
             paths.raw_plugins_dir,
             paths.raw_backup_dir,
             paths.derived_dir,
-            paths.logs_dir,
+            paths.meta_logs_dir,
+            paths.answers_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
         return paths

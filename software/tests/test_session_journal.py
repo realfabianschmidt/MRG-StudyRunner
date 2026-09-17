@@ -109,11 +109,11 @@ class SessionJournalOrderingTests(unittest.TestCase):
         for stream, values in streams.items():
             digest.update(stream.encode("ascii") + b"\0")
             digest.update(journal._canonical_json(values))
-        archive = self.root / "result" / "logs" / "session-journals.archive.json"
+        archive = self.root / "result" / "meta" / "logs" / "session-journals.archive.json"
         archive.parent.mkdir(parents=True)
         original = json.dumps({"schema": journal.ARCHIVE_SCHEMA, "session_id": "s1", "source_sha256": digest.hexdigest(), "streams": {}}).encode()
         archive.write_bytes(original)
-        result = self.store.archive_session("s1", archive.parent.parent, finalization_status="completed")
+        result = self.store.archive_session("s1", archive.parent.parent.parent, finalization_status="completed")
         self.assertTrue(result["already_archived"])
         self.assertEqual(archive.read_bytes(), original)
 

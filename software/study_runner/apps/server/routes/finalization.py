@@ -106,7 +106,7 @@ def _with_artifacts(job: dict) -> dict:
         return enriched
 
     artifacts: list[dict] = []
-    manifest_path = root / "manifest.json"
+    manifest_path = root / "meta" / "manifest.json"
     if manifest_path.is_file():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -121,12 +121,12 @@ def _with_artifacts(job: dict) -> dict:
 
     known_paths = {item["path"] for item in artifacts}
     for name, role in (
-        ("submission.json", "submission"),
-        ("result.json", "result"),
-        ("card-summary.json", "card_summary"),
-        ("session-identity.json", "session_identity"),
-        ("manifest.json", "manifest"),
-        ("checksums.sha256", "checksums"),
+        ("answers/submission.json", "submission"),
+        ("answers/result.json", "result"),
+        ("answers/card-summary.json", "card_summary"),
+        ("meta/session-identity.json", "session_identity"),
+        ("meta/manifest.json", "manifest"),
+        ("meta/checksums.sha256", "checksums"),
         ("COMPLETE.json", "completion_marker"),
         ("ATTENTION_REQUIRED.json", "attention_marker"),
     ):

@@ -78,7 +78,7 @@ class DetachedWorkerLauncher:
             generation=generation,
         )
         WorkerStateStore(paths.worker_state_file).save(endpoint)
-        log_path = paths.logs_dir / "recording-worker.log"
+        log_path = paths.recording_worker_log_file
         log_path.parent.mkdir(parents=True, exist_ok=True)
         creationflags = 0
         startupinfo = None

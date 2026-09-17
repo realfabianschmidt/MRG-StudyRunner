@@ -30,7 +30,7 @@ mid-session, the observations made up to that second are already on disk.
 The file is written one line at a time and never rewritten, so an
 interrupted write can cost you the last line, never the earlier ones.
 
-Two files are produced at the top of every session folder:
+Two files are produced in every session folder's `meta/` subfolder:
 
 - **`quality.jsonl`** — things that might be wrong with the data.
 - **`timing.jsonl`** — facts about clocks, kept separate because they are
@@ -413,7 +413,7 @@ opens `quality.jsonl` itself, using the sections above to read it.
 
 ## 9. What you can check yourself
 
-Open a session folder. If `quality.jsonl` is there:
+Open a session folder's `meta/` subfolder. If `quality.jsonl` is there:
 
 - **No `gap` lines** — no stall long enough to flag was detected.
 - **No `timestamp_regression` lines** — no measurement claimed to happen
