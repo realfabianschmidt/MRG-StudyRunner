@@ -1,0 +1,174 @@
+{
+  "api_version": 5,
+  "plugin_key": "am_hub",
+  "version": "1.0.0",
+  "category": "biosignal",
+  "config_key": "am_hub",
+  "runtime": {
+    "entrypoint": "driver.py",
+    "protocol": "study-runner-stdio/v1",
+    "interactive_stdin": true,
+    "modes": ["runtime", "diagnostics"],
+    "sample_delivery": "declared_transport",
+    "actions": ["start", "stop", "restart"],
+    "trial_events": ["start", "stop"],
+    "can_toggle": true,
+    "sidecar": {
+      "sensor": "am_hub",
+      "filename_suffix": "am_hub_signals",
+      "output_key": "am_hub_file"
+    }
+  },
+  "lifecycle": {
+    "reinitialize_on_disable": true
+  },
+  "ui": {
+    "label": "AM Hub",
+    "description": "Presence, position and movement from the Parasite AM Hub. Heart rate and breathing arrive once the hub forwards them.",
+    "order": 120,
+    "visibility": {
+      "dashboard": true,
+      "settings_hub": true,
+      "study_settings": true,
+      "destination_settings": false
+    },
+    "extensions": {
+      "dashboard": "ui/dashboard.js"
+    },
+    "timeline": {
+      "lane_aliases": ["am_hub"],
+      "preferred_channels": ["presence", "moveEnergy", "personX", "personY"]
+    }
+  },
+  "capabilities": {
+    "study_sensor": {
+      "default_enabled": false,
+      "default_required": false
+    },
+    "acquisition_transport": {
+      "transport": "network_adapter",
+      "delivery": "host_lsl_bridge"
+    },
+    "lsl_stream_provider": {},
+    "recording_source": {
+      "artifact": "xdf",
+      "primary_stream": "presence"
+    },
+    "backup_projection": {
+      "rate_hz": 1,
+      "stale_after_ms": 2500,
+      "channels": [
+        {
+          "output": "presence",
+          "stream": "presence",
+          "channel": "presence"
+        },
+        {
+          "output": "movement_intensity",
+          "stream": "presence",
+          "channel": "moveEnergy"
+        },
+        {
+          "output": "distance_m",
+          "stream": "position",
+          "channel": "personDist"
+        },
+        {
+          "output": "heart_rate_bpm",
+          "stream": "vitals",
+          "channel": "heartRate"
+        },
+        {
+          "output": "respiration_rate_bpm",
+          "stream": "vitals",
+          "channel": "breathRate"
+        }
+      ]
+    },
+    "health": {},
+    "machine_settings": {},
+    "study_settings": {},
+    "interval_summary": {},
+    "sidecar_export": {}
+  },
+  "streams": [
+    {
+      "key": "presence",
+      "source_id": "study_runner.am_hub.presence",
+      "type": "PRESENCE",
+      "nominal_rate_hz": 10,
+      "clock_domain": "lsl",
+      "channel_format": "float32",
+      "channels": ["presence", "presState", "presDist", "moveEnergy", "staticEnergy", "targetCount"],
+      "channel_units": ["boolean", "enum", "millimetre", "arbitrary_unit", "arbitrary_unit", "count"]
+    },
+    {
+      "key": "position",
+      "source_id": "study_runner.am_hub.position",
+      "type": "POSITION",
+      "nominal_rate_hz": 10,
+      "clock_domain": "lsl",
+      "channel_format": "float32",
+      "channels": ["personDist", "personX", "personY", "t1x", "t1y", "t1speed", "t2x", "t2y", "t2speed", "t3x", "t3y", "t3speed"],
+      "channel_units": ["millimetre", "millimetre", "millimetre", "millimetre", "millimetre", "millimetre_per_second", "millimetre", "millimetre", "millimetre_per_second", "millimetre", "millimetre", "millimetre_per_second"]
+    },
+    {
+      "key": "vitals",
+      "source_id": "study_runner.am_hub.vitals",
+      "type": "VITALS",
+      "nominal_rate_hz": 10,
+      "clock_domain": "lsl",
+      "channel_format": "float32",
+      "channels": ["heartRate", "breathRate", "bioDistance", "bioX", "bioY"],
+      "channel_units": ["beats_per_minute", "breaths_per_minute", "millimetre", "millimetre", "millimetre"]
+    }
+  ],
+  "settings": {
+    "machine": {
+      "base_url": {
+        "type": "string",
+        "path": "base_url",
+        "default": "",
+        "label_key": "pluginSettings.amHub.baseUrl",
+        "apply": "restart",
+        "scope": "machine"
+      },
+      "data_timeout_seconds": {
+        "type": "number",
+        "unit": "s",
+        "path": "data_timeout_seconds",
+        "default": 5,
+        "minimum": 1,
+        "maximum": 120,
+        "label_key": "pluginSettings.amHub.dataTimeout",
+        "apply": "restart",
+        "scope": "machine"
+      },
+      "reconnect_delay_seconds": {
+        "type": "number",
+        "unit": "s",
+        "path": "reconnect_delay_seconds",
+        "default": 3,
+        "minimum": 1,
+        "maximum": 60,
+        "label_key": "pluginSettings.amHub.reconnectDelay",
+        "apply": "restart",
+        "scope": "machine"
+      }
+    },
+    "study": {},
+    "card_actions": {}
+  },
+  "poll_interval_ms": 1000,
+  "request_timeout_ms": 1500,
+  "clock_domain": "lsl",
+  "expected_data_rate": {
+    "presence_hz": 10,
+    "position_hz": 10,
+    "vitals_hz": 10
+  },
+  "backpressure": {
+    "max_in_flight": 1,
+    "drop_policy": "latest_status_wins"
+  }
+}

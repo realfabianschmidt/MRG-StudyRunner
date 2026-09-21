@@ -249,6 +249,9 @@ recording code now, not plugins: `data_core/host/markers.py` and
 | `mr60_mini_radar/plugin.py` | Plugin wrapper for the radar | careful |
 | `mr60_mini_radar/driver.py` | API-v5 process entry point (`run_plugin_driver("mini_radar")`) | no |
 | `mr60_mini_radar/tools/ble_mr60_receiver.py` | Standalone BLE test receiver for debugging | yes |
+| `am_hub/adapter.py` | Parasite AM Hub SSE client: presence/position/movement (vitals once the hub forwards them) | careful |
+| `am_hub/plugin.py` | Plugin wrapper for the AM Hub adapter | careful |
+| `am_hub/driver.py` | API-v5 process entry point (`run_plugin_driver("am_hub")`) | no |
 | `camera_emotion/adapter.py` | Accepts tablet camera frames and publishes stable LSL streams | careful |
 | `camera_emotion/plugin.py` | Single public camera/emotion plugin and generic admin actions | careful |
 | `camera_emotion/driver.py` | API-v5 process entry point (`run_plugin_driver("camera_emotion")`) | no |
