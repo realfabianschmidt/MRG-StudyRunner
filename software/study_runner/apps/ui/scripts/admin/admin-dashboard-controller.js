@@ -35,6 +35,12 @@ export function initializeAdminDashboard(options = {}) {
       void openPluginConsole(consoleButton.dataset.pluginConsole, { showToast });
       return;
     }
+    const runtimeToggle = event.target.closest('[data-runtime-toggle]');
+    if (runtimeToggle) {
+      const pluginKey = runtimeToggle.dataset.runtimeToggle;
+      void runDashboardAction(`runtime_${pluginKey}_${runtimeToggle.checked ? 'start' : 'stop'}`, elements, showToast);
+      return;
+    }
     const button = event.target.closest('[data-dashboard-action]');
     if (button) {
       void runDashboardAction(button, elements, showToast);
@@ -97,13 +103,15 @@ async function runPluginAdminAction(button, elements, showToast) {
   const actionKey = button.dataset.pluginAdminAction || '';
   const declared = (pluginByKey(pluginKey)?.capability_config?.admin_actions?.actions || [])
     .find((candidate) => candidate.key === actionKey);
-  if (!declared) return;
+  if (!declared || button.disabled) return;
   const pendingKey = `${pluginKey}:${actionKey}`;
-  if (pendingPluginActions.has(pendingKey)) return;
+  const tile = button.closest('[data-plugin-tile]');
+  if (tile?.dataset.runtimeLocked === 'true' || pluginActionPending(pluginKey)) return;
   if (declared.confirm && !window.confirm(t(`plugins.${pluginKey}.actions.${actionKey}.confirm`, declared.description || declared.label || actionKey))) return;
 
   button.disabled = true;
   pendingPluginActions.add(pendingKey);
+  updatePluginActionAvailability(tile, pluginKey);
   try {
     let payload = {};
     const selector = button.closest('[data-plugin-action-select]')?.querySelector('select');
@@ -131,7 +139,7 @@ async function runPluginAdminAction(button, elements, showToast) {
     showToast?.(error.message || t('dashboard.pluginActionFailed', 'Plugin action failed'), 'error');
   } finally {
     pendingPluginActions.delete(pendingKey);
-    button.disabled = false;
+    updatePluginActionAvailability(tile, pluginKey);
   }
 }
 
@@ -226,33 +234,68 @@ export function renderSensorTiles(target, status) {
       target.insertAdjacentHTML('beforeend', `
       <article class="dashboard-card" data-plugin-tile="${escapeHtml(item.key)}">
         <div class="dashboard-card-title"><i class="${escapeHtml(icon)}"></i> <span>${escapeHtml(item.label || item.key)}</span></div>
-        <div class="dashboard-card-body"><div data-plugin-detail></div><div data-plugin-actions></div>${renderPluginConsoleButton(item.manifest)}</div>
+        <div class="dashboard-card-body"><div data-plugin-inline-controls></div><div data-plugin-detail></div><div data-plugin-actions></div>${renderPluginConsoleButton(item.manifest)}</div>
       </article>`);
       tile = target.lastElementChild;
     }
+    tile.dataset.runtimeLocked = String(!!item.runtime_locked);
+    const template = document.createElement('template');
+    template.innerHTML = detail;
+    const inlineControls = template.content.querySelector('[data-plugin-dashboard-controls]');
+    renderPluginActionControls(tile.querySelector('[data-plugin-inline-controls]'), inlineControls?.outerHTML || '');
+    inlineControls?.remove();
     const body = tile.querySelector('[data-plugin-detail]');
-    if (!body.contains(document.activeElement)) {
-      const openDetails = [...body.querySelectorAll('details')].map((node) => node.open);
-      body.innerHTML = detail;
-      body.querySelectorAll('details').forEach((node, index) => { node.open = openDetails[index] || false; });
-    }
+    const focusable = 'button, input, select, textarea, summary, [tabindex]';
+    const focused = body.contains(document.activeElement) ? document.activeElement : null;
+    const focusIndex = [...body.querySelectorAll(focusable)].indexOf(focused);
+    const focusIdentity = (node) => node && `${node.tagName}:${node.id}:${node.dataset.dashboardAction || node.dataset.runtimeToggle || node.getAttribute('aria-label') || ''}`;
+    const oldFocusIdentity = focusIdentity(focused);
+    const openDetails = [...body.querySelectorAll('details')].map((node) => node.open);
+    body.innerHTML = template.innerHTML;
+    body.querySelectorAll('details').forEach((node, index) => { node.open = openDetails[index] || false; });
+    const nextFocus = body.querySelectorAll(focusable)[focusIndex];
+    if (focused && focusIdentity(nextFocus) === oldFocusIdentity) nextFocus.focus({ preventScroll: true });
     const actions = tile.querySelector('[data-plugin-actions]');
-    // Keep the real select element while it is focused, including its native popup.
-    if (!actions.contains(document.activeElement)) {
-      const values = new Map([...actions.querySelectorAll('select')].map((node) => [node.id, node.value]));
-      const html = renderPluginAdminActions(item.manifest, item);
-      if (actions._rendered !== html) {
-        actions.innerHTML = html;
-        actions._rendered = html;
-        actions.querySelectorAll('select').forEach((node) => {
-          const value = values.get(node.id);
-          if ([...node.options].some((option) => option.value === value)) node.value = value;
-        });
-      }
-    }
-    actions.querySelectorAll('button, select').forEach((node) => {
-      node.disabled = !!item.runtime_locked || pendingPluginActions.has(`${item.key}:${node.dataset.pluginAdminAction || node.dataset.actionKey}`);
+    renderPluginActionControls(actions, renderPluginAdminActions(item.manifest, item));
+    updatePluginActionAvailability(tile, item.key);
+  });
+}
+
+function pluginActionPending(pluginKey) {
+  return [...pendingPluginActions].some((key) => key.startsWith(`${pluginKey}:`));
+}
+
+function updatePluginActionAvailability(tile, pluginKey) {
+  if (!tile) return;
+  const blocked = tile.dataset.runtimeLocked === 'true' || pluginActionPending(pluginKey);
+  tile.querySelectorAll('[data-plugin-admin-action], select[data-action-key]').forEach((node) => {
+    node.disabled = blocked;
+  });
+}
+
+function optionIdentity(option) {
+  return option?.dataset.optionKey || option?.value || '';
+}
+
+function renderPluginActionControls(container, html) {
+  const choices = new Map([...container.querySelectorAll('select')]
+    .map((node) => [node.id, optionIdentity(node.selectedOptions[0])]));
+  if (container.contains(document.activeElement)) {
+    // Keep the native popup alive, but invalidate a target that disappeared.
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    container.querySelectorAll('select').forEach((node) => {
+      const incoming = [...template.content.querySelectorAll('select')].find((next) => next.id === node.id);
+      if (!incoming || ![...incoming.options].some((option) => optionIdentity(option) === choices.get(node.id))) node.value = '';
     });
+    return;
+  }
+  if (container._rendered === html) return;
+  container.innerHTML = html;
+  container._rendered = html;
+  container.querySelectorAll('select').forEach((node) => {
+    const selected = [...node.options].find((option) => optionIdentity(option) === choices.get(node.id));
+    node.value = selected?.value || '';
   });
 }
 
@@ -289,6 +332,7 @@ function dashboardUiHelpers() {
 }
 
 function renderPluginAdminActions(manifest, pluginStatus) {
+  if (manifest?.capability_config?.admin_actions?.rendered_by_dashboard) return '';
   const actions = manifest?.capability_config?.admin_actions?.actions || [];
   if (!actions.length) return '';
   const buttons = actions.flatMap((action) => renderManifestActionInstances(action, manifest, pluginStatus));

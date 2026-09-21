@@ -103,3 +103,9 @@ Raw acquisition is independent of optional analytics failures. Analytic windows
 and calibration reset after packet discontinuities; output validity is carried
 into diagnostics and sidecar summaries. Repeated initialization for a study with
 unchanged settings preserves existing EEG outlets and the live BLE process.
+
+The plugin renders its toolbar in `data-plugin-dashboard-controls`. The central
+dashboard keeps that control region separate from live status and graphs, and
+applies the same lock and pending-action behavior as generic plugin actions.
+Device options carry `data-option-key` identities based on serial or address;
+the selected identity survives changed scan order even when its payload changes.

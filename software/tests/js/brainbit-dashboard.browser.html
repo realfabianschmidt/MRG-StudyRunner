@@ -1,6 +1,7 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><title>BrainBit dashboard fixture</title>
 <link rel="stylesheet" href="/software/study_runner/apps/ui/styles/main.css">
 <link rel="stylesheet" href="/software/study_runner/apps/ui/styles/admin.css">
+<link rel="stylesheet" href="/software/study_runner/apps/ui/vendor/iconoir/iconoir.css">
 <style>body { display: block; min-height: 0; } #test-result { white-space: pre-wrap; padding: 24px; }</style>
 <body><button id="btn-admin-dashboard">Dashboard</button><button id="btn-admin-edit-view">Editor</button>
 <main id="admin-dashboard" style="padding:24px;max-width:1100px;margin:auto"><div id="dashboard-sensor-tiles" class="dashboard-grid"></div></main>
@@ -38,7 +39,7 @@ try {
   initializeAdminDashboard();
   const target = document.querySelector('#dashboard-sensor-tiles');
   renderSensorTiles(target, state);
-  const select = target.querySelector('select');
+  let select = target.querySelector('select');
   assert(select, 'missing device dropdown');
   select.value = select.options[2].value;
   select.focus();
@@ -46,11 +47,62 @@ try {
   assert(document.activeElement === select, 'polling lost keyboard focus');
   assert(target.querySelector('select') === select, 'polling replaced the native dropdown');
   assert(JSON.parse(select.value).serial_number === 'LAB-B', 'polling lost selection');
-  const button = target.querySelector('[data-plugin-admin-action="select_device"]');
+  const oldSvg = target.querySelector('svg');
+  state.plugins.brainbit.low_battery = true;
+  renderSensorTiles(target, state);
+  assert(target.querySelector('svg') !== oldSvg, 'focused dropdown freezes graphs');
+  assert(target.querySelector('[role="status"]').textContent.includes('low battery'), 'focused dropdown freezes status');
+  state.plugins.brainbit.low_battery = false;
+  select.blur();
+  // The payload changes with scan order, but the physical identity does not.
+  state.plugins.brainbit.scan_candidates.reverse();
+  state.plugins.brainbit.scan_candidates.forEach((candidate, index) => candidate.index = index);
+  for (let i=0;i<3;i++) renderSensorTiles(target, state);
+  select = target.querySelector('select');
+  assert(JSON.parse(select.value).serial_number === 'LAB-B', 'blur or scan reorder lost identity');
+  assert(JSON.parse(select.value).index === 0, 'selection retained an obsolete payload');
+  let button = target.querySelector('[data-plugin-admin-action="select_device"]');
   button.click(); button.click();
+  renderSensorTiles(target, state);
+  assert([...target.querySelectorAll('[data-plugin-admin-action], select')].every(node => node.disabled), 'in-flight action did not disable controls');
   await new Promise(resolve => setTimeout(resolve, 100));
   assert(posts === 1, `one confirmation sent ${posts} actions`);
+  state.plugins.brainbit.runtime_locked = true;
+  renderSensorTiles(target, state);
+  assert([...target.querySelectorAll('[data-plugin-admin-action], select')].every(node => node.disabled), 'runtime lock missed plugin-owned controls');
+  target.querySelector('[data-plugin-admin-action="select_device"]').click();
+  assert(posts === 1, 'locked action was submitted');
+  state.plugins.brainbit.runtime_locked = false;
+  renderSensorTiles(target, state);
+  select = target.querySelector('select');
+  select.focus();
+  state.plugins.brainbit.scan_candidates = state.plugins.brainbit.scan_candidates.filter(candidate => candidate.serial !== 'LAB-B');
+  renderSensorTiles(target, state);
+  assert(select.value === '', 'missing device silently selected another headset');
+  select.blur();
+  renderSensorTiles(target, state);
+  assert(target.querySelector('select').value === '', 'missing device returned after blur');
+  target.querySelector('[data-plugin-admin-action="select_device"]').click();
+  assert(posts === 1, 'empty selection was submitted');
+  state.plugins.brainbit.scan_candidates = [{name:'BrainBit',address:'AA:BB'},{name:'BrainBit',address:'CC:DD'}];
+  renderSensorTiles(target, state);
+  select = target.querySelector('select');
+  select.value = select.options[2].value;
+  state.plugins.brainbit.scan_candidates = [{name:'Renamed',address:'cc-dd'},{name:'BrainBit',address:'AA:BB'}];
+  renderSensorTiles(target, state);
+  assert(JSON.parse(target.querySelector('select').value).address === 'cc-dd', 'address fallback lost identity after reorder');
+  // Leave a representative full device list for the desktop/tablet screenshot.
+  state.plugins.brainbit.scan_candidates = [{name:'BrainBit',serial:'LAB-A',address:'AA'},{name:'BrainBit',serial:'LAB-B',address:'BB'}];
+  renderSensorTiles(target, state);
+  target.querySelector('summary').focus();
+  const previousGraph = target.querySelector('svg');
+  renderSensorTiles(target, state);
+  assert(document.activeElement === target.querySelector('summary'), 'polling lost details keyboard focus');
+  assert(target.querySelector('svg') !== previousGraph, 'details keyboard focus freezes graphs');
   assert(target.querySelectorAll('svg').length === 2, 'missing trend graphs');
+  for (const icon of target.querySelectorAll('[data-plugin-admin-action] i')) {
+    assert(getComputedStyle(icon, '::before').maskImage !== 'none', 'action icon is missing from the bundled icon set');
+  }
   assert(!target.textContent.includes('Reconnecting to BrainBit'), 'obsolete message still visible');
   assert(document.documentElement.scrollWidth <= window.innerWidth, 'horizontal overflow');
   document.querySelector('#test-result').textContent = 'PASS: dropdown identity, focus, single action, graphs, current message, layout';

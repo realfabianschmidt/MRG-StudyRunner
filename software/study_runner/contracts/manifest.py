@@ -809,11 +809,14 @@ def _normalize_admin_actions(config: dict[str, Any]) -> dict[str, Any]:
     raw_actions = config.get("actions")
     if not isinstance(raw_actions, list) or not raw_actions:
         raise PluginManifestError("admin_actions.actions must be a non-empty list")
-    unexpected = sorted(set(config) - {"actions"})
+    unexpected = sorted(set(config) - {"actions", "rendered_by_dashboard"})
     if unexpected:
         raise PluginManifestError(
             "admin_actions contains unsupported fields: " + ", ".join(unexpected)
         )
+    rendered_by_dashboard = config.get("rendered_by_dashboard", False)
+    if not isinstance(rendered_by_dashboard, bool):
+        raise PluginManifestError("admin_actions.rendered_by_dashboard must be boolean")
 
     actions: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
@@ -880,7 +883,10 @@ def _normalize_admin_actions(config: dict[str, Any]) -> dict[str, Any]:
         if instances:
             action["instances"] = instances
         actions.append(action)
-    return {"actions": actions}
+    result: dict[str, Any] = {"actions": actions}
+    if rendered_by_dashboard:
+        result["rendered_by_dashboard"] = True
+    return result
 
 
 def _normalize_admin_action_payload_schema(

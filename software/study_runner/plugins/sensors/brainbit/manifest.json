@@ -74,6 +74,7 @@
     "interval_summary": {},
     "sidecar_export": {},
     "admin_actions": {
+      "rendered_by_dashboard": true,
       "actions": [
         {
           "key": "select_device",

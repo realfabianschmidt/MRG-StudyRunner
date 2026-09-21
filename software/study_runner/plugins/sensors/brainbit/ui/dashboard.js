@@ -4,6 +4,33 @@ function connectionLabel(plugin, ui) {
   return ui.t(`brainbit.connection.${state}`, state.replaceAll('_', ' '));
 }
 
+/**
+ * Mental-index series get a hover explanation (Instant vs. Relative isn't
+ * self-evident); band-power series (delta/theta/...) don't need one.
+ */
+const MENTAL_HELP_KEYS = {
+  Inst_Attention: ['brainbitMentalInstAttention', "Instant attention: the SDK attention index for the current analysis window. This preview updates at most once per second."],
+  Inst_Relaxation: ['brainbitMentalInstRelaxation', "Instant relaxation: the SDK relaxation index for the current analysis window. This preview updates at most once per second."],
+  Rel_Attention: ['brainbitMentalRelAttention', "Relative attention: the SDK attention index relative to calibration. An algorithmic index, not a direct measurement of attention."],
+  Rel_Relaxation: ['brainbitMentalRelRelaxation', "Relative relaxation: the SDK relaxation index relative to calibration. An algorithmic index, not a direct measurement of relaxation."],
+};
+
+// Scale against the whole visible window so older peaks remain accurate.
+const HEADROOM_FACTOR = 1.15;
+const MIN_DISPLAY_MAX = 0.05;
+
+function computeDisplayMax(points, end, names) {
+  let recentMax = 0;
+  for (const point of points) {
+    if (point.at < end - 60 || point.at > end || point.validity !== 'valid') continue;
+    for (const name of names) {
+      const value = point.values?.[name];
+      if (Number.isFinite(value) && value > recentMax) recentMax = value;
+    }
+  }
+  return Math.max(MIN_DISPLAY_MAX, Math.ceil(recentMax * HEADROOM_FACTOR / MIN_DISPLAY_MAX) * MIN_DISPLAY_MAX);
+}
+
 export function renderTrend(kind, plugin, ui, now = Date.now() / 1000) {
   const names = kind === 'bands' ? ['delta', 'theta', 'alpha', 'beta', 'gamma']
     : ['Inst_Attention', 'Inst_Relaxation', 'Rel_Attention', 'Rel_Relaxation'];
@@ -12,29 +39,37 @@ export function renderTrend(kind, plugin, ui, now = Date.now() / 1000) {
   const last = points.at(-1);
   const end = last ? last.at + Math.max(0, now - last.received_at) : now;
   const title = ui.t(`brainbit.monitor.${kind}`, kind === 'bands' ? 'Band power' : 'SDK attention / relaxation indices');
+  const displayMax = computeDisplayMax(points, end, names);
   const paths = names.map((name, index) => {
     let d = '', previous = null;
     for (const point of points) {
       const value = point.values?.[name];
-      if (point.at < end - 60 || point.validity !== 'valid' || !Number.isFinite(value)) { previous = null; continue; }
+      if (point.at < end - 60 || point.at > end || point.validity !== 'valid' || !Number.isFinite(value) || value < 0) { previous = null; continue; }
       const x = 32 + (point.at - (end - 60)) / 60 * 306;
-      const y = 110 - Math.max(0, Math.min(1, value)) * 92;
+      const y = 110 - value / displayMax * 92;
       d += `${previous !== null && point.at - previous < 1.6 ? 'L' : 'M'}${x.toFixed(2)},${y.toFixed(2)} `;
       previous = point.at;
     }
     return `<path d="${d}" fill="none" stroke="${colors[index]}" stroke-width="2" stroke-dasharray="${index % 2 ? '5 2' : 'none'}" />`;
   }).join('');
-  const legend = names.map((name, index) => `<span style="color:${colors[index]}">${ui.escapeHtml(ui.t(`brainbit.channel.${name}`, name))}</span>`).join(' · ');
+  const legend = names.map((name, index) => {
+    const label = ui.escapeHtml(ui.t(`brainbit.channel.${name}`, name));
+    const help = MENTAL_HELP_KEYS[name];
+    const span = help
+      ? `<span style="color:${colors[index]}" class="status-label-help" tabindex="0" title="${ui.escapeHtml(ui.t(`dashboard.help.${help[0]}`, help[1]))}">${label}</span>`
+      : `<span style="color:${colors[index]}">${label}</span>`;
+    return span;
+  }).join(' · ');
   return `<section aria-label="${ui.escapeHtml(title)}"><strong>${ui.escapeHtml(title)}</strong>
     <svg viewBox="0 0 360 140" width="100%" role="img" aria-label="${ui.escapeHtml(title)}">
       <path d="M32 18V110H338" fill="none" stroke="currentColor" opacity=".4" />
-      <g fill="currentColor" font-size="10"><text x="2" y="22">100%</text><text x="12" y="114">0%</text>
+      <g fill="currentColor" font-size="10"><text x="2" y="22">${Math.round(displayMax * 100)}%</text><text x="12" y="114">0%</text>
       <text x="32" y="130">−60 s</text><text x="318" y="130">0 s</text></g>${paths}</svg>
-    <small>${legend}<br>${ui.escapeHtml(ui.t('brainbit.monitor.previewNote', '60-second preview, at most 1 Hz. Gaps indicate unavailable or uncertain values.'))}
+    <small>${legend}<br>${ui.escapeHtml(ui.t('brainbit.monitor.previewNote', "60-second preview, at most 1 Hz. The scale follows the visible values; gaps indicate unavailable or uncertain data."))}
     ${last ? ` · ${ui.escapeHtml(ui.t('brainbit.monitor.age', 'Age'))}: ${Math.max(0, now - last.received_at).toFixed(0)} s` : ''}</small></section>`;
 }
 
-export function renderDashboard({ plugin: brainbit }, ui) {
+export function renderDashboard({ plugin: brainbit, manifest }, ui) {
   const latest = brainbit.latest || {};
   const battery = latest.battery || {};
   const quality = latest.quality || {};
@@ -50,9 +85,13 @@ export function renderDashboard({ plugin: brainbit }, ui) {
     || 'unknown';
 
   return `
-    <div class="status-row">
-      <span class="status-pill status-pill--${ui.escapeHtml(brainbit.status || 'unknown')}">${ui.escapeHtml(connectionLabel(brainbit, ui))}</span>
-      <strong>${ui.formatEnabled(brainbit.configured_enabled ?? brainbit.enabled)}</strong>
+    ${renderDeviceToolbar(brainbit, manifest, ui)}
+    <div class="dashboard-status-row">
+      <div class="dashboard-status-row-info">
+        <span class="status-pill status-pill--${ui.escapeHtml(brainbit.status || 'unknown')}">${ui.escapeHtml(connectionLabel(brainbit, ui))}</span>
+        <strong>${ui.formatEnabled(brainbit.configured_enabled ?? brainbit.enabled)}</strong>
+      </div>
+      ${renderRuntimeToggle(brainbit, ui)}
     </div>
     <p role="status">${formatMessage(brainbit, latest, ui)}</p>
     ${renderTrend('bands', brainbit, ui)}
@@ -83,8 +122,80 @@ export function renderDashboard({ plugin: brainbit }, ui) {
       <dt>${ui.escapeHtml(ui.t('brainbit.monitor.artifactFraction', 'Artifact time since connection'))}</dt><dd>${ui.formatValue(Number.isFinite(brainbit.artifact_fraction) ? brainbit.artifact_fraction * 100 : null, '%')}</dd>
     </dl>
     </details>
-    ${ui.renderRuntimeButtons(brainbit)}
   `;
+}
+
+/** Device select + search/retest-contact/connect, as icon actions, above the fold. */
+function renderDeviceToolbar(brainbit, manifest, ui) {
+  const actions = Object.fromEntries((manifest?.capability_config?.admin_actions?.actions || []).map((action) => [action.key, action]));
+  const selectAction = actions.select_device;
+  const scanAction = actions.scan_devices;
+  const contactAction = actions.check_contact;
+  const instanceConfig = selectAction?.instances || {};
+  const candidates = (instanceConfig.status_paths || [])
+    .map((path) => readPath(brainbit, path))
+    .find((value) => Array.isArray(value)) || [];
+  const options = candidates.map((instance) => {
+    const payload = {};
+    Object.entries(instanceConfig.payload_map || {}).forEach(([target, source]) => {
+      const value = readPath(instance, source);
+      if (value !== undefined && value !== null && value !== '') payload[target] = value;
+    });
+    const label = [...new Set((instanceConfig.label_fields || []).map((path) => readPath(instance, path)).filter(Boolean))].join(' - ');
+    const serial = String(payload.serial_number || '').trim().toLowerCase();
+    const address = String(payload.address || '').replace(/[:-]/g, '').trim().toLowerCase();
+    const identity = serial ? `serial:${serial}` : address ? `address:${address}` : '';
+    return `<option data-option-key="${ui.escapeHtml(identity)}" value="${ui.escapeHtml(JSON.stringify(payload))}" ${identity ? '' : 'disabled'}>${ui.escapeHtml(label)}</option>`;
+  }).join('');
+  const selectId = `plugin-action-${manifest?.plugin_key || 'brainbit'}-select_device`;
+
+  const iconAction = (action, icon, order) => {
+    if (!action || !manifest) return '';
+    const label = ui.t(`plugins.${manifest.plugin_key}.actions.${action.key}`, action.label || action.key);
+    return `<button type="button" class="btn-icon-only" style="order:${order}" data-dashboard-action="plugin_admin_action"
+        data-plugin-key="${ui.escapeHtml(manifest.plugin_key)}" data-plugin-admin-action="${ui.escapeHtml(action.key)}"
+        data-plugin-admin-payload="${ui.escapeHtml(JSON.stringify({}))}"
+        title="${ui.escapeHtml(label)}" aria-label="${ui.escapeHtml(label)}"><i class="${icon}"></i></button>`;
+  };
+
+  return `<div class="dashboard-toolbar" data-plugin-dashboard-controls>
+    <div data-plugin-action-select class="dashboard-toolbar-select-group">
+      <select id="${ui.escapeHtml(selectId)}" data-action-key="select_device" class="dashboard-select" style="order:1"
+          aria-label="${ui.escapeHtml(ui.t('dashboard.selectDevice', 'Select device'))}">
+        <option value="">${ui.escapeHtml(ui.t('dashboard.chooseDevice', 'Choose a device'))}</option>${options}
+      </select>
+      ${iconAction(selectAction, 'iconoir-link', 4)}
+    </div>
+    ${iconAction(scanAction, 'iconoir-search', 2)}
+    ${iconAction(contactAction, 'iconoir-activity', 3)}
+  </div>`;
+}
+
+/** Toggle replaces Start/Stop; the icon button next to it replaces Restart. */
+function renderRuntimeToggle(brainbit, ui) {
+  const running = !!brainbit.can_stop;
+  const toggleDisabled = !(brainbit.can_start || brainbit.can_stop) ? 'disabled' : '';
+  const restartDisabled = brainbit.can_restart ? '' : 'disabled';
+  const toggleLabel = ui.t(running ? 'dashboard.action.stop' : 'dashboard.action.start', running ? 'Stop' : 'Start');
+  const restartLabel = ui.t('dashboard.action.restart', 'Restart');
+  return `<div class="dashboard-status-row-actions">
+    <label class="dashboard-toggle" title="${ui.escapeHtml(toggleLabel)}">
+      <span class="switch">
+        <input type="checkbox" data-runtime-toggle="${ui.escapeHtml(brainbit.key || '')}" ${running ? 'checked' : ''} ${toggleDisabled}
+            aria-label="${ui.escapeHtml(toggleLabel)}">
+        <span class="switch-slider"></span>
+      </span>
+    </label>
+    <button type="button" class="btn-icon-only" data-dashboard-action="runtime_${ui.escapeHtml(brainbit.key || '')}_restart" ${restartDisabled}
+        title="${ui.escapeHtml(restartLabel)}" aria-label="${ui.escapeHtml(restartLabel)}"><i class="iconoir-refresh"></i></button>
+  </div>`;
+}
+
+function readPath(source, path) {
+  return String(path || '').split('.').reduce(
+    (value, key) => (value && typeof value === 'object' ? value[key] : undefined),
+    source,
+  );
 }
 
 /**

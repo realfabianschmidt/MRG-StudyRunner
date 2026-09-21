@@ -129,9 +129,9 @@ The deployed `pyem_st_artifacts` API receives bipolar samples through
 `push_bipolars`. Current result fields are lowercase internally and are mapped
 to the stable output names above.
 
-Derived arrays are emitted and forwarded to LSL as timestamped batches. This
-retains a 25 Hz backlog without performing one flushed terminal write per
-result inside the native SDK callback. The dashboard keeps a bounded 60-second, 1-Hz preview;
+Derived arrays are emitted and forwarded to LSL as timestamped batches. The SDK
+is drained after each input frame so the last artifact flag of a callback does
+not get assigned to its entire output backlog. The dashboard keeps a bounded 60-second, 1-Hz preview;
 the full-rate rows remain in LSL/XDF and the sidecar is an explicit 1 Hz backup.
 
 EmotionalMath has no force-finish function. A stalled calibration is reported

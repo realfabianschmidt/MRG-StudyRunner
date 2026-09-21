@@ -262,7 +262,8 @@ class RecordingRuntimeTests(unittest.TestCase):
             contract = load_recording_contract(json.loads(plan_path.read_text(encoding="utf-8")))
             self.assertIsNotNone(contract)
 
-        self.assertEqual(len(contract["source_manifests"]["brainbit"]["streams"][0]["channels"]), 4)
+        sealed_eeg = next(stream for stream in contract["source_manifests"]["brainbit"]["streams"] if stream["key"] == "eeg")
+        self.assertEqual(len(sealed_eeg["channels"]), 4)
         self.assertEqual(contract["streams_by_source"]["brainbit"][0]["channels"], actual_eeg["channels"])
         self.assertEqual(
             contract["source_descriptors"]["brainbit"]["stream_contract_origin"],
