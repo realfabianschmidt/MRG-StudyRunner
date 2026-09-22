@@ -20,11 +20,24 @@ All notable Study Runner changes are documented here. Release tags use
 - Windows and macOS daily-start scripts expose a non-persistent self-check used
   by the clean platform release matrix.
 
+### Changed
+
+- macOS recording installations now require macOS 15.6+ and full Xcode 26 on
+  both Intel and Apple Silicon, with Xcode 26.3 Universal documented as the
+  common reference toolchain. The installer discovers its parallel versioned
+  app path, selects Xcode process-locally, compile-tests its C++20 standard
+  headers before downloading dependencies, and keeps non-recording installs
+  available without Xcode.
+
 ### Fixed
 
 - Creating a desktop shortcut from Settings now sends one request per click.
 - Source releases again exclude the optional BrainBit TouchDesigner reference
   after the plugin-directory rename.
+- A stale native-core CMake cache from standalone Apple Command Line Tools is
+  now rebuilt safely after Xcode is installed, avoiding the misleading
+  `cstdint file not found` vendor-build failure while preserving `.venv` and
+  staged/user data.
 
 ## 1.0.0 - 2026-09-14
 

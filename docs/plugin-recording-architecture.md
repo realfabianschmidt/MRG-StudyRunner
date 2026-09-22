@@ -37,7 +37,11 @@ platform installer builds and verifies it as part of a normal install --
 see [Install and start](../README.md#install-and-start) for the commands, and
 [Release and Update](release-and-update.md#python-dependency-constraints) for
 how Python dependencies are pinned. Windows needs the Visual Studio C++ Build
-Tools workload; macOS needs the Xcode Command Line Tools.
+Tools workload. macOS 15.6+ uses Xcode 26.3 Universal as its documented
+reference toolchain; other complete Xcode 26.x installations remain valid when
+their compiler preflight passes. The installer selects the developer directory
+process-locally and rejects the standalone Command Line Tools because they do
+not provide the supported recording toolchain contract.
 
 `python tools/setup_recording_worker.py` is the core-only developer command. It
 builds just the current platform, runs CTest, and runs a synthetic writer smoke

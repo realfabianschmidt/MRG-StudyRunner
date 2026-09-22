@@ -61,7 +61,7 @@ Open the permanent Study Runner folder and double-click
 Keep the terminal window open while Study Runner is running. Press `Ctrl+C` in
 that window to stop it.
 
-### macOS 15 or newer, Intel or Apple Silicon
+### macOS 15.6 or newer, Intel or Apple Silicon
 
 #### First installation
 
@@ -71,35 +71,71 @@ that window to stop it.
    **Documents** is a good default.
 3. Open Terminal. Type `cd `, including the space, drag the Study Runner folder
    from Finder into the Terminal window, and press Enter.
-4. Ask macOS to install Apple's Command Line Tools and finish the displayed
-   installer before continuing:
+4. Open Apple's authenticated Developer Downloads search from Terminal:
 
    ```bash
-   xcode-select --install
+   open "https://developer.apple.com/download/all/?q=Xcode%2026.3"
    ```
 
-5. Install Study Runner:
+5. Sign in with a free Apple Account and download **Xcode 26.3 Universal** as
+   `Xcode_26.3.xip`. A paid developer membership is not required. Do not use
+   `xcode-select --install`: it installs only the standalone Command Line Tools,
+   which are not sufficient for XDF recording. The current App Store version
+   may also require a newer macOS release and Apple Silicon.
+6. Return to Terminal and install Xcode alongside any existing version. This
+   block never overwrites `/Applications/Xcode-26.3.app`:
+
+   ```bash
+   if [[ -e /Applications/Xcode-26.3.app ]]; then
+     echo "Xcode 26.3 is already installed; leaving it unchanged."
+   else
+     xcode_stage="$(mktemp -d "${TMPDIR:-/tmp}/study-runner-xcode.XXXXXX")" &&
+     (
+       cd "$xcode_stage" &&
+       xip --expand "$HOME/Downloads/Xcode_26.3.xip" &&
+       sudo mv Xcode.app /Applications/Xcode-26.3.app
+     ) && /bin/rmdir "$xcode_stage"
+   fi
+   ```
+
+7. Initialize and verify this Xcode installation without changing the global
+   `xcode-select` setting:
+
+   ```bash
+   export DEVELOPER_DIR=/Applications/Xcode-26.3.app/Contents/Developer
+   sudo env DEVELOPER_DIR="$DEVELOPER_DIR" /usr/bin/xcodebuild -runFirstLaunch
+   /usr/bin/xcodebuild -version
+   /usr/bin/xcrun --sdk macosx --find clang++
+   /usr/bin/xcrun --sdk macosx --show-sdk-path
+   ```
+
+8. Install Study Runner:
 
    ```bash
    bash tools/install-macos.sh --install-system-dependencies
    ```
 
-   Homebrew is not required. If a native Python 3.12 is missing, the script
-   downloads the pinned universal installer from python.org, verifies its
-   checksum and Apple installer signature, and asks for the administrator
-   password to install it. CMake is installed only inside `.venv`. The first
-   installation therefore needs an internet connection. The command is safe
-   to run again after an interrupted installation or an update.
+   Homebrew is not required. Xcode is used only when the XDF recording core is
+   enabled, and the installer selects it only for its own process without
+   changing the global `xcode-select` setting. If a native Python 3.12 is
+   missing, the script downloads the pinned universal installer from
+   python.org, verifies its checksum and Apple installer signature, and asks
+   for the administrator password to install it. CMake is installed only
+   inside `.venv`. The first installation therefore needs an internet
+   connection. The command is safe to run again after an interrupted
+   installation or an update.
 
-   If the script opens the Command Line Tools installer, finish that dialog
-   and then run the same command again.
-6. Wait until the terminal says `Study Runner is ready`, then start it:
+   If Xcode reports that its components are not initialized, repeat step 7 and
+   then run the same installer command again. An existing valid `.venv` is
+   reused; on a repaired installation only the generated native-core CMake
+   cache may be recreated.
+9. Wait until the terminal says `Study Runner is ready`, then start it:
 
    ```bash
    bash tools/start-macos.sh
    ```
 
-7. Wait for the Admin page to open. If it does not, open
+10. Wait for the Admin page to open. If it does not, open
    `https://localhost:3000/admin` in a browser.
 
 #### Create the macOS desktop shortcut
@@ -234,12 +270,16 @@ execution-policy bypass; they do not change the machine or user policy. A
 policy enforced through AppLocker, WDAC, or Group Policy must be resolved by
 the organization's administrator.
 
-On macOS 15 or newer, the system-dependency option installs a missing native
+On macOS 15.6 or newer, the system-dependency option installs a missing native
 Python 3.12 from the pinned, checksum- and signature-verified official
 python.org universal2 package. The installer places the pinned CMake build
 tools inside the repository-local `.venv`; it does not require or modify a
-system package manager. Apple's Command Line Tools remain required when the
-native XDF recording core is enabled.
+system package manager. Xcode 26.3 Universal from Apple Developer Downloads is
+the documented reference toolchain for Intel and Apple Silicon. Complete Xcode
+26.x installations supply the compiler, C++ headers, SDK, and `xcrun` required
+when the native XDF recording core is enabled; standalone Command Line Tools
+are neither required nor accepted. With `--skip-recording-core`, neither Xcode
+nor CMake is required.
 
 ### Git clone alternative
 

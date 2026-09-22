@@ -154,30 +154,120 @@ class RecordingCoreSetupTests(unittest.TestCase):
             self.assertFalse(build_dir.exists())
             self.assertFalse(stage_dir.exists())
 
-    def test_macos_sdk_path_is_resolved_via_xcrun(self) -> None:
-        with mock.patch.object(
-            setup, "_run_command", return_value="/Applications/Xcode.app/.../MacOSX.sdk\n"
-        ) as run_command, mock.patch.object(setup.Path, "is_dir", return_value=True):
-            sdk_path = setup._macos_sdk_path()
-
-        self.assertEqual(sdk_path, "/Applications/Xcode.app/.../MacOSX.sdk")
-        run_command.assert_called_once_with(
-            ["xcrun", "--sdk", "macosx", "--show-sdk-path"], quiet=True
-        )
-
-    def test_macos_sdk_path_fails_fast_when_xcrun_errors(self) -> None:
-        with mock.patch.object(
-            setup, "_run_command", side_effect=setup.SetupError("command failed (1): xcrun")
+    def test_standalone_command_line_tools_are_rejected(self) -> None:
+        with mock.patch.dict(setup.os.environ, {}, clear=True), mock.patch.object(
+            setup,
+            "_run_command",
+            return_value="/Library/Developer/CommandLineTools\n",
         ):
-            with self.assertRaisesRegex(setup.SetupError, "xcode-select --reset"):
-                setup._macos_sdk_path()
+            with self.assertRaisesRegex(setup.SetupError, "standalone Command Line Tools"):
+                setup._full_xcode_developer_dir()
 
-    def test_macos_sdk_path_fails_fast_when_the_sdk_directory_is_missing(self) -> None:
-        with mock.patch.object(setup, "_run_command", return_value="/no/such/sdk\n"):
-            with self.assertRaisesRegex(setup.SetupError, "xcode-select --reset"):
-                setup._macos_sdk_path()
+    def test_versioned_reference_xcode_precedes_standalone_selection(self) -> None:
+        with mock.patch.dict(setup.os.environ, {}, clear=True), mock.patch.object(
+            setup,
+            "_is_full_xcode_developer_dir",
+            side_effect=lambda candidate: candidate == setup.XCODE_REFERENCE_DEVELOPER_DIR,
+        ), mock.patch.object(setup, "_run_command") as run_command:
+            selected = setup._full_xcode_developer_dir()
 
-    def test_macos_configure_command_includes_the_resolved_sysroot(self) -> None:
+        self.assertEqual(selected, setup.XCODE_REFERENCE_DEVELOPER_DIR.resolve())
+        run_command.assert_not_called()
+
+    def test_process_local_full_xcode_selection_is_accepted(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            developer_dir = Path(temp_dir) / "Xcode.app/Contents/Developer"
+            xcodebuild = developer_dir / "usr/bin/xcodebuild"
+            xcodebuild.parent.mkdir(parents=True)
+            xcodebuild.write_bytes(b"xcodebuild")
+
+            with mock.patch.dict(
+                setup.os.environ,
+                {"DEVELOPER_DIR": str(developer_dir)},
+                clear=True,
+            ), mock.patch.object(
+                setup,
+                "_run_command",
+                return_value="/Library/Developer/CommandLineTools\n",
+            ):
+                selected = setup._full_xcode_developer_dir()
+
+            self.assertEqual(selected, developer_dir.resolve())
+
+    def test_macos_toolchain_compile_tests_cstdint(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            root = Path(temp_dir)
+            developer_dir = root / "Xcode.app/Contents/Developer"
+            compiler = developer_dir / "Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"
+            sdk = developer_dir / "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+            compiler.parent.mkdir(parents=True)
+            compiler.write_bytes(b"compiler")
+            sdk.mkdir(parents=True)
+            commands: list[list[str]] = []
+
+            def fake_run_command(command, *, quiet):
+                command = [str(part) for part in command]
+                commands.append(command)
+                if command == ["xcodebuild", "-version"]:
+                    return "Xcode 26.0\nBuild version 17A1\n"
+                if command[-2:] == ["--find", "clang++"]:
+                    return f"{compiler}\n"
+                if command[-1:] == ["--show-sdk-path"]:
+                    return f"{sdk}\n"
+                source = Path(command[-1])
+                self.assertIn("#include <cstdint>", source.read_text(encoding="utf-8"))
+                return ""
+
+            with mock.patch.dict(setup.os.environ, {}, clear=True), mock.patch.object(
+                setup, "_full_xcode_developer_dir", return_value=developer_dir
+            ), mock.patch.object(setup, "_run_command", side_effect=fake_run_command):
+                toolchain = setup._macos_toolchain(
+                    setup.supported_target("Darwin", "x86_64")
+                )
+
+            self.assertEqual(toolchain["compiler"], str(compiler))
+            self.assertEqual(toolchain["sdk_path"], str(sdk))
+            compile_call = commands[-1]
+            self.assertIn("-std=c++20", compile_call)
+            self.assertIn("x86_64", compile_call)
+
+    def test_macos_toolchain_rejects_other_xcode_major_versions(self) -> None:
+        developer_dir = Path("/Applications/Xcode.app/Contents/Developer")
+        with mock.patch.object(
+            setup, "_full_xcode_developer_dir", return_value=developer_dir
+        ), mock.patch.object(
+            setup,
+            "_run_command",
+            return_value="Xcode 25.4\nBuild version 16Z1\n",
+        ):
+            with self.assertRaisesRegex(setup.SetupError, "Xcode 26 is required"):
+                setup._macos_toolchain(setup.supported_target("Darwin", "arm64"))
+
+    def test_macos_toolchain_classifies_cstdint_compile_failure(self) -> None:
+        toolchain_paths = {
+            "developer_dir": "/Applications/Xcode.app/Contents/Developer",
+            "compiler": "/Applications/Xcode.app/clang++",
+            "sdk": "/Applications/Xcode.app/MacOSX.sdk",
+        }
+
+        def fake_run_command(command, *, quiet):
+            if command == ["xcodebuild", "-version"]:
+                return "Xcode 26.0\nBuild version 17A1\n"
+            if command[-2:] == ["--find", "clang++"]:
+                return toolchain_paths["compiler"] + "\n"
+            if command[-1:] == ["--show-sdk-path"]:
+                return toolchain_paths["sdk"] + "\n"
+            raise setup.SetupError("fatal error: 'cstdint' file not found")
+
+        with mock.patch.object(
+            setup, "_full_xcode_developer_dir", return_value=Path(toolchain_paths["developer_dir"])
+        ), mock.patch.object(setup, "_run_command", side_effect=fake_run_command), mock.patch.object(
+            setup.Path, "is_file", return_value=True
+        ), mock.patch.object(setup.Path, "is_dir", return_value=True):
+            with self.assertRaisesRegex(setup.SetupError, r"C\+\+20 toolchain.*cstdint"):
+                setup._macos_toolchain(setup.supported_target("Darwin", "arm64"))
+
+    def test_macos_configure_command_includes_compiler_and_sysroot(self) -> None:
         with workspace_temporary_directory() as temp_dir:
             root = Path(temp_dir)
             build_dir = root / "build"
@@ -188,8 +278,6 @@ class RecordingCoreSetupTests(unittest.TestCase):
             def fake_run_command(command, *, quiet):
                 command = [str(part) for part in command]
                 commands.append(command)
-                if command[:2] == ["xcrun", "--sdk"]:
-                    return "/fake/sdk\n"
                 if "-S" in command:
                     return ""  # configure "succeeded"
                 # Stop right after configure -- only that call matters here.
@@ -200,7 +288,16 @@ class RecordingCoreSetupTests(unittest.TestCase):
                 mock.patch.object(
                     setup, "verify_upstream_sources", return_value={"source_lock_sha256": "x"}
                 ), \
-                mock.patch.object(setup.Path, "is_dir", return_value=True):
+                mock.patch.object(
+                    setup,
+                    "_macos_toolchain",
+                    return_value={
+                        "developer_dir": "/Applications/Xcode.app/Contents/Developer",
+                        "xcode": "Xcode 26.0",
+                        "compiler": "/Applications/Xcode.app/clang++",
+                        "sdk_path": "/Applications/Xcode.app/MacOSX.sdk",
+                    },
+                ):
                 with self.assertRaisesRegex(setup.SetupError, "stop here after configure"):
                     setup.build_core(
                         target=target,
@@ -214,7 +311,46 @@ class RecordingCoreSetupTests(unittest.TestCase):
 
             configure_calls = [c for c in commands if c[:1] == ["cmake"] and "-S" in c]
             self.assertEqual(len(configure_calls), 1)
-            self.assertIn("-DCMAKE_OSX_SYSROOT=/fake/sdk", configure_calls[0])
+            self.assertIn(
+                "-DCMAKE_CXX_COMPILER=/Applications/Xcode.app/clang++",
+                configure_calls[0],
+            )
+            self.assertIn(
+                "-DCMAKE_OSX_SYSROOT=/Applications/Xcode.app/MacOSX.sdk",
+                configure_calls[0],
+            )
+
+    def test_stale_macos_cache_is_only_reset_for_the_allowed_generated_dir(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            root = Path(temp_dir)
+            build_dir = root / "build"
+            build_dir.mkdir()
+            cache = build_dir / "CMakeCache.txt"
+            cache.write_text(
+                "CMAKE_CXX_COMPILER:FILEPATH=/Library/Developer/CommandLineTools/usr/bin/c++\n"
+                "CMAKE_OSX_SYSROOT:PATH=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk\n",
+                encoding="utf-8",
+            )
+            toolchain = {
+                "compiler": "/Applications/Xcode.app/clang++",
+                "sdk_path": "/Applications/Xcode.app/MacOSX.sdk",
+            }
+
+            with self.assertRaisesRegex(setup.SetupError, "custom build directory"):
+                setup._reset_stale_macos_cache(
+                    build_dir,
+                    toolchain,
+                    resettable_build_dir=None,
+                )
+            self.assertTrue(cache.is_file())
+
+            reset = setup._reset_stale_macos_cache(
+                build_dir,
+                toolchain,
+                resettable_build_dir=build_dir,
+            )
+            self.assertTrue(reset)
+            self.assertFalse(build_dir.exists())
 
     def test_probe_only_verifies_manifest_hash_and_canonical_features(self) -> None:
         with workspace_temporary_directory() as temp_dir:

@@ -194,6 +194,11 @@ jobs:
         shell: bash
         run: |
           bash -n tools/install-macos.sh
+          export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+          xcodebuild -version | grep -E '^Xcode 26([.]|$)'
+          compiler="$(xcrun --sdk macosx --find clang++)"
+          sdk="$(xcrun --sdk macosx --show-sdk-path)"
+          printf '#include <cstdint>\nint main() { std::uint32_t value = 0; return static_cast<int>(value); }\n' | "$compiler" -std=c++20 -arch "$(uname -m)" -isysroot "$sdk" -x c++ -fsyntax-only -
           bash tools/install-macos.sh --install-system-dependencies
           test "$(.venv/bin/python -c 'import platform, sys; print(f"{sys.version_info.major}.{sys.version_info.minor}|{platform.machine()}")')" = "3.12|$(uname -m)"
           expected_cmake="$(sed -n 's/^cmake==//p' software/constraints/py312-build-tools.txt)"

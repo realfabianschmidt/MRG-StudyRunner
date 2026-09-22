@@ -95,7 +95,6 @@ class SourceInstallScriptTests(unittest.TestCase):
     def test_macos_installer_has_official_toolchain_and_recording_gate(self) -> None:
         script = text("tools/install-macos.sh")
         for required in (
-            "xcode-select --install",
             'PYTHON_VERSION="3.12.10"',
             'python-${PYTHON_VERSION}-macos11.pkg',
             "https://www.python.org/ftp/python/",
@@ -107,6 +106,18 @@ class SourceInstallScriptTests(unittest.TestCase):
             "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12",
             "sysctl.proc_translated",
             "MACOS_MINIMUM_MAJOR=15",
+            "MACOS_MINIMUM_MINOR=6",
+            "XCODE_REQUIRED_MAJOR=26",
+            'XCODE_REFERENCE_VERSION="26.3"',
+            "/Applications/Xcode-26.3.app/Contents/Developer",
+            "https://developer.apple.com/download/all/?q=Xcode%2026.3",
+            "/Applications/Xcode.app/Contents/Developer",
+            'export DEVELOPER_DIR="$developer_dir"',
+            "xcodebuild -version",
+            "xcrun --sdk macosx --find clang++",
+            "xcrun --sdk macosx --show-sdk-path",
+            "#include <cstdint>",
+            "-std=c++20",
             'venv_path="$repository_root/.venv"',
             "software/requirements.txt",
             "py312-bootstrap.txt",
@@ -127,7 +138,32 @@ class SourceInstallScriptTests(unittest.TestCase):
             script,
             r'dependency_constraints=.*py312-local-emotion',
         )
+        self.assertNotIn("xcode-select --install", script)
+        self.assertNotIn("xcode-select --switch", script)
+        self.assertNotIn("sudo xcode-select", script)
+        self.assertNotRegex(script, r"(?m)^\s*open\s+")
+        self.assertNotIn("xip --expand", script)
         self.assertNotRegex(script, re.compile(r"\bhomebrew\b|\bbrew\b", re.IGNORECASE))
+
+        core_setup = text("tools/setup_recording_worker.py")
+        for required in (
+            "XCODE_REQUIRED_MAJOR = 26",
+            'XCODE_REFERENCE_VERSION = "26.3"',
+            "/Applications/Xcode-26.3.app/Contents/Developer",
+            "https://developer.apple.com/download/all/?q=Xcode%2026.3",
+            "_full_xcode_developer_dir",
+            "_macos_toolchain",
+            'os.environ["DEVELOPER_DIR"]',
+            "#include <cstdint>",
+            'f"-DCMAKE_CXX_COMPILER=',
+            'f"-DCMAKE_OSX_SYSROOT=',
+            "_reset_stale_macos_cache",
+        ):
+            self.assertIn(required, core_setup)
+        self.assertNotIn("xcode-select --switch", core_setup)
+        self.assertNotIn("sudo xcode-select", core_setup)
+        for content in (script, core_setup):
+            self.assertNotRegex(content, r"(?m)^\s*(?:mas|xcodes)\s+install\b")
 
         build_tools = text("software/constraints/py312-build-tools.txt")
         self.assertRegex(build_tools, r"(?m)^cmake==3\.31\.10$")
@@ -141,6 +177,24 @@ class SourceInstallScriptTests(unittest.TestCase):
             "test -x .venv/bin/ctest",
         ):
             self.assertIn(required, release_workflow)
+
+    def test_macos_installer_enforces_the_15_6_version_tuple(self) -> None:
+        script = text("tools/install-macos.sh")
+        major_match = re.search(r"MACOS_MINIMUM_MAJOR=(\d+)", script)
+        minor_match = re.search(r"MACOS_MINIMUM_MINOR=(\d+)", script)
+        self.assertIsNotNone(major_match)
+        self.assertIsNotNone(minor_match)
+        minimum = (int(major_match.group(1)), int(minor_match.group(1)))
+
+        self.assertLess((15, 5), minimum)
+        self.assertGreaterEqual((15, 6), minimum)
+        self.assertGreaterEqual((16, 0), minimum)
+        self.assertIn(
+            "macos_major == MACOS_MINIMUM_MAJOR && macos_minor < MACOS_MINIMUM_MINOR",
+            script,
+        )
+        self.assertIn("if ((skip_recording_core == 0)); then", script)
+        self.assertNotIn("xcode-select --install", script)
 
     def test_daily_start_scripts_do_not_install_or_mutate_dependencies(self) -> None:
         windows = text("tools/start-windows.ps1")
@@ -185,9 +239,23 @@ class SourceInstallScriptTests(unittest.TestCase):
             self.assertIn(instruction, readme)
         self.assertLess(readme.index("install-windows.cmd"), readme.index("## Project Layout"))
         self.assertLess(readme.index("study-runner-source.zip"), readme.index("## Project Layout"))
-        self.assertRegex(readme, re.compile(r"xcode-select --install", re.IGNORECASE))
+        self.assertIn("macOS 15.6 or newer", readme)
+        self.assertIn("Xcode 26.3 Universal", readme)
+        self.assertIn("standalone Command Line Tools", readme)
+        for required in (
+            'open "https://developer.apple.com/download/all/?q=Xcode%2026.3"',
+            'xip --expand "$HOME/Downloads/Xcode_26.3.xip"',
+            "if [[ -e /Applications/Xcode-26.3.app ]]",
+            "sudo mv Xcode.app /Applications/Xcode-26.3.app",
+            'sudo env DEVELOPER_DIR="$DEVELOPER_DIR" /usr/bin/xcodebuild -runFirstLaunch',
+            "/usr/bin/xcrun --sdk macosx --find clang++",
+            "/usr/bin/xcrun --sdk macosx --show-sdk-path",
+        ):
+            self.assertIn(required, readme)
+        self.assertRegex(readme, r"Do not use\s+`xcode-select --install`")
         self.assertNotIn("brew install", readme.casefold())
         self.assertNotIn("brew.sh", readme.casefold())
+        self.assertNotRegex(readme, r"(?m)^\s*(?:mas|xcodes)\s+install\b")
 
         german = text("docs/start-here.de.md")
         for instruction in (
@@ -196,8 +264,14 @@ class SourceInstallScriptTests(unittest.TestCase):
             "Desktop-Verknuepfung erstellen",
             "Study Runner.command",
             "Ctrl+C",
+            "Xcode 26.3 Universal",
+            'open "https://developer.apple.com/download/all/?q=Xcode%2026.3"',
+            'xip --expand "$HOME/Downloads/Xcode_26.3.xip"',
+            "sudo mv Xcode.app /Applications/Xcode-26.3.app",
+            'sudo env DEVELOPER_DIR="$DEVELOPER_DIR" /usr/bin/xcodebuild -runFirstLaunch',
         ):
             self.assertIn(instruction, german)
+        self.assertNotRegex(german, r"(?m)^\s*(?:mas|xcodes)\s+install\b")
 
     def test_macos_intel_keeps_local_tensorflow_out_of_the_base_install(self) -> None:
         marker = 'sys_platform != "darwin" or platform_machine != "x86_64"'

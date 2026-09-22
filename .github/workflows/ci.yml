@@ -112,6 +112,16 @@ jobs:
             --constraint software/constraints/py312-common.txt \
             "pylsl==1.18.2" "pyxdf==1.16.8" "numpy==1.26.4"
 
+      - name: Verify the supported Xcode recording toolchain
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+          xcodebuild -version | grep -E '^Xcode 26([.]|$)'
+          compiler="$(xcrun --sdk macosx --find clang++)"
+          sdk="$(xcrun --sdk macosx --show-sdk-path)"
+          printf '#include <cstdint>\nint main() { std::uint32_t value = 0; return static_cast<int>(value); }\n' | "$compiler" -std=c++20 -arch "$(uname -m)" -isysroot "$sdk" -x c++ -fsyntax-only -
+
       - name: Build and verify the current-platform XDF core
         run: python tools/setup_recording_worker.py --require-canonical --json
 

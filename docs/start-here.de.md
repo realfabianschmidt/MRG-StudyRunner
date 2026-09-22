@@ -98,43 +98,87 @@ PowerShell wie oben im Ordner oeffnen und ausfuehren:
 Das Fenster offen lassen, solange Study Runner laeuft. `Ctrl+C` beendet den
 Server.
 
-### macOS 15 oder neuer, Intel oder Apple Silicon: erste Installation
+### macOS 15.6 oder neuer, Intel oder Apple Silicon: erste Installation
 
 1. `study-runner-source.tar.gz` herunterladen. Falls der Browser es nicht
    automatisch entpackt, die Datei im Finder doppelklicken.
 2. Den entpackten Study-Runner-Ordner nach **Dokumente** verschieben.
 3. Terminal oeffnen und `cd ` inklusive Leerzeichen eingeben. Den Ordner aus
    dem Finder in das Terminalfenster ziehen und Enter druecken.
-4. Apples Command Line Tools anfordern und den Dialog komplett abschliessen:
+4. Apples Suche in den geschuetzten Developer Downloads aus dem Terminal
+   oeffnen:
 
 ```bash
-xcode-select --install
+open "https://developer.apple.com/download/all/?q=Xcode%2026.3"
 ```
 
-5. Study Runner installieren:
+5. Mit einem kostenlosen Apple-Account anmelden und **Xcode 26.3 Universal**
+   als `Xcode_26.3.xip` herunterladen. Eine kostenpflichtige Developer-
+   Mitgliedschaft ist nicht erforderlich. Nicht `xcode-select --install`
+   verwenden: Dieser Befehl installiert nur die fuer XDF-Recording
+   unzureichenden standalone Command Line Tools. Die aktuelle App-Store-Version
+   kann ausserdem ein neueres macOS und Apple Silicon verlangen.
+6. Zum Terminal zurueckkehren und Xcode parallel zu vorhandenen Versionen
+   installieren. Dieser Block ueberschreibt niemals
+   `/Applications/Xcode-26.3.app`:
+
+```bash
+if [[ -e /Applications/Xcode-26.3.app ]]; then
+  echo "Xcode 26.3 ist bereits installiert und bleibt unveraendert."
+else
+  xcode_stage="$(mktemp -d "${TMPDIR:-/tmp}/study-runner-xcode.XXXXXX")" &&
+  (
+    cd "$xcode_stage" &&
+    xip --expand "$HOME/Downloads/Xcode_26.3.xip" &&
+    sudo mv Xcode.app /Applications/Xcode-26.3.app
+  ) && /bin/rmdir "$xcode_stage"
+fi
+```
+
+7. Diese Xcode-Installation initialisieren und pruefen, ohne die globale
+   `xcode-select`-Einstellung zu veraendern:
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode-26.3.app/Contents/Developer
+sudo env DEVELOPER_DIR="$DEVELOPER_DIR" /usr/bin/xcodebuild -runFirstLaunch
+/usr/bin/xcodebuild -version
+/usr/bin/xcrun --sdk macosx --find clang++
+/usr/bin/xcrun --sdk macosx --show-sdk-path
+```
+
+8. Study Runner installieren:
 
 ```bash
 bash tools/install-macos.sh --install-system-dependencies
 ```
 
-Homebrew ist nicht erforderlich. Falls ein natives Python 3.12 fehlt, laedt
-das Skript den festgelegten Universal-Installer von python.org herunter,
-prueft dessen SHA-256-Pruefsumme und Apple-Installersignatur und fragt fuer die
-Installation nach dem Administratorpasswort. CMake wird nur innerhalb von
-`.venv` installiert. Fuer die erste Installation ist daher eine
-Internetverbindung erforderlich. Der Befehl kann nach einem Abbruch oder
-Update sicher erneut ausgefuehrt werden.
+Homebrew ist nicht erforderlich. Xcode wird nur fuer die Installation mit XDF-
+Recording gebraucht und vom Skript nur fuer den laufenden Prozess ausgewaehlt;
+die globale `xcode-select`-Einstellung bleibt unveraendert. Falls ein natives
+Python 3.12 fehlt, laedt das Skript den festgelegten Universal-Installer von
+python.org herunter, prueft dessen SHA-256-Pruefsumme und
+Apple-Installersignatur und fragt fuer die Installation nach dem
+Administratorpasswort. CMake wird nur innerhalb von `.venv` installiert. Fuer
+die erste Installation ist daher eine Internetverbindung erforderlich. Der
+Befehl kann nach einem Abbruch oder Update sicher erneut ausgefuehrt werden.
 
-Falls das Skript den Installer fuer die Command Line Tools oeffnet, diesen
-vollstaendig abschliessen und danach denselben Befehl erneut ausfuehren.
+Falls Xcode noch nicht initialisiert ist, Schritt 7 wiederholen und danach
+denselben Installerbefehl erneut ausfuehren. Eine vorhandene gueltige `.venv`
+bleibt erhalten und wird wiederverwendet; nach der Toolchain-Reparatur wird
+hoechstens der erzeugte CMake-Cache des nativen Cores kontrolliert neu
+aufgebaut.
 
-6. Warten, bis `Study Runner is ready` erscheint, und Study Runner starten:
+Eine Installation ohne Recording-Core ist mit
+`bash tools/install-macos.sh --skip-recording-core` auch ohne Xcode und CMake
+moeglich. Studien, die XDF-Recording verlangen, bleiben dann gesperrt.
+
+9. Warten, bis `Study Runner is ready` erscheint, und Study Runner starten:
 
 ```bash
 bash tools/start-macos.sh
 ```
 
-7. Auf die Admin-Seite warten. Falls sie nicht automatisch erscheint,
+10. Auf die Admin-Seite warten. Falls sie nicht automatisch erscheint,
 `https://localhost:3000/admin` im Browser oeffnen.
 
 Auf Apple Silicon kann `camera_emotion` den lokalen DeepFace-Worker verwenden.

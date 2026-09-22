@@ -18,6 +18,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
 from typing import Any, Mapping, Sequence
 
@@ -29,6 +30,12 @@ UPSTREAM_LOCK_PATH = NATIVE_SOURCE_DIR / "UPSTREAM_LOCK.json"
 BUILD_MANIFEST_SCHEMA = "study-runner/xdf-core-build/v1"
 UPSTREAM_LOCK_SCHEMA = "study-runner/xdf-core-upstream-lock/v1"
 CORE_ABI_VERSION = 1
+XCODE_REQUIRED_MAJOR = 26
+XCODE_REFERENCE_VERSION = "26.3"
+XCODE_REFERENCE_DEVELOPER_DIR = Path(
+    "/Applications/Xcode-26.3.app/Contents/Developer"
+)
+XCODE_DOWNLOAD_URL = "https://developer.apple.com/download/all/?q=Xcode%2026.3"
 EXPECTED_UPSTREAM_TAG = "v1.17.1"
 EXPECTED_UPSTREAM_COMMIT = "8419550553e4336dd46378a9a871b3065a70b895"
 EXPECTED_SOURCE_LOCK_SHA256 = "c4f344ef4bf8b94580cc8d096aa3d6efaf1bf0f73c6598a2067ba26051fd0c76"
@@ -383,32 +390,193 @@ def _run_command(command: Sequence[str], *, quiet: bool) -> str:
     return result.stdout
 
 
-def _macos_sdk_path() -> str:
-    """Resolve the active macOS SDK sysroot, failing fast with a clear reason.
+def _xcode_repair_message(detail: str, developer_dir: Path | None = None) -> str:
+    initialization_dir = developer_dir or XCODE_REFERENCE_DEVELOPER_DIR
+    return (
+        f"{detail}. Open {XCODE_DOWNLOAD_URL}, sign in with an Apple Account, download "
+        f"Xcode {XCODE_REFERENCE_VERSION} Universal, and install it as "
+        f"/Applications/Xcode-{XCODE_REFERENCE_VERSION}.app. Then run "
+        f"'sudo env DEVELOPER_DIR={initialization_dir} "
+        "/usr/bin/xcodebuild -runFirstLaunch' and retry"
+    )
 
-    CMake's own SDK autodetection trusts whatever ``cc``/``c++`` resolves to by
-    default, which silently breaks on a misconfigured Command Line Tools
-    install (seen as a missing ``<cstdint>`` deep inside an unrelated vendor
-    file, far from the real cause). Resolving and passing the sysroot
-    ourselves turns that into an immediate, actionable error instead.
-    """
 
+def _is_full_xcode_developer_dir(path: Path) -> bool:
+    normalized = path.as_posix().rstrip("/")
+    return (
+        normalized.endswith(".app/Contents/Developer")
+        and path.is_dir()
+        and (path / "usr" / "bin" / "xcodebuild").is_file()
+    )
+
+
+def _full_xcode_developer_dir() -> Path:
+    preferred_candidates: list[Path] = []
+    configured = os.environ.get("DEVELOPER_DIR", "").strip()
+    if configured:
+        preferred_candidates.append(Path(configured).expanduser())
+    preferred_candidates.append(XCODE_REFERENCE_DEVELOPER_DIR)
+
+    for candidate in preferred_candidates:
+        if _is_full_xcode_developer_dir(candidate):
+            return candidate.resolve()
+
+    candidates: list[Path] = []
     try:
-        raw = _run_command(["xcrun", "--sdk", "macosx", "--show-sdk-path"], quiet=True)
+        selected = _run_command(["xcode-select", "--print-path"], quiet=True).strip()
+    except SetupError:
+        selected = ""
+    if selected:
+        candidates.append(Path(selected).expanduser())
+    candidates.append(Path("/Applications/Xcode.app/Contents/Developer"))
+
+    seen = {str(candidate) for candidate in preferred_candidates}
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if _is_full_xcode_developer_dir(candidate):
+            return candidate.resolve()
+    raise SetupError(
+        _xcode_repair_message(
+            "a complete Xcode installation is required for XDF recording; the standalone "
+            "Command Line Tools at /Library/Developer/CommandLineTools are not sufficient"
+        )
+    )
+
+
+def _macos_toolchain(target: Mapping[str, str]) -> dict[str, str]:
+    """Select and compile-test the supported full-Xcode toolchain."""
+
+    developer_dir = _full_xcode_developer_dir()
+    # This changes only the current helper process and its children. Never alter
+    # the machine-wide xcode-select setting from installation automation.
+    os.environ["DEVELOPER_DIR"] = str(developer_dir)
+    try:
+        version_output = _run_command(["xcodebuild", "-version"], quiet=True)
     except SetupError as error:
         raise SetupError(
-            "no valid macOS SDK found (xcrun --show-sdk-path failed) -- run "
-            "'sudo xcode-select --reset' or reinstall the Command Line Tools, "
-            "then retry"
+            _xcode_repair_message("Xcode could not be initialized", developer_dir)
         ) from error
-    sdk_path = raw.strip()
+    version_line = version_output.splitlines()[0].strip() if version_output.splitlines() else ""
+    version_parts = version_line.split()
+    major = version_parts[1].split(".", 1)[0] if len(version_parts) == 2 else ""
+    if version_parts[:1] != ["Xcode"] or major != str(XCODE_REQUIRED_MAJOR):
+        found = version_line or "an unknown version"
+        raise SetupError(
+            f"Xcode {XCODE_REQUIRED_MAJOR} is required for XDF recording; found {found} "
+            f"at {developer_dir}"
+        )
+
+    try:
+        compiler = _run_command(
+            ["xcrun", "--sdk", "macosx", "--find", "clang++"], quiet=True
+        ).strip()
+        sdk_path = _run_command(
+            ["xcrun", "--sdk", "macosx", "--show-sdk-path"], quiet=True
+        ).strip()
+    except SetupError as error:
+        raise SetupError(
+            _xcode_repair_message(
+                "Xcode does not expose a usable compiler and macOS SDK",
+                developer_dir,
+            )
+        ) from error
+    if not compiler or not Path(compiler).is_file():
+        raise SetupError(
+            _xcode_repair_message("Xcode's clang++ compiler is unavailable", developer_dir)
+        )
     if not sdk_path or not Path(sdk_path).is_dir():
         raise SetupError(
-            "no valid macOS SDK found (xcrun --show-sdk-path returned a "
-            "missing directory) -- run 'sudo xcode-select --reset' or "
-            "reinstall the Command Line Tools, then retry"
+            _xcode_repair_message("Xcode's macOS SDK is unavailable", developer_dir)
         )
-    return sdk_path
+
+    with tempfile.TemporaryDirectory(prefix="study-runner-xcode-") as temporary:
+        source = Path(temporary) / "cstdint-preflight.cpp"
+        source.write_text(
+            "#include <cstdint>\n"
+            "int main() { std::uint32_t value = 0; return static_cast<int>(value); }\n",
+            encoding="utf-8",
+        )
+        try:
+            _run_command(
+                [
+                    compiler,
+                    "-std=c++20",
+                    "-arch",
+                    target["cmake_architecture"],
+                    "-isysroot",
+                    sdk_path,
+                    "-fsyntax-only",
+                    str(source),
+                ],
+                quiet=True,
+            )
+        except SetupError as error:
+            raise SetupError(
+                _xcode_repair_message(
+                    "the Xcode C++20 toolchain failed its <cstdint> compile preflight",
+                    developer_dir,
+                )
+                + f"\n{error}"
+            ) from error
+    return {
+        "developer_dir": str(developer_dir),
+        "xcode": version_line,
+        "compiler": compiler,
+        "sdk_path": sdk_path,
+    }
+
+
+def _cmake_cache_value(cache_path: Path, key: str) -> str:
+    try:
+        lines = cache_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as error:
+        raise SetupError(f"CMake cache is unreadable: {cache_path}: {error}") from error
+    prefix = f"{key}:"
+    for line in lines:
+        if line.startswith(prefix) and "=" in line:
+            return line.split("=", 1)[1].strip()
+    return ""
+
+
+def _normalized_toolchain_path(value: str) -> str:
+    return os.path.normcase(os.path.realpath(os.path.expanduser(value)))
+
+
+def _reset_stale_macos_cache(
+    build_dir: Path,
+    toolchain: Mapping[str, str],
+    *,
+    resettable_build_dir: Path | None,
+) -> bool:
+    cache_path = build_dir / "CMakeCache.txt"
+    if not cache_path.is_file():
+        return False
+    cached_compiler = _cmake_cache_value(cache_path, "CMAKE_CXX_COMPILER")
+    cached_sdk = _cmake_cache_value(cache_path, "CMAKE_OSX_SYSROOT")
+    stale = any(
+        cached and _normalized_toolchain_path(cached) != _normalized_toolchain_path(expected)
+        for cached, expected in (
+            (cached_compiler, toolchain["compiler"]),
+            (cached_sdk, toolchain["sdk_path"]),
+        )
+    )
+    if not stale:
+        return False
+    allowed = (
+        resettable_build_dir is not None
+        and build_dir.resolve() == Path(resettable_build_dir).expanduser().resolve()
+    )
+    if not allowed:
+        raise SetupError(
+            "the selected custom build directory contains a CMake cache for a different "
+            "macOS compiler or SDK; choose an empty build directory or remove that generated "
+            "cache manually"
+        )
+    shutil.rmtree(build_dir)
+    return True
 
 
 def _validate_generated_path(path: Path, *, label: str) -> Path:
@@ -509,6 +677,7 @@ def build_core(
     skip_tests: bool,
     require_canonical: bool,
     quiet: bool,
+    resettable_build_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Configure, build, test, install, probe, and stage the native core."""
 
@@ -517,10 +686,17 @@ def build_core(
     upstream = verify_upstream_sources()
     if shutil.which("cmake") is None:
         raise SetupError("CMake 3.20 or newer is required to build the recording core")
+    macos_toolchain = _macos_toolchain(target) if target["system"] == "macos" else None
     build_dir = _validate_generated_path(build_dir, label="build directory")
     stage_dir = _validate_generated_path(stage_dir, label="stage directory")
     if build_dir == stage_dir or build_dir.is_relative_to(stage_dir) or stage_dir.is_relative_to(build_dir):
         raise SetupError("build and stage directories must not contain each other")
+    if macos_toolchain is not None:
+        _reset_stale_macos_cache(
+            build_dir,
+            macos_toolchain,
+            resettable_build_dir=resettable_build_dir,
+        )
     build_dir.mkdir(parents=True, exist_ok=True)
     install_dir = build_dir / "install"
     if install_dir.exists():
@@ -535,16 +711,28 @@ def build_core(
         f"-DCMAKE_BUILD_TYPE={configuration}",
         "-DBUILD_TESTING=ON" if not skip_tests else "-DBUILD_TESTING=OFF",
     ]
-    if target["system"] == "macos":
+    if macos_toolchain is not None:
         configure_command.append(
             f"-DCMAKE_OSX_ARCHITECTURES={target['cmake_architecture']}"
         )
-        configure_command.append(f"-DCMAKE_OSX_SYSROOT={_macos_sdk_path()}")
-    _run_command(configure_command, quiet=quiet)
-    _run_command(
-        ["cmake", "--build", str(build_dir), "--config", configuration],
-        quiet=quiet,
-    )
+        configure_command.append(f"-DCMAKE_CXX_COMPILER={macos_toolchain['compiler']}")
+        configure_command.append(f"-DCMAKE_OSX_SYSROOT={macos_toolchain['sdk_path']}")
+    try:
+        _run_command(configure_command, quiet=quiet)
+        _run_command(
+            ["cmake", "--build", str(build_dir), "--config", configuration],
+            quiet=quiet,
+        )
+    except SetupError as error:
+        if macos_toolchain is not None and "cstdint" in str(error) and "not found" in str(error):
+            raise SetupError(
+                _xcode_repair_message(
+                    "the native build could not find the C++ standard header <cstdint>; "
+                    "the selected Xcode toolchain is incomplete or damaged",
+                    Path(macos_toolchain["developer_dir"]),
+                )
+            ) from error
+        raise
     ctest_status = "skipped"
     if not skip_tests:
         _run_command(
@@ -604,7 +792,19 @@ def build_core(
             "synthetic_xdf_smoke": smoke_details["status"],
             "synthetic_xdf_smoke_details": smoke_details,
         },
-        "toolchain": {"cmake": cmake_version},
+        "toolchain": {
+            "cmake": cmake_version,
+            **(
+                {
+                    "xcode": macos_toolchain["xcode"],
+                    "developer_dir": macos_toolchain["developer_dir"],
+                    "cxx_compiler": macos_toolchain["compiler"],
+                    "macos_sdk": macos_toolchain["sdk_path"],
+                }
+                if macos_toolchain is not None
+                else {}
+            ),
+        },
         "upstream": upstream,
     }
     _replace_stage(source_library, stage_dir, manifest)
@@ -658,6 +858,7 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
         skip_tests=arguments.skip_tests,
         require_canonical=arguments.require_canonical,
         quiet=arguments.json,
+        resettable_build_dir=default_build if arguments.build_dir is None else None,
     )
 
 
