@@ -192,7 +192,13 @@ jobs:
         if: runner.os == 'macOS'
         working-directory: ${{ steps.source-root.outputs.path }}
         shell: bash
-        run: bash tools/install-macos.sh
+        run: |
+          bash -n tools/install-macos.sh
+          bash tools/install-macos.sh --install-system-dependencies
+          test "$(.venv/bin/python -c 'import platform, sys; print(f"{sys.version_info.major}.{sys.version_info.minor}|{platform.machine()}")')" = "3.12|$(uname -m)"
+          expected_cmake="$(sed -n 's/^cmake==//p' software/constraints/py312-build-tools.txt)"
+          test "$(.venv/bin/cmake --version | awk 'NR == 1 {print $3}')" = "$expected_cmake"
+          test -x .venv/bin/ctest
 
       - name: Run native writer, merge, and synthetic LSL smoke tests
         shell: bash

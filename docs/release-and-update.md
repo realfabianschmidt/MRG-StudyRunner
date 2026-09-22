@@ -53,6 +53,8 @@ The source installers and GitHub workflows use the same CPython 3.12 files:
 - `software/constraints/py312-local-emotion.txt` for Windows x64, macOS Apple
   Silicon, and Linux validation. macOS Intel omits this set and uses
   `camera_emotion.remote_worker`.
+- `software/constraints/py312-build-tools.txt` for the project-local CMake
+  installed by the macOS source installer on Intel and Apple Silicon.
 
 The common file preserves the scientific compatibility pins
 `numpy==1.26.4`, `pylsl==1.18.2`, and `pyxdf==1.16.8`. The files also pin every

@@ -98,7 +98,7 @@ PowerShell wie oben im Ordner oeffnen und ausfuehren:
 Das Fenster offen lassen, solange Study Runner laeuft. `Ctrl+C` beendet den
 Server.
 
-### macOS Intel oder Apple Silicon: erste Installation
+### macOS 15 oder neuer, Intel oder Apple Silicon: erste Installation
 
 1. `study-runner-source.tar.gz` herunterladen. Falls der Browser es nicht
    automatisch entpackt, die Datei im Finder doppelklicken.
@@ -111,32 +111,34 @@ Server.
 xcode-select --install
 ```
 
-5. Falls Homebrew noch fehlt, den offiziellen Installer ausfuehren und danach
-   dessen angezeigte `Next steps` befolgen:
-
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-Danach ein neues Terminal oeffnen und Schritt 3 wiederholen.
-
-6. Study Runner installieren:
+5. Study Runner installieren:
 
 ```bash
 bash tools/install-macos.sh --install-system-dependencies
 ```
 
-7. Warten, bis `Study Runner is ready` erscheint, und Study Runner starten:
+Homebrew ist nicht erforderlich. Falls ein natives Python 3.12 fehlt, laedt
+das Skript den festgelegten Universal-Installer von python.org herunter,
+prueft dessen SHA-256-Pruefsumme und Apple-Installersignatur und fragt fuer die
+Installation nach dem Administratorpasswort. CMake wird nur innerhalb von
+`.venv` installiert. Fuer die erste Installation ist daher eine
+Internetverbindung erforderlich. Der Befehl kann nach einem Abbruch oder
+Update sicher erneut ausgefuehrt werden.
+
+Falls das Skript den Installer fuer die Command Line Tools oeffnet, diesen
+vollstaendig abschliessen und danach denselben Befehl erneut ausfuehren.
+
+6. Warten, bis `Study Runner is ready` erscheint, und Study Runner starten:
 
 ```bash
 bash tools/start-macos.sh
 ```
 
-8. Auf die Admin-Seite warten. Falls sie nicht automatisch erscheint,
+7. Auf die Admin-Seite warten. Falls sie nicht automatisch erscheint,
 `https://localhost:3000/admin` im Browser oeffnen.
 
 Auf Apple Silicon kann `camera_emotion` den lokalen DeepFace-Worker verwenden.
-Fuer Mac Intel gibt es mit Python 3.12 aktuell keine passenden
+Fuer macOS Intel gibt es mit Python 3.12 aktuell keine passenden
 TensorFlow/tf-keras-Wheels. Die Intel-Installation unterstuetzt Server und XDF-
 Recording vollstaendig, fuer Kamera/Emotion muss aber `remote_worker` mit einem
 anderen Analyse-Rechner konfiguriert werden.
@@ -296,7 +298,7 @@ nicht-kommerzielle Forschung zur Studie passen, stelle das gepinnte Modell mit
 `python release_tools/fetch_deepface_model_assets.py
 --accept-vgg-face-non-commercial-research-terms` bereit; der SHA-256-Hash wird
 geprueft. Andernfalls wird `remote_worker` mit einem entsprechend lizenzierten
-Modell verwendet. Mac Intel nutzt fuer die Analyse immer `remote_worker`.
+Modell verwendet. macOS Intel nutzt fuer die Analyse immer `remote_worker`.
 
 WLAN- und LAN-Sensoren liefern LSL direkt. BLE uebertraegt selbst kein LSL:
 Der lokale BLE-Adapter empfaengt die Pakete und stellt sie danach als LSL-Stream

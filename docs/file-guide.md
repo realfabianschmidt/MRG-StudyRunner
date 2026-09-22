@@ -360,7 +360,8 @@ Tests live in `software/tests/` - one file per area, named
 `test_<area>.py`. Run everything with:
 `python -m unittest discover software/tests`
 
-`software/tests/test_source_install_scripts.py` protects the WinGet/Homebrew,
-`.venv`, canonical-core, non-destructive installer, and daily-start contracts.
+`software/tests/test_source_install_scripts.py` protects the WinGet and
+official macOS Python installer flows, project-local CMake, `.venv`,
+canonical-core, non-destructive installer, and daily-start contracts.
 `software/tests/test_python_constraints.py` protects the exact scientific pins,
 platform split, shared installer/CI consumption, and honest non-lockfile scope.

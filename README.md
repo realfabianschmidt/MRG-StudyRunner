@@ -61,7 +61,7 @@ Open the permanent Study Runner folder and double-click
 Keep the terminal window open while Study Runner is running. Press `Ctrl+C` in
 that window to stop it.
 
-### macOS Intel or Apple Silicon
+### macOS 15 or newer, Intel or Apple Silicon
 
 #### First installation
 
@@ -78,27 +78,28 @@ that window to stop it.
    xcode-select --install
    ```
 
-5. If Homebrew is not installed, install it with its official command and
-   follow the displayed `Next steps`:
-
-   ```bash
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-   ```
-
-   Open a new Terminal afterward and repeat step 3.
-6. Install Study Runner:
+5. Install Study Runner:
 
    ```bash
    bash tools/install-macos.sh --install-system-dependencies
    ```
 
-7. Wait until the terminal says `Study Runner is ready`, then start it:
+   Homebrew is not required. If a native Python 3.12 is missing, the script
+   downloads the pinned universal installer from python.org, verifies its
+   checksum and Apple installer signature, and asks for the administrator
+   password to install it. CMake is installed only inside `.venv`. The first
+   installation therefore needs an internet connection. The command is safe
+   to run again after an interrupted installation or an update.
+
+   If the script opens the Command Line Tools installer, finish that dialog
+   and then run the same command again.
+6. Wait until the terminal says `Study Runner is ready`, then start it:
 
    ```bash
    bash tools/start-macos.sh
    ```
 
-8. Wait for the Admin page to open. If it does not, open
+7. Wait for the Admin page to open. If it does not, open
    `https://localhost:3000/admin` in a browser.
 
 #### Create the macOS desktop shortcut
@@ -233,8 +234,12 @@ execution-policy bypass; they do not change the machine or user policy. A
 policy enforced through AppLocker, WDAC, or Group Policy must be resolved by
 the organization's administrator.
 
-On macOS, the system-dependency option runs `brew install python@3.12 cmake`
-idempotently after verifying the Apple Command Line Tools.
+On macOS 15 or newer, the system-dependency option installs a missing native
+Python 3.12 from the pinned, checksum- and signature-verified official
+python.org universal2 package. The installer places the pinned CMake build
+tools inside the repository-local `.venv`; it does not require or modify a
+system package manager. Apple's Command Line Tools remain required when the
+native XDF recording core is enabled.
 
 ### Git clone alternative
 

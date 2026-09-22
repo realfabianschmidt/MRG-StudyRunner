@@ -96,12 +96,25 @@ class SourceInstallScriptTests(unittest.TestCase):
         script = text("tools/install-macos.sh")
         for required in (
             "xcode-select --install",
-            "python@3.12 cmake",
+            'PYTHON_VERSION="3.12.10"',
+            'python-${PYTHON_VERSION}-macos11.pkg',
+            "https://www.python.org/ftp/python/",
+            "8373e58da4ea146b3eb1c1f9834f19a319440b6b679b06050b1f9ee3237aa8e4",
+            "Developer ID Installer: Python Software Foundation (BMM5U3QVKW)",
+            "shasum -a 256",
+            "pkgutil --check-signature",
+            "sudo /usr/sbin/installer",
+            "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12",
+            "sysctl.proc_translated",
+            "MACOS_MINIMUM_MAJOR=15",
             'venv_path="$repository_root/.venv"',
             "software/requirements.txt",
             "py312-bootstrap.txt",
             "py312-common.txt",
             "py312-local-emotion.txt",
+            "py312-build-tools.txt",
+            'export PATH="$venv_path/bin:$PATH"',
+            '"$venv_python" -m pip install --constraint "$build_tools_constraints" cmake',
             "setup_recording_worker.py",
             "--probe-only --require-canonical",
             "--require-canonical",
@@ -114,6 +127,20 @@ class SourceInstallScriptTests(unittest.TestCase):
             script,
             r'dependency_constraints=.*py312-local-emotion',
         )
+        self.assertNotRegex(script, re.compile(r"\bhomebrew\b|\bbrew\b", re.IGNORECASE))
+
+        build_tools = text("software/constraints/py312-build-tools.txt")
+        self.assertRegex(build_tools, r"(?m)^cmake==3\.31\.10$")
+
+        release_workflow = text(".github/workflows/release.yml")
+        for required in (
+            "bash -n tools/install-macos.sh",
+            "3.12|$(uname -m)",
+            ".venv/bin/cmake --version",
+            "py312-build-tools.txt",
+            "test -x .venv/bin/ctest",
+        ):
+            self.assertIn(required, release_workflow)
 
     def test_daily_start_scripts_do_not_install_or_mutate_dependencies(self) -> None:
         windows = text("tools/start-windows.ps1")
@@ -143,7 +170,6 @@ class SourceInstallScriptTests(unittest.TestCase):
             ".\\tools\\start-windows.cmd",
             "bash tools/install-macos.sh --install-system-dependencies",
             "bash tools/start-macos.sh",
-            "brew install",
         ):
             self.assertIn(command, readme)
         for instruction in (
@@ -160,6 +186,8 @@ class SourceInstallScriptTests(unittest.TestCase):
         self.assertLess(readme.index("install-windows.cmd"), readme.index("## Project Layout"))
         self.assertLess(readme.index("study-runner-source.zip"), readme.index("## Project Layout"))
         self.assertRegex(readme, re.compile(r"xcode-select --install", re.IGNORECASE))
+        self.assertNotIn("brew install", readme.casefold())
+        self.assertNotIn("brew.sh", readme.casefold())
 
         german = text("docs/start-here.de.md")
         for instruction in (

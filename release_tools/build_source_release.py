@@ -34,6 +34,7 @@ REQUIRED_SOURCE_FILES = (
     "software/constraints/py312-bootstrap.txt",
     "software/constraints/py312-common.txt",
     "software/constraints/py312-local-emotion.txt",
+    "software/constraints/py312-build-tools.txt",
     "tools/install-windows.cmd",
     "tools/install-windows.ps1",
     "tools/start-windows.cmd",

@@ -1,0 +1,4 @@
+# Project-local build tools used by the supported macOS source installer.
+# CMake's universal2 wheel runs natively on Intel and Apple Silicon.
+# This is not a complete or hash-locked build environment.
+cmake==3.31.10

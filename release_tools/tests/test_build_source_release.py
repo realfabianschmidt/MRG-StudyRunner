@@ -347,6 +347,10 @@ class SourceReleaseTests(unittest.TestCase):
 
         self.assertIn("tools/install-windows.cmd", release.REQUIRED_SOURCE_FILES)
         self.assertIn("tools/start-windows.cmd", release.REQUIRED_SOURCE_FILES)
+        self.assertIn(
+            "software/constraints/py312-build-tools.txt",
+            release.REQUIRED_SOURCE_FILES,
+        )
 
         workflows = "\n".join(
             path.read_text(encoding="utf-8")
