@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.2.0 - 2026-09-23
+
 ### Added
 
 - Release-archive installs update themselves: Update now in the admin panel
