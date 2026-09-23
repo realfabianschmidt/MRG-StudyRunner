@@ -28,6 +28,8 @@ software/study_content/settings/.*.transaction.json
 # Locally authored studies are user data. Curated repository templates must be
 # added intentionally (see the two example exceptions below) after review.
 software/study_content/studies/*.study-runner
+# Images uploaded for info cards / cover pages are study data, like the studies.
+software/study_content/studies/_assets/
 !software/study_content/studies/Example Basic Study.study-runner
 !software/study_content/studies/Example Sensors Study.study-runner
 software/study_runner/plugins/brainbit_assets_to_copy/
