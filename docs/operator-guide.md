@@ -69,6 +69,32 @@ environment.
 10. A valid run ends with `COMPLETE.json`; a quality problem uses
     `ATTENTION_REQUIRED.json`.
 
+## Sharing A Study (`.study-runner` Files)
+
+**Download** next to a study in the hub saves a `.study-runner` file,
+**Import study** reads one. Since 1.1.1 this file is a small zip package: `study.json` (the study),
+`assets/` (every image used by info cards or the cover page) and
+`manifest.json` (a SHA-256 per file, checked on import). The extension stays
+`.study-runner`.
+
+- **Old files still load:** a plain-JSON `.study-runner` or `.json` file from an
+  earlier version imports unchanged.
+- **Not the other way round:** Study Runner 1.1.0 and older cannot read the new
+  package. Update the receiving computer first.
+- The bundled example studies are plain JSON and keep working; downloading one
+  produces the new package format.
+- Upload credentials (Notion key, Nextcloud password) are never part of the
+  file. Enter them again on the receiving computer.
+
+## Uploads That Fail
+
+A failed Notion or Nextcloud upload never blocks a session: the data is saved
+locally and the session is marked **upload failed**. Open the session and use
+the **Completion & uploads** card to read the reason and **Try again** after
+fixing it. Wrong credentials or an unshared page fail at once; network problems
+are retried automatically. The **(?)** button in each plugin's settings
+explains every field.
+
 ## Plugin-Driven UI
 
 The server discovers trusted integration folders and validates their manifests

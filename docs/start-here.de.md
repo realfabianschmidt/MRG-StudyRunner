@@ -49,6 +49,31 @@ Bequemer ist meistens die Admin-Oberflaeche:
 https://localhost:3000/admin
 ```
 
+### Studien weitergeben (`.study-runner`-Dateien)
+
+Mit **Herunterladen** neben einer Studie auf der Admin-Startseite speicherst du
+eine `.study-runner`-Datei, mit **Studie importieren** liest du eine ein. Seit Version
+1.1.1 ist diese Datei ein kleines Zip-Paket: Es enthaelt die Studie und alle
+Bilder aus Info-Cards und Deckseite, jeweils mit Pruefsumme. Die Endung bleibt
+`.study-runner`.
+
+- **Alte Dateien funktionieren weiter:** Eine `.study-runner`- oder
+  `.json`-Datei aus einer frueheren Version laesst sich unveraendert laden.
+- **Umgekehrt nicht:** Study Runner 1.1.0 und aelter kann das neue Paket nicht
+  lesen. Den anderen Rechner also zuerst aktualisieren.
+- Die mitgelieferten Beispielstudien bleiben unveraendert nutzbar. Laedt man
+  eine herunter, entsteht ein Paket im neuen Format.
+- Zugangsdaten (Notion-Key, Nextcloud-Passwort) sind nie in der Datei. Auf dem
+  anderen Rechner muessen sie neu eingetragen werden.
+
+### Wenn ein Upload fehlschlaegt
+
+Ein fehlgeschlagener Upload zu Notion oder Nextcloud blockiert keine Session.
+Die Daten sind lokal gespeichert, die Session bekommt den Hinweis **Upload
+fehlgeschlagen**. In der Session zeigt die Karte **Abschluss & Uploads** den
+Grund; nach dem Beheben dort **Erneut versuchen** druecken. Hilfe zu jedem
+Feld gibt der runde **(?)**-Knopf in den Plugin-Einstellungen.
+
 ## Was bitte nicht anfassen?
 
 Diese Ordner sind generiert oder lokal:
