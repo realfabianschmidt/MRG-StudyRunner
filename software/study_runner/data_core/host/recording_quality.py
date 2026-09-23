@@ -289,7 +289,9 @@ def scientific_source_checks(
                     "timestamps_monotonic": actual["timestamps_monotonic"],
                 }
             )
-            if actual["sample_count"] < 1:
+            # Opt-in for event streams reported only before recording (e.g. contact, battery).
+            metrics[-1]["empty_allowed"] = declared.get("may_be_empty") is True
+            if actual["sample_count"] < 1 and not metrics[-1]["empty_allowed"]:
                 issues.append(
                     ValidationIssue(
                         code="empty_declared_stream",

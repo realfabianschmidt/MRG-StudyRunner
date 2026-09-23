@@ -911,7 +911,7 @@ def _actual_stream_contracts(
             "key": "quality",
             "source_id": LSL_SOURCE_IDS["quality"],
             "type": "QUALITY",
-            "nominal_rate_hz": 0.0,
+            "nominal_rate_hz": 0.0, "may_be_empty": True,  # reported before recording only
             "clock_domain": "lsl",
             "channel_format": "float32",
             "channels": list(channel_labels),
@@ -921,7 +921,7 @@ def _actual_stream_contracts(
             "key": "battery",
             "source_id": LSL_SOURCE_IDS["battery"],
             "type": "BATTERY",
-            "nominal_rate_hz": 0.0,
+            "nominal_rate_hz": 0.0, "may_be_empty": True,  # reported before recording only
             "clock_domain": "lsl",
             "channel_format": "float32",
             "channels": ["percent"],

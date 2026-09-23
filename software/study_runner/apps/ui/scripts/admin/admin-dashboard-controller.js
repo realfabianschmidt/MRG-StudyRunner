@@ -293,9 +293,13 @@ function renderPluginActionControls(container, html) {
   if (container._rendered === html) return;
   container.innerHTML = html;
   container._rendered = html;
+  // Restore only a real earlier choice; otherwise keep the renderer's own
+  // `selected` default (for example the band that is connected right now).
   container.querySelectorAll('select').forEach((node) => {
-    const selected = [...node.options].find((option) => optionIdentity(option) === choices.get(node.id));
-    node.value = selected?.value || '';
+    const previous = choices.get(node.id);
+    if (!previous) return;
+    const selected = [...node.options].find((option) => optionIdentity(option) === previous);
+    if (selected) node.value = selected.value;
   });
 }
 

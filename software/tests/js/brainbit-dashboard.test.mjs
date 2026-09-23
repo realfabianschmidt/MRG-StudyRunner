@@ -66,3 +66,39 @@ test('current connection message replaces an obsolete reconnect error', () => {
   assert.match(html, /EEG is arriving/);
   assert.match(html, /<details>/);
 });
+
+const toolbarManifest = {
+  plugin_key: 'brainbit',
+  capability_config: { admin_actions: { actions: [
+    { key: 'select_device', label: 'Connect', instances: {
+      status_paths: ['scan_candidates'],
+      payload_map: { name: 'name', address: 'address', serial_number: 'serial' },
+      label_fields: ['name', 'serial', 'address'],
+    } },
+    { key: 'scan_devices', label: 'Search again' },
+    { key: 'check_contact', label: 'Check electrode contact' },
+  ] } },
+};
+const connectedBand = { name: 'BrainBit', serial: '1234', address: 'AA:BB' };
+
+test('the connected band is shown in the device select even without scan results', () => {
+  const html = renderDashboard({ plugin: { connection_state: 'connected', selected_device: connectedBand, latest: {} },
+    manifest: toolbarManifest }, ui);
+  assert.match(html, /<option data-option-key="serial:1234" [^>]*selected>BrainBit - serial 1234 - AA:BB \(connected\)<\/option>/);
+});
+
+test('a listed connected band is selected instead of duplicated', () => {
+  const html = renderDashboard({ plugin: { connection_state: 'connected', selected_device: connectedBand,
+    scan_candidates: [{ name: 'BrainBit', serial: '1234', address: 'AA:BB' }, { name: 'Other', serial: '9' }], latest: {} },
+  manifest: toolbarManifest }, ui);
+  assert.equal((html.match(/data-option-key="serial:1234"/g) || []).length, 1);
+  assert.match(html, /data-option-key="serial:1234"[^>]*selected/);
+  assert.doesNotMatch(html, /data-option-key="serial:9"[^>]*selected/);
+});
+
+test('toolbar orders search, connect, check contact and restart is marked red', () => {
+  const html = renderDashboard({ plugin: { key: 'brainbit', can_restart: true, latest: {} }, manifest: toolbarManifest }, ui);
+  const order = (action) => Number(html.match(new RegExp(`style="order:([0-9])"[^>]*data-plugin-admin-action="${action}"`))[1]);
+  assert.deepEqual([order('scan_devices'), order('select_device'), order('check_contact')], [2, 3, 4]);
+  assert.match(html, /class="btn-icon-only is-danger" data-dashboard-action="runtime_brainbit_restart"/);
+});

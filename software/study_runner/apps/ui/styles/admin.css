@@ -1024,6 +1024,17 @@ body.admin::before { display: none; }
 .dashboard-toolbar-select-group {
   display: contents;
 }
+/* Restart interrupts a running acquisition, so it reads as a destructive action. */
+.dashboard-status-row-actions .btn-icon-only.is-danger {
+  color: var(--neg);
+  border-color: var(--neg);
+}
+.dashboard-status-row-actions .btn-icon-only.is-danger:hover:not(:disabled) {
+  background: var(--neg-14);
+}
+.dashboard-status-row-actions .btn-icon-only.is-danger:disabled {
+  opacity: .45;
+}
 .dashboard-select {
   order: 1;
   flex: 1 1 auto;

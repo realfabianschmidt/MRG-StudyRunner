@@ -1229,6 +1229,8 @@ def _normalize_streams(value: Any) -> list[dict[str, Any]]:
             or rate < 0
         ):
             raise PluginManifestError(f"streams[{index}].nominal_rate_hz must be zero or positive")
+        if not isinstance(raw_stream.get("may_be_empty", False), bool):
+            raise PluginManifestError(f"streams[{index}].may_be_empty must be true or false")
         channels = raw_stream.get("channels", [])
         if not isinstance(channels, list) or not channels:
             raise PluginManifestError(f"streams[{index}].channels must be a non-empty list")

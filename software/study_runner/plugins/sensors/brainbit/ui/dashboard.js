@@ -125,12 +125,18 @@ export function renderDashboard({ plugin: brainbit, manifest }, ui) {
   `;
 }
 
-/** Device select + search/retest-contact/connect, as icon actions, above the fold. */
+/** Device select, then search / connect / check contact as icon actions, above the fold. */
 function renderDeviceToolbar(brainbit, manifest, ui) {
   const actions = Object.fromEntries((manifest?.capability_config?.admin_actions?.actions || []).map((action) => [action.key, action]));
   const selectAction = actions.select_device;
   const scanAction = actions.scan_devices;
   const contactAction = actions.check_contact;
+  const latest = brainbit.latest || {};
+  const connected = brainbit.connection_state === 'connected';
+  const current = (connected
+    ? (brainbit.selected_device || latest.selected_device || latest.device)
+    : (brainbit.target_device || latest.target_device)) || {};
+  const currentIdentity = deviceIdentity(currentPayload(current));
   const instanceConfig = selectAction?.instances || {};
   const candidates = (instanceConfig.status_paths || [])
     .map((path) => readPath(brainbit, path))
@@ -142,11 +148,21 @@ function renderDeviceToolbar(brainbit, manifest, ui) {
       if (value !== undefined && value !== null && value !== '') payload[target] = value;
     });
     const label = [...new Set((instanceConfig.label_fields || []).map((path) => readPath(instance, path)).filter(Boolean))].join(' - ');
-    const serial = String(payload.serial_number || '').trim().toLowerCase();
-    const address = String(payload.address || '').replace(/[:-]/g, '').trim().toLowerCase();
-    const identity = serial ? `serial:${serial}` : address ? `address:${address}` : '';
-    return `<option data-option-key="${ui.escapeHtml(identity)}" value="${ui.escapeHtml(JSON.stringify(payload))}" ${identity ? '' : 'disabled'}>${ui.escapeHtml(label)}</option>`;
+    const identity = deviceIdentity(payload);
+    const selected = identity && identity === currentIdentity ? 'selected' : '';
+    return `<option data-option-key="${ui.escapeHtml(identity)}" value="${ui.escapeHtml(JSON.stringify(payload))}" ${identity ? '' : 'disabled'} ${selected}>${ui.escapeHtml(label)}</option>`;
   }).join('');
+  // Show the connected (or configured) band even when the last scan list is gone,
+  // e.g. right after Connect restarted the adapter.
+  const currentListed = candidates.some((instance) => deviceIdentity({
+    serial_number: readPath(instance, 'serial') || readPath(instance, 'serial_number'),
+    address: readPath(instance, 'address'),
+  }) === currentIdentity);
+  const currentOption = currentIdentity && !currentListed
+    ? `<option data-option-key="${ui.escapeHtml(currentIdentity)}" value="${ui.escapeHtml(JSON.stringify(currentPayload(current)))}" selected>${formatDevice(current, ui)} (${ui.escapeHtml(connected
+      ? ui.t('brainbit.device.connected', 'connected')
+      : ui.t('brainbit.device.target', 'target'))})</option>`
+    : '';
   const selectId = `plugin-action-${manifest?.plugin_key || 'brainbit'}-select_device`;
 
   const iconAction = (action, icon, order) => {
@@ -162,12 +178,12 @@ function renderDeviceToolbar(brainbit, manifest, ui) {
     <div data-plugin-action-select class="dashboard-toolbar-select-group">
       <select id="${ui.escapeHtml(selectId)}" data-action-key="select_device" class="dashboard-select" style="order:1"
           aria-label="${ui.escapeHtml(ui.t('dashboard.selectDevice', 'Select device'))}">
-        <option value="">${ui.escapeHtml(ui.t('dashboard.chooseDevice', 'Choose a device'))}</option>${options}
+        <option value="">${ui.escapeHtml(ui.t('dashboard.chooseDevice', 'Choose a device'))}</option>${currentOption}${options}
       </select>
-      ${iconAction(selectAction, 'iconoir-link', 4)}
+      ${iconAction(selectAction, 'iconoir-link', 3)}
     </div>
     ${iconAction(scanAction, 'iconoir-search', 2)}
-    ${iconAction(contactAction, 'iconoir-activity', 3)}
+    ${iconAction(contactAction, 'iconoir-activity', 4)}
   </div>`;
 }
 
@@ -186,9 +202,25 @@ function renderRuntimeToggle(brainbit, ui) {
         <span class="switch-slider"></span>
       </span>
     </label>
-    <button type="button" class="btn-icon-only" data-dashboard-action="runtime_${ui.escapeHtml(brainbit.key || '')}_restart" ${restartDisabled}
+    <button type="button" class="btn-icon-only is-danger" data-dashboard-action="runtime_${ui.escapeHtml(brainbit.key || '')}_restart" ${restartDisabled}
         title="${ui.escapeHtml(restartLabel)}" aria-label="${ui.escapeHtml(restartLabel)}"><i class="iconoir-refresh"></i></button>
   </div>`;
+}
+
+/** Same identity rule for scan candidates and the connected band: serial first, then address. */
+function deviceIdentity(payload) {
+  const serial = String(payload?.serial_number || '').trim().toLowerCase();
+  const address = String(payload?.address || '').replace(/[:-]/g, '').trim().toLowerCase();
+  return serial ? `serial:${serial}` : address ? `address:${address}` : '';
+}
+
+function currentPayload(device) {
+  const payload = {};
+  if (!device || typeof device !== 'object') return payload;
+  if (device.name) payload.name = device.name;
+  if (device.address) payload.address = device.address;
+  if (device.serial || device.serial_number) payload.serial_number = device.serial || device.serial_number;
+  return payload;
 }
 
 function readPath(source, path) {

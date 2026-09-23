@@ -130,13 +130,13 @@
     },
     {
       "key": "quality", "source_id": "study_runner.brainbit.quality", "type": "QUALITY",
-      "nominal_rate_hz": 0, "clock_domain": "lsl", "channel_format": "float32",
+      "nominal_rate_hz": 0, "may_be_empty": true, "clock_domain": "lsl", "channel_format": "float32",
       "channels": ["O1", "O2", "T3", "T4"],
       "channel_units": ["ratio", "ratio", "ratio", "ratio"]
     },
     {
       "key": "battery", "source_id": "study_runner.brainbit.battery", "type": "BATTERY",
-      "nominal_rate_hz": 0, "clock_domain": "lsl", "channel_format": "float32",
+      "nominal_rate_hz": 0, "may_be_empty": true, "clock_domain": "lsl", "channel_format": "float32",
       "channels": ["percent"],
       "channel_units": ["percent"]
     }
