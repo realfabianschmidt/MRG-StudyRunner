@@ -93,6 +93,27 @@ class RuntimeConfigTests(unittest.TestCase):
             self.assertTrue((storage / "studies" / "Default.study-runner").exists())
             self.assertTrue((storage / "saved_results").is_dir())
 
+    def test_external_data_dir_gets_the_demo_result_only_when_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as base_dir, tempfile.TemporaryDirectory() as data_dir:
+            base = Path(base_dir)
+            demo = base / "saved_results" / "Demo_Completed_Study" / "participants" / "p" / "sessions" / "s"
+            (demo / "answers").mkdir(parents=True)
+            (demo / "answers" / "result.json").write_text("{}", encoding="utf-8")
+
+            with patch.dict(os.environ, {"STUDY_RUNNER_DATA_DIR": data_dir}, clear=True):
+                paths = resolve_runtime_paths(base)
+                initialize_runtime_storage(paths)
+            copied = Path(data_dir) / "saved_results" / "Demo_Completed_Study"
+            self.assertTrue((copied / "participants" / "p" / "sessions" / "s" / "answers" / "result.json").is_file())
+
+        with tempfile.TemporaryDirectory() as base_dir, tempfile.TemporaryDirectory() as data_dir:
+            base = Path(base_dir)
+            (base / "saved_results" / "Demo_Completed_Study").mkdir(parents=True)
+            (Path(data_dir) / "saved_results" / "Real_Study").mkdir(parents=True)
+            with patch.dict(os.environ, {"STUDY_RUNNER_DATA_DIR": data_dir}, clear=True):
+                initialize_runtime_storage(resolve_runtime_paths(base))
+            self.assertFalse((Path(data_dir) / "saved_results" / "Demo_Completed_Study").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,11 @@ Darin liegen:
   Integrationen.
 - `software/study_content/studies/`: gespeicherte Studienvorlagen.
 
+Mitgeliefert sind zwei Beispielstudien ("Example Basic Study", "Example
+Sensors Study"); sie stehen in der Admin-Startseite unter den zuletzt
+verwendeten Studien. Dazu kommt ein fertiges Beispielergebnis ("Demo Completed
+Study") in der Liste der abgeschlossenen Studien.
+
 Bequemer ist meistens die Admin-Oberflaeche:
 
 ```text

@@ -1,16 +1,11 @@
-"""Phase 6.3: a real 0.7.0 session must still open today, unmodified.
+"""The shipped demo session must stay listable and openable.
 
-`software/saved_results/Demo_Completed_Study/` is not a synthetic fixture --
-it is the exact session folder shipped in tag `app-v0.7.0` (verified with
-`git diff app-v0.7.0 -- software/saved_results/Demo_Completed_Study`: no
-difference at all). Every artifact the 1.0 rebuild's Phase 5 packages added
-(`quality.jsonl` for 5c, the derived `lifecycle` field for 5a, ...) postdates
-this session, so it proves the real thing 6.3 asks for: reading an old
-session must not require artifacts that did not exist when it was recorded.
-
-This complements test_sessions_routes.py's synthetic per-field fixtures
-(which pin the same "optional on read" behavior with hand-built data); this
-file pins it against bytes nobody manufactured for a test.
+`software/saved_results/Demo_Completed_Study/` is the real session recorded
+with 0.7.0. Its only change since then is the move of `result.json` into
+`answers/` when the session folder was restructured (answers/meta/raw/derived),
+so it is exactly what a fresh installation shows as its example result. It
+still lacks every artifact added later (`quality.jsonl`, lifecycle fields, the
+meta/ folder), which proves that reading a session does not require them.
 """
 from __future__ import annotations
 
@@ -30,13 +25,6 @@ PARTICIPANT_ID = "ac89c1703e034cfb"
 SESSION_FOLDER = "20260811T163356Z__study-session-02ec4b00debe496680afb8cffed52dea"
 
 
-@unittest.skip(
-    "v4 layout (meta/, answers/) deliberately drops read-compatibility for "
-    "sessions recorded before this reorg -- decided 2026-09-17, no real "
-    "pre-v4 session data exists yet and the coming study records directly "
-    "in the new shape. This fixture and the guarantee it pinned are kept "
-    "here, skipped rather than deleted, in case that decision is revisited."
-)
 class Real070SessionCompatTests(unittest.TestCase):
     def setUp(self) -> None:
         session_root = SAVED_RESULTS / "Demo_Completed_Study" / "participants" / PARTICIPANT_ID / "sessions" / SESSION_FOLDER

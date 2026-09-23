@@ -127,6 +127,7 @@ def initialize_runtime_storage(paths: RuntimePaths) -> None:
     _copy_default_file(default_settings / "study_config.json", paths.config_file)
     _copy_default_file(default_settings / "hardware_settings.json", paths.hardware_config_file)
     _copy_default_studies(paths.content_dir / "studies", paths.saved_studies_dir)
+    _copy_demo_results(paths.base_dir / "saved_results", paths.data_dir)
 
 
 def get_local_private_ips() -> list[str]:
@@ -193,6 +194,18 @@ def _copy_default_studies(source_dir: Path, destination_dir: Path) -> None:
     for source_file in source_dir.iterdir():
         if source_file.is_file():
             shutil.copy2(source_file, destination_dir / source_file.name)
+
+
+# The one curated demo session the project ships (see .gitignore). Seeded only
+# into a brand-new external data folder, never over real results.
+DEMO_RESULT_DIRECTORY = "Demo_Completed_Study"
+
+
+def _copy_demo_results(source_root: Path, destination_dir: Path) -> None:
+    source = source_root / DEMO_RESULT_DIRECTORY
+    if not source.is_dir() or any(destination_dir.iterdir()):
+        return
+    shutil.copytree(source, destination_dir / DEMO_RESULT_DIRECTORY)
 
 
 def _format_url(scheme: str, host: str, port: int, path: str) -> str:

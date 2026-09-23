@@ -258,8 +258,9 @@ def main(argv: list[str]) -> int:
         encoding="utf-8",
     )
 
+    (session_root / "answers").mkdir(exist_ok=True)
     write_result(
-        session_root / "result.json",
+        session_root / "answers" / "result.json",
         study_id=args.study,
         participant_id=participant_id,
         session_id=session_id,

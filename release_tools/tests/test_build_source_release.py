@@ -148,7 +148,7 @@ class SourceReleaseTests(unittest.TestCase):
         with temporary_directory() as temporary:
             path = Path(temporary) / release.ARCHIVES[0]
             write_zip(path, members(
-                "software/saved_results/Demo_Completed_Study/participants/p1/sessions/s1/result.json",
+                "software/saved_results/Demo_Completed_Study/participants/p1/sessions/s1/answers/result.json",
                 "software/saved_results/Demo_Completed_Study/participants/p1/sessions/s1/derived/session.xdf",
             ))
 
@@ -165,7 +165,7 @@ class SourceReleaseTests(unittest.TestCase):
             path = Path(temporary) / release.ARCHIVES[0]
             write_zip(path, members(
                 "software/saved_results/",
-                "software/saved_results/Demo_Completed_Study/participants/p1/sessions/s1/result.json",
+                "software/saved_results/Demo_Completed_Study/participants/p1/sessions/s1/answers/result.json",
             ))
 
             release.validate_archive(path, version=VERSION)
@@ -181,7 +181,7 @@ class SourceReleaseTests(unittest.TestCase):
                 path = Path(temporary) / release.ARCHIVES[0]
                 write_zip(path, members(
                     name,
-                    "software/saved_results/Demo_Completed_Study/participants/p1/sessions/s1/result.json",
+                    "software/saved_results/Demo_Completed_Study/participants/p1/sessions/s1/answers/result.json",
                 ))
 
                 release.validate_archive(path, version=VERSION)
@@ -189,7 +189,7 @@ class SourceReleaseTests(unittest.TestCase):
     def test_archive_still_rejects_every_other_saved_results_path(self) -> None:
         """The exemption is the one named demo folder, not the whole directory."""
         for name in (
-            "software/saved_results/Some_Real_Study/participants/p1/sessions/s1/result.json",
+            "software/saved_results/Some_Real_Study/participants/p1/sessions/s1/answers/result.json",
             "software/saved_results/Demo_Completed_Study_Copy/result.json",
             "software/saved_results/runtime/lock.json",
         ):
