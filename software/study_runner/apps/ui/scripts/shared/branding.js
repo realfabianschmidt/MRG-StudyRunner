@@ -78,3 +78,50 @@ function logoImage(slot, alt) {
 function emptyBranding() {
   return { group: null, funders: [] };
 }
+
+// ---- Fonts -------------------------------------------------------------------
+
+const FONT_STACKS = {
+  geist: "'Geist', -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif",
+  system: "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif",
+  serif: "Georgia, Cambria, \"Times New Roman\", Times, serif",
+};
+const FONT_VARIABLES = { heading: '--font-heading', body: '--font-body' };
+
+export async function loadFonts() {
+  try {
+    const response = await fetch('/api/branding/fonts', { headers: { Accept: 'application/json' } });
+    if (!response.ok) return null;
+    return (await response.json())?.fonts || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Apply the operator's font choices by overriding the CSS font variables.
+ * "default" keeps the stylesheet's own stack; an uploaded font falls back to
+ * the default stack while it loads or if it cannot be read.
+ */
+export async function applyFonts(fonts = null) {
+  const manifest = fonts || await loadFonts();
+  if (!manifest) return;
+  const root = document.documentElement;
+  for (const [slot, variable] of Object.entries(FONT_VARIABLES)) {
+    const entry = manifest[slot] || {};
+    root.style.removeProperty(variable);
+    if (entry.choice === 'uploaded' && entry.has_upload) {
+      const family = `StudyRunner${slot === 'heading' ? 'Heading' : 'Body'}${entry.version.replace(/\W/g, '')}`;
+      try {
+        const face = new FontFace(family, `url(/api/branding/font/${slot}?v=${encodeURIComponent(entry.version)})`);
+        await face.load();
+        document.fonts.add(face);
+        root.style.setProperty(variable, `'${family}', ${FONT_STACKS.geist}`);
+      } catch (error) {
+        console.warn(`[fonts] Could not load the ${slot} font:`, error);
+      }
+    } else if (FONT_STACKS[entry.choice]) {
+      root.style.setProperty(variable, FONT_STACKS[entry.choice]);
+    }
+  }
+}

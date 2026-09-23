@@ -20,7 +20,7 @@ import {
 } from '../shared/plugin-catalog.js';
 import { createParticipantPluginExtensionManager } from '../shared/participant-plugin-extensions.js';
 import { startAmbientBubbles, stopAmbientBubbles } from '../shared/ambient-bubbles.js';
-import { loadBranding, renderFunderLogos, renderGroupLogo } from '../shared/branding.js';
+import { applyFonts, loadBranding, renderFunderLogos, renderGroupLogo } from '../shared/branding.js';
 import { createModal } from '../shared/modal.js';
 
 /**
@@ -991,6 +991,7 @@ function setWaitingSlideChrome(isWaitingSlide) {
 }
 
 async function applyBranding() {
+  void applyFonts();
   const branding = await loadBranding();
   renderGroupLogo(getElement('study-brand-logo'), branding);
   const funders = getElement('study-funder-logos');

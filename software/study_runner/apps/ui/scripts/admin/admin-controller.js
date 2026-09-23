@@ -2,7 +2,8 @@
 import { initializeAdminDashboard } from './admin-dashboard-controller.js';
 import { initializeCertificateSettings } from '../settings/machine/certificate-settings-controller.js';
 import { initializeBrandingSettings } from '../settings/machine/branding-settings-controller.js';
-import { loadBranding, renderGroupLogo } from '../shared/branding.js';
+import { initializeFontSettings } from '../settings/machine/font-settings-controller.js';
+import { applyFonts, loadBranding, renderGroupLogo } from '../shared/branding.js';
 import { initializeSessionsBrowser, loadCompletedSessions } from './sessions-browser.js';
 import { initializeUploadMonitor } from './upload-monitor.js';
 import { initializeRecoveryPanel, loadRecoveryCandidates } from './recovery-panel.js';
@@ -222,6 +223,7 @@ async function init() {
     // without reopening the page.
     onBrandingChanged: (branding) => renderGroupLogo($('hub-brand-logo'), branding),
   });
+  initializeFontSettings({ showToast });
   void applyHubBranding();
   initializeStudySettingsPanel({
     showToast,
@@ -493,6 +495,7 @@ function showBlockingReadinessDialog(blockers) {
 }
 
 async function applyHubBranding() {
+  void applyFonts();
   renderGroupLogo($('hub-brand-logo'), await loadBranding());
 }
 

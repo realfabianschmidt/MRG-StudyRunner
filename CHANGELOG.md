@@ -5,6 +5,32 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Added
+
+- Info card: text for the participant to read, with an optional image to the
+  left or right of it. It records no answer but keeps its own viewing interval,
+  so it can serve as a recorded baseline phase.
+- Optional cover page (Study settings, Participant experience), shown after the
+  admin releases the study and before the Participant ID card, continued with a
+  centered button. Nothing is recorded yet while it is shown.
+- Exported `.study-runner` files are now packages that carry the study's
+  images (zip with a SHA-256 manifest); plain JSON studies still import.
+- Fonts menu next to Logos: choose or upload the heading and body font for the
+  admin and participant pages of this computer.
+
+### Changed
+
+- Opening an attention-required finalization acknowledges it: the floating
+  notice disappears, while the session keeps its attention status.
+
+### Fixed
+
+- The BrainBit contact and battery streams, which only report before recording
+  starts, no longer put short sessions into attention_required; the device
+  select shows the connected band.
+- The shipped demo result is listed again after the session folder layout
+  change, and a new external data folder is seeded with it.
+
 ## 1.1.0 - 2026-09-23
 
 ### Added

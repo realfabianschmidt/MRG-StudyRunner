@@ -9,6 +9,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
+from study_runner.runtime_core.settings import font_service
 from study_runner.runtime_core.settings.branding_service import (
     MAX_ASSET_BYTES,
     BrandingError,
@@ -76,3 +77,54 @@ def branding_delete(slot: str):
     except BrandingError as error:
         return jsonify({"ok": False, "error": str(error)}), 400
     return jsonify({"ok": True, "branding": branding})
+
+
+# ---- Fonts (heading / body) --------------------------------------------------
+
+@bp.route("/api/branding/fonts", methods=["GET"])
+def fonts_manifest():
+    return jsonify({"ok": True, "fonts": font_service.public_manifest(_branding_dir())})
+
+
+@bp.route("/api/branding/font/<slot>", methods=["GET"])
+def font_file(slot: str):
+    try:
+        path, content_type = font_service.resolve_font(_branding_dir(), slot)
+    except font_service.FontError as error:
+        return jsonify({"ok": False, "error": str(error)}), 404
+    response = Response(path.read_bytes(), mimetype=content_type)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@bp.route("/api/admin/branding/font/<slot>", methods=["POST"])
+def font_upload(slot: str):
+    uploaded = request.files.get("file")
+    if uploaded is None:
+        return jsonify({"ok": False, "error": "No font file was sent."}), 400
+    try:
+        fonts = font_service.store_font(
+            _branding_dir(), slot, uploaded.filename or "", uploaded.read(font_service.MAX_FONT_BYTES + 1)
+        )
+    except font_service.FontError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True, "fonts": fonts})
+
+
+@bp.route("/api/admin/branding/font/<slot>", methods=["DELETE"])
+def font_delete(slot: str):
+    try:
+        fonts = font_service.remove_font(_branding_dir(), slot)
+    except font_service.FontError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True, "fonts": fonts})
+
+
+@bp.route("/api/admin/branding/fonts", methods=["PUT"])
+def font_choices():
+    try:
+        fonts = font_service.set_choices(_branding_dir(), request.get_json(silent=True))
+    except font_service.FontError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True, "fonts": fonts})

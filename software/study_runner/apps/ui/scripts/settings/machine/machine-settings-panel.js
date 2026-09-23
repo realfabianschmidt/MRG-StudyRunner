@@ -19,6 +19,7 @@ import { getJson, postJson } from '../../shared/api-client.js';
 import { activateShellPanel, bindShellNav, renderShellNav, renderShellPanel } from '../../shared/settings-shell.js';
 import { refreshCertificateStatus } from './certificate-settings-controller.js';
 import { refreshBrandingSettings, renderBrandingSettingsPanel } from './branding-settings-controller.js';
+import { refreshFontSettings, renderFontSettingsPanel } from './font-settings-controller.js';
 import {
   PLUGIN_UI_SURFACES,
   getPluginCatalog,
@@ -168,6 +169,7 @@ function settingsHubStatusRow() {
 function onSettingsPanelShown(key) {
   if (key === 'certificate') void refreshCertificateStatus();
   if (key === 'branding') void refreshBrandingSettings();
+  if (key === 'fonts') void refreshFontSettings();
   if (key === 'update') void host.loadUpdateStatus({ silent: true });
 }
 
@@ -179,6 +181,7 @@ function settingsHubEntries() {
     { key: 'certificate', icon: 'iconoir-shield-check', label: t('hub.certificateSettings', 'Certificate'), group: groupThisComputer },
     { key: 'tablet', icon: 'iconoir-smartphone-device', label: t('settingsHub.tabTablet', 'Tablet'), group: groupThisComputer },
     { key: 'branding', icon: 'iconoir-media-image', label: t('branding.title', 'Logos'), group: groupThisComputer },
+    { key: 'fonts', icon: 'iconoir-text-size', label: t('fonts.title', 'Fonts'), group: groupThisComputer },
     ...settingsHubPlugins().map((plugin) => ({
       key: `plugin:${plugin.key}`,
       icon: pluginIcon(plugin),
@@ -205,6 +208,7 @@ function settingsHubPanels() {
   return [
     renderShellPanel('tablet', renderTabletAccessPanel(), active !== 'tablet'),
     renderShellPanel('branding', renderBrandingSettingsPanel(), active !== 'branding'),
+    renderShellPanel('fonts', renderFontSettingsPanel(), active !== 'fonts'),
     ...(getPluginCatalog().invalid_plugins.length ? [renderShellPanel(
       'plugin-problems',
       renderInvalidPlugins(),

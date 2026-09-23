@@ -104,6 +104,7 @@ Edit-safety legend:
 | `software/study_runner/runtime_core/delivery/certificate_download_service.py` | Plain-HTTP, one-file bootstrap download for the local root CA | careful |
 | `software/study_runner/runtime_core/delivery/certificate_transfer_service.py` | Validates, exports, and transactionally imports the reusable local root CA | no |
 | `software/study_runner/runtime_core/settings/branding_service.py` | Validates logo uploads and resolves a slot to a stored file, never to a caller's path | no |
+| `software/study_runner/runtime_core/settings/font_service.py` | Heading/body font choice per computer: built-in stacks or one uploaded font per slot, checked by file signature and resolved only through its manifest | no |
 | `software/study_runner/runtime_core/studies/study_assets_service.py` | Content-addressed study images (id = SHA-256 + detected type), with type/size checks and the rule that a saved study may only point at stored images | no |
 | `software/study_runner/runtime_core/studies/study_package_service.py` | Builds and verifies portable study packages (zip: study.json, manifest with SHA-256, assets/); still reads plain-JSON studies | careful |
 | `software/study_runner/runtime_core/delivery/withdrawal_service.py` | Consent withdrawal: stops writers, cancels pending uploads, deletes the session tree and the journal copies outside it, then leaves a `WITHDRAWN.json` tombstone; its ledger lives outside the folder it empties so an interrupted run can resume | dangerous |
@@ -328,6 +329,7 @@ one, unlike the plugin table above).
 | `shared/media-editor.js` | Editor fields for that content: title, text, image upload/removal, image description, layout | careful |
 | `shared/modal.js` | Shared accessible modal lifecycle, modal-shell markup, and the yes/no confirmation | careful |
 | `shared/branding.js` | Shared branding fetch and logo rendering for the waiting slide and the hub | careful |
+| `settings/machine/font-settings-controller.js` | The Fonts settings page next to Logos: choose, upload, or remove the heading and body fonts | no |
 | `shared/ambient-bubbles.js` | Self-contained morphing background for the waiting slide; tune CONFIG at the top | no |
 | `shared/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
 | `shared/api-client.js` | Tiny fetch helpers (getJson/postJson) | careful |
