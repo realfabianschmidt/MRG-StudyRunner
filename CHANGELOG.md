@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.1.0 - 2026-09-23
+
 ### Added
 
 - The main and German getting-started guides now lead non-developers through a
