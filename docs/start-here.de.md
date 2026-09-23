@@ -422,7 +422,9 @@ noch nicht selbst aktualisieren. Study Runner beenden, das neue Archiv in einen
 neuen Ordner entpacken, `software/study_content` und `software/saved_results`
 aus dem alten Ordner in den neuen kopieren (die dortigen Ordner ersetzen), dann
 `bash tools/install-macos.sh` bzw. `.\tools\install-windows.cmd` ausfuehren und
-starten. Git-Installationen: `git pull --ff-only`, dann das Installationsskript.
+starten. `git pull` funktioniert in einem
+entpackten Archiv nicht. Git-Installationen: `git pull --ff-only`, dann das
+Installationsskript.
 
 **Studienordner:** Ab 1.2.0 sind die Dateien in `software/study_content/studies`
 Zip-Pakete mit ihren Bildern (Endung weiterhin `.study-runner`). Alte
