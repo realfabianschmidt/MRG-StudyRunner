@@ -81,10 +81,20 @@ environment.
   earlier version imports unchanged.
 - **Not the other way round:** Study Runner 1.1.0 and older cannot read the new
   package. Update the receiving computer first.
-- The bundled example studies are plain JSON and keep working; downloading one
-  produces the new package format.
+- Since 1.2.0 the files in `software/study_content/studies/` are packages too,
+  including the bundled examples. Plain-JSON files found there are converted
+  once at startup; the originals are kept in `studies/_backup-json/`.
 - Upload credentials (Notion key, Nextcloud password) are never part of the
   file. Enter them again on the receiving computer.
+
+## Updating
+
+Update panel, **Update now** (or `tools/update-macos.sh` /
+`tools\update-windows.cmd` while Study Runner is stopped). An update ends
+everything first: a running session is aborted with the reason "Software
+update" (its data is kept) and the study run ends. Finalizations and uploads
+continue after the restart. Studies, results and settings are never touched.
+Details: [Release and Update](release-and-update.md#updating-an-installation).
 
 ## Uploads That Fail
 

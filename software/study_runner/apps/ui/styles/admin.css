@@ -1738,11 +1738,12 @@ body.admin::before { display: none; }
   display: flex; align-items: center; gap: var(--s-2);
   transform: translateY(8px);
 }
-.toast.show { opacity: 1; transform: translateY(0); }
+/* Messages must stay readable: solid backgrounds only, never the -14 tints. */
+.toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; cursor: pointer; max-width: min(520px, calc(100vw - 48px)); }
 .toast--success { background: var(--pos); }
-.toast--error   { background: var(--neg-14); }
+.toast--error   { background: var(--neg); }
 .toast--info    { background: var(--ink); }
-.toast--warning { background: var(--warn-14); }
+.toast--warning { background: var(--warn); }
 
 /* ============================================================
    SETTINGS MODAL – hint text helper
@@ -2798,3 +2799,6 @@ body.admin::before { display: none; }
 }
 .plugin-action-check--ok { color: var(--pos, #1a7f37); }
 .plugin-action-check--failed { color: var(--neg); }
+
+/* Confirmation texts may list several consequences, one per line. */
+.confirm-modal-message { white-space: pre-line; }

@@ -156,6 +156,12 @@ Run the platform installer again to repair or refresh an installation. Never del
 local studies, settings, and results are secured; follow
 [Release and Update](docs/release-and-update.md) when replacing an archive.
 
+Since 1.2.0 Study Runner updates itself: **Update now** in the admin Update
+panel, or `bash tools/update-macos.sh` / `.\tools\update-windows.cmd` while it
+is stopped. Studies, results and settings are kept. Coming from 1.1.x, replace
+the archive once by hand as described in
+[Release and Update](docs/release-and-update.md#updating-an-installation).
+
 Developers and operators who want `git pull` updates can use the
 [Git clone alternative](#git-clone-alternative).
 
@@ -315,7 +321,7 @@ Then rerun the platform's install script and use its start script. The
 installer refreshes Python dependencies and only replaces the XDF core when it
 is missing or no longer matches the native sources. For the
 admin-panel update flow, version pinning and the rollback path, see
-[Release and Update](docs/release-and-update.md#updating-a-source-checkout).
+[Release and Update](docs/release-and-update.md#updating-an-installation).
 
 The terminal prints the available addresses:
 

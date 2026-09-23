@@ -129,5 +129,47 @@ class StudyPackageTests(unittest.TestCase):
             read_package(b"PK\x03\x04 not really a zip")
 
 
+class StudyLibraryPackageTests(unittest.TestCase):
+    def test_library_studies_are_saved_as_packages_and_json_still_loads(self) -> None:
+        from study_runner.runtime_core.studies.study_config_service import list_studies, load_study, save_study
+
+        with temporary_studies_dir() as temporary:
+            studies = Path(temporary)
+            asset_id = store_asset(studies, PNG)
+            save_study(studies, study_with(asset_id))
+            stored = studies / "Pictures.study-runner"
+            self.assertTrue(stored.read_bytes().startswith(b"PK"))
+            self.assertEqual(load_study(studies, "Pictures")["questions"][1]["image_asset"], asset_id)
+
+            (studies / "Old.study-runner").write_text(json.dumps({"study_id": "Old", "questions": []}), encoding="utf-8")
+            self.assertEqual(load_study(studies, "Old")["study_id"], "Old")
+            self.assertEqual({item["id"] for item in list_studies(studies)}, {"Pictures", "Old"})
+
+    def test_migration_converts_json_once_and_keeps_backups(self) -> None:
+        from study_runner.runtime_core.studies.study_config_service import load_study, migrate_study_library
+
+        with temporary_studies_dir() as temporary:
+            studies = Path(temporary)
+            (studies / "Old.study-runner").write_text(json.dumps({"study_id": "Old", "questions": []}), encoding="utf-8")
+            (studies / "Legacy.json").write_text(json.dumps({"study_id": "Legacy", "questions": []}), encoding="utf-8")
+            (studies / "Broken.study-runner").write_text("{not json", encoding="utf-8")
+
+            converted = migrate_study_library(studies)
+            self.assertEqual(sorted(converted), ["Legacy.json", "Old.study-runner"])
+            self.assertTrue((studies / "Old.study-runner").read_bytes().startswith(b"PK"))
+            self.assertTrue((studies / "Legacy.study-runner").read_bytes().startswith(b"PK"))
+            self.assertFalse((studies / "Legacy.json").exists())
+            self.assertTrue((studies / "_backup-json" / "Old.study-runner").is_file())
+            self.assertTrue((studies / "_backup-json" / "Legacy.json").is_file())
+            self.assertEqual((studies / "Broken.study-runner").read_text(encoding="utf-8"), "{not json")
+            self.assertEqual(load_study(studies, "Legacy")["study_id"], "Legacy")
+            self.assertEqual(migrate_study_library(studies), [], "a second run changes nothing")
+
+    def test_shipped_example_studies_are_packages(self) -> None:
+        for path in (PROJECT_ROOT / "study_content" / "studies").glob("Example*.study-runner"):
+            with self.subTest(path.name):
+                self.assertTrue(path.read_bytes().startswith(b"PK"))
+
+
 if __name__ == "__main__":
     unittest.main()

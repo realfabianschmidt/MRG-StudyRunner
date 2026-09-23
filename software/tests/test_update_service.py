@@ -177,14 +177,17 @@ class SourceUpdateTests(unittest.TestCase):
             with self.assertRaisesRegex(update_service.UpdateError, "Check for updates first"):
                 update_service.download_and_stage_update(app_config)
 
-    def test_refuses_during_an_active_study_session(self) -> None:
+    def test_an_active_study_session_no_longer_blocks_the_update(self) -> None:
+        # The install route ends the run and aborts the session itself (after
+        # the operator's confirmation), so the checkout step does not refuse.
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             self._init_repo(root / "repo", "1.0.0")
             app_config = self._app_config(root / "repo" / "software", root / "storage", active=True)
             self._mark_update_available(app_config, "1.1.0")
-            with self.assertRaisesRegex(update_service.UpdateError, "session is active"):
-                update_service.download_and_stage_update(app_config)
+            with self.assertRaises(update_service.UpdateError) as raised:
+                update_service.download_and_stage_update(app_config)  # fails later: no remote to pull
+            self.assertNotIn("session is active", str(raised.exception))
 
     def test_refuses_a_checkout_that_is_not_a_git_clone(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -192,7 +195,7 @@ class SourceUpdateTests(unittest.TestCase):
             self._write_checkout_files(root / "repo", "1.0.0")  # no git init
             app_config = self._app_config(root / "repo" / "software", root / "storage")
             self._mark_update_available(app_config, "1.1.0")
-            with self.assertRaisesRegex(update_service.UpdateError, "not a git clone"):
+            with self.assertRaisesRegex(update_service.UpdateError, "neither a release archive nor a git clone"):
                 update_service.download_and_stage_update(app_config)
 
     def test_refuses_a_branch_other_than_main(self) -> None:

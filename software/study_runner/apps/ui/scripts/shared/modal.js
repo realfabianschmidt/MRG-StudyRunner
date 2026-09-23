@@ -107,7 +107,7 @@ export function confirmWithModal({
       <p class="settings-hint confirm-modal-message">${escapeHtml(message)}</p>
       <div class="dashboard-actions confirm-modal-actions">
         <button type="button" class="btn-secondary" data-confirm-cancel>${escapeHtml(cancelLabel)}</button>
-        <button type="button" class="btn-primary" data-confirm-ok>${escapeHtml(confirmLabel)}</button>
+        <button type="button" class="btn-primary${variant === 'danger' ? ' btn-primary--danger' : ''}" data-confirm-ok>${escapeHtml(confirmLabel)}</button>
       </div>`;
 
     modal.body.querySelector('[data-confirm-cancel]')?.addEventListener('click', () => finish(false));

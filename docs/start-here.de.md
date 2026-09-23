@@ -384,35 +384,51 @@ Windows und macOS gruen sein muss -- steht in
 
 ## Update am Nutzer-Rechner
 
-Der aktuelle Source-Server aktualisiert sich nicht selbst. Wie das Update
-funktioniert, haengt davon ab, wie Study Runner installiert wurde.
+Ab Version 1.2.0 aktualisiert sich Study Runner selbst, egal ob aus dem
+Release-Archiv oder per `git clone` installiert.
 
-**Installiert aus dem Release-Archiv** (der empfohlene Weg): Das neue Archiv
-herunterladen und wie unter "Neues heruntergeladenes Release verwenden"
-beschrieben in einen neuen Ordner installieren. `git pull` funktioniert in einem
-entpackten Archiv nicht.
+**Per Klick:** Admin-Seite, Bereich Update, "Jetzt aktualisieren". Der Dialog
+zeigt, was dabei beendet wird; laeuft gerade eine Session, folgt eine zweite,
+rote Bestaetigung. Dann:
 
-**Installiert per `git clone`**: Server stoppen und im Projektordner ausfuehren.
+- Eine laufende Session wird mit dem Grund "Software update" abgebrochen. Die
+  bis dahin aufgezeichneten Daten bleiben erhalten.
+- Ein laufender Studienlauf wird beendet, Sensoren werden gestoppt.
+- Offene Abschluesse und Uploads laufen nach dem Neustart weiter.
+- Das Archiv wird heruntergeladen und per SHA-256 geprueft. Die alten
+  Programmdateien landen in `.tools/update-backup/`, die neue Version wird
+  installiert, und Study Runner startet in einem neuen Fenster neu. Die Seite
+  laedt sich danach selbst neu.
+- Studien, Ergebnisse, Einstellungen, Zugangsdaten, Logos und Schriften
+  (`software/study_content`, `software/saved_results`) werden nie angefasst.
+- Scheitert die Installation, wird die alte Version wiederhergestellt und
+  wieder gestartet.
 
-```powershell
-git pull --ff-only
-.\tools\install-windows.cmd
-.\tools\start-windows.cmd
-```
-
-Auf dem Mac:
+**Per Terminal:** Study Runner mit Ctrl+C beenden, dann im Programmordner:
 
 ```bash
-git pull --ff-only
-bash tools/install-macos.sh
-bash tools/start-macos.sh
+bash tools/update-macos.sh           # Mac
+bash tools/update-macos.sh --check   # nur pruefen
 ```
 
-Die Installationsskripte verwenden `.venv` weiter, aktualisieren Pakete und
-ersetzen den XDF-Kern nur, wenn er fehlt oder nicht mehr zu den Quellen passt.
-Studien und Ergebnisse werden nicht geloescht. Wer die Daten dauerhaft
-ausserhalb des Programmordners halten moechte, setzt vorher
-`STUDY_RUNNER_DATA_DIR`.
+```powershell
+.\tools\update-windows.cmd
+```
+
+Danach wie gewohnt starten.
+
+**Einmalig von 1.1.x auf 1.2.0:** Diese Versionen koennen sich aus dem Archiv
+noch nicht selbst aktualisieren. Study Runner beenden, das neue Archiv in einen
+neuen Ordner entpacken, `software/study_content` und `software/saved_results`
+aus dem alten Ordner in den neuen kopieren (die dortigen Ordner ersetzen), dann
+`bash tools/install-macos.sh` bzw. `.\tools\install-windows.cmd` ausfuehren und
+starten. Git-Installationen: `git pull --ff-only`, dann das Installationsskript.
+
+**Studienordner:** Ab 1.2.0 sind die Dateien in `software/study_content/studies`
+Zip-Pakete mit ihren Bildern (Endung weiterhin `.study-runner`). Alte
+JSON-Dateien werden beim ersten Start einmalig umgewandelt; die Originale
+liegen in `studies/_backup-json/`. Wer die Daten dauerhaft ausserhalb des
+Programmordners halten moechte, setzt `STUDY_RUNNER_DATA_DIR`.
 
 ## Release-Zugang
 

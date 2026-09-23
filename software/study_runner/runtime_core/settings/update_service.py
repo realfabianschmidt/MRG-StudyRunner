@@ -17,6 +17,7 @@ import zipfile
 
 import requests
 
+from study_runner.updates import archive_update
 from study_runner.updates import signatures as update_signatures
 from study_runner.updates.signatures import UPDATER_SCHEMA_VERSION
 from study_runner.version import __version__
@@ -70,9 +71,18 @@ def build_update_status(app_config: dict[str, Any]) -> dict[str, Any]:
             "download": state.get("download"),
             "staged": _public_staged(state.get("staged")),
             "install_supported": is_install_supported(app_config),
+            "install_kind": (
+                "packaged" if getattr(sys, "frozen", False)
+                else archive_update.install_kind(_install_root(app_config))
+            ),
         }
     )
     return status
+
+
+def _install_root(app_config: dict[str, Any]) -> Path:
+    """The folder the operator extracted or cloned (the parent of software/)."""
+    return Path(app_config.get("BASE_DIR") or ".").resolve().parent
 
 
 def check_for_update(app_config: dict[str, Any]) -> dict[str, Any]:
@@ -108,7 +118,15 @@ def check_for_update(app_config: dict[str, Any]) -> dict[str, Any]:
 
 def download_and_stage_update(app_config: dict[str, Any]) -> dict[str, Any]:
     if not getattr(sys, "frozen", False):
-        return _apply_source_update(app_config)
+        kind = archive_update.install_kind(_install_root(app_config))
+        if kind == "archive":
+            return _stage_archive_update(app_config)
+        if kind == "git":
+            return _apply_source_update(app_config)
+        raise UpdateError(
+            "This installation is neither a release archive nor a git clone, so it cannot update "
+            "itself. Download the latest release archive instead -- see docs/release-and-update.md."
+        )
     _require_public_key()
     paths = resolve_update_paths(app_config)
     state = _read_state(paths.state_file)
@@ -180,7 +198,7 @@ def download_and_stage_update(app_config: dict[str, Any]) -> dict[str, Any]:
 
 def request_update_install(app_config: dict[str, Any]) -> dict[str, Any]:
     if not getattr(sys, "frozen", False):
-        return _request_source_restart(app_config)
+        return _request_source_restart(app_config)  # git and archive share the restart path
     if not is_install_supported(app_config):
         raise UpdateError("Install/restart is only available in Python packaged builds, not source mode or legacy desktop mode.")
 
@@ -271,8 +289,6 @@ def _apply_source_update(app_config: dict[str, Any]) -> dict[str, Any]:
     if not update_info.get("available"):
         raise UpdateError("No checked update is available. Check for updates first.")
 
-    if app_config.get("ACTIVE_STUDY_HARDWARE_CONFIG"):
-        raise UpdateError("A study session is active. Finish or stop it before updating.")
     if not (repo_root / ".git").is_dir():
         raise UpdateError(
             "This checkout is not a git clone, so it cannot update itself here. "
@@ -324,6 +340,73 @@ def _apply_source_update(app_config: dict[str, Any]) -> dict[str, Any]:
     return build_update_status(app_config)
 
 
+def _stage_archive_update(app_config: dict[str, Any]) -> dict[str, Any]:
+    """Download and verify the next release archive while the server keeps running.
+
+    The archive's SHA-256 comes from the published release metadata. Nothing in
+    the installation changes here; the swap happens in the restart helper once
+    the server has stopped.
+    """
+    install_root = _install_root(app_config)
+    paths = resolve_update_paths(app_config)
+    state = _read_state(paths.state_file)
+    update_info = state.get("update") if isinstance(state.get("update"), dict) else {}
+    if not update_info.get("available"):
+        raise UpdateError("No checked update is available. Check for updates first.")
+
+    metadata = fetch_source_release_metadata(get_source_release_url())
+    version = str(metadata.get("version") or "").strip()
+    if not _is_semver(version) or compare_versions(version, __version__) <= 0:
+        raise UpdateError("The published release is not newer than this installation.")
+    archive_name = archive_update.archive_name_for_platform()
+    artifacts = metadata.get("artifacts") if isinstance(metadata.get("artifacts"), dict) else {}
+    artifact = artifacts.get(archive_name) if isinstance(artifacts.get(archive_name), dict) else {}
+    expected_sha256 = str(artifact.get("sha256") or "").strip().lower()
+    if len(expected_sha256) != 64:
+        raise UpdateError(f"The release metadata has no checksum for {archive_name}.")
+    repository = str(metadata.get("repository") or "realfabianschmidt/MRG-StudyRunner")
+    tag = str(metadata.get("tag") or f"app-v{version}")
+    asset = {
+        "url": f"https://github.com/{repository}/releases/download/{tag}/{archive_name}",
+        "size": int(artifact.get("size") or 0),
+    }
+
+    staging_parent = install_root / ".tools" / "update-staging"
+    staging_parent.mkdir(parents=True, exist_ok=True)
+    download_path = staging_parent / archive_name
+    _set_download_state(paths.state_file, state, {
+        "state": "downloading", "file_name": archive_name,
+        "bytes_downloaded": 0, "total_bytes": asset["size"],
+    })
+    _download_asset(asset, download_path, paths.state_file, state)
+    _set_download_state(paths.state_file, state, {
+        "state": "verifying", "file_name": archive_name,
+        "bytes_downloaded": download_path.stat().st_size, "total_bytes": download_path.stat().st_size,
+    })
+    try:
+        release_root = archive_update.stage_archive(download_path, expected_sha256, staging_parent, version)
+    except archive_update.ArchiveUpdateError as error:
+        _set_error(paths.state_file, state, str(error))
+        raise UpdateError(str(error)) from error
+    finally:
+        download_path.unlink(missing_ok=True)
+
+    state = _read_state(paths.state_file)
+    state.update({
+        "state": "staged",
+        "error": "",
+        "staged": {
+            "mode": "archive",
+            "version": version,
+            "path": str(release_root),
+            "release_root": str(release_root),
+            "staged_at": _utc_now(),
+        },
+    })
+    _write_state(paths.state_file, state)
+    return build_update_status(app_config)
+
+
 def _request_source_restart(app_config: dict[str, Any]) -> dict[str, Any]:
     """Restart into the just-updated checkout by re-running `python server.py`.
 
@@ -342,7 +425,12 @@ def _request_source_restart(app_config: dict[str, Any]) -> dict[str, Any]:
     state["state"] = "installing"
     state["install_requested_at"] = _utc_now()
     state["error"] = ""
-    state["source_restart"] = {"base_dir": str(base_dir)}
+    state["source_restart"] = {
+        "base_dir": str(base_dir),
+        "install_root": str(base_dir.parent),
+        "port": str(app_config.get("SERVER_PORT") or ""),
+        "server_pid": os.getpid(),
+    }
     _write_state(paths.state_file, state)
     _spawn_installer(paths.state_file, app_config)
     return build_update_status(app_config)

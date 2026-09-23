@@ -82,46 +82,57 @@ supported target and fails before release publication if a compatible wheel or
 combination is unavailable. A future cryptographic lock would require
 platform-specific wheel files and hashes maintained for all three targets.
 
-## Updating A Source Checkout
+## Updating An Installation
 
-**From the admin dashboard** (a git clone on `main`, the recommended install
-method): open the Update panel and click Check, then Update now. This runs
-exactly the steps below itself -- `git pull --ff-only`, then the platform
-install script -- and restarts the server for you once both succeed. It
-refuses to run, changing nothing, if: a study session is active, the checkout
-has local changes to tracked files, the checkout is not on `main`, or it is
-not a git clone at all (see the next paragraph for that last case).
+Since 1.2.0 both kinds of installation update themselves. The kind is detected
+automatically: a `.git` folder means a git clone, a `study-runner-release.json`
+in the install folder means an extracted release archive.
 
-**By hand**, or if the checkout is not a git clone (a downloaded archive
-extracted in place, with no `.git` folder -- the admin panel's Update step
-does not apply there; download a fresh archive instead). Stop the server,
-then run:
+**From the admin dashboard:** Update panel, Check, then Update now. The dialog
+lists what will be ended; an active session needs a second, red confirmation.
+Then the server:
 
-```powershell
-git pull --ff-only
-.\tools\install-windows.cmd
-.\tools\start-windows.cmd
-```
+1. aborts a recording session with the reason "Software update" (data recorded
+   so far is kept), ends a running study run and stops sensors. Queued
+   finalizations and uploads are durable and continue after the restart;
+2. release archive: downloads the platform archive named in
+   `study-runner-source-release.json`, checks its SHA-256 and extracts it
+   safely into `.tools/update-staging/<version>/`. Git clone: `git pull
+   --ff-only` (refused on local changes to tracked files or when not on
+   `main`);
+3. exits. A helper waits for it, moves the old program files to
+   `.tools/update-backup/<old-version>-<time>/`, moves the new ones in, adds new
+   shipped study content that does not exist yet, runs the new install script
+   and starts Study Runner in a new visible window (Terminal on macOS, a
+   console on Windows). The page reloads once the new server answers.
 
-or on macOS:
+Never touched: `software/study_content/` (studies, settings, credentials,
+logos, fonts, certificates), `software/saved_results/`, `software/.build/`,
+`.venv/`, `.tools/` and an external `STUDY_RUNNER_DATA_DIR`. If the install
+script fails, the old program files are moved back and the old version starts
+again; the helper log is `updates/update-helper.log` in the Study Runner data folder.
+
+**From a terminal** (Study Runner stopped; it refuses while the port answers):
 
 ```bash
-git pull --ff-only
-bash tools/install-macos.sh
-bash tools/start-macos.sh
+bash tools/update-macos.sh          # --check only reports
 ```
 
-The installer reuses a compatible `.venv`, refreshes dependencies, and only
-rebuilds a missing or stale native core. It never removes study content or
-results. A merge conflict or incompatible virtual environment stops with a
-clear error instead of changing or deleting user files.
+```powershell
+.\tools\update-windows.cmd
+```
 
-A downloaded archive (not a git clone) has no in-app update path -- replace it
-with a fresh archive instead. For repeated manual archive replacement,
-configure `STUDY_RUNNER_DATA_DIR` outside the extracted folder before
-collecting real data, or copy the old data directory explicitly. Never delete
-an old checkout until its `software/saved_results/` and local settings have
-been secured.
+This runs the same steps without the server.
+
+**Once, from 1.1.x:** these versions cannot update an archive install yet.
+Stop Study Runner, extract the new archive into a new folder, copy
+`software/study_content` and `software/saved_results` from the old folder over
+the new ones, run the install script and start. A git clone just needs
+`git pull --ff-only` and the install script. Keep the old folder until the data
+is confirmed in the new one.
+
+The installer reuses a compatible `.venv`, refreshes dependencies, and only
+replaces a missing or stale native core.
 
 ## Creating A Release
 

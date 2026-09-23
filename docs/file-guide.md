@@ -30,6 +30,7 @@ Edit-safety legend:
 | `tools/install-windows.cmd` / `tools/start-windows.cmd` | Primary Windows entry points; quote their adjacent scripts, use a process-local PowerShell execution-policy bypass, forward arguments, and preserve exit codes | careful |
 | `tools/install-windows.ps1` / `tools/install-macos.sh` | Idempotent first-install/repair implementations: pinned uv and Python in `.tools`, `.venv`, Python requirements, and the downloaded, locally re-tested XDF core; no admin rights or compiler | careful |
 | `tools/start-windows.ps1` / `tools/start-macos.sh` | Daily source-server implementations that use the repository `.venv` directly and expose a non-persistent self-check | careful |
+| `tools/update_study_runner.py` / `tools/update-macos.sh` / `tools/update-windows.cmd` | Terminal update while Study Runner is stopped: release archive (download, SHA-256 check, swap program files, install, rollback on failure) or git clone (`git pull --ff-only` + install); `--check` only reports | careful |
 | `software/constraints/py312-*.txt` | Bounded release-tested Python 3.12 compatibility pins: bootstrap, common runtime, platform-selected local emotion stack, and CMake for source builds of the core | careful |
 | `software/constraints/uv-bootstrap.txt` | The uv release (with per-platform SHA-256) and exact Python 3.12 version both installers download into `.tools` | careful |
 
@@ -195,6 +196,7 @@ it deliberately contains no HTTP, LSL, plugin, or study logic.
 | `software/study_runner/updates/signatures.py` | THE shared signed-update wire format + Ed25519 verification | no |
 | `software/study_runner/updates/trusted_keys.py` | Trusted public keys (filled in by CI at release build) | no |
 | `software/study_runner/updates/installer.py` | Applies a staged update on restart (`--apply-update`) | no |
+| `software/study_runner/updates/archive_update.py` | Release-archive updates: safe extract, checksum, program-file swap that keeps studies/results/settings, rollback | no |
 
 ## Plugin framework (`software/study_runner/plugin_framework/`)
 

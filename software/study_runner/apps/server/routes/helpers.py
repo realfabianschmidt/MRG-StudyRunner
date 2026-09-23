@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import signal
 import time
 
 from flask import current_app, request
@@ -399,9 +400,20 @@ def _spawn_server_restart(base_dir) -> None:
     )
 
 
-def _delayed_shutdown(shutdown_func) -> None:
-    time.sleep(0.3)
-    shutdown_func()
+def _exit_process_soon(grace_seconds: float = 1.5, forced_after_seconds: float = 10.0) -> None:
+    """Let the response reach the browser, then stop this server process.
+
+    Werkzeug >= 2.1 has no ``werkzeug.server.shutdown``; an interrupt runs the
+    same shutdown path as Ctrl+C. If anything keeps the process alive, it is
+    ended hard after a grace period so a restart or update can proceed.
+    """
+    time.sleep(grace_seconds)
+    try:
+        signal.raise_signal(signal.SIGINT)
+    except Exception as error:
+        print(f"[SERVER] Could not interrupt the server: {error}")
+    time.sleep(forced_after_seconds)
+    os._exit(0)
 
 
 def _save_hardware_secret_payload(config_data: dict) -> tuple[dict, bool]:

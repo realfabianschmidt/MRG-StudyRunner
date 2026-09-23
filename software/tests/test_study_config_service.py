@@ -48,7 +48,7 @@ class StudyConfigPersistenceTests(unittest.TestCase):
                         {"study_id": "New"},
                     )
 
-            archived = json.loads((studies / "New.study-runner").read_text(encoding="utf-8"))
+            archived = study_config_service.load_study(studies, "New")
             active = json.loads(current.read_text(encoding="utf-8"))
 
         self.assertEqual(archived["study_id"], "New")

@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from study_runner.shared.atomic_io import atomic_write_json
+from study_runner.shared.atomic_io import atomic_write_bytes, atomic_write_json
 from study_runner.shared.study_identifiers import normalize_study_id
 
 from .migrate import migrate_study_config
@@ -18,6 +18,9 @@ from .study_plugin_config import (
 )
 
 STUDY_FILE_SUFFIXES = (".study-runner", ".json")
+STUDY_PACKAGE_SUFFIX = ".study-runner"
+# Plain-JSON study files replaced by packages are kept here, never deleted.
+JSON_BACKUP_DIRNAME = "_backup-json"
 _STUDY_SAVE_LOCK = threading.RLock()
 STUDY_TRANSACTION_SCHEMA = "study-runner/study-save-transaction/v1"
 
@@ -42,8 +45,67 @@ def load_config(config_file: Path) -> dict[str, Any]:
 
 
 def _load_config_unchecked(config_file: Path) -> dict[str, Any]:
-    with config_file.open(encoding="utf-8") as file_handle:
-        return normalize_config(json.load(file_handle))
+    """Read a study from a zip package (library files) or plain JSON."""
+    data = Path(config_file).read_bytes()
+    if data.startswith(b"PK"):
+        from .study_package_service import read_package
+
+        config, _assets = read_package(data)
+        return normalize_config(config)
+    return normalize_config(json.loads(data.decode("utf-8-sig")))
+
+
+def _save_library_study(studies_dir: Path, file_path: Path, config_data: dict[str, Any]) -> None:
+    """Write a study library file as a portable package with its images."""
+    from .study_package_service import build_package
+
+    atomic_write_bytes(file_path, build_package(studies_dir, config_data))
+
+
+def migrate_study_library(studies_dir: Path) -> list[str]:
+    """Turn plain-JSON study files into packages once; keep the originals.
+
+    Idempotent: packages are left alone. Each original is moved to
+    ``_backup-json/`` only after its package was written. A file that cannot
+    be read stays where it is and is reported.
+    """
+    studies_dir = Path(studies_dir)
+    if not studies_dir.is_dir():
+        return []
+    converted: list[str] = []
+    backup_dir = studies_dir / JSON_BACKUP_DIRNAME
+    with _STUDY_SAVE_LOCK:
+        for source in sorted(studies_dir.iterdir()):
+            if not source.is_file() or source.suffix not in STUDY_FILE_SUFFIXES:
+                continue
+            try:
+                raw = source.read_bytes()
+                if raw.startswith(b"PK"):
+                    continue
+                config = normalize_config(json.loads(raw.decode("utf-8-sig")))
+                if not isinstance(config, dict):
+                    raise ValueError("not a JSON object")
+                target = studies_dir / f"{source.stem}{STUDY_PACKAGE_SUFFIX}"
+                backup_dir.mkdir(exist_ok=True)
+                backup = backup_dir / source.name
+                if backup.exists():
+                    backup = backup_dir / f"{source.stem}-{uuid.uuid4().hex[:6]}{source.suffix}"
+                if target == source:
+                    # Same file name: keep a copy first, then replace it in place.
+                    atomic_write_bytes(backup, raw)
+                    _save_library_study(studies_dir, target, config)
+                else:
+                    # A legacy .json file: its package takes the .study-runner name
+                    # unless one already exists, then the .json is moved aside.
+                    if not target.exists():
+                        _save_library_study(studies_dir, target, config)
+                    source.replace(backup)
+                converted.append(source.name)
+            except (OSError, ValueError) as error:
+                print(f"[STUDIES] Could not convert {source.name} to a study package: {error}")
+    if converted:
+        print(f"[STUDIES] Converted {len(converted)} study file(s) to packages; originals in {backup_dir}.")
+    return converted
 
 
 def save_config(config_file: Path, config_data: dict[str, Any]) -> None:
@@ -102,8 +164,8 @@ def save_study(studies_dir: Path, config_data: dict[str, Any]) -> None:
         studies_dir.mkdir(parents=True, exist_ok=True)
         study_id = config_data.get("study_id", "Unbenannte Studie").strip()
         safe_id = _normalize_study_id(study_id)
-        file_path = studies_dir / f"{safe_id}.study-runner"
-        save_config(file_path, config_data)
+        file_path = studies_dir / f"{safe_id}{STUDY_PACKAGE_SUFFIX}"
+        _save_library_study(studies_dir, file_path, config_data)
 
 
 def patch_study_plugin_settings(
@@ -221,7 +283,8 @@ def save_active_study_revision(
             "revision": revision,
         }
         _write_transaction_marker(marker_path, marker)
-        save_config(archive_path, config_data)
+        studies_dir.mkdir(parents=True, exist_ok=True)
+        _save_library_study(studies_dir, archive_path, config_data)
         marker.update(status="archive_written", updated_at_epoch=time.time())
         _write_transaction_marker(marker_path, marker)
         save_config(config_file, config_data)

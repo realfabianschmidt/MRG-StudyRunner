@@ -21,10 +21,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 import unittest
 
 
 SOFTWARE_ROOT = Path(__file__).resolve().parents[1]
+if str(SOFTWARE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SOFTWARE_ROOT))
 STUDY_CONTENT = SOFTWARE_ROOT / "study_content"
 ACTIVE_STUDY = STUDY_CONTENT / "settings" / "study_config.json"
 EXAMPLE_PRESETS = (
@@ -34,7 +37,12 @@ EXAMPLE_PRESETS = (
 
 
 def _load(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    data = path.read_bytes()
+    if data.startswith(b"PK"):
+        from study_runner.runtime_core.studies.study_package_service import read_package
+
+        return read_package(data)[0]
+    return json.loads(data.decode("utf-8"))
 
 
 class ShippedStudyContentTests(unittest.TestCase):

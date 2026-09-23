@@ -57,6 +57,9 @@ REQUIRED_SOURCE_FILES = (
     "tools/install-macos.sh",
     "tools/start-macos.sh",
     "tools/setup_recording_worker.py",
+    "tools/update_study_runner.py",
+    "tools/update-macos.sh",
+    "tools/update-windows.cmd",
     "software/recording_worker/native/CMakeLists.txt",
     "software/recording_worker/native/UPSTREAM_LOCK.json",
 )

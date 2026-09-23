@@ -1056,9 +1056,100 @@ async function checkForPythonUpdate() {
   }
 }
 
+/**
+ * One flow for source installs (release archive or git clone): confirm what
+ * will be ended, download and verify, then restart into the new version.
+ * The server ends the study run and aborts a recording session itself
+ * ("Software update"); finalizations and uploads continue after the restart.
+ */
+async function runSourceUpdate() {
+  const version = state.updateStatus?.update?.version || '';
+  let activity = {};
+  try {
+    activity = (await getJson('/api/admin/update/status'))?.activity || {};
+  } catch {
+    activity = {};
+  }
+  const consequences = [
+    activity.active_session
+      ? t('update.endsSession', '- The running session ({participant}) is aborted with the reason "Software update". Data recorded so far is kept.')
+        .replace('{participant}', activity.participant_id || '?')
+      : '',
+    activity.study_run_status === 'running'
+      ? t('update.endsRun', '- The running study run is ended.')
+      : '',
+    activity.pending_finalizations
+      ? t('update.finalizationsContinue', '- {count} finalization(s) or upload(s) continue after the restart.')
+        .replace('{count}', String(activity.pending_finalizations))
+      : '',
+    t('update.restartsWindow', '- Study Runner restarts in a new window; this page reloads by itself.'),
+  ].filter(Boolean);
+  const proceed = await confirmWithModal({
+    title: t('update.updateNowTitle', 'Update Study Runner'),
+    message: `${t('update.updateNowQuestion', 'Update Study Runner to {version} now?').replace('{version}', version)}\n\n${consequences.join('\n')}`,
+    confirmLabel: t('update.updateSourceAction', 'Update now'),
+    cancelLabel: t('common.cancel', 'Cancel'),
+  });
+  if (!proceed) return;
+  if (activity.active_session) {
+    const reallyAbort = await confirmWithModal({
+      title: t('update.abortSessionTitle', 'Abort the running session?'),
+      message: t('update.abortSessionMessage', 'Participant {participant} is in a session right now. The update aborts it immediately.')
+        .replace('{participant}', activity.participant_id || '?'),
+      confirmLabel: t('update.abortSessionConfirm', 'Abort session and update'),
+      cancelLabel: t('common.cancel', 'Cancel'),
+      variant: 'danger',
+    });
+    if (!reallyAbort) return;
+  }
+
+  setUpdateBusy(true);
+  startUpdatePolling();
+  try {
+    let status = await postJson('/api/admin/update/download', {});
+    state.updateStatus = status;
+    renderUpdateStatus(status);
+    status = await postJson('/api/admin/update/install', {});
+    state.updateStatus = status;
+    renderUpdateStatus(status);
+    showToast(t('update.restartingToast', 'Restarting into update ...'), 'info');
+    stopUpdatePolling();
+    await waitForRestartAndReload();
+  } catch (error) {
+    console.error('[admin] Update failed:', error);
+    showToast(error.message || t('update.updateSourceFailed', 'Update failed'), 'error');
+    await loadUpdateStatus({ silent: true });
+    stopUpdatePolling();
+    setUpdateBusy(false);
+  }
+}
+
+/** Wait for the old server to go away and the new one to answer, then reload. */
+async function waitForRestartAndReload() {
+  const started = Date.now();
+  let serverWentAway = false;
+  while (Date.now() - started < 15 * 60 * 1000) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      await getJson('/api/admin/update/status', { timeoutMs: 1500 });
+      if (serverWentAway || Date.now() - started > 60 * 1000) {
+        window.location.reload();
+        return;
+      }
+    } catch {
+      serverWentAway = true;
+    }
+  }
+  showToast(t('update.restartTimeout', 'Study Runner did not come back. Start it again with tools/start-macos.sh or tools\\start-windows.cmd.'), 'error');
+}
+
 async function downloadPythonUpdate() {
   const version = state.updateStatus?.update?.version || '';
   const sourceMode = Boolean(state.updateStatus?.source_mode);
+  if (sourceMode) {
+    await runSourceUpdate();
+    return;
+  }
   const message = sourceMode
     ? t('update.updateSourceConfirm', 'Update this checkout to {version} now? This runs git pull and the install script.').replace('{version}', version)
     : t('update.downloadConfirm', 'Download and verify update {version}?').replace('{version}', version);
@@ -1754,8 +1845,11 @@ function showToast(message, type = 'info') {
   $('toast-msg').textContent = message;
   const toast = $('toast');
   toast.className = `toast toast--${type} show`;
+  toast.onclick = () => toast.classList.remove('show');
   clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
+  // Problems need time to be read; a click closes any message early.
+  const visibleMs = type === 'error' || type === 'warning' ? 8000 : 3000;
+  _toastTimer = setTimeout(() => toast.classList.remove('show'), visibleMs);
 }
 
 function loadFromFile() {

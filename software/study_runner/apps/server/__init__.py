@@ -8,6 +8,7 @@ from study_runner.plugin_framework.registry import initialize_plugins
 from study_runner.data_core.host import clock_diagnostics as recording_clock_diagnostics
 from study_runner.data_core.host import markers as recording_markers
 from .routes import register_routes
+from study_runner.runtime_core.studies.study_config_service import migrate_study_library
 from study_runner.runtime_core.settings.runtime_config import (
     get_app_mode,
     get_project_base_dir,
@@ -85,6 +86,7 @@ def _plugin_context(app: Flask):
 def create_app() -> Flask:
     runtime_paths = resolve_runtime_paths(BASE_DIR)
     initialize_runtime_storage(runtime_paths)
+    migrate_study_library(runtime_paths.saved_studies_dir)
 
     app = Flask(
         __name__,

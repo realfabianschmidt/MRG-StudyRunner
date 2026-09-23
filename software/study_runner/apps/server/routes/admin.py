@@ -24,7 +24,7 @@ from study_runner.runtime_core.studies.validation import validate_and_normalize_
 from .helpers import (
     _abort_study_run,
     _clear_session_overrides,
-    _delayed_shutdown,
+    _exit_process_soon,
     _plugin_context,
     _load_study_run,
     _rebuild_active_study_runtime_config,
@@ -67,16 +67,12 @@ def admin_restart():
             }
         ), 503
 
-    shutdown_func = request.environ.get("werkzeug.server.shutdown")
-    if shutdown_func is None:
-        return jsonify({"ok": False, "error": "Server restart is only available on the built-in Study Runner server."}), 503
-
     try:
         _spawn_server_restart(current_app.config["BASE_DIR"])
     except Exception as error:
         return jsonify({"ok": False, "error": str(error)}), 500
 
-    threading.Thread(target=_delayed_shutdown, args=(shutdown_func,), daemon=True).start()
+    threading.Thread(target=_exit_process_soon, daemon=True, name="restart-exit").start()
     return jsonify({"ok": True, "message": "Server restart requested."})
 
 

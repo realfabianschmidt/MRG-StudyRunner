@@ -5,6 +5,30 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Added
+
+- Release-archive installs update themselves: Update now in the admin panel
+  downloads the archive, checks its SHA-256, keeps the old version in
+  `.tools/update-backup/`, installs and restarts in a new window. A failed
+  install restores the old version. Studies, results and settings are kept.
+- Terminal update: `tools/update-macos.sh` / `tools\update-windows.cmd`
+  (`--check` only reports).
+
+### Changed
+
+- An update ends everything after confirmation instead of refusing: a running
+  session is aborted with the reason "Software update" (data kept), the study
+  run ends; finalizations and uploads continue after the restart.
+- Study files in `study_content/studies/` are zip packages with their images;
+  plain-JSON files there are converted once at startup, originals kept in
+  `studies/_backup-json/`.
+- Error and warning messages use solid colors, stay longer and close on click.
+
+### Fixed
+
+- Restarting from the admin page (restart and update) did nothing on Flask 3,
+  because it relied on a removed Werkzeug shutdown hook.
+
 ## 1.1.1 - 2026-09-23
 
 ### Added
