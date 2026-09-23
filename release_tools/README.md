@@ -56,9 +56,12 @@ from those archives on:
 - macOS Intel,
 - macOS Apple Silicon.
 
-Each platform runs the real first-install script, builds the local canonical XDF
-core, and runs the native writer/merge/synthetic-LSL tests. The release is
-published only after all three platforms pass. A separate Linux job extracts
+A `native-core` job first builds and tests the XDF core on each platform and
+packs it as `study-runner-xdf-core-<platform>.zip`. Each platform then runs the
+real first-install script from the extracted archive, which installs that
+prebuilt core (on macOS with no compiler reachable), and runs the native
+writer/merge/synthetic-LSL tests. The release is published only after all three
+platforms pass. A separate Linux job extracts
 the same archive and runs the full Python, JavaScript, schema, and release-tool
 suite without attempting recording.
 
@@ -66,13 +69,17 @@ Published files are:
 
 - `study-runner-source.zip`,
 - `study-runner-source.tar.gz`,
+- `study-runner-xdf-core-windows-x64.zip`,
+- `study-runner-xdf-core-macos-x64.zip`,
+- `study-runner-xdf-core-macos-arm64.zip`,
 - `study-runner-source-release.json`,
 - `SHA256SUMS`.
 
 The JSON identifies the exact tag and commit, records archive sizes and hashes,
-declares the MIT repository license, and explicitly declares that the
-native core is not bundled and that the artifacts are not compatible with the
-old packaged updater. Release notes are rendered from the matching version
+declares the MIT repository license, lists every prebuilt core with its
+SHA-256 and native-source fingerprint, and declares that the artifacts are not
+compatible with the old packaged updater. The same core list is embedded in
+both archives as `study-runner-release.json`. Release notes are rendered from the matching version
 section in `CHANGELOG.md`.
 
 The workflow needs only GitHub's standard `GITHUB_TOKEN` with release-content

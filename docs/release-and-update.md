@@ -2,8 +2,9 @@
 
 Study Runner currently ships as an auditable Python source-server release. The
 release contains the same source for Windows x64, macOS Intel, and macOS Apple
-Silicon. Each recording computer builds and verifies its small native XDF core
-locally during first install.
+Silicon, plus one tested XDF recording core per platform. Recording computers
+download that core during first install, verify it, and test it again locally;
+they never compile anything.
 
 This release path does not publish an application bundle, installer, Manager,
 PyInstaller server, or automatic updater feed. It needs no Apple signing,
@@ -18,12 +19,19 @@ The latest GitHub Release provides:
   content in two archive formats, built from the exact same tagged commit.
   Pick whichever your system opens more conveniently (`.zip` on Windows,
   `.tar.gz` on macOS/Linux); either works on any of the three platforms;
+- `study-runner-xdf-core-windows-x64.zip`, `study-runner-xdf-core-macos-x64.zip`,
+  and `study-runner-xdf-core-macos-arm64.zip` -- the native XDF core for each
+  recording platform (library plus `worker-build.json`), built and tested by the
+  tag workflow and downloaded by the installers;
 - `study-runner-source-release.json` with version, commit, platform, install,
-  recording, and license metadata;
+  recording (including every core's SHA-256), and license metadata;
 - `SHA256SUMS` for manual integrity verification.
 
-Both archives contain one versioned root folder. They intentionally exclude
-`.git`, `.venv`, generated native libraries, `.build`, results, runtime state,
+Both archives contain one versioned root folder with a generated
+`study-runner-release.json` that lists the SHA-256 and native-source
+fingerprint of each core; this is what the installer trusts. The archives
+intentionally exclude `.git`, `.venv`, `.tools`, native libraries, `.build`,
+results, runtime state,
 credentials, certificates, and private keys. The repository is MIT-licensed;
 every archive includes `LICENSE`, `THIRD_PARTY_NOTICES.md`, and the required
 vendored license texts. Separately licensed DeepFace model weights, the
@@ -38,10 +46,13 @@ platform installer, the first start, and the macOS desktop shortcut. A Git
 clone remains the better choice for operators who want in-place `git pull`
 updates while keeping ignored local study data in the same folder.
 
-What the installer does with the files above: it creates `.venv`, installs
-`software/requirements.txt` under the constraints below, builds the XDF core
-from the pinned vendored LabRecorder/XDFWriter sources, runs CTest, and
-imports a synthetic merged XDF with PyXDF.
+What the installer does with the files above: it downloads the pinned `uv`
+(`software/constraints/uv-bootstrap.txt`) into `.tools/`, lets it install the
+pinned Python 3.12 there, creates `.venv`, installs `software/requirements.txt`
+under the constraints below, then downloads this release's XDF core, checks it
+against `study-runner-release.json`, writes and merges a synthetic XDF through
+it, and imports the result with PyXDF. No administrator rights, compiler, or
+system package manager are involved.
 
 ## Python Dependency Constraints
 
@@ -53,8 +64,10 @@ The source installers and GitHub workflows use the same CPython 3.12 files:
 - `software/constraints/py312-local-emotion.txt` for Windows x64, macOS Apple
   Silicon, and Linux validation. macOS Intel omits this set and uses
   `camera_emotion.remote_worker`.
-- `software/constraints/py312-build-tools.txt` for the project-local CMake
-  installed by the macOS source installer on Intel and Apple Silicon.
+- `software/constraints/py312-build-tools.txt` for the CMake used by the
+  release workflow and by developers who build the core from source;
+- `software/constraints/uv-bootstrap.txt` for the uv version (with the SHA-256
+  of every platform download) and the exact Python 3.12 version.
 
 The common file preserves the scientific compatibility pins
 `numpy==1.26.4`, `pylsl==1.18.2`, and `pyxdf==1.16.8`. The files also pin every
@@ -136,18 +149,28 @@ the matching version in `CHANGELOG.md`.
 
 The tag workflow does not trust a developer's local build directory. It:
 
-1. creates ZIP and tar.gz archives from the exact tagged Git commit;
-2. validates their paths, required files, metadata, SHA-256 sums, license, and
-   absence of generated binaries, secrets, and local data;
-3. extracts the clean archive independently on Windows x64, macOS Intel, and
-   macOS Apple Silicon;
-4. runs the real platform install script from each extracted archive;
-5. builds the native core locally and runs native writer, merge, clock-offset,
-   synthetic LSL, and PyXDF smoke tests;
-6. runs the Python, JavaScript, schema, and source-release contract regression
+1. builds the native core from the tagged commit on Windows x64, macOS Intel,
+   and macOS Apple Silicon, runs CTest, the synthetic XDF test, and the native
+   smoke tests, and checks the macOS architecture and minimum version (13.0);
+2. creates ZIP and tar.gz archives from the exact tagged Git commit and embeds
+   `study-runner-release.json` with the three cores' hashes;
+3. validates paths, required files, metadata, core assets, SHA-256 sums,
+   license, and absence of generated binaries, secrets, and local data;
+4. extracts the clean archive into a folder with spaces on all three platforms;
+5. runs the real platform install script from each extracted archive -- on
+   macOS with no compiler reachable -- and checks that it installed the
+   prebuilt core, not a local build;
+6. runs the native writer, merge, clock-offset, synthetic LSL, and PyXDF smoke
+   tests against that installed core, then reruns the installer and requires it
+   to reuse everything;
+7. runs the Python, JavaScript, schema, and source-release contract regression
    suite again on Linux from the extracted archive;
-7. publishes the source archives and metadata only after all three recording
+8. publishes the archives, cores, and metadata only after all three recording
    platform jobs and the Linux source-regression gate succeed.
+
+`macos-15-intel` is GitHub's last Intel macOS image. When it is retired, build
+the Intel core on `macos-15` with `CMAKE_OSX_ARCHITECTURES=x86_64` and run its
+tests under Rosetta.
 
 Linux is a source-regression platform, not a supported recording target.
 

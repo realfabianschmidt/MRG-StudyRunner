@@ -45,8 +45,9 @@ bash tools/start-macos.sh
 
 Windows x64 and macOS Intel/Apple Silicon are the supported recording
 platforms. If the core is absent or stale, non-recording studies still run; a
-study requiring recording is blocked with the setup hint. Advanced developers
-can invoke `python tools/setup_recording_worker.py` directly inside the active
+study requiring recording is blocked with the setup hint; running the
+platform installer again installs the tested core. Advanced developers can
+invoke `python tools/setup_recording_worker.py` directly inside the active
 environment.
 
 ## How A Study Run Works

@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
+# Prebuilt release cores must load on older systems than the CI runner and must
+# not depend on a separately installed Visual C++ runtime.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version")
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 project(study_runner_xdf_core VERSION 1.0.0 LANGUAGES CXX)
 
 include(CTest)

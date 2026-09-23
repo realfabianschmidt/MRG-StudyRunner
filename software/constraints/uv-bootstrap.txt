@@ -1,0 +1,11 @@
+# Pinned bootstrap for the source installers (Windows x64, macOS Intel, macOS Apple Silicon).
+# uv is downloaded from https://github.com/astral-sh/uv/releases/download/<uv_version>/<asset>
+# and must match the SHA-256 below. uv then installs the pinned CPython into the
+# project-local .tools folder; no administrator rights are needed.
+# To update: pick a new uv release, copy the three published <asset>.sha256 values,
+# and choose a python_version that release can download for all three platforms.
+uv_version=0.12.18
+python_version=3.12.14
+macos-x64=uv-x86_64-apple-darwin.tar.gz 2e4108f5395397c8bc5d43bf83d3bdbb2d0e92b90d0efa607756be704905fa33
+macos-arm64=uv-aarch64-apple-darwin.tar.gz cf40e0c6a202190ccd9e0406dcfdd5b2d6668a9a5c779b17948963df32aafe5b
+windows-x64=uv-x86_64-pc-windows-msvc.zip cae6a3bc25239f83dffb467a4b180508d9da23986c04639ebfa44e43e6a84bff

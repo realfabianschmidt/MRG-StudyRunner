@@ -22,22 +22,36 @@ All notable Study Runner changes are documented here. Release tags use
 
 ### Changed
 
-- macOS recording installations now require macOS 15.6+ and full Xcode 26 on
-  both Intel and Apple Silicon, with Xcode 26.3 Universal documented as the
-  common reference toolchain. The installer discovers its parallel versioned
-  app path, selects Xcode process-locally, compile-tests its C++20 standard
-  headers before downloading dependencies, and keeps non-recording installs
-  available without Xcode.
+- Installing no longer compiles anything and needs no administrator rights.
+  Every release now carries a tested XDF recording core for Windows x64, macOS
+  Intel, and macOS Apple Silicon (`study-runner-xdf-core-<platform>.zip`). The
+  installers download it, check its SHA-256 against the new
+  `study-runner-release.json` inside the source archive, and repeat the
+  synthetic XDF test on the machine. Xcode, Visual Studio Build Tools, WinGet,
+  and the python.org installer are no longer needed; macOS 13 or newer is
+  enough.
+- Both installers now bootstrap the same pinned uv and Python 3.12
+  (`software/constraints/uv-bootstrap.txt`) into the project-local `.tools`
+  folder. `--install-system-dependencies` / `-InstallSystemDependencies` are
+  accepted but no longer needed. Developers who change the native sources use
+  `--build-core-from-source` / `-BuildCoreFromSource`, which accepts Apple's
+  Command Line Tools again.
+- The release workflow builds the cores first and then installs every
+  extracted archive like a user -- in a folder with spaces, on macOS with no
+  compiler reachable -- before publishing.
 
 ### Fixed
 
 - Creating a desktop shortcut from Settings now sends one request per click.
 - Source releases again exclude the optional BrainBit TouchDesigner reference
   after the plugin-directory rename.
-- A stale native-core CMake cache from standalone Apple Command Line Tools is
-  now rebuilt safely after Xcode is installed, avoiding the misleading
-  `cstdint file not found` vendor-build failure while preserving `.venv` and
-  staged/user data.
+- A stale native-core CMake cache from a different Apple toolchain is rebuilt
+  safely, avoiding the misleading `cstdint file not found` vendor-build failure
+  while preserving `.venv` and staged/user data.
+- The Windows core is linked against the static C runtime, so recording no
+  longer depends on an installed Visual C++ redistributable.
+- The German guide no longer tells archive users to update with `git pull`, and
+  the maintainer release commands moved out of its user update section.
 
 ## 1.0.0 - 2026-09-14
 

@@ -69,132 +69,145 @@ class SourceInstallScriptTests(unittest.TestCase):
                 self.assertEqual(completed.returncode, 23, completed.stderr)
                 self.assertEqual(result_path.read_text(encoding="utf-8").strip(), "forwarded value")
 
-    def test_windows_installer_has_explicit_system_packages_and_recording_gate(self) -> None:
+    def test_uv_bootstrap_pins_one_checked_download_per_platform(self) -> None:
+        pins = dict(
+            line.split("=", 1)
+            for line in text("software/constraints/uv-bootstrap.txt").splitlines()
+            if line.strip() and not line.startswith("#")
+        )
+        self.assertRegex(pins["uv_version"], r"^\d+\.\d+\.\d+$")
+        self.assertRegex(pins["python_version"], r"^3\.12\.\d+$")
+        expected_assets = {
+            "macos-x64": "uv-x86_64-apple-darwin.tar.gz",
+            "macos-arm64": "uv-aarch64-apple-darwin.tar.gz",
+            "windows-x64": "uv-x86_64-pc-windows-msvc.zip",
+        }
+        for platform_arch, asset in expected_assets.items():
+            name, sha256 = pins[platform_arch].split()
+            self.assertEqual(name, asset)
+            self.assertRegex(sha256, r"^[0-9a-f]{64}$")
+        self.assertEqual(set(pins), {"uv_version", "python_version", *expected_assets})
+
+    def test_windows_installer_is_project_local_and_needs_no_system_packages(self) -> None:
         script = text("tools/install-windows.ps1")
         for required in (
-            "Python.Python.3.12",
-            "Kitware.CMake",
-            "Microsoft.VisualStudio.2022.BuildTools",
-            "Microsoft.VisualStudio.Workload.VCTools",
+            "software\\constraints\\uv-bootstrap.txt",
+            "https://github.com/astral-sh/uv/releases/download/$UvVersion/$UvAsset",
+            "Get-FileHash -LiteralPath $UvArchive -Algorithm SHA256",
+            '$env:UV_CACHE_DIR = Join-Path $ToolsPath "uv-cache"',
+            '$env:UV_PYTHON_INSTALL_DIR = Join-Path $ToolsPath "python"',
+            '$env:UV_NO_CONFIG = "1"',
+            "python install $PythonVersion --no-bin --no-registry",
+            "venv --seed --managed-python --python $PythonVersion $VenvPath",
+            "Push-Location -LiteralPath $RepositoryRoot",
+            'software\\constraints\\py312-bootstrap.txt"',
+            'software\\constraints\\py312-common.txt"',
+            'software\\constraints\\py312-local-emotion.txt"',
             "software\\requirements.txt",
-            "py312-bootstrap.txt",
-            "py312-common.txt",
-            "py312-local-emotion.txt",
             '".venv"',
             "setup_recording_worker.py",
             "--probe-only --require-canonical",
-            "--require-canonical",
+            "--prebuilt-source",
+            "--install-prebuilt $CoreArchive",
+            "STUDY_RUNNER_CORE_ASSET_DIR",
         ):
             self.assertIn(required, script)
         self.assertIn("[switch]$InstallSystemDependencies", script)
         self.assertIn("[switch]$SkipRecordingCore", script)
-        self.assertIn("[string[]]$ModeArguments", script)
-        self.assertIn("$null = Resolve-Python312", script)
-        self.assertIn("if (Get-Command cmake -ErrorAction SilentlyContinue)", script)
+        self.assertIn("[switch]$BuildCoreFromSource", script)
+        # uv splits --constraint values at spaces: never pass an absolute path.
+        self.assertNotRegex(script, r"--constraint \$\w+Path\b")
+        for forbidden in ("winget", "VisualStudio", "RunAs", "Set-ExecutionPolicy", "HKLM:"):
+            self.assertNotIn(forbidden, script)
 
-    def test_macos_installer_has_official_toolchain_and_recording_gate(self) -> None:
+    def test_macos_installer_is_project_local_and_needs_no_admin_or_compiler(self) -> None:
         script = text("tools/install-macos.sh")
         for required in (
-            'PYTHON_VERSION="3.12.10"',
-            'python-${PYTHON_VERSION}-macos11.pkg',
-            "https://www.python.org/ftp/python/",
-            "8373e58da4ea146b3eb1c1f9834f19a319440b6b679b06050b1f9ee3237aa8e4",
-            "Developer ID Installer: Python Software Foundation (BMM5U3QVKW)",
+            'uv_bootstrap="$repository_root/software/constraints/uv-bootstrap.txt"',
+            'https://github.com/astral-sh/uv/releases/download/$uv_version/$uv_asset',
             "shasum -a 256",
-            "pkgutil --check-signature",
-            "sudo /usr/sbin/installer",
-            "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12",
-            "sysctl.proc_translated",
-            "MACOS_MINIMUM_MAJOR=15",
-            "MACOS_MINIMUM_MINOR=6",
-            "XCODE_REQUIRED_MAJOR=26",
-            'XCODE_REFERENCE_VERSION="26.3"',
-            "/Applications/Xcode-26.3.app/Contents/Developer",
-            "https://developer.apple.com/download/all/?q=Xcode%2026.3",
-            "/Applications/Xcode.app/Contents/Developer",
-            'export DEVELOPER_DIR="$developer_dir"',
-            "xcodebuild -version",
-            "xcrun --sdk macosx --find clang++",
-            "xcrun --sdk macosx --show-sdk-path",
-            "#include <cstdint>",
-            "-std=c++20",
+            "--proto '=https' --tlsv1.2",
+            'export UV_CACHE_DIR="$tools_path/uv-cache"',
+            'export UV_PYTHON_INSTALL_DIR="$tools_path/python"',
+            "export UV_NO_CONFIG=1",
+            'python install "$python_version" --no-bin',
+            'venv --seed --managed-python --python "$python_version" "$venv_path"',
+            'cd "$repository_root"',
+            '"$relative_constraints/py312-bootstrap.txt"',
+            '"$relative_constraints/py312-common.txt"',
+            '"$relative_constraints/py312-local-emotion.txt"',
             'venv_path="$repository_root/.venv"',
             "software/requirements.txt",
-            "py312-bootstrap.txt",
-            "py312-common.txt",
-            "py312-local-emotion.txt",
-            "py312-build-tools.txt",
-            'export PATH="$venv_path/bin:$PATH"',
-            '"$venv_python" -m pip install --constraint "$build_tools_constraints" cmake',
             "setup_recording_worker.py",
             "--probe-only --require-canonical",
-            "--require-canonical",
+            "--prebuilt-source",
+            "--install-prebuilt",
+            "STUDY_RUNNER_CORE_ASSET_DIR",
+            "sysctl.proc_translated",
         ):
             self.assertIn(required, script)
-        self.assertIn("--install-system-dependencies", script)
         self.assertIn("--skip-recording-core", script)
+        self.assertIn("--build-core-from-source", script)
+        self.assertIn("--install-system-dependencies", script)
         self.assertIn('if [[ "$host_arch" == "arm64" ]]', script)
-        self.assertNotRegex(
-            script,
-            r'dependency_constraints=.*py312-local-emotion',
-        )
-        self.assertNotIn("xcode-select --install", script)
-        self.assertNotIn("xcode-select --switch", script)
-        self.assertNotIn("sudo xcode-select", script)
+        self.assertNotRegex(script, r'dependency_constraints=.*py312-local-emotion')
+        # uv splits --constraint values at spaces: never pass an absolute path.
+        self.assertNotRegex(script, r'--constraint "\$(?!relative_constraints)')
+        self.assertNotRegex(script, r"(?m)^[^#]*\bsudo\b")
+        for forbidden in ("xcodebuild", "xcrun", "/usr/sbin/installer", "xip --expand", "pkgutil"):
+            self.assertNotIn(forbidden, script)
         self.assertNotRegex(script, r"(?m)^\s*open\s+")
-        self.assertNotIn("xip --expand", script)
         self.assertNotRegex(script, re.compile(r"\bhomebrew\b|\bbrew\b", re.IGNORECASE))
 
+    def test_core_setup_accepts_any_apple_toolchain_for_source_builds(self) -> None:
         core_setup = text("tools/setup_recording_worker.py")
         for required in (
-            "XCODE_REQUIRED_MAJOR = 26",
-            'XCODE_REFERENCE_VERSION = "26.3"',
-            "/Applications/Xcode-26.3.app/Contents/Developer",
-            "https://developer.apple.com/download/all/?q=Xcode%2026.3",
-            "_full_xcode_developer_dir",
             "_macos_toolchain",
-            'os.environ["DEVELOPER_DIR"]',
-            "#include <cstdint>",
             'f"-DCMAKE_CXX_COMPILER=',
             'f"-DCMAKE_OSX_SYSROOT=',
             "_reset_stale_macos_cache",
+            "#include <cstdint>",
+            "xcode-select --install",
         ):
             self.assertIn(required, core_setup)
-        self.assertNotIn("xcode-select --switch", core_setup)
-        self.assertNotIn("sudo xcode-select", core_setup)
-        for content in (script, core_setup):
-            self.assertNotRegex(content, r"(?m)^\s*(?:mas|xcodes)\s+install\b")
+        for forbidden in ("XCODE_REQUIRED_MAJOR", "xcodebuild", "xcode-select --switch", "sudo "):
+            self.assertNotIn(forbidden, core_setup)
 
-        build_tools = text("software/constraints/py312-build-tools.txt")
-        self.assertRegex(build_tools, r"(?m)^cmake==3\.31\.10$")
+    def test_native_core_targets_older_systems_and_needs_no_vc_runtime(self) -> None:
+        cmake = text("software/recording_worker/native/CMakeLists.txt")
+        self.assertIn('set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0"', cmake)
+        self.assertIn('set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded', cmake)
+        self.assertLess(cmake.index("CMAKE_OSX_DEPLOYMENT_TARGET"), cmake.index("project("))
 
-        release_workflow = text(".github/workflows/release.yml")
-        for required in (
-            "bash -n tools/install-macos.sh",
-            "3.12|$(uname -m)",
-            ".venv/bin/cmake --version",
-            "py312-build-tools.txt",
-            "test -x .venv/bin/ctest",
-        ):
-            self.assertIn(required, release_workflow)
-
-    def test_macos_installer_enforces_the_15_6_version_tuple(self) -> None:
         script = text("tools/install-macos.sh")
-        major_match = re.search(r"MACOS_MINIMUM_MAJOR=(\d+)", script)
-        minor_match = re.search(r"MACOS_MINIMUM_MINOR=(\d+)", script)
-        self.assertIsNotNone(major_match)
-        self.assertIsNotNone(minor_match)
-        minimum = (int(major_match.group(1)), int(minor_match.group(1)))
-
-        self.assertLess((15, 5), minimum)
-        self.assertGreaterEqual((15, 6), minimum)
-        self.assertGreaterEqual((16, 0), minimum)
-        self.assertIn(
-            "macos_major == MACOS_MINIMUM_MAJOR && macos_minor < MACOS_MINIMUM_MINOR",
-            script,
-        )
+        minimum = re.search(r"MACOS_MINIMUM_MAJOR=(\d+)", script)
+        self.assertIsNotNone(minimum)
+        self.assertEqual(minimum.group(1), "13")
+        self.assertIn("macos_major < MACOS_MINIMUM_MAJOR", script)
         self.assertIn("if ((skip_recording_core == 0)); then", script)
-        self.assertNotIn("xcode-select --install", script)
+
+    def test_release_workflow_installs_like_a_user_without_a_compiler(self) -> None:
+        workflow = text(".github/workflows/release.yml")
+        for required in (
+            "native-core:",
+            "needs: native-core",
+            "--core-assets core-assets",
+            "tools/setup_recording_worker.py --package",
+            "minos 13.0",
+            "DEVELOPER_DIR: /nonexistent-toolchain",
+            "STUDY_RUNNER_CORE_ASSET_DIR",
+            "bash tools/install-macos.sh",
+            "tools\\install-windows.cmd",
+            "test -f \"$source_root/study-runner-release.json\"",
+            "test ! -e .venv/bin/cmake",
+            "Reusing the current verified XDF recording core.",
+            "study-runner-xdf-core-macos-x64.zip",
+            "study-runner-xdf-core-macos-arm64.zip",
+            "study-runner-xdf-core-windows-x64.zip",
+        ):
+            self.assertIn(required, workflow)
+        self.assertNotIn("--install-system-dependencies", workflow)
+        self.assertNotIn("xcodebuild", workflow)
 
     def test_daily_start_scripts_do_not_install_or_mutate_dependencies(self) -> None:
         windows = text("tools/start-windows.ps1")
@@ -220,9 +233,9 @@ class SourceInstallScriptTests(unittest.TestCase):
     def test_github_readme_documents_first_install_and_later_start(self) -> None:
         readme = text("README.md")
         for command in (
-            ".\\tools\\install-windows.cmd -InstallSystemDependencies",
+            ".\\tools\\install-windows.cmd\n",
             ".\\tools\\start-windows.cmd",
-            "bash tools/install-macos.sh --install-system-dependencies",
+            "bash tools/install-macos.sh\n",
             "bash tools/start-macos.sh",
         ):
             self.assertIn(command, readme)
@@ -235,24 +248,23 @@ class SourceInstallScriptTests(unittest.TestCase):
             "Study Runner.command",
             "drag the Study Runner folder",
             "Keep the terminal window open",
+            "macOS 13 or newer",
+            "no Xcode",
+            "study-runner-xdf-core-<platform>.zip",
+            "software/constraints/uv-bootstrap.txt",
         ):
             self.assertIn(instruction, readme)
         self.assertLess(readme.index("install-windows.cmd"), readme.index("## Project Layout"))
         self.assertLess(readme.index("study-runner-source.zip"), readme.index("## Project Layout"))
-        self.assertIn("macOS 15.6 or newer", readme)
-        self.assertIn("Xcode 26.3 Universal", readme)
-        self.assertIn("standalone Command Line Tools", readme)
-        for required in (
-            'open "https://developer.apple.com/download/all/?q=Xcode%2026.3"',
-            'xip --expand "$HOME/Downloads/Xcode_26.3.xip"',
-            "if [[ -e /Applications/Xcode-26.3.app ]]",
-            "sudo mv Xcode.app /Applications/Xcode-26.3.app",
-            'sudo env DEVELOPER_DIR="$DEVELOPER_DIR" /usr/bin/xcodebuild -runFirstLaunch',
-            "/usr/bin/xcrun --sdk macosx --find clang++",
-            "/usr/bin/xcrun --sdk macosx --show-sdk-path",
+        for outdated in (
+            "-InstallSystemDependencies",
+            "--install-system-dependencies",
+            "Xcode 26.3",
+            "xip --expand",
+            "xcodebuild",
+            "macOS 15.6",
         ):
-            self.assertIn(required, readme)
-        self.assertRegex(readme, r"Do not use\s+`xcode-select --install`")
+            self.assertNotIn(outdated, readme)
         self.assertNotIn("brew install", readme.casefold())
         self.assertNotIn("brew.sh", readme.casefold())
         self.assertNotRegex(readme, r"(?m)^\s*(?:mas|xcodes)\s+install\b")
@@ -261,17 +273,29 @@ class SourceInstallScriptTests(unittest.TestCase):
         for instruction in (
             "study-runner-source.zip",
             "study-runner-source.tar.gz",
+            ".\\tools\\install-windows.cmd\n",
+            "bash tools/install-macos.sh\n",
             "Desktop-Verknuepfung erstellen",
             "Study Runner.command",
             "Ctrl+C",
-            "Xcode 26.3 Universal",
-            'open "https://developer.apple.com/download/all/?q=Xcode%2026.3"',
-            'xip --expand "$HOME/Downloads/Xcode_26.3.xip"',
-            "sudo mv Xcode.app /Applications/Xcode-26.3.app",
-            'sudo env DEVELOPER_DIR="$DEVELOPER_DIR" /usr/bin/xcodebuild -runFirstLaunch',
+            "macOS 13 oder neuer",
+            "kein Xcode",
+            "Wenn die Installation mit einem Fehler abbricht",
         ):
             self.assertIn(instruction, german)
+        for outdated in (
+            "-InstallSystemDependencies",
+            "--install-system-dependencies",
+            "xip --expand",
+            "xcodebuild",
+            "15.6",
+        ):
+            self.assertNotIn(outdated, german)
         self.assertNotRegex(german, r"(?m)^\s*(?:mas|xcodes)\s+install\b")
+        # Archive users cannot git pull; maintainer commands belong to the release section.
+        update = german[german.index("## Update am Nutzer-Rechner") :]
+        self.assertIn("git pull` funktioniert in einem\nentpackten Archiv nicht", update)
+        self.assertNotIn("release.ps1", update[: update.index("## Release-Zugang")])
 
     def test_macos_intel_keeps_local_tensorflow_out_of_the_base_install(self) -> None:
         marker = 'sys_platform != "darwin" or platform_machine != "x86_64"'

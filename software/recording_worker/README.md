@@ -13,9 +13,16 @@ and readiness fails explicitly.
 
 ## Local setup
 
+Normal installs never compile this code. Each release carries a tested build
+per platform (`study-runner-xdf-core-<platform>.zip`); the platform installer
+downloads it and runs `tools/setup_recording_worker.py --install-prebuilt`,
+which checks its SHA-256 and native-source fingerprint, repeats the synthetic
+XDF smoke on the machine, and stages it below `software/.build/xdf_core/`.
+
 The source tree vendors the small, MIT-licensed XDFWriter surface from
-App-LabRecorder `v1.17.1`. The setup is network-free and verifies the locked
-commit and source hashes before invoking CMake:
+App-LabRecorder `v1.17.1`. Building it yourself (the release workflow, or a
+developer who changes the native sources) is network-free and verifies the
+locked commit and source hashes before invoking CMake:
 
 ```text
 python tools/setup_recording_worker.py
@@ -42,6 +49,9 @@ Useful CI and diagnostic options are:
 --configuration <name>  Release, RelWithDebInfo, or Debug
 --skip-tests             skip CTest and the synthetic XDF smoke
 --probe-only             verify an existing stage without writing files
+--package <zip>          pack a fully tested stage as a release asset
+--install-prebuilt <zip> verify, locally test, and stage a downloaded core
+--prebuilt-source        print the core asset name and download URLs
 --json                   print one machine-readable result
 --require-canonical      fail unless every canonical feature is present
 ```

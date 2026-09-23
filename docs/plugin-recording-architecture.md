@@ -32,20 +32,22 @@ recording remain supported.
 
 ## Source Setup
 
-Recording needs a native XDF core built on the machine that records. The
-platform installer builds and verifies it as part of a normal install --
-see [Install and start](../README.md#install-and-start) for the commands, and
+Recording needs a native XDF core for the machine that records. Every release
+publishes one per platform, built and tested by the tag workflow. The platform
+installer downloads it, checks its SHA-256 against `study-runner-release.json`
+in the source archive and its native-source fingerprint against the local
+sources, then writes, merges, and re-reads a synthetic XDF through it before
+staging it -- see [Install and start](../README.md#install-and-start) for the
+commands, and
 [Release and Update](release-and-update.md#python-dependency-constraints) for
-how Python dependencies are pinned. Windows needs the Visual Studio C++ Build
-Tools workload. macOS 15.6+ uses Xcode 26.3 Universal as its documented
-reference toolchain; other complete Xcode 26.x installations remain valid when
-their compiler preflight passes. The installer selects the developer directory
-process-locally and rejects the standalone Command Line Tools because they do
-not provide the supported recording toolchain contract.
+how Python dependencies are pinned. Recording computers need no compiler.
 
-`python tools/setup_recording_worker.py` is the core-only developer command. It
-builds just the current platform, runs CTest, and runs a synthetic writer smoke
-test. It never installs a compiler, package manager, or Python package.
+`python tools/setup_recording_worker.py` is the core-only developer command.
+Without a mode it builds just the current platform, runs CTest, and runs a
+synthetic writer smoke test; on macOS any working Apple toolchain (Command Line
+Tools or Xcode) is accepted, on Windows the Visual Studio C++ Build Tools. It
+never installs a compiler, package manager, or Python package. `--package` and
+`--install-prebuilt` produce and consume the release assets.
 
 Generated files live below
 `software/.build/xdf_core/<platform-arch>/` and are not committed. The core

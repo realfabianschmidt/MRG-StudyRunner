@@ -300,17 +300,21 @@ are recording infrastructure and do not get user-facing plugin menus.
 
 ## Source Recording Setup
 
-The platform installer already builds the native XDF core; see
-[Install and start](../README.md#install-and-start). When you only want to
-rebuild the core, run:
+The platform installer already installs the tested native XDF core of the
+matching release; see [Install and start](../README.md#install-and-start). When
+you change `software/recording_worker/native/` or only want to rebuild the core,
+run:
 
 ```bash
 python tools/setup_recording_worker.py
 ```
 
-The command checks CMake and the native compiler, builds only the current
-platform, runs CTest, and performs a synthetic writer smoke test. It installs
-nothing automatically. Generated output belongs below `software/.build/` and
+The command checks CMake and the native compiler (Apple Command Line Tools or
+Xcode on macOS, Visual Studio C++ Build Tools on Windows), builds only the
+current platform, runs CTest, and performs a synthetic writer smoke test. It
+installs nothing automatically. `bash tools/install-macos.sh
+--build-core-from-source` and `.\tools\install-windows.cmd -BuildCoreFromSource`
+do the same inside the normal installer. Generated output belongs below `software/.build/` and
 must not be committed.
 
 ## Required Checks

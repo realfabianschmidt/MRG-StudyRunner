@@ -50,6 +50,8 @@ software/study_runner/plugins/sensors/camera_emotion/worker/model_assets/*.h5
 
 # Environment and editor tooling
 .venv/
+# Project-local uv, Python, and caches created by the installers
+/.tools/
 .env
 .env.*
 .claude/

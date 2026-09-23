@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Build and verify the platform-native XDF core used by the recording worker.
+"""Install, verify, or build the platform-native XDF core used by the recording worker.
 
-The helper is intentionally network-free. It accepts only the pinned source
-files already stored below ``software/recording_worker/native/vendor``.
+The helper itself never downloads anything. Installers fetch the prebuilt,
+CI-tested core and pass it to ``--install-prebuilt``, which checks its SHA-256,
+its native-source fingerprint, and runs the synthetic XDF smoke on this machine.
+Source builds accept only the pinned files below
+``software/recording_worker/native/vendor``.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+import zipfile
 from typing import Any, Mapping, Sequence
 
 
@@ -30,12 +34,12 @@ UPSTREAM_LOCK_PATH = NATIVE_SOURCE_DIR / "UPSTREAM_LOCK.json"
 BUILD_MANIFEST_SCHEMA = "study-runner/xdf-core-build/v1"
 UPSTREAM_LOCK_SCHEMA = "study-runner/xdf-core-upstream-lock/v1"
 CORE_ABI_VERSION = 1
-XCODE_REQUIRED_MAJOR = 26
-XCODE_REFERENCE_VERSION = "26.3"
-XCODE_REFERENCE_DEVELOPER_DIR = Path(
-    "/Applications/Xcode-26.3.app/Contents/Developer"
-)
-XCODE_DOWNLOAD_URL = "https://developer.apple.com/download/all/?q=Xcode%2026.3"
+# Written into release archives by release_tools/build_source_release.py. A Git
+# checkout has no such file and falls back to the latest published release.
+RELEASE_INFO_PATH = REPOSITORY_ROOT / "study-runner-release.json"
+RELEASE_INFO_SCHEMA = "study-runner/release-info/v1"
+DEFAULT_RELEASE_REPOSITORY = "realfabianschmidt/MRG-StudyRunner"
+CORE_ASSET_PREFIX = "study-runner-xdf-core-"
 EXPECTED_UPSTREAM_TAG = "v1.17.1"
 EXPECTED_UPSTREAM_COMMIT = "8419550553e4336dd46378a9a871b3065a70b895"
 EXPECTED_SOURCE_LOCK_SHA256 = "c4f344ef4bf8b94580cc8d096aa3d6efaf1bf0f73c6598a2067ba26051fd0c76"
@@ -170,6 +174,29 @@ def verify_upstream_sources(native_source_dir: Path = NATIVE_SOURCE_DIR) -> dict
     }
 
 
+def native_source_sha256(native_source_dir: Path = NATIVE_SOURCE_DIR) -> str:
+    """Fingerprint every native source file so a prebuilt core matches its sources.
+
+    Line endings are normalized so Windows and macOS checkouts agree. Hidden
+    files such as Finder's ``.DS_Store`` are ignored.
+    """
+
+    native_source_dir = Path(native_source_dir).resolve()
+    digest = hashlib.sha256()
+    files = sorted(
+        path
+        for path in native_source_dir.rglob("*")
+        if path.is_file()
+        and not any(part.startswith(".") for part in path.relative_to(native_source_dir).parts)
+    )
+    for path in files:
+        relative = path.relative_to(native_source_dir).as_posix()
+        content = path.read_bytes().replace(b"\r\n", b"\n")
+        digest.update(f"{relative}\0{len(content)}\0".encode("utf-8"))
+        digest.update(content)
+    return digest.hexdigest()
+
+
 def probe_core_library(library_path: Path) -> dict[str, Any]:
     """Load the staged C ABI and return its validated, self-described probe."""
 
@@ -244,7 +271,7 @@ def run_synthetic_xdf_smoke(library_path: Path, build_dir: Path) -> dict[str, An
     except (ImportError, OSError) as error:
         raise SetupError(f"synthetic XDF smoke dependencies are unavailable: {error}") from error
 
-    smoke_dir = Path(build_dir).resolve() / f"synthetic-xdf-smoke-{uuid.uuid4().hex}"
+    smoke_dir = Path(build_dir).resolve() / f"smoke-{uuid.uuid4().hex[:8]}"
     # A normal mkdir avoids Windows TemporaryDirectory ACLs which can deny the
     # native exclusive-create handle even though Python created the directory.
     smoke_dir.mkdir(parents=False, exist_ok=False)
@@ -390,84 +417,15 @@ def _run_command(command: Sequence[str], *, quiet: bool) -> str:
     return result.stdout
 
 
-def _xcode_repair_message(detail: str, developer_dir: Path | None = None) -> str:
-    initialization_dir = developer_dir or XCODE_REFERENCE_DEVELOPER_DIR
-    return (
-        f"{detail}. Open {XCODE_DOWNLOAD_URL}, sign in with an Apple Account, download "
-        f"Xcode {XCODE_REFERENCE_VERSION} Universal, and install it as "
-        f"/Applications/Xcode-{XCODE_REFERENCE_VERSION}.app. Then run "
-        f"'sudo env DEVELOPER_DIR={initialization_dir} "
-        "/usr/bin/xcodebuild -runFirstLaunch' and retry"
-    )
-
-
-def _is_full_xcode_developer_dir(path: Path) -> bool:
-    normalized = path.as_posix().rstrip("/")
-    return (
-        normalized.endswith(".app/Contents/Developer")
-        and path.is_dir()
-        and (path / "usr" / "bin" / "xcodebuild").is_file()
-    )
-
-
-def _full_xcode_developer_dir() -> Path:
-    preferred_candidates: list[Path] = []
-    configured = os.environ.get("DEVELOPER_DIR", "").strip()
-    if configured:
-        preferred_candidates.append(Path(configured).expanduser())
-    preferred_candidates.append(XCODE_REFERENCE_DEVELOPER_DIR)
-
-    for candidate in preferred_candidates:
-        if _is_full_xcode_developer_dir(candidate):
-            return candidate.resolve()
-
-    candidates: list[Path] = []
-    try:
-        selected = _run_command(["xcode-select", "--print-path"], quiet=True).strip()
-    except SetupError:
-        selected = ""
-    if selected:
-        candidates.append(Path(selected).expanduser())
-    candidates.append(Path("/Applications/Xcode.app/Contents/Developer"))
-
-    seen = {str(candidate) for candidate in preferred_candidates}
-    for candidate in candidates:
-        key = str(candidate)
-        if key in seen:
-            continue
-        seen.add(key)
-        if _is_full_xcode_developer_dir(candidate):
-            return candidate.resolve()
-    raise SetupError(
-        _xcode_repair_message(
-            "a complete Xcode installation is required for XDF recording; the standalone "
-            "Command Line Tools at /Library/Developer/CommandLineTools are not sufficient"
-        )
-    )
+TOOLCHAIN_HELP = (
+    "building the XDF core from source needs a C++ compiler. Normal installs download "
+    "the prebuilt, tested core and need no compiler. For a source build on macOS, install "
+    "Apple's Command Line Tools with 'xcode-select --install' (or Xcode) and retry"
+)
 
 
 def _macos_toolchain(target: Mapping[str, str]) -> dict[str, str]:
-    """Select and compile-test the supported full-Xcode toolchain."""
-
-    developer_dir = _full_xcode_developer_dir()
-    # This changes only the current helper process and its children. Never alter
-    # the machine-wide xcode-select setting from installation automation.
-    os.environ["DEVELOPER_DIR"] = str(developer_dir)
-    try:
-        version_output = _run_command(["xcodebuild", "-version"], quiet=True)
-    except SetupError as error:
-        raise SetupError(
-            _xcode_repair_message("Xcode could not be initialized", developer_dir)
-        ) from error
-    version_line = version_output.splitlines()[0].strip() if version_output.splitlines() else ""
-    version_parts = version_line.split()
-    major = version_parts[1].split(".", 1)[0] if len(version_parts) == 2 else ""
-    if version_parts[:1] != ["Xcode"] or major != str(XCODE_REQUIRED_MAJOR):
-        found = version_line or "an unknown version"
-        raise SetupError(
-            f"Xcode {XCODE_REQUIRED_MAJOR} is required for XDF recording; found {found} "
-            f"at {developer_dir}"
-        )
+    """Select and compile-test the active Apple C++ toolchain (CLT or Xcode)."""
 
     try:
         compiler = _run_command(
@@ -477,22 +435,17 @@ def _macos_toolchain(target: Mapping[str, str]) -> dict[str, str]:
             ["xcrun", "--sdk", "macosx", "--show-sdk-path"], quiet=True
         ).strip()
     except SetupError as error:
-        raise SetupError(
-            _xcode_repair_message(
-                "Xcode does not expose a usable compiler and macOS SDK",
-                developer_dir,
-            )
-        ) from error
+        raise SetupError(f"{TOOLCHAIN_HELP}\n{error}") from error
     if not compiler or not Path(compiler).is_file():
-        raise SetupError(
-            _xcode_repair_message("Xcode's clang++ compiler is unavailable", developer_dir)
-        )
+        raise SetupError(f"clang++ is unavailable; {TOOLCHAIN_HELP}")
     if not sdk_path or not Path(sdk_path).is_dir():
-        raise SetupError(
-            _xcode_repair_message("Xcode's macOS SDK is unavailable", developer_dir)
-        )
+        raise SetupError(f"the macOS SDK is unavailable; {TOOLCHAIN_HELP}")
+    try:
+        developer_dir = _run_command(["xcode-select", "--print-path"], quiet=True).strip()
+    except SetupError:
+        developer_dir = ""
 
-    with tempfile.TemporaryDirectory(prefix="study-runner-xcode-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="study-runner-toolchain-") as temporary:
         source = Path(temporary) / "cstdint-preflight.cpp"
         source.write_text(
             "#include <cstdint>\n"
@@ -515,15 +468,12 @@ def _macos_toolchain(target: Mapping[str, str]) -> dict[str, str]:
             )
         except SetupError as error:
             raise SetupError(
-                _xcode_repair_message(
-                    "the Xcode C++20 toolchain failed its <cstdint> compile preflight",
-                    developer_dir,
-                )
-                + f"\n{error}"
+                "the C++20 toolchain failed its <cstdint> compile preflight. The Command "
+                "Line Tools usually no longer match this macOS version; reinstall them "
+                f"(or use Xcode) and retry. {TOOLCHAIN_HELP}\n{error}"
             ) from error
     return {
-        "developer_dir": str(developer_dir),
-        "xcode": version_line,
+        "developer_dir": developer_dir,
         "compiler": compiler,
         "sdk_path": sdk_path,
     }
@@ -630,6 +580,12 @@ def probe_stage(stage_dir: Path, target: Mapping[str, str], *, require_canonical
         raise SetupError("recording core canonical flag differs from worker-build.json")
     if require_canonical and errors:
         raise SetupError("recording core is not canonical: " + "; ".join(errors))
+    recorded_source = manifest.get("native_source_sha256")
+    if recorded_source is not None and recorded_source != native_source_sha256():
+        raise SetupError(
+            "recording core was built from different native sources than this checkout; "
+            "rerun the installer to replace it"
+        )
     return {
         "ok": True,
         "mode": "probe",
@@ -726,11 +682,9 @@ def build_core(
     except SetupError as error:
         if macos_toolchain is not None and "cstdint" in str(error) and "not found" in str(error):
             raise SetupError(
-                _xcode_repair_message(
-                    "the native build could not find the C++ standard header <cstdint>; "
-                    "the selected Xcode toolchain is incomplete or damaged",
-                    Path(macos_toolchain["developer_dir"]),
-                )
+                "the native build could not find the C++ standard header <cstdint>; the "
+                f"active toolchain at {macos_toolchain['developer_dir'] or 'xcrun'} is "
+                f"incomplete or damaged. {TOOLCHAIN_HELP}"
             ) from error
         raise
     ctest_status = "skipped"
@@ -786,6 +740,8 @@ def build_core(
         "abi_version": CORE_ABI_VERSION,
         "canonical_xdf": not canonical_errors,
         "source_lock_sha256": upstream["source_lock_sha256"],
+        "native_source_sha256": native_source_sha256(),
+        "source": "local_build",
         "probe": probe,
         "tests": {
             "ctest": ctest_status,
@@ -796,7 +752,6 @@ def build_core(
             "cmake": cmake_version,
             **(
                 {
-                    "xcode": macos_toolchain["xcode"],
                     "developer_dir": macos_toolchain["developer_dir"],
                     "cxx_compiler": macos_toolchain["compiler"],
                     "macos_sdk": macos_toolchain["sdk_path"],
@@ -818,9 +773,210 @@ def build_core(
     return result
 
 
+def core_asset_name(platform_arch: str) -> str:
+    return f"{CORE_ASSET_PREFIX}{platform_arch}.zip"
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def package_stage(stage_dir: Path, target: Mapping[str, str], output: Path) -> dict[str, Any]:
+    """Pack a verified, fully tested stage into a deterministic release asset."""
+
+    result = probe_stage(stage_dir, target, require_canonical=True)
+    manifest, library_path = _read_build_manifest(Path(result["stage_dir"]), target)
+    tests = manifest.get("tests") or {}
+    if tests.get("ctest") != "passed" or tests.get("synthetic_xdf_smoke") != "passed":
+        raise SetupError("only a core whose CTest and synthetic XDF smoke passed can be packaged")
+    if manifest.get("native_source_sha256") != native_source_sha256():
+        raise SetupError("the staged core was not built from this checkout's native sources")
+    output = Path(output).expanduser().resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path = library_path.parent / "worker-build.json"
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for member in (library_path, manifest_path):
+            info = zipfile.ZipInfo(member.name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.external_attr = 0o644 << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, member.read_bytes())
+    return {
+        "ok": True,
+        "mode": "package",
+        "platform_arch": target["platform_arch"],
+        "asset": str(output),
+        "asset_sha256": _sha256_file(output),
+        "native_source_sha256": manifest["native_source_sha256"],
+        "canonical_xdf": True,
+        "canonical_errors": [],
+        "core_library": str(library_path),
+    }
+
+
+def read_release_info(path: Path = RELEASE_INFO_PATH) -> dict[str, Any] | None:
+    """Return the release description shipped inside a source archive, if any."""
+
+    if not path.is_file():
+        return None
+    try:
+        info = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise SetupError(f"release description is unreadable: {path}: {error}") from error
+    if not isinstance(info, dict) or info.get("schema") != RELEASE_INFO_SCHEMA:
+        raise SetupError(f"release description has an unsupported schema: {path}")
+    return info
+
+
+def prebuilt_source(
+    target: Mapping[str, str], release_info: Mapping[str, Any] | None
+) -> dict[str, str]:
+    """Describe where the installer downloads this platform's prebuilt core."""
+
+    asset = core_asset_name(target["platform_arch"])
+    if release_info is not None:
+        repository = str(release_info.get("repository") or "")
+        tag = str(release_info.get("tag") or "")
+        cores = release_info.get("native_cores")
+        if not repository or not tag or not isinstance(cores, Mapping):
+            raise SetupError("release description does not name its repository, tag, and cores")
+        if target["platform_arch"] not in cores:
+            raise SetupError(f"this release has no prebuilt core for {target['platform_arch']}")
+        base = f"https://github.com/{repository}/releases/download/{tag}"
+    else:
+        base = f"https://github.com/{DEFAULT_RELEASE_REPOSITORY}/releases/latest/download"
+    return {
+        "asset": asset,
+        "url": f"{base}/{asset}",
+        "checksums_url": f"{base}/SHA256SUMS",
+    }
+
+
+def _expected_asset_sha256(
+    asset_name: str,
+    platform_arch: str,
+    release_info: Mapping[str, Any] | None,
+    checksums_path: Path | None,
+) -> str:
+    """Return the trusted asset hash from the archive's release file or SHA256SUMS."""
+
+    if release_info is not None:
+        entry = (release_info.get("native_cores") or {}).get(platform_arch)
+        if not isinstance(entry, Mapping) or entry.get("asset") != asset_name:
+            raise SetupError(f"release description has no entry for {asset_name}")
+        return str(entry.get("sha256") or "").lower()
+    if checksums_path is None:
+        raise SetupError(
+            "this checkout has no release description; pass --checksums with the release's "
+            "SHA256SUMS file"
+        )
+    for line in Path(checksums_path).read_text(encoding="utf-8").splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].lstrip("*") == asset_name:
+            return parts[0].lower()
+    raise SetupError(f"SHA256SUMS does not list {asset_name}")
+
+
+def _strip_quarantine(path: Path) -> None:
+    """Remove a browser quarantine flag so macOS does not block loading the core."""
+
+    if sys.platform != "darwin":
+        return
+    subprocess.run(
+        ["xattr", "-d", "com.apple.quarantine", str(path)],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def install_prebuilt(
+    asset_path: Path,
+    *,
+    target: Mapping[str, str],
+    build_dir: Path,
+    stage_dir: Path,
+    checksums_path: Path | None = None,
+    release_info: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Verify a downloaded core, test it on this machine, then stage it atomically."""
+
+    asset_path = Path(asset_path).expanduser().resolve()
+    asset_name = core_asset_name(target["platform_arch"])
+    if not asset_path.is_file():
+        raise SetupError(f"prebuilt core asset is missing: {asset_path}")
+    expected_sha256 = _expected_asset_sha256(
+        asset_name, target["platform_arch"], release_info, checksums_path
+    )
+    actual_sha256 = _sha256_file(asset_path)
+    if not expected_sha256 or actual_sha256 != expected_sha256:
+        raise SetupError(
+            f"prebuilt core checksum mismatch for {asset_name} "
+            f"(expected {expected_sha256 or 'a published hash'}, got {actual_sha256})"
+        )
+    upstream = verify_upstream_sources()
+    local_source = native_source_sha256()
+
+    build_dir = _validate_generated_path(build_dir, label="build directory")
+    stage_dir = _validate_generated_path(stage_dir, label="stage directory")
+    build_dir.mkdir(parents=True, exist_ok=True)
+    unpack_dir = build_dir / f"prebuilt-{uuid.uuid4().hex[:8]}"
+    unpack_dir.mkdir()
+    try:
+        allowed = {target["library_name"], "worker-build.json"}
+        with zipfile.ZipFile(asset_path) as archive:
+            names = {info.filename for info in archive.infolist()}
+            if names != allowed:
+                raise SetupError(
+                    f"prebuilt core asset must contain exactly {sorted(allowed)}, "
+                    f"found {sorted(names)}"
+                )
+            for name in sorted(allowed):
+                (unpack_dir / name).write_bytes(archive.read(name))
+        manifest, library_path = _read_build_manifest(unpack_dir, target)
+        if manifest.get("source_lock_sha256") != upstream["source_lock_sha256"]:
+            raise SetupError("prebuilt core is bound to a different upstream source lock")
+        if manifest.get("native_source_sha256") != local_source:
+            raise SetupError(
+                "prebuilt core was built from different native sources than this checkout; "
+                "use the matching release or build the core from source"
+            )
+        tests = manifest.get("tests") or {}
+        if tests.get("ctest") != "passed" or tests.get("synthetic_xdf_smoke") != "passed":
+            raise SetupError("prebuilt core was published without passing CTest and XDF smoke")
+        _strip_quarantine(library_path)
+        probe = probe_core_library(library_path)
+        errors = canonical_probe_errors(probe)
+        if errors:
+            raise SetupError("prebuilt core is not canonical: " + "; ".join(errors))
+        if manifest.get("probe") != probe:
+            raise SetupError("prebuilt core probe differs from its worker-build.json")
+        local_smoke = run_synthetic_xdf_smoke(library_path, build_dir)
+        manifest = dict(manifest)
+        manifest["source"] = "prebuilt"
+        manifest["installed_at_utc"] = (
+            dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
+        )
+        manifest["asset_sha256"] = actual_sha256
+        manifest["tests"] = {**tests, "local_synthetic_xdf_smoke": local_smoke["status"]}
+        _replace_stage(library_path, stage_dir, manifest)
+    finally:
+        shutil.rmtree(unpack_dir, ignore_errors=True)
+    _strip_quarantine(stage_dir / target["library_name"])
+    result = probe_stage(stage_dir, target, require_canonical=True)
+    result.update(mode="install_prebuilt", asset_sha256=actual_sha256)
+    return result
+
+
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Build the network-free, canonical XDF core for the Study Runner."
+        description=(
+            "Install, verify, or build the canonical XDF core for the Study Runner. "
+            "Normal installs use --install-prebuilt; building needs CMake and a C++ compiler."
+        )
     )
     parser.add_argument("--build-dir", type=Path, help="CMake working directory")
     parser.add_argument("--stage-dir", type=Path, help="generated core stage directory")
@@ -830,7 +986,30 @@ def create_parser() -> argparse.ArgumentParser:
         default="Release",
     )
     parser.add_argument("--skip-tests", action="store_true", help="skip CTest and its XDF smoke")
-    parser.add_argument("--probe-only", action="store_true", help="verify an existing staged core")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--probe-only", action="store_true", help="verify an existing staged core")
+    mode.add_argument(
+        "--prebuilt-source",
+        action="store_true",
+        help="print the prebuilt asset name, its URL, and the SHA256SUMS URL (one per line)",
+    )
+    mode.add_argument(
+        "--install-prebuilt",
+        type=Path,
+        metavar="ZIP",
+        help="verify, locally test, and stage a downloaded prebuilt core",
+    )
+    mode.add_argument(
+        "--package",
+        type=Path,
+        metavar="ZIP",
+        help="pack the staged, fully tested core as a release asset",
+    )
+    parser.add_argument(
+        "--checksums",
+        type=Path,
+        help="SHA256SUMS of the release (only needed without study-runner-release.json)",
+    )
     parser.add_argument("--json", action="store_true", help="print one machine-readable result")
     parser.add_argument(
         "--require-canonical",
@@ -850,6 +1029,19 @@ def run(arguments: argparse.Namespace) -> dict[str, Any]:
     if arguments.probe_only:
         verify_upstream_sources()
         return probe_stage(stage_dir, target, require_canonical=arguments.require_canonical)
+    if arguments.prebuilt_source:
+        return {"ok": True, "mode": "prebuilt_source", **prebuilt_source(target, read_release_info())}
+    if arguments.install_prebuilt is not None:
+        return install_prebuilt(
+            arguments.install_prebuilt,
+            target=target,
+            build_dir=build_dir,
+            stage_dir=stage_dir,
+            checksums_path=arguments.checksums,
+            release_info=read_release_info(),
+        )
+    if arguments.package is not None:
+        return package_stage(stage_dir, target, arguments.package)
     return build_core(
         target=target,
         build_dir=build_dir,
@@ -875,6 +1067,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     if arguments.json:
         print(json.dumps(result, sort_keys=True))
+    elif result["mode"] == "prebuilt_source":
+        print(result["asset"])
+        print(result["url"])
+        print(result["checksums_url"])
     else:
         status = "canonical" if result["canonical_xdf"] else "non-canonical"
         print(f"Recording core {result['mode']} completed ({status}).")

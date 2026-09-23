@@ -86,12 +86,15 @@ jobs:
         include:
           - label: Windows x64
             platform: windows-latest
+            platform_arch: windows-x64
             core_path: software/.build/xdf_core/windows-x64/xdf_core.dll
           - label: macOS Intel
             platform: macos-15-intel
+            platform_arch: macos-x64
             core_path: software/.build/xdf_core/macos-x64/libxdf_core.dylib
           - label: macOS Apple Silicon
             platform: macos-15
+            platform_arch: macos-arm64
             core_path: software/.build/xdf_core/macos-arm64/libxdf_core.dylib
 
     steps:
@@ -112,16 +115,6 @@ jobs:
             --constraint software/constraints/py312-common.txt \
             "pylsl==1.18.2" "pyxdf==1.16.8" "numpy==1.26.4"
 
-      - name: Verify the supported Xcode recording toolchain
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-          xcodebuild -version | grep -E '^Xcode 26([.]|$)'
-          compiler="$(xcrun --sdk macosx --find clang++)"
-          sdk="$(xcrun --sdk macosx --show-sdk-path)"
-          printf '#include <cstdint>\nint main() { std::uint32_t value = 0; return static_cast<int>(value); }\n' | "$compiler" -std=c++20 -arch "$(uname -m)" -isysroot "$sdk" -x c++ -fsyntax-only -
-
       - name: Build and verify the current-platform XDF core
         run: python tools/setup_recording_worker.py --require-canonical --json
 
@@ -130,6 +123,19 @@ jobs:
         env:
           STUDY_RUNNER_XDF_CORE_TEST: ${{ github.workspace }}/${{ matrix.core_path }}
         run: python -m unittest -v tests.test_hybrid_recording_worker.NativeCoreSmokeTests
+
+      - name: Package the core and install it again as a prebuilt asset
+        shell: bash
+        run: |
+          asset="study-runner-xdf-core-${{ matrix.platform_arch }}.zip"
+          python tools/setup_recording_worker.py --package "software/.build/ci-assets/$asset" --json
+          (cd software/.build/ci-assets && python -c "import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest() + '  ' + sys.argv[1])" "$asset" > SHA256SUMS)
+          python tools/setup_recording_worker.py \
+            --install-prebuilt "software/.build/ci-assets/$asset" \
+            --checksums software/.build/ci-assets/SHA256SUMS \
+            --build-dir software/.build/ci-prebuilt-build \
+            --stage-dir software/.build/ci-prebuilt-stage \
+            --require-canonical --json
 
   packaging-smoke:
     name: Packaging smoke test (fixture plugin RPC)

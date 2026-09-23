@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -17,6 +19,18 @@ import zipfile
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "study-runner/source-release/v1"
 ARCHIVES = ("study-runner-source.zip", "study-runner-source.tar.gz")
+# Written into both source archives so installers can verify the prebuilt XDF
+# cores against hashes that arrived with the downloaded source itself.
+RELEASE_INFO_NAME = "study-runner-release.json"
+RELEASE_INFO_SCHEMA = "study-runner/release-info/v1"
+CORE_BUILD_MANIFEST_SCHEMA = "study-runner/xdf-core-build/v1"
+CORE_ASSET_PREFIX = "study-runner-xdf-core-"
+CORE_LIBRARY_NAMES = {
+    "windows-x64": "xdf_core.dll",
+    "macos-x64": "libxdf_core.dylib",
+    "macos-arm64": "libxdf_core.dylib",
+}
+SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 THIRD_PARTY_NOTICE_FILES = (
     "THIRD_PARTY_NOTICES.md",
     "software/recording_worker/native/vendor/App-LabRecorder/LICENSE",
@@ -35,6 +49,7 @@ REQUIRED_SOURCE_FILES = (
     "software/constraints/py312-common.txt",
     "software/constraints/py312-local-emotion.txt",
     "software/constraints/py312-build-tools.txt",
+    "software/constraints/uv-bootstrap.txt",
     "tools/install-windows.cmd",
     "tools/install-windows.ps1",
     "tools/start-windows.cmd",
@@ -48,6 +63,7 @@ REQUIRED_SOURCE_FILES = (
 FORBIDDEN_ARCHIVE_PARTS = (
     "/.git/",
     "/.venv/",
+    "/.tools/",
     "/.build/",
     "/build/",
     "/dist/",
@@ -98,13 +114,12 @@ SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SUPPORTED_RECORDING_TARGETS = ("windows-x64", "macos-x64", "macos-arm64")
 INSTALL_COMMANDS = {
-    "windows_first_install": ".\\tools\\install-windows.cmd -InstallSystemDependencies",
+    "windows_first_install": ".\\tools\\install-windows.cmd",
     "windows_later_start": ".\\tools\\start-windows.cmd",
-    "macos_first_install": (
-        "bash tools/install-macos.sh --install-system-dependencies"
-    ),
+    "macos_first_install": "bash tools/install-macos.sh",
     "macos_later_start": "bash tools/start-macos.sh",
 }
+LOCAL_CORE_BUILD_COMMAND = "python tools/setup_recording_worker.py --require-canonical"
 WINDOWS_RESERVED_NAMES = {
     "CON",
     "PRN",
@@ -248,13 +263,131 @@ def is_curated_demo_result(lowered_name: str) -> bool:
     return trimmed.endswith("/software/saved_results")
 
 
-def git_archive(*, commit: str, version: str, output: Path, archive_format: str) -> None:
+def core_asset_name(target: str) -> str:
+    return f"{CORE_ASSET_PREFIX}{target}.zip"
+
+
+def checkout_native_source_sha256() -> str:
+    """Fingerprint this checkout's native sources with the installer's own function."""
+
+    setup_path = REPOSITORY_ROOT / "tools" / "setup_recording_worker.py"
+    spec = importlib.util.spec_from_file_location("study_runner_core_setup", setup_path)
+    if spec is None or spec.loader is None:
+        raise ReleaseError(f"cannot load {setup_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return str(module.native_source_sha256())
+
+
+def validate_core_asset(path: Path, target: str) -> dict[str, object]:
+    """Check a CI-built core zip and describe it for the release metadata."""
+
+    if not path.is_file() or path.stat().st_size <= 0:
+        raise ReleaseError(f"prebuilt core asset is missing or empty: {path}")
+    library_name = CORE_LIBRARY_NAMES[target]
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = {info.filename for info in archive.infolist()}
+            if names != {library_name, "worker-build.json"}:
+                raise ReleaseError(
+                    f"{path.name} must contain exactly {library_name} and worker-build.json"
+                )
+            library = archive.read(library_name)
+            manifest = json.loads(archive.read("worker-build.json").decode("utf-8"))
+    except (OSError, ValueError, zipfile.BadZipFile) as error:
+        raise ReleaseError(f"prebuilt core asset is unreadable: {path.name}: {error}") from error
+    tests = manifest.get("tests") if isinstance(manifest, dict) else None
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema") != CORE_BUILD_MANIFEST_SCHEMA
+        or manifest.get("platform_arch") != target
+        or manifest.get("core_library") != library_name
+        or manifest.get("canonical_xdf") is not True
+    ):
+        raise ReleaseError(f"{path.name} has an invalid worker-build.json for {target}")
+    if manifest.get("core_sha256") != hashlib.sha256(library).hexdigest():
+        raise ReleaseError(f"{path.name}: library hash differs from worker-build.json")
+    if not isinstance(tests, dict) or tests.get("ctest") != "passed" or (
+        tests.get("synthetic_xdf_smoke") != "passed"
+    ):
+        raise ReleaseError(f"{path.name} was built without passing CTest and XDF smoke")
+    native_source = str(manifest.get("native_source_sha256") or "")
+    if not SHA256_HEX.fullmatch(native_source):
+        raise ReleaseError(f"{path.name} has no native source fingerprint")
+    return {
+        "asset": path.name,
+        "sha256": sha256_file(path),
+        "size": path.stat().st_size,
+        "native_source_sha256": native_source,
+    }
+
+
+def collect_core_assets(core_assets_dir: Path, *, expected_source: str | None) -> dict[str, dict]:
+    cores: dict[str, dict] = {}
+    for target in SUPPORTED_RECORDING_TARGETS:
+        cores[target] = validate_core_asset(core_assets_dir / core_asset_name(target), target)
+    sources = {str(core["native_source_sha256"]) for core in cores.values()}
+    if len(sources) != 1:
+        raise ReleaseError("prebuilt cores were built from different native sources")
+    if expected_source is not None and sources != {expected_source}:
+        raise ReleaseError("prebuilt cores were not built from this release's native sources")
+    return cores
+
+
+def release_info_document(
+    *, version: str, tag: str, commit: str, repo: str, cores: dict[str, dict]
+) -> dict[str, object]:
+    return {
+        "schema": RELEASE_INFO_SCHEMA,
+        "version": version,
+        "tag": tag,
+        "commit": commit,
+        "repository": repo,
+        "native_cores": {
+            target: {
+                "asset": core["asset"],
+                "sha256": core["sha256"],
+                "native_source_sha256": core["native_source_sha256"],
+            }
+            for target, core in cores.items()
+        },
+    }
+
+
+def read_archive_member(path: Path, member: str) -> bytes | None:
+    if path.name.endswith(".zip"):
+        with zipfile.ZipFile(path) as archive:
+            try:
+                return archive.read(member)
+            except KeyError:
+                return None
+    with tarfile.open(path, "r:gz") as archive:
+        try:
+            handle = archive.extractfile(member)
+        except KeyError:
+            return None
+        return handle.read() if handle is not None else None
+
+
+def git_archive(
+    *,
+    commit: str,
+    version: str,
+    output: Path,
+    archive_format: str,
+    virtual_files: dict[str, str] | None = None,
+) -> None:
     prefix = f"MRG-StudyRunner-{version}/"
     command = (
         "git",
         "archive",
         f"--format={archive_format}",
         f"--prefix={prefix}",
+        # --add-virtual-file ignores --prefix, so the root folder is spelled out here.
+        *(
+            f"--add-virtual-file={prefix}{name}:{content}"
+            for name, content in (virtual_files or {}).items()
+        ),
         f"--output={output}",
         commit,
     )
@@ -366,7 +499,14 @@ def validate_third_party_license(relative_path: str, license_text: str) -> None:
 
 
 def build_release(
-    *, version: str, repo: str, tag: str, commit: str, output_dir: Path
+    *,
+    version: str,
+    repo: str,
+    tag: str,
+    commit: str,
+    output_dir: Path,
+    core_assets_dir: Path,
+    expected_native_source: str | None = None,
 ) -> dict[str, object]:
     if not SEMVER.fullmatch(version):
         raise ReleaseError(f"version must be numeric SemVer without a prefix: {version!r}")
@@ -382,12 +522,35 @@ def build_release(
     for relative_path in THIRD_PARTY_NOTICE_FILES[1:]:
         validate_third_party_license(relative_path, git_text(commit, relative_path))
     changes = changelog_section(git_text(commit, "CHANGELOG.md"), version)
+    cores = collect_core_assets(Path(core_assets_dir).resolve(), expected_source=expected_native_source)
 
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    for core in cores.values():
+        source = Path(core_assets_dir).resolve() / str(core["asset"])
+        if source.parent != output_dir:
+            shutil.copy2(source, output_dir / source.name)
+    release_info = release_info_document(
+        version=version, tag=tag, commit=commit, repo=repo, cores=cores
+    )
+    virtual_files = {
+        RELEASE_INFO_NAME: f"{json.dumps(release_info, indent=2, sort_keys=True)}\n"
+    }
     outputs = {name: output_dir / name for name in ARCHIVES}
-    git_archive(commit=commit, version=version, output=outputs[ARCHIVES[0]], archive_format="zip")
-    git_archive(commit=commit, version=version, output=outputs[ARCHIVES[1]], archive_format="tar.gz")
+    git_archive(
+        commit=commit,
+        version=version,
+        output=outputs[ARCHIVES[0]],
+        archive_format="zip",
+        virtual_files=virtual_files,
+    )
+    git_archive(
+        commit=commit,
+        version=version,
+        output=outputs[ARCHIVES[1]],
+        archive_format="tar.gz",
+        virtual_files=virtual_files,
+    )
     for path in outputs.values():
         validate_archive(path, version=version)
 
@@ -411,8 +574,8 @@ def build_release(
         "artifacts": artifacts,
         "recording": {
             "canonical_format": "XDF",
-            "native_core_bundled": False,
-            "local_setup_command": "python tools/setup_recording_worker.py --require-canonical",
+            "native_core_assets": cores,
+            "local_setup_command": LOCAL_CORE_BUILD_COMMAND,
             "supported_targets": SUPPORTED_RECORDING_TARGETS,
             "linux_recording_supported": False,
         },
@@ -423,6 +586,7 @@ def build_release(
     metadata_path.write_text(f"{json.dumps(metadata, indent=2, sort_keys=True)}\n", encoding="utf-8")
     checksum_targets = {
         **{name: str(details["sha256"]) for name, details in artifacts.items()},
+        **{str(core["asset"]): str(core["sha256"]) for core in cores.values()},
         metadata_path.name: sha256_file(metadata_path),
     }
     checksums = "".join(f"{digest}  {name}\n" for name, digest in sorted(checksum_targets.items()))
@@ -452,7 +616,36 @@ def _verification_script(expected: dict[str, str]) -> str:
 
 
 def _release_notes(version: str, changes: str) -> str:
-    return f"""# Study Runner {version}\n\nThis is the MIT-licensed source-server release for Windows x64, macOS Intel, and macOS Apple Silicon; see `LICENSE`. Third-party provenance and upstream license texts are listed in `THIRD_PARTY_NOTICES.md`.\n\n## Install and start\n\nAfter downloading and extracting `study-runner-source.zip` on Windows:\n\n```powershell\n.\\tools\\install-windows.cmd -InstallSystemDependencies\n.\\tools\\start-windows.cmd\n```\n\nThe `.cmd` launchers invoke only their adjacent checked-in PowerShell scripts with a process-local execution-policy bypass; they do not change the machine or user policy.\n\nAfter downloading and extracting `study-runner-source.tar.gz` on macOS:\n\n```bash\nbash tools/install-macos.sh --install-system-dependencies\nbash tools/start-macos.sh\n```\n\nThe native XDF core is intentionally not prebuilt or bundled. First install builds and verifies it locally from the pinned, vendored LabRecorder/XDFWriter sources. Linux may run non-recording development checks, but recording is not supported. Verify manual downloads with `SHA256SUMS`.\n\nThis is not a packaged-updater release and does not require Apple signing, notarization, or updater signing secrets.\n\n## Changes\n\n{changes}\n"""
+    return f"""# Study Runner {version}
+
+This is the MIT-licensed source-server release for Windows x64, macOS Intel, and macOS Apple Silicon; see `LICENSE`. Third-party provenance and upstream license texts are listed in `THIRD_PARTY_NOTICES.md`.
+
+## Install and start
+
+After downloading and extracting `study-runner-source.zip` on Windows:
+
+```powershell
+.\\tools\\install-windows.cmd
+.\\tools\\start-windows.cmd
+```
+
+The `.cmd` launchers invoke only their adjacent checked-in PowerShell scripts with a process-local execution-policy bypass; they do not change the machine or user policy.
+
+After downloading and extracting `study-runner-source.tar.gz` on macOS:
+
+```bash
+bash tools/install-macos.sh
+bash tools/start-macos.sh
+```
+
+The installers need no administrator rights, Xcode, Visual Studio, WinGet, or Homebrew. They download the pinned `uv` tool and Python into the Study Runner folder and install the prebuilt XDF recording core for the platform (`study-runner-xdf-core-*.zip`). Each core was built from the pinned, vendored LabRecorder/XDFWriter sources and tested in CI; the installer checks its SHA-256 against `study-runner-release.json` inside the source archive and repeats the synthetic XDF test on the machine. Linux may run non-recording development checks, but recording is not supported. Verify manual downloads with `SHA256SUMS`.
+
+This is not a packaged-updater release and does not require Apple signing, notarization, or updater signing secrets.
+
+## Changes
+
+{changes}
+"""
 
 
 def verify_output(output_dir: Path) -> dict[str, object]:
@@ -477,17 +670,23 @@ def verify_output(output_dir: Path) -> dict[str, object]:
     if metadata.get("packaged_updater_compatible") is not False:
         raise ReleaseError("source release must not claim packaged-updater compatibility")
     recording = metadata.get("recording")
-    if not isinstance(recording, dict) or recording.get("native_core_bundled") is not False:
-        raise ReleaseError("source release must declare that the native core is not bundled")
+    if not isinstance(recording, dict):
+        raise ReleaseError("release metadata has no recording support contract")
     if (
         recording.get("canonical_format") != "XDF"
         or recording.get("linux_recording_supported") is not False
         or recording.get("supported_targets") != list(SUPPORTED_RECORDING_TARGETS)
-        or recording.get("local_setup_command") != (
-            "python tools/setup_recording_worker.py --require-canonical"
-        )
+        or recording.get("local_setup_command") != LOCAL_CORE_BUILD_COMMAND
     ):
         raise ReleaseError("release metadata has an invalid recording support contract")
+    declared_cores = recording.get("native_core_assets")
+    if not isinstance(declared_cores, dict) or set(declared_cores) != set(
+        SUPPORTED_RECORDING_TARGETS
+    ):
+        raise ReleaseError("release metadata must describe one prebuilt core per supported target")
+    cores = collect_core_assets(output_dir, expected_source=None)
+    if cores != declared_cores:
+        raise ReleaseError("release metadata does not match the prebuilt core assets")
     if metadata.get("install") != INSTALL_COMMANDS:
         raise ReleaseError("release metadata has an invalid install/start command contract")
     license_info = metadata.get("license")
@@ -502,6 +701,13 @@ def verify_output(output_dir: Path) -> dict[str, object]:
     artifacts = metadata.get("artifacts")
     if not isinstance(artifacts, dict) or set(artifacts) != set(ARCHIVES):
         raise ReleaseError("release metadata does not describe exactly the source archives")
+    expected_release_info = release_info_document(
+        version=version,
+        tag=str(metadata["tag"]),
+        commit=str(metadata["commit"]),
+        repo=repository,
+        cores=cores,
+    )
     for name in ARCHIVES:
         path = output_dir / name
         validate_archive(path, version=version)
@@ -510,8 +716,16 @@ def verify_output(output_dir: Path) -> dict[str, object]:
             raise ReleaseError(f"release metadata is missing details for {name}")
         if details.get("sha256") != sha256_file(path) or details.get("size") != path.stat().st_size:
             raise ReleaseError(f"release metadata does not match {name}")
+        embedded = read_archive_member(path, f"MRG-StudyRunner-{version}/{RELEASE_INFO_NAME}")
+        try:
+            embedded_info = json.loads(embedded.decode("utf-8")) if embedded else None
+        except (UnicodeDecodeError, ValueError):
+            embedded_info = None
+        if embedded_info != expected_release_info:
+            raise ReleaseError(f"{name} does not carry a matching {RELEASE_INFO_NAME}")
     checksum_targets = {
         **{name: str(artifacts[name]["sha256"]) for name in ARCHIVES},
+        **{str(core["asset"]): str(core["sha256"]) for core in cores.values()},
         metadata_path.name: sha256_file(metadata_path),
     }
     expected_checksums = "".join(
@@ -529,6 +743,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tag")
     parser.add_argument("--commit")
     parser.add_argument("--output-dir")
+    parser.add_argument(
+        "--core-assets",
+        help="directory with the CI-built study-runner-xdf-core-<target>.zip files",
+    )
     parser.add_argument("--verify-output")
     args = parser.parse_args(argv)
     try:
@@ -542,6 +760,7 @@ def main(argv: list[str] | None = None) -> int:
             "--tag": args.tag,
             "--commit": args.commit,
             "--output-dir": args.output_dir,
+            "--core-assets": args.core_assets,
         }
         missing = [flag for flag, value in required.items() if not value]
         if missing:
@@ -552,6 +771,8 @@ def main(argv: list[str] | None = None) -> int:
             tag=args.tag,
             commit=args.commit,
             output_dir=Path(args.output_dir),
+            core_assets_dir=Path(args.core_assets),
+            expected_native_source=checkout_native_source_sha256(),
         )
     except ReleaseError as error:
         print(json.dumps({"ok": False, "error": str(error)}, sort_keys=True), file=sys.stderr)

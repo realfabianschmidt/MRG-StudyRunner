@@ -22,15 +22,16 @@ Edit-safety legend:
 | `software/study_runner/version.py` | The single version number of the app | yes |
 | `software/study_runner/self_check.py` | `server.py --self-check`: checks the app without starting HTTP or hardware; packaging CI can also name harmless plugin/card keys to prove a real child RPC and declared card asset work in the bundle | careful |
 | `tools/study_runner_manager.py` | Standalone Install & Repair Wizard (downloads, verifies, installs releases) | no |
-| `tools/setup_recording_worker.py` | One-time source setup: verifies the toolchain, builds only the current native XDF core, runs CTest and the Python/PyXDF smoke test | no |
+| `tools/setup_recording_worker.py` | Native XDF core helper: installs and locally tests a downloaded prebuilt core, or builds the current platform (CTest plus Python/PyXDF smoke) and packs it as a release asset | no |
 | `tools/make_timeline_fixture.py` | Writes a synthetic completed session with a real multi-stream XDF, so the timeline can be seen without recording hardware | no |
 | `tools/measure_structure.py` | 1.0 rebuild structure ratchet: cross-package import edges, import cycles, lines per package, largest file, checked against `tools/structure_baseline.json` | careful |
 | `tools/plugin_sdk.py` | Plugin SDK: scaffold (`new`), validate, and boot-test (`check-runtime`) a new plugin outside `plugins/`, plus a generated manifest reference (`schema`) — see `tools/plugin_templates/` | careful |
 | `tools/synthetic_lsl_source.py` | Pushes fake-but-plausible LSL samples for a sensor plugin's own declared stream, so it can be tested without real hardware | careful |
 | `tools/install-windows.cmd` / `tools/start-windows.cmd` | Primary Windows entry points; quote their adjacent scripts, use a process-local PowerShell execution-policy bypass, forward arguments, and preserve exit codes | careful |
-| `tools/install-windows.ps1` / `tools/install-macos.sh` | Idempotent first-install/repair implementations: system prerequisites on request, `.venv`, Python requirements, and verified XDF core | careful |
+| `tools/install-windows.ps1` / `tools/install-macos.sh` | Idempotent first-install/repair implementations: pinned uv and Python in `.tools`, `.venv`, Python requirements, and the downloaded, locally re-tested XDF core; no admin rights or compiler | careful |
 | `tools/start-windows.ps1` / `tools/start-macos.sh` | Daily source-server implementations that use the repository `.venv` directly and expose a non-persistent self-check | careful |
-| `software/constraints/py312-*.txt` | Bounded release-tested Python 3.12 compatibility pins: bootstrap, common runtime, and platform-selected local emotion stack | careful |
+| `software/constraints/py312-*.txt` | Bounded release-tested Python 3.12 compatibility pins: bootstrap, common runtime, platform-selected local emotion stack, and CMake for source builds of the core | careful |
+| `software/constraints/uv-bootstrap.txt` | The uv release (with per-platform SHA-256) and exact Python 3.12 version both installers download into `.tools` | careful |
 
 ## Contracts (`software/study_runner/contracts/`)
 
@@ -360,9 +361,9 @@ Tests live in `software/tests/` - one file per area, named
 `test_<area>.py`. Run everything with:
 `python -m unittest discover software/tests`
 
-`software/tests/test_source_install_scripts.py` protects the WinGet and
-official macOS Python installer flows, process-local full-Xcode selection,
-project-local CMake, `.venv`, canonical-core, non-destructive installer, and
-daily-start contracts.
+`software/tests/test_source_install_scripts.py` protects the pinned uv/Python
+bootstrap, the project-local `.tools` and `.venv`, the admin- and compiler-free
+installer paths, the prebuilt-core download, the non-destructive installer,
+and daily-start contracts.
 `software/tests/test_python_constraints.py` protects the exact scientific pins,
 platform split, shared installer/CI consumption, and honest non-lockfile scope.

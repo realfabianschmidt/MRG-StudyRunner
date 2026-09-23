@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+import zipfile
 
 
 SOFTWARE_ROOT = Path(__file__).resolve().parents[1]
@@ -154,52 +155,12 @@ class RecordingCoreSetupTests(unittest.TestCase):
             self.assertFalse(build_dir.exists())
             self.assertFalse(stage_dir.exists())
 
-    def test_standalone_command_line_tools_are_rejected(self) -> None:
-        with mock.patch.dict(setup.os.environ, {}, clear=True), mock.patch.object(
-            setup,
-            "_run_command",
-            return_value="/Library/Developer/CommandLineTools\n",
-        ):
-            with self.assertRaisesRegex(setup.SetupError, "standalone Command Line Tools"):
-                setup._full_xcode_developer_dir()
-
-    def test_versioned_reference_xcode_precedes_standalone_selection(self) -> None:
-        with mock.patch.dict(setup.os.environ, {}, clear=True), mock.patch.object(
-            setup,
-            "_is_full_xcode_developer_dir",
-            side_effect=lambda candidate: candidate == setup.XCODE_REFERENCE_DEVELOPER_DIR,
-        ), mock.patch.object(setup, "_run_command") as run_command:
-            selected = setup._full_xcode_developer_dir()
-
-        self.assertEqual(selected, setup.XCODE_REFERENCE_DEVELOPER_DIR.resolve())
-        run_command.assert_not_called()
-
-    def test_process_local_full_xcode_selection_is_accepted(self) -> None:
-        with workspace_temporary_directory() as temp_dir:
-            developer_dir = Path(temp_dir) / "Xcode.app/Contents/Developer"
-            xcodebuild = developer_dir / "usr/bin/xcodebuild"
-            xcodebuild.parent.mkdir(parents=True)
-            xcodebuild.write_bytes(b"xcodebuild")
-
-            with mock.patch.dict(
-                setup.os.environ,
-                {"DEVELOPER_DIR": str(developer_dir)},
-                clear=True,
-            ), mock.patch.object(
-                setup,
-                "_run_command",
-                return_value="/Library/Developer/CommandLineTools\n",
-            ):
-                selected = setup._full_xcode_developer_dir()
-
-            self.assertEqual(selected, developer_dir.resolve())
-
-    def test_macos_toolchain_compile_tests_cstdint(self) -> None:
+    def test_macos_toolchain_accepts_command_line_tools_and_compile_tests_cstdint(self) -> None:
         with workspace_temporary_directory() as temp_dir:
             root = Path(temp_dir)
-            developer_dir = root / "Xcode.app/Contents/Developer"
-            compiler = developer_dir / "Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"
-            sdk = developer_dir / "Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+            developer_dir = root / "CommandLineTools"
+            compiler = developer_dir / "usr/bin/clang++"
+            sdk = developer_dir / "SDKs/MacOSX.sdk"
             compiler.parent.mkdir(parents=True)
             compiler.write_bytes(b"compiler")
             sdk.mkdir(parents=True)
@@ -208,60 +169,45 @@ class RecordingCoreSetupTests(unittest.TestCase):
             def fake_run_command(command, *, quiet):
                 command = [str(part) for part in command]
                 commands.append(command)
-                if command == ["xcodebuild", "-version"]:
-                    return "Xcode 26.0\nBuild version 17A1\n"
                 if command[-2:] == ["--find", "clang++"]:
                     return f"{compiler}\n"
                 if command[-1:] == ["--show-sdk-path"]:
                     return f"{sdk}\n"
+                if command == ["xcode-select", "--print-path"]:
+                    return f"{developer_dir}\n"
                 source = Path(command[-1])
                 self.assertIn("#include <cstdint>", source.read_text(encoding="utf-8"))
                 return ""
 
-            with mock.patch.dict(setup.os.environ, {}, clear=True), mock.patch.object(
-                setup, "_full_xcode_developer_dir", return_value=developer_dir
-            ), mock.patch.object(setup, "_run_command", side_effect=fake_run_command):
-                toolchain = setup._macos_toolchain(
-                    setup.supported_target("Darwin", "x86_64")
-                )
+            with mock.patch.object(setup, "_run_command", side_effect=fake_run_command):
+                toolchain = setup._macos_toolchain(setup.supported_target("Darwin", "x86_64"))
 
             self.assertEqual(toolchain["compiler"], str(compiler))
             self.assertEqual(toolchain["sdk_path"], str(sdk))
+            self.assertEqual(toolchain["developer_dir"], str(developer_dir))
             compile_call = commands[-1]
             self.assertIn("-std=c++20", compile_call)
             self.assertIn("x86_64", compile_call)
+            self.assertFalse(any(c[:1] == ["xcodebuild"] for c in commands))
 
-    def test_macos_toolchain_rejects_other_xcode_major_versions(self) -> None:
-        developer_dir = Path("/Applications/Xcode.app/Contents/Developer")
+    def test_macos_toolchain_explains_a_missing_compiler(self) -> None:
         with mock.patch.object(
-            setup, "_full_xcode_developer_dir", return_value=developer_dir
-        ), mock.patch.object(
-            setup,
-            "_run_command",
-            return_value="Xcode 25.4\nBuild version 16Z1\n",
+            setup, "_run_command", side_effect=setup.SetupError("xcrun: error: invalid active developer path")
         ):
-            with self.assertRaisesRegex(setup.SetupError, "Xcode 26 is required"):
+            with self.assertRaisesRegex(setup.SetupError, "xcode-select --install"):
                 setup._macos_toolchain(setup.supported_target("Darwin", "arm64"))
 
     def test_macos_toolchain_classifies_cstdint_compile_failure(self) -> None:
-        toolchain_paths = {
-            "developer_dir": "/Applications/Xcode.app/Contents/Developer",
-            "compiler": "/Applications/Xcode.app/clang++",
-            "sdk": "/Applications/Xcode.app/MacOSX.sdk",
-        }
-
         def fake_run_command(command, *, quiet):
-            if command == ["xcodebuild", "-version"]:
-                return "Xcode 26.0\nBuild version 17A1\n"
             if command[-2:] == ["--find", "clang++"]:
-                return toolchain_paths["compiler"] + "\n"
+                return "/Library/Developer/CommandLineTools/usr/bin/clang++\n"
             if command[-1:] == ["--show-sdk-path"]:
-                return toolchain_paths["sdk"] + "\n"
+                return "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk\n"
+            if command == ["xcode-select", "--print-path"]:
+                return "/Library/Developer/CommandLineTools\n"
             raise setup.SetupError("fatal error: 'cstdint' file not found")
 
-        with mock.patch.object(
-            setup, "_full_xcode_developer_dir", return_value=Path(toolchain_paths["developer_dir"])
-        ), mock.patch.object(setup, "_run_command", side_effect=fake_run_command), mock.patch.object(
+        with mock.patch.object(setup, "_run_command", side_effect=fake_run_command), mock.patch.object(
             setup.Path, "is_file", return_value=True
         ), mock.patch.object(setup.Path, "is_dir", return_value=True):
             with self.assertRaisesRegex(setup.SetupError, r"C\+\+20 toolchain.*cstdint"):
@@ -292,10 +238,9 @@ class RecordingCoreSetupTests(unittest.TestCase):
                     setup,
                     "_macos_toolchain",
                     return_value={
-                        "developer_dir": "/Applications/Xcode.app/Contents/Developer",
-                        "xcode": "Xcode 26.0",
-                        "compiler": "/Applications/Xcode.app/clang++",
-                        "sdk_path": "/Applications/Xcode.app/MacOSX.sdk",
+                        "developer_dir": "/Library/Developer/CommandLineTools",
+                        "compiler": "/Library/Developer/CommandLineTools/usr/bin/clang++",
+                        "sdk_path": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
                     },
                 ):
                 with self.assertRaisesRegex(setup.SetupError, "stop here after configure"):
@@ -312,11 +257,11 @@ class RecordingCoreSetupTests(unittest.TestCase):
             configure_calls = [c for c in commands if c[:1] == ["cmake"] and "-S" in c]
             self.assertEqual(len(configure_calls), 1)
             self.assertIn(
-                "-DCMAKE_CXX_COMPILER=/Applications/Xcode.app/clang++",
+                "-DCMAKE_CXX_COMPILER=/Library/Developer/CommandLineTools/usr/bin/clang++",
                 configure_calls[0],
             )
             self.assertIn(
-                "-DCMAKE_OSX_SYSROOT=/Applications/Xcode.app/MacOSX.sdk",
+                "-DCMAKE_OSX_SYSROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
                 configure_calls[0],
             )
 
@@ -484,6 +429,221 @@ class RecordingCoreLocatorTests(unittest.TestCase):
             self.assertEqual(status.kind, "legacy_external_worker")
             self.assertFalse(status.canonical_xdf)
             self.assertIsNone(status.core_path)
+
+
+
+def write_core_asset(
+    path: Path,
+    *,
+    platform_arch: str = "windows-x64",
+    library_name: str = "xdf_core.dll",
+    native_source: str | None = None,
+    extra_member: str | None = None,
+) -> tuple[str, dict]:
+    """Write a prebuilt-core zip exactly like ``--package`` does and return its hash."""
+
+    library = b"test native core"
+    probe = canonical_probe(Path(library_name))
+    manifest = {
+        "schema": BUILD_MANIFEST_SCHEMA,
+        "platform_arch": platform_arch,
+        "core_library": library_name,
+        "core_sha256": hashlib.sha256(library).hexdigest(),
+        "canonical_xdf": True,
+        "source_lock_sha256": EXPECTED_SOURCE_LOCK_SHA256,
+        "native_source_sha256": native_source or setup.native_source_sha256(),
+        "source": "local_build",
+        "probe": {
+            "abi_version": probe.abi_version,
+            "canonical_xdf": probe.canonical_xdf,
+            "implementation": probe.implementation,
+            "upstream_version": probe.upstream_version,
+            "byte_order": probe.byte_order,
+            "features": dict(probe.features),
+        },
+        "tests": {"ctest": "passed", "synthetic_xdf_smoke": "passed"},
+        "upstream": {
+            "tag": EXPECTED_UPSTREAM_VERSION,
+            "commit": EXPECTED_UPSTREAM_COMMIT,
+            "source_lock_sha256": EXPECTED_SOURCE_LOCK_SHA256,
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(library_name, library)
+        archive.writestr("worker-build.json", json.dumps(manifest))
+        if extra_member:
+            archive.writestr(extra_member, b"unexpected")
+    return hashlib.sha256(path.read_bytes()).hexdigest(), manifest
+
+
+class PrebuiltCoreTests(unittest.TestCase):
+    target = setup.supported_target("Windows", "AMD64")
+
+    def install(self, root: Path, asset: Path, checksum: str, **overrides):
+        checksums = root / "SHA256SUMS"
+        checksums.write_text(f"{checksum}  {asset.name}\n", encoding="utf-8")
+        manifest = json.loads(zipfile.ZipFile(asset).read("worker-build.json"))
+        with mock.patch.object(
+            setup, "probe_core_library", return_value=manifest["probe"]
+        ), mock.patch.object(
+            setup, "run_synthetic_xdf_smoke", return_value={"status": "passed"}
+        ) as smoke:
+            result = setup.install_prebuilt(
+                asset,
+                target=overrides.get("target", self.target),
+                build_dir=root / "build",
+                stage_dir=root / "stage",
+                checksums_path=checksums,
+                release_info=overrides.get("release_info"),
+            )
+        return result, smoke
+
+    def test_native_source_fingerprint_ignores_line_endings_and_hidden_files(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            unix = Path(temp_dir) / "unix"
+            windows = Path(temp_dir) / "windows"
+            for root, newline in ((unix, "\n"), (windows, "\r\n")):
+                (root / "src").mkdir(parents=True)
+                (root / "src" / "core.cpp").write_bytes(f"int x;{newline}int y;{newline}".encode())
+            (windows / ".DS_Store").write_bytes(b"finder noise")
+
+            self.assertEqual(setup.native_source_sha256(unix), setup.native_source_sha256(windows))
+            (unix / "src" / "core.cpp").write_bytes(b"int x;\nint z;\n")
+            self.assertNotEqual(setup.native_source_sha256(unix), setup.native_source_sha256(windows))
+
+    def test_prebuilt_core_is_verified_tested_locally_and_staged(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            root = Path(temp_dir)
+            asset = root / setup.core_asset_name("windows-x64")
+            checksum, _manifest = write_core_asset(asset)
+
+            result, smoke = self.install(root, asset, checksum)
+
+            smoke.assert_called_once()
+            self.assertEqual(result["mode"], "install_prebuilt")
+            self.assertTrue(result["canonical_xdf"])
+            staged = json.loads((root / "stage" / "worker-build.json").read_text(encoding="utf-8"))
+            self.assertEqual(staged["source"], "prebuilt")
+            self.assertEqual(staged["asset_sha256"], checksum)
+            self.assertEqual(staged["tests"]["local_synthetic_xdf_smoke"], "passed")
+            self.assertEqual(staged["tests"]["ctest"], "passed")
+            self.assertEqual(list((root / "build").iterdir()), [])
+
+    def test_prebuilt_core_with_wrong_checksum_is_never_staged(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            root = Path(temp_dir)
+            asset = root / setup.core_asset_name("windows-x64")
+            write_core_asset(asset)
+
+            with self.assertRaisesRegex(setup.SetupError, "checksum mismatch"):
+                self.install(root, asset, "0" * 64)
+            self.assertFalse((root / "stage").exists())
+
+    def test_prebuilt_core_for_other_native_sources_is_rejected(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            root = Path(temp_dir)
+            asset = root / setup.core_asset_name("windows-x64")
+            checksum, _manifest = write_core_asset(asset, native_source="f" * 64)
+
+            with self.assertRaisesRegex(setup.SetupError, "different native sources"):
+                self.install(root, asset, checksum)
+            self.assertFalse((root / "stage").exists())
+
+    def test_prebuilt_core_for_another_platform_is_rejected(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            root = Path(temp_dir)
+            asset = root / setup.core_asset_name("windows-x64")
+            checksum, _manifest = write_core_asset(
+                asset, platform_arch="macos-x64", library_name="xdf_core.dll"
+            )
+
+            with self.assertRaisesRegex(setup.SetupError, "does not match this host"):
+                self.install(root, asset, checksum)
+
+    def test_prebuilt_core_with_unexpected_members_is_rejected(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            root = Path(temp_dir)
+            asset = root / setup.core_asset_name("windows-x64")
+            checksum, _manifest = write_core_asset(asset, extra_member="../escape.dll")
+
+            with self.assertRaisesRegex(setup.SetupError, "must contain exactly"):
+                self.install(root, asset, checksum)
+
+    def test_release_description_is_the_trust_anchor_inside_an_archive(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            root = Path(temp_dir)
+            asset = root / setup.core_asset_name("windows-x64")
+            checksum, _manifest = write_core_asset(asset)
+            release_info = {
+                "schema": setup.RELEASE_INFO_SCHEMA,
+                "repository": "owner/repository",
+                "tag": "app-v1.2.3",
+                "native_cores": {
+                    "windows-x64": {"asset": asset.name, "sha256": "e" * 64},
+                },
+            }
+
+            # A matching SHA256SUMS next to the download must not override the
+            # hash that arrived inside the source archive.
+            with self.assertRaisesRegex(setup.SetupError, "checksum mismatch"):
+                self.install(root, asset, checksum, release_info=release_info)
+
+            release_info["native_cores"]["windows-x64"]["sha256"] = checksum
+            result, _smoke = self.install(root, asset, "0" * 64, release_info=release_info)
+            self.assertTrue(result["canonical_xdf"])
+
+    def test_prebuilt_source_uses_the_archive_tag_or_the_latest_release(self) -> None:
+        tagged = setup.prebuilt_source(
+            self.target,
+            {
+                "repository": "owner/repository",
+                "tag": "app-v1.2.3",
+                "native_cores": {"windows-x64": {}},
+            },
+        )
+        latest = setup.prebuilt_source(self.target, None)
+
+        self.assertEqual(
+            tagged["url"],
+            "https://github.com/owner/repository/releases/download/app-v1.2.3/"
+            "study-runner-xdf-core-windows-x64.zip",
+        )
+        self.assertTrue(latest["url"].startswith("https://github.com/"))
+        self.assertIn("/releases/latest/download/", latest["url"])
+        self.assertTrue(latest["checksums_url"].endswith("/SHA256SUMS"))
+
+    def test_package_refuses_a_core_without_passed_tests(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            stage = Path(temp_dir) / "stage"
+            write_stage(stage, tests_passed=False)
+            raw_probe = json.loads((stage / "worker-build.json").read_text(encoding="utf-8"))["probe"]
+
+            with mock.patch.object(setup, "probe_core_library", return_value=raw_probe):
+                with self.assertRaisesRegex(setup.SetupError, "CTest and synthetic XDF smoke"):
+                    setup.package_stage(stage, self.target, Path(temp_dir) / "core.zip")
+
+    def test_package_output_installs_as_a_prebuilt_core(self) -> None:
+        with workspace_temporary_directory() as temp_dir:
+            root = Path(temp_dir)
+            stage = root / "built"
+            write_stage(stage)
+            manifest_path = stage / "worker-build.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["native_source_sha256"] = setup.native_source_sha256()
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            asset = root / setup.core_asset_name("windows-x64")
+
+            with mock.patch.object(setup, "probe_core_library", return_value=manifest["probe"]):
+                packaged = setup.package_stage(stage, self.target, asset)
+
+            with zipfile.ZipFile(asset) as archive:
+                self.assertEqual(
+                    sorted(info.filename for info in archive.infolist()),
+                    ["worker-build.json", "xdf_core.dll"],
+                )
+            result, _smoke = self.install(root, asset, packaged["asset_sha256"])
+            self.assertTrue(result["canonical_xdf"])
 
 
 if __name__ == "__main__":

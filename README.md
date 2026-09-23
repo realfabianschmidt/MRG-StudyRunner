@@ -23,6 +23,23 @@ If more than one copy ever exists on the same computer, give each a name that
 says which is which -- a stale or misplaced install is easy to open by
 accident otherwise.
 
+### What the installer does
+
+The same few steps work on Windows x64, macOS Intel, and macOS Apple Silicon.
+The installer needs an internet connection the first time, but **no
+administrator password, no Xcode, no Visual Studio, no WinGet, and no
+Homebrew**. Everything it downloads stays inside the Study Runner folder:
+
+- `.tools/`: the pinned [uv](https://github.com/astral-sh/uv) tool and the
+  pinned Python 3.12 (both checked by SHA-256);
+- `.venv/`: Study Runner's Python packages;
+- `software/.build/xdf_core/`: the XDF recording core. It is built and tested
+  on GitHub for every release, then downloaded, checked against the SHA-256
+  that ships inside the release archive, and tested again on this computer.
+
+Nothing is installed system-wide, so deleting the folder removes everything.
+The installer is safe to run again after an interruption or an update.
+
 ### Windows x64
 
 #### First installation
@@ -35,11 +52,11 @@ accident otherwise.
 4. Copy this command into PowerShell and press Enter:
 
    ```powershell
-   .\tools\install-windows.cmd -InstallSystemDependencies
+   .\tools\install-windows.cmd
    ```
 
-5. Wait until the terminal says `Study Runner is ready`. Installation can take
-   several minutes and Windows may ask for administrator permission.
+5. Wait until the terminal says `Study Runner is ready`. The first
+   installation takes a few minutes.
 6. Start Study Runner:
 
    ```powershell
@@ -61,7 +78,7 @@ Open the permanent Study Runner folder and double-click
 Keep the terminal window open while Study Runner is running. Press `Ctrl+C` in
 that window to stop it.
 
-### macOS 15.6 or newer, Intel or Apple Silicon
+### macOS 13 or newer, Intel or Apple Silicon
 
 #### First installation
 
@@ -71,72 +88,40 @@ that window to stop it.
    **Documents** is a good default.
 3. Open Terminal. Type `cd `, including the space, drag the Study Runner folder
    from Finder into the Terminal window, and press Enter.
-4. Open Apple's authenticated Developer Downloads search from Terminal:
+4. Install Study Runner:
 
    ```bash
-   open "https://developer.apple.com/download/all/?q=Xcode%2026.3"
+   bash tools/install-macos.sh
    ```
 
-5. Sign in with a free Apple Account and download **Xcode 26.3 Universal** as
-   `Xcode_26.3.xip`. A paid developer membership is not required. Do not use
-   `xcode-select --install`: it installs only the standalone Command Line Tools,
-   which are not sufficient for XDF recording. The current App Store version
-   may also require a newer macOS release and Apple Silicon.
-6. Return to Terminal and install Xcode alongside any existing version. This
-   block never overwrites `/Applications/Xcode-26.3.app`:
-
-   ```bash
-   if [[ -e /Applications/Xcode-26.3.app ]]; then
-     echo "Xcode 26.3 is already installed; leaving it unchanged."
-   else
-     xcode_stage="$(mktemp -d "${TMPDIR:-/tmp}/study-runner-xcode.XXXXXX")" &&
-     (
-       cd "$xcode_stage" &&
-       xip --expand "$HOME/Downloads/Xcode_26.3.xip" &&
-       sudo mv Xcode.app /Applications/Xcode-26.3.app
-     ) && /bin/rmdir "$xcode_stage"
-   fi
-   ```
-
-7. Initialize and verify this Xcode installation without changing the global
-   `xcode-select` setting:
-
-   ```bash
-   export DEVELOPER_DIR=/Applications/Xcode-26.3.app/Contents/Developer
-   sudo env DEVELOPER_DIR="$DEVELOPER_DIR" /usr/bin/xcodebuild -runFirstLaunch
-   /usr/bin/xcodebuild -version
-   /usr/bin/xcrun --sdk macosx --find clang++
-   /usr/bin/xcrun --sdk macosx --show-sdk-path
-   ```
-
-8. Install Study Runner:
-
-   ```bash
-   bash tools/install-macos.sh --install-system-dependencies
-   ```
-
-   Homebrew is not required. Xcode is used only when the XDF recording core is
-   enabled, and the installer selects it only for its own process without
-   changing the global `xcode-select` setting. If a native Python 3.12 is
-   missing, the script downloads the pinned universal installer from
-   python.org, verifies its checksum and Apple installer signature, and asks
-   for the administrator password to install it. CMake is installed only
-   inside `.venv`. The first installation therefore needs an internet
-   connection. The command is safe to run again after an interrupted
-   installation or an update.
-
-   If Xcode reports that its components are not initialized, repeat step 7 and
-   then run the same installer command again. An existing valid `.venv` is
-   reused; on a repaired installation only the generated native-core CMake
-   cache may be recreated.
-9. Wait until the terminal says `Study Runner is ready`, then start it:
+5. Wait until the terminal says `Study Runner is ready`, then start it:
 
    ```bash
    bash tools/start-macos.sh
    ```
 
-10. Wait for the Admin page to open. If it does not, open
+6. Wait for the Admin page to open. If it does not, open
    `https://localhost:3000/admin` in a browser.
+
+macOS 15 on Intel and Apple Silicon is tested for every release; the recording
+core itself runs on macOS 13 or newer.
+
+#### If the installation stops with an error
+
+- **"could not download ..."**: check the internet connection (a university
+  proxy or captive portal is a common cause) and run the same command again.
+- **"checksum" or "could not be verified"**: the download was damaged or does
+  not belong to this release. Run the command again; if it repeats, download the
+  release archive again.
+- **"... uses Python ..., move it aside"**: an old `.venv` from an earlier
+  installation method is incompatible. Rename the `.venv` folder (for example to
+  `.venv-old`) and run the installer again.
+- **Git checkout with changed native sources**: the published core only matches
+  the release sources; developers build it locally with
+  `bash tools/install-macos.sh --build-core-from-source` (needs Apple's Command
+  Line Tools from `xcode-select --install`) or
+  `.\tools\install-windows.cmd -BuildCoreFromSource` (needs Visual Studio C++
+  Build Tools).
 
 #### Create the macOS desktop shortcut
 
@@ -167,8 +152,7 @@ bash tools/start-macos.sh
 ### Repair, update, or use Git
 
 The installers are safe to run again and reuse `.venv` and a verified XDF core.
-Run the platform installer again without the system-dependency option to repair
-or refresh an installation. Never delete an old downloaded release until its
+Run the platform installer again to repair or refresh an installation. Never delete an old downloaded release until its
 local studies, settings, and results are secured; follow
 [Release and Update](docs/release-and-update.md) when replacing an archive.
 
@@ -253,9 +237,11 @@ Git.
 ## Installation details
 
 The supported source-server setup uses Python 3.12 and a repository-local
-`.venv`. The install scripts also build and test the small native XDF core.
+`.venv`. The install scripts also install and test the small native XDF core.
 They are safe to run again after an update and never delete studies or results.
-No Apple signing or notarization is needed for this workflow.
+No Apple Developer account, signing, or notarization is needed: the core is a
+library that Study Runner's own Python loads, and the installer downloads it
+directly instead of through a browser.
 
 Both installers use the checked-in Python 3.12 compatibility constraints in
 `software/constraints/`. Windows and Apple Silicon install the local emotion
@@ -263,28 +249,37 @@ stack; macOS Intel intentionally uses only the common set and `remote_worker`.
 These constraints pin the release-tested direct and high-risk ML versions, but
 are not a hash-locked offline wheel bundle.
 
-On Windows, the system-dependency option installs missing Python 3.12, CMake,
-and Visual Studio C++ Build Tools through WinGet. The `.cmd` launchers invoke
-only their adjacent checked-in PowerShell scripts with a process-local
-execution-policy bypass; they do not change the machine or user policy. A
-policy enforced through AppLocker, WDAC, or Group Policy must be resolved by
-the organization's administrator.
+Python itself comes from `software/constraints/uv-bootstrap.txt`: it pins one
+uv release (with the SHA-256 of each platform download) and one exact Python
+3.12 version. The installers download that uv binary into `.tools/uv/`, check
+it, and let it install Python into `.tools/python/` without touching the
+Windows registry, `PATH`, or any system folder. To move to newer versions,
+update that one file (see its comments) and let the release workflow test it.
 
-On macOS 15.6 or newer, the system-dependency option installs a missing native
-Python 3.12 from the pinned, checksum- and signature-verified official
-python.org universal2 package. The installer places the pinned CMake build
-tools inside the repository-local `.venv`; it does not require or modify a
-system package manager. Xcode 26.3 Universal from Apple Developer Downloads is
-the documented reference toolchain for Intel and Apple Silicon. Complete Xcode
-26.x installations supply the compiler, C++ headers, SDK, and `xcrun` required
-when the native XDF recording core is enabled; standalone Command Line Tools
-are neither required nor accepted. With `--skip-recording-core`, neither Xcode
-nor CMake is required.
+The recording core is `study-runner-xdf-core-<platform>.zip` on each release:
+`windows-x64`, `macos-x64`, and `macos-arm64`. GitHub Actions builds it from the
+pinned sources, runs CTest and the synthetic XDF test, and publishes it next to
+the source archives. `study-runner-release.json` inside each source archive
+records the SHA-256 and a fingerprint of the native sources for every core. The
+installer only accepts a core that matches both, then repeats the synthetic XDF
+test on the computer before using it. The macOS cores run on macOS 13 or newer;
+the Windows core has no Visual C++ runtime dependency.
+
+The Windows `.cmd` launchers invoke only their adjacent checked-in PowerShell
+scripts with a process-local execution-policy bypass; they do not change the
+machine or user policy. A policy enforced through AppLocker, WDAC, or Group
+Policy must be resolved by the organization's administrator.
+
+Developers who change `software/recording_worker/native/` build the core
+locally instead: `--build-core-from-source` on macOS needs Apple's Command Line
+Tools (`xcode-select --install`) or Xcode, and `-BuildCoreFromSource` on Windows
+needs the Visual Studio C++ Build Tools. CMake is installed inside `.venv` for
+this. With `--skip-recording-core` / `-SkipRecordingCore`, no core is installed.
 
 ### Git clone alternative
 
-After installing Git and the platform prerequisites described above, clone the
-repository instead of downloading a release archive:
+After installing Git, clone the repository instead of downloading a release
+archive:
 
 ```bash
 git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
@@ -293,7 +288,9 @@ cd MRG-StudyRunner
 
 Then run the same platform installer and start commands from the quick-start
 guide. A clone can be updated in place with `git pull --ff-only` and therefore
-keeps ignored local data in the same folder.
+keeps ignored local data in the same folder. A clone has no
+`study-runner-release.json`, so the installer downloads the core of the latest
+release and uses it only when its native-source fingerprint matches the clone.
 
 On Apple Silicon, `camera_emotion` supports its local DeepFace worker. Current
 TensorFlow/tf-keras wheels do not support CPython 3.12 on macOS Intel, so the
@@ -304,7 +301,7 @@ skips the local analysis stack. Configure `camera_emotion` with
 There is no need to activate `.venv`; the scripts always use its interpreter
 directly. For a non-recording installation, pass `-SkipRecordingCore` on
 Windows or `--skip-recording-core` on macOS. Required sensor-recording studies
-will remain blocked until the full installer has successfully built the core.
+will remain blocked until the full installer has successfully installed the core.
 
 ### Update A Source Checkout
 
@@ -314,9 +311,9 @@ Updates preserve the ignored local study data and results:
 git pull --ff-only
 ```
 
-Then rerun the platform's install script without the system-dependency switch,
-and use its start script. The installer refreshes Python dependencies and only
-rebuilds the XDF core when its verified build is missing or stale. For the
+Then rerun the platform's install script and use its start script. The
+installer refreshes Python dependencies and only replaces the XDF core when it
+is missing or no longer matches the native sources. For the
 admin-panel update flow, version pinning and the rollback path, see
 [Release and Update](docs/release-and-update.md#updating-a-source-checkout).
 
@@ -367,8 +364,9 @@ Use `study-runner-source.zip` on Windows or
 `study-runner-source.tar.gz` on macOS. `SHA256SUMS` and
 `study-runner-source-release.json` identify and verify the exact release. The
 archives never contain generated native libraries, local results, credentials,
-or certificates. First install builds the XDF core locally and proves it with
-the same platform smoke tests used for release acceptance.
+or certificates; the tested XDF cores are separate
+`study-runner-xdf-core-<platform>.zip` assets that the installers download and
+verify automatically.
 
 Signing and notarization are unnecessary for this source-server workflow. Old
 PyInstaller/Manager/updater code is retained only as legacy or possible future
@@ -411,8 +409,10 @@ SHA-256-verified model explicitly with
 `python release_tools/fetch_deepface_model_assets.py
 --accept-vgg-face-non-commercial-research-terms`. Alternatively, use
 `remote_worker` with a model for which the operator has suitable rights. macOS
-Intel always uses `remote_worker`. The platform install scripts also invoke the native-core setup and tests;
-`python tools/setup_recording_worker.py` remains the advanced core-only command.
+Intel always uses `remote_worker`. The platform install scripts also install
+and test the native core; `python tools/setup_recording_worker.py` remains the
+advanced core-only command (build from source, `--probe-only`,
+`--install-prebuilt`).
 See `docs/plugin-recording-architecture.md` for readiness and recovery.
 
 Study settings define which sensors are intended for a study. The Admin
@@ -432,11 +432,16 @@ Tablet camera behavior:
 
 ## Release Artifacts
 
-`release_tools/build_source_release.py` creates and verifies the source ZIP,
-tar.gz, metadata, release notes, and SHA-256 file from an exact tagged commit.
-It rejects generated native binaries, secrets, runtime state, and local data.
-The tag workflow then extracts the clean archive and runs the real installation
-plus native recording smoke tests on Windows x64 and both macOS architectures.
+The tag workflow first builds and tests the XDF core on Windows x64, macOS
+Intel, and macOS Apple Silicon. `release_tools/build_source_release.py` then
+creates and verifies the source ZIP, tar.gz, metadata, release notes, and
+SHA-256 file from the exact tagged commit, checks the three core assets, and
+writes `study-runner-release.json` into both archives. It rejects generated
+native binaries, secrets, runtime state, and local data inside the archives.
+The workflow then extracts the clean archive into a folder with spaces and runs
+the real installer on all three platforms -- on macOS with no compiler
+reachable -- plus the native recording smoke tests and a second, reusing
+installer run.
 It also reruns the non-recording Python/JavaScript/schema suite from the
 extracted source on Linux before publication.
 

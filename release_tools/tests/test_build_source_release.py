@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from io import BytesIO
 import json
 from pathlib import Path
@@ -27,19 +28,55 @@ def members(*extra: str) -> tuple[str, ...]:
     return tuple(f"{ROOT}/{name}" for name in (*release.REQUIRED_SOURCE_FILES, *extra))
 
 
-def write_zip(path: Path, names: tuple[str, ...]) -> None:
+def write_zip(
+    path: Path, names: tuple[str, ...], contents: dict[str, bytes] | None = None
+) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         for name in names:
             archive.writestr(name, b"source fixture\n")
+        for name, content in (contents or {}).items():
+            archive.writestr(name, content)
 
 
-def write_tar(path: Path, names: tuple[str, ...]) -> None:
+def write_tar(
+    path: Path, names: tuple[str, ...], contents: dict[str, bytes] | None = None
+) -> None:
     with tarfile.open(path, "w:gz") as archive:
-        for name in names:
-            content = b"source fixture\n"
+        entries = [(name, b"source fixture\n") for name in names]
+        entries.extend((contents or {}).items())
+        for name, content in entries:
             info = tarfile.TarInfo(name)
             info.size = len(content)
             archive.addfile(info, BytesIO(content))
+
+
+def write_core_asset(
+    path: Path,
+    target: str,
+    library: bytes = b"core",
+    *,
+    source: str = "c" * 64,
+    tests: str = "passed",
+) -> dict[str, object]:
+    library_name = release.CORE_LIBRARY_NAMES[target]
+    manifest = {
+        "schema": release.CORE_BUILD_MANIFEST_SCHEMA,
+        "platform_arch": target,
+        "core_library": library_name,
+        "core_sha256": hashlib.sha256(library).hexdigest(),
+        "canonical_xdf": True,
+        "native_source_sha256": source,
+        "tests": {"ctest": tests, "synthetic_xdf_smoke": tests},
+    }
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(library_name, library)
+        archive.writestr("worker-build.json", json.dumps(manifest))
+    return {
+        "asset": path.name,
+        "sha256": release.sha256_file(path),
+        "size": path.stat().st_size,
+        "native_source_sha256": source,
+    }
 
 
 class SourceReleaseTests(unittest.TestCase):
@@ -246,9 +283,21 @@ class SourceReleaseTests(unittest.TestCase):
     def test_output_verification_is_fail_closed_and_declares_source_mode(self) -> None:
         with temporary_directory() as temporary:
             root = Path(temporary)
+            cores = {
+                target: write_core_asset(root / release.core_asset_name(target), target)
+                for target in release.SUPPORTED_RECORDING_TARGETS
+            }
+            info = release.release_info_document(
+                version=VERSION,
+                tag=f"app-v{VERSION}",
+                commit="a" * 40,
+                repo="owner/repository",
+                cores=cores,
+            )
+            embedded = {f"{ROOT}/{release.RELEASE_INFO_NAME}": json.dumps(info).encode("utf-8")}
             paths = {name: root / name for name in release.ARCHIVES}
-            write_zip(paths[release.ARCHIVES[0]], members())
-            write_tar(paths[release.ARCHIVES[1]], members())
+            write_zip(paths[release.ARCHIVES[0]], members(), embedded)
+            write_tar(paths[release.ARCHIVES[1]], members(), embedded)
             artifacts = {
                 name: {"sha256": release.sha256_file(path), "size": path.stat().st_size}
                 for name, path in paths.items()
@@ -263,10 +312,8 @@ class SourceReleaseTests(unittest.TestCase):
                 "packaged_updater_compatible": False,
                 "recording": {
                     "canonical_format": "XDF",
-                    "native_core_bundled": False,
-                    "local_setup_command": (
-                        "python tools/setup_recording_worker.py --require-canonical"
-                    ),
+                    "native_core_assets": cores,
+                    "local_setup_command": release.LOCAL_CORE_BUILD_COMMAND,
                     "supported_targets": list(release.SUPPORTED_RECORDING_TARGETS),
                     "linux_recording_supported": False,
                 },
@@ -279,43 +326,80 @@ class SourceReleaseTests(unittest.TestCase):
                 },
                 "artifacts": artifacts,
             }
-            (root / "study-runner-source-release.json").write_text(
-                json.dumps(metadata), encoding="utf-8"
-            )
-            checksum_targets = {
-                **{name: artifacts[name]["sha256"] for name in release.ARCHIVES},
-                "study-runner-source-release.json": release.sha256_file(
-                    root / "study-runner-source-release.json"
-                ),
-            }
-            (root / "SHA256SUMS").write_text(
-                "".join(
-                    f"{checksum_targets[name]}  {name}\n"
-                    for name in sorted(checksum_targets)
-                ),
-                encoding="utf-8",
-            )
 
+            def write_metadata() -> None:
+                (root / "study-runner-source-release.json").write_text(
+                    json.dumps(metadata), encoding="utf-8"
+                )
+                checksum_targets = {
+                    **{name: artifacts[name]["sha256"] for name in release.ARCHIVES},
+                    **{core["asset"]: core["sha256"] for core in cores.values()},
+                    "study-runner-source-release.json": release.sha256_file(
+                        root / "study-runner-source-release.json"
+                    ),
+                }
+                (root / "SHA256SUMS").write_text(
+                    "".join(
+                        f"{checksum_targets[name]}  {name}\n"
+                        for name in sorted(checksum_targets)
+                    ),
+                    encoding="utf-8",
+                )
+
+            write_metadata()
             verified = release.verify_output(root)
             self.assertFalse(verified["packaged_updater_compatible"])
-            self.assertFalse(verified["recording"]["native_core_bundled"])
+            self.assertEqual(
+                set(verified["recording"]["native_core_assets"]),
+                set(release.SUPPORTED_RECORDING_TARGETS),
+            )
 
             metadata["packaged_updater_compatible"] = True
-            (root / "study-runner-source-release.json").write_text(
-                json.dumps(metadata), encoding="utf-8"
-            )
+            write_metadata()
             with self.assertRaisesRegex(release.ReleaseError, "packaged-updater"):
                 release.verify_output(root)
+            metadata["packaged_updater_compatible"] = False
+
+            # A swapped core must fail even though its own zip is well formed.
+            write_core_asset(root / release.core_asset_name("macos-x64"), "macos-x64", b"other")
+            write_metadata()
+            with self.assertRaisesRegex(release.ReleaseError, "prebuilt core assets"):
+                release.verify_output(root)
+
+    def test_core_assets_must_be_tested_and_share_one_native_source(self) -> None:
+        with temporary_directory() as temporary:
+            root = Path(temporary)
+            for target in release.SUPPORTED_RECORDING_TARGETS:
+                write_core_asset(root / release.core_asset_name(target), target)
+            cores = release.collect_core_assets(root, expected_source="c" * 64)
+            self.assertEqual(set(cores), set(release.SUPPORTED_RECORDING_TARGETS))
+
+            with self.assertRaisesRegex(release.ReleaseError, "this release's native sources"):
+                release.collect_core_assets(root, expected_source="d" * 64)
+
+            write_core_asset(
+                root / release.core_asset_name("windows-x64"), "windows-x64", source="e" * 64
+            )
+            with self.assertRaisesRegex(release.ReleaseError, "different native sources"):
+                release.collect_core_assets(root, expected_source=None)
+
+            write_core_asset(
+                root / release.core_asset_name("windows-x64"), "windows-x64", tests="skipped"
+            )
+            with self.assertRaisesRegex(release.ReleaseError, "without passing CTest"):
+                release.collect_core_assets(root, expected_source=None)
 
     def test_release_notes_include_install_commands_and_changelog(self) -> None:
         notes = release._release_notes(VERSION, "- Canonical recording architecture.")
 
-        self.assertIn("install-windows.cmd", notes)
+        self.assertIn(".\\tools\\install-windows.cmd\n", notes)
         self.assertIn("start-windows.cmd", notes)
-        self.assertIn("-InstallSystemDependencies", notes)
-        self.assertIn("install-macos.sh", notes)
+        self.assertIn("bash tools/install-macos.sh\n", notes)
+        self.assertNotIn("InstallSystemDependencies", notes)
+        self.assertNotIn("install-system-dependencies", notes)
         self.assertIn("process-local execution-policy bypass", notes)
-        self.assertIn("not prebuilt or bundled", notes)
+        self.assertIn("study-runner-xdf-core-*.zip", notes)
+        self.assertIn("no administrator rights, Xcode, Visual Studio", notes)
         self.assertIn("THIRD_PARTY_NOTICES.md", notes)
         self.assertIn("Canonical recording architecture", notes)
 

@@ -63,6 +63,25 @@ herunter. Verschiebe den entpackten Ordner vor der Installation aus
 liegen standardmaessig auch lokale Einstellungen, Studien und Ergebnisse. Den
 Ordner deshalb spaeter nicht einfach verschieben oder loeschen.
 
+### Was die Installation macht
+
+Die Installation funktioniert auf Windows x64, Mac Intel und Mac Apple Silicon
+gleich. Sie braucht beim ersten Mal Internet, aber **kein Administrator-
+Passwort, kein Xcode, kein Visual Studio, kein WinGet und kein Homebrew**.
+Alles, was sie herunterlaedt, bleibt im Study-Runner-Ordner:
+
+- `.tools/`: das Hilfsprogramm uv und ein fest vorgegebenes Python 3.12
+  (beide per SHA-256-Pruefsumme kontrolliert),
+- `.venv/`: die Python-Pakete von Study Runner,
+- `software/.build/xdf_core/`: der XDF-Aufnahmekern. Er wird fuer jedes Release
+  auf GitHub gebaut und getestet, beim Installieren heruntergeladen, gegen die
+  Pruefsumme aus dem Release-Archiv geprueft und auf dem eigenen Rechner noch
+  einmal getestet.
+
+Am System wird nichts veraendert. Wer den Ordner loescht, hat alles entfernt.
+Der Installationsbefehl darf jederzeit erneut ausgefuehrt werden, zum Beispiel
+nach einem Abbruch.
+
 ### Windows x64: erste Installation
 
 1. `study-runner-source.zip` herunterladen und entpacken.
@@ -72,11 +91,11 @@ Ordner deshalb spaeter nicht einfach verschieben oder loeschen.
 4. Diesen Befehl in PowerShell ausfuehren:
 
 ```powershell
-.\tools\install-windows.cmd -InstallSystemDependencies
+.\tools\install-windows.cmd
 ```
 
-5. Warten, bis `Study Runner is ready` erscheint. Die Installation kann einige
-   Minuten dauern und Windows kann nach Administratorrechten fragen.
+5. Warten, bis `Study Runner is ready` erscheint. Die erste Installation dauert
+   einige Minuten.
 6. Study Runner starten:
 
 ```powershell
@@ -98,94 +117,49 @@ PowerShell wie oben im Ordner oeffnen und ausfuehren:
 Das Fenster offen lassen, solange Study Runner laeuft. `Ctrl+C` beendet den
 Server.
 
-### macOS 15.6 oder neuer, Intel oder Apple Silicon: erste Installation
+### macOS 13 oder neuer, Intel oder Apple Silicon: erste Installation
 
 1. `study-runner-source.tar.gz` herunterladen. Falls der Browser es nicht
    automatisch entpackt, die Datei im Finder doppelklicken.
 2. Den entpackten Study-Runner-Ordner nach **Dokumente** verschieben.
 3. Terminal oeffnen und `cd ` inklusive Leerzeichen eingeben. Den Ordner aus
    dem Finder in das Terminalfenster ziehen und Enter druecken.
-4. Apples Suche in den geschuetzten Developer Downloads aus dem Terminal
-   oeffnen:
+4. Study Runner installieren:
 
 ```bash
-open "https://developer.apple.com/download/all/?q=Xcode%2026.3"
+bash tools/install-macos.sh
 ```
 
-5. Mit einem kostenlosen Apple-Account anmelden und **Xcode 26.3 Universal**
-   als `Xcode_26.3.xip` herunterladen. Eine kostenpflichtige Developer-
-   Mitgliedschaft ist nicht erforderlich. Nicht `xcode-select --install`
-   verwenden: Dieser Befehl installiert nur die fuer XDF-Recording
-   unzureichenden standalone Command Line Tools. Die aktuelle App-Store-Version
-   kann ausserdem ein neueres macOS und Apple Silicon verlangen.
-6. Zum Terminal zurueckkehren und Xcode parallel zu vorhandenen Versionen
-   installieren. Dieser Block ueberschreibt niemals
-   `/Applications/Xcode-26.3.app`:
-
-```bash
-if [[ -e /Applications/Xcode-26.3.app ]]; then
-  echo "Xcode 26.3 ist bereits installiert und bleibt unveraendert."
-else
-  xcode_stage="$(mktemp -d "${TMPDIR:-/tmp}/study-runner-xcode.XXXXXX")" &&
-  (
-    cd "$xcode_stage" &&
-    xip --expand "$HOME/Downloads/Xcode_26.3.xip" &&
-    sudo mv Xcode.app /Applications/Xcode-26.3.app
-  ) && /bin/rmdir "$xcode_stage"
-fi
-```
-
-7. Diese Xcode-Installation initialisieren und pruefen, ohne die globale
-   `xcode-select`-Einstellung zu veraendern:
-
-```bash
-export DEVELOPER_DIR=/Applications/Xcode-26.3.app/Contents/Developer
-sudo env DEVELOPER_DIR="$DEVELOPER_DIR" /usr/bin/xcodebuild -runFirstLaunch
-/usr/bin/xcodebuild -version
-/usr/bin/xcrun --sdk macosx --find clang++
-/usr/bin/xcrun --sdk macosx --show-sdk-path
-```
-
-8. Study Runner installieren:
-
-```bash
-bash tools/install-macos.sh --install-system-dependencies
-```
-
-Homebrew ist nicht erforderlich. Xcode wird nur fuer die Installation mit XDF-
-Recording gebraucht und vom Skript nur fuer den laufenden Prozess ausgewaehlt;
-die globale `xcode-select`-Einstellung bleibt unveraendert. Falls ein natives
-Python 3.12 fehlt, laedt das Skript den festgelegten Universal-Installer von
-python.org herunter, prueft dessen SHA-256-Pruefsumme und
-Apple-Installersignatur und fragt fuer die Installation nach dem
-Administratorpasswort. CMake wird nur innerhalb von `.venv` installiert. Fuer
-die erste Installation ist daher eine Internetverbindung erforderlich. Der
-Befehl kann nach einem Abbruch oder Update sicher erneut ausgefuehrt werden.
-
-Falls Xcode noch nicht initialisiert ist, Schritt 7 wiederholen und danach
-denselben Installerbefehl erneut ausfuehren. Eine vorhandene gueltige `.venv`
-bleibt erhalten und wird wiederverwendet; nach der Toolchain-Reparatur wird
-hoechstens der erzeugte CMake-Cache des nativen Cores kontrolliert neu
-aufgebaut.
-
-Eine Installation ohne Recording-Core ist mit
-`bash tools/install-macos.sh --skip-recording-core` auch ohne Xcode und CMake
-moeglich. Studien, die XDF-Recording verlangen, bleiben dann gesperrt.
-
-9. Warten, bis `Study Runner is ready` erscheint, und Study Runner starten:
+5. Warten, bis `Study Runner is ready` erscheint, und Study Runner starten:
 
 ```bash
 bash tools/start-macos.sh
 ```
 
-10. Auf die Admin-Seite warten. Falls sie nicht automatisch erscheint,
-`https://localhost:3000/admin` im Browser oeffnen.
+6. Auf die Admin-Seite warten. Falls sie nicht automatisch erscheint,
+   `https://localhost:3000/admin` im Browser oeffnen.
+
+Fuer jedes Release getestet wird macOS 15 auf Intel und Apple Silicon; der
+Aufnahmekern selbst laeuft ab macOS 13.
 
 Auf Apple Silicon kann `camera_emotion` den lokalen DeepFace-Worker verwenden.
 Fuer macOS Intel gibt es mit Python 3.12 aktuell keine passenden
 TensorFlow/tf-keras-Wheels. Die Intel-Installation unterstuetzt Server und XDF-
 Recording vollstaendig, fuer Kamera/Emotion muss aber `remote_worker` mit einem
 anderen Analyse-Rechner konfiguriert werden.
+
+### Wenn die Installation mit einem Fehler abbricht
+
+- **"could not download ..."**: Internetverbindung pruefen (haeufig: Proxy oder
+  WLAN-Anmeldeseite der Uni) und denselben Befehl noch einmal ausfuehren.
+- **"checksum" oder "could not be verified"**: Der Download ist beschaedigt oder
+  passt nicht zu diesem Release. Befehl erneut ausfuehren; wenn der Fehler
+  bleibt, das Release-Archiv neu herunterladen.
+- **"... uses Python ..., move it aside"**: Ein alter `.venv`-Ordner aus einer
+  frueheren Installationsmethode passt nicht. Den Ordner `.venv` umbenennen
+  (zum Beispiel in `.venv-alt`) und die Installation erneut starten.
+- Wer vorher nach der alten Anleitung Xcode 26.3 installiert hat, braucht es fuer
+  Study Runner nicht mehr und kann es ueber den Finder aus `Programme` loeschen.
 
 ### macOS: Desktop-Verknuepfung erstellen
 
@@ -223,9 +197,9 @@ https://localhost:3000/admin
 
 ### Installation reparieren
 
-Im bestehenden Ordner das passende Installationsskript noch einmal ohne
-System-Schalter ausfuehren. Es aktualisiert die Python-Abhaengigkeiten und
-verwendet einen bereits gueltigen XDF-Kern weiter:
+Im bestehenden Ordner einfach den Installationsbefehl noch einmal ausfuehren.
+Er aktualisiert die Python-Abhaengigkeiten und verwendet einen bereits
+geprueften XDF-Kern weiter:
 
 ```powershell
 .\tools\install-windows.cmd
@@ -244,11 +218,11 @@ laufen dann, Pflicht-Recording bleibt jedoch mit einem klaren Hinweis blockiert.
 Ein heruntergeladenes Archiv besitzt keine automatische Aktualisierung. Vor
 dem Wechsel die lokalen Studien, Einstellungen und Ergebnisse aus dem alten
 Ordner sichern. Den alten Ordner erst loeschen, wenn die Daten im neuen Release
-vorhanden und geprueft sind. Danach die Installation und auf macOS auch die
-Desktop-Verknuepfung fuer den neuen Ordner erneut ausfuehren.
+vorhanden und geprueft sind. Danach im neuen Ordner die Installation und auf
+macOS auch die Desktop-Verknuepfung erneut ausfuehren.
 
-Die Source-Installation braucht weder signierte App-Pakete noch Apple-
-Notarisierung.
+Die Installation braucht weder signierte App-Pakete noch Apple-Notarisierung
+oder einen Apple-Developer-Account.
 
 ### Alternative fuer Git-Nutzer
 
@@ -260,10 +234,12 @@ git clone https://github.com/realfabianschmidt/MRG-StudyRunner.git
 cd MRG-StudyRunner
 ```
 
-Danach gelten dieselben Installations- und Startbefehle wie oben.
-Zum Aktualisieren den Server beenden, im geklonten Ordner `git pull --ff-only`
-ausfuehren und danach das Installationsskript ohne System-Schalter erneut
-starten.
+Danach gelten dieselben Installations- und Startbefehle wie oben. Der Klon
+laedt den XDF-Kern des neuesten Releases und verwendet ihn nur, wenn er zu den
+Quellen im Klon passt. Wer den C++-Kern selbst veraendert, baut ihn mit
+`--build-core-from-source` (Mac, braucht die Command Line Tools aus
+`xcode-select --install`) beziehungsweise `-BuildCoreFromSource` (Windows,
+braucht die Visual Studio C++ Build Tools).
 
 ## HTTPS und iPad / Tablet Kamera
 
@@ -360,14 +336,33 @@ Das ist nicht Teil der normalen Bedienung. Ein Push auf `main` erzeugt noch
 kein Update; ein oeffentlicher Release entsteht erst durch einen Release-Tag,
 und der wird mit `.\release.ps1 patch` aus dem Hauptordner gesetzt.
 
+Trockenlauf ohne Veraenderungen:
+
+```powershell
+.\release.ps1 patch -DryRun
+```
+
+Lokaler Vollcheck inklusive nativem XDF-Core:
+
+```powershell
+.\release.ps1 patch -FullChecks
+```
+
 Die vollstaendige Beschreibung -- Release-Dateien, Abnahme-Gates und was auf
 Windows und macOS gruen sein muss -- steht in
 [release-and-update.md](release-and-update.md).
 
 ## Update am Nutzer-Rechner
 
-Der aktuelle Source-Server aktualisiert sich nicht selbst. Server stoppen und
-im Projektordner ausfuehren:
+Der aktuelle Source-Server aktualisiert sich nicht selbst. Wie das Update
+funktioniert, haengt davon ab, wie Study Runner installiert wurde.
+
+**Installiert aus dem Release-Archiv** (der empfohlene Weg): Das neue Archiv
+herunterladen und wie unter "Neues heruntergeladenes Release verwenden"
+beschrieben in einen neuen Ordner installieren. `git pull` funktioniert in einem
+entpackten Archiv nicht.
+
+**Installiert per `git clone`**: Server stoppen und im Projektordner ausfuehren.
 
 ```powershell
 git pull --ff-only
@@ -384,22 +379,10 @@ bash tools/start-macos.sh
 ```
 
 Die Installationsskripte verwenden `.venv` weiter, aktualisieren Pakete und
-bauen nur einen fehlenden oder veralteten XDF-Kern neu. Studien und Ergebnisse
-werden nicht geloescht. Wer statt Git ein neues Source-Archiv entpackt, muss den
-alten Datenordner sichern oder vorher `STUDY_RUNNER_DATA_DIR` ausserhalb des
-Programmordners setzen.
-
-Trockenlauf ohne Veraenderungen:
-
-```powershell
-.\release.ps1 patch -DryRun
-```
-
-Lokaler Vollcheck inklusive nativem XDF-Core:
-
-```powershell
-.\release.ps1 patch -FullChecks
-```
+ersetzen den XDF-Kern nur, wenn er fehlt oder nicht mehr zu den Quellen passt.
+Studien und Ergebnisse werden nicht geloescht. Wer die Daten dauerhaft
+ausserhalb des Programmordners halten moechte, setzt vorher
+`STUDY_RUNNER_DATA_DIR`.
 
 ## Release-Zugang
 

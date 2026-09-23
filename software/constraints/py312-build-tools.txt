@@ -1,4 +1,5 @@
-# Project-local build tools used by the supported macOS source installer.
-# CMake's universal2 wheel runs natively on Intel and Apple Silicon.
+# Build tools for the XDF core: used by the release workflow and by developers
+# who build the core from source (--build-core-from-source / -BuildCoreFromSource).
+# Normal installs download the prebuilt core and never need CMake.
 # This is not a complete or hash-locked build environment.
 cmake==3.31.10
