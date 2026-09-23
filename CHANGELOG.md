@@ -5,6 +5,12 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Fixed
+
+- The image picker for the cover page and info cards no longer greys out PNG
+  and JPG files on macOS; unsupported images (e.g. iPhone HEIC) get a clear
+  message with how to convert them.
+
 ## 1.2.0 - 2026-09-23
 
 ### Added

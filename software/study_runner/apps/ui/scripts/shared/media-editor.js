@@ -8,7 +8,9 @@ import { t } from './i18n.js';
 import { escapeHtml } from './dom-utils.js';
 import { MEDIA_LAYOUTS, studyAssetUrl } from './rich-text.js';
 
-const ACCEPT = '.png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml';
+// A mixed extension/MIME list greys out valid JPEG/PNG files in the macOS
+// picker; the server checks the real content (PNG, JPEG, WebP, SVG) anyway.
+const ACCEPT = 'image/*';
 
 export function renderMediaEditor(content = {}, { titleLabel, textLabel } = {}) {
   const asset = content.image_asset || '';
@@ -39,6 +41,7 @@ export function renderMediaEditor(content = {}, { titleLabel, textLabel } = {}) 
         </label>
         <button type="button" class="btn-secondary me-remove"${asset ? '' : ' hidden'}>${escapeHtml(t('media.removeImage', 'Remove image'))}</button>
       </div>
+      <p class="editor-hint">${escapeHtml(t('media.imageFormats', 'PNG, JPG, WebP or SVG, at most 5 MB.'))}</p>
       <p class="editor-hint me-status" role="status"></p>
     </div>
     <div class="field me-requires-image"${asset ? '' : ' hidden'}>

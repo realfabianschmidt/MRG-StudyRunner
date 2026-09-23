@@ -1197,6 +1197,7 @@
   "media.formatHint": "Formatierung: Leerzeile = neuer Absatz, \"# \" = Überschrift, \"- \" = Listenpunkt, **fett**, *kursiv*.",
   "media.imageLabel": "Bild (optional)",
   "media.chooseImage": "Bild wählen",
+  "media.imageFormats": "PNG, JPG, WebP oder SVG, höchstens 5 MB.",
   "media.removeImage": "Bild entfernen",
   "media.altLabel": "Bildbeschreibung (für Screenreader)",
   "media.layoutLabel": "Layout",

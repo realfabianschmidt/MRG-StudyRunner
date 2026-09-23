@@ -59,7 +59,10 @@ def detect_type(data: bytes) -> str:
         if b"<script" in lowered or b"javascript:" in lowered or b"<foreignobject" in lowered:
             raise StudyAssetError("SVG images must not contain scripts or embedded HTML.")
         return "svg"
-    raise StudyAssetError("Only PNG, JPEG, WebP, and SVG images can be used.")
+    raise StudyAssetError(
+        "Only PNG, JPEG, WebP, and SVG images can be used. iPhone photos (HEIC): "
+        "open the image in Preview, File > Export, choose JPEG."
+    )
 
 
 def asset_id_for(data: bytes) -> str:

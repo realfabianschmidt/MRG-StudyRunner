@@ -1197,6 +1197,7 @@
   "media.formatHint": "Formatting: a blank line starts a new paragraph, \"# \" a heading, \"- \" a list item, **bold**, *italic*.",
   "media.imageLabel": "Image (optional)",
   "media.chooseImage": "Choose image",
+  "media.imageFormats": "PNG, JPG, WebP or SVG, at most 5 MB.",
   "media.removeImage": "Remove image",
   "media.altLabel": "Image description (for screen readers)",
   "media.layoutLabel": "Layout",

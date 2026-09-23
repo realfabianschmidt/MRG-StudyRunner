@@ -171,5 +171,13 @@ class StudyLibraryPackageTests(unittest.TestCase):
                 self.assertTrue(path.read_bytes().startswith(b"PK"))
 
 
+class ImagePickerTests(unittest.TestCase):
+    def test_picker_accepts_all_images_and_rejection_names_formats(self) -> None:
+        editor = (PROJECT_ROOT / "study_runner" / "apps" / "ui" / "scripts" / "shared" / "media-editor.js").read_text(encoding="utf-8")
+        self.assertIn("const ACCEPT = 'image/*';", editor, "a mixed list greys out JPEG/PNG on macOS")
+        with self.assertRaisesRegex(StudyAssetError, "PNG, JPEG, WebP, and SVG.*HEIC"):
+            store_asset(Path("."), bytes(4) + b"ftypheic")
+
+
 if __name__ == "__main__":
     unittest.main()
