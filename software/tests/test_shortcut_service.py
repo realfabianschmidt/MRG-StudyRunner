@@ -20,7 +20,7 @@ from study_runner.runtime_core.settings import shortcut_service
 class ShortcutServiceTests(unittest.TestCase):
     def test_source_launch_uses_python_and_server_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            base_dir = Path(temp_dir)
+            base_dir = Path(temp_dir).resolve()
             server_file = base_dir / "server.py"
             server_file.write_text("print('study runner')\n", encoding="utf-8")
 
@@ -45,7 +45,8 @@ class ShortcutServiceTests(unittest.TestCase):
 
     def test_macos_source_shortcut_uses_official_start_script_and_is_repeatable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "Study Runner's (3)"
+            # resolve(): macOS temp dirs live behind the /var -> /private/var symlink.
+            root = Path(temp_dir).resolve() / "Study Runner's (3)"
             base_dir = root / "software"
             start_script = root / "tools" / "start-macos.sh"
             desktop = Path(temp_dir) / "Desktop"
