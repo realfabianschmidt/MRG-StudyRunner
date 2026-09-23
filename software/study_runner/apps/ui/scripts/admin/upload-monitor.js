@@ -26,6 +26,7 @@ let knownFinalizationStatuses = null;
 let knownUploadSessionIds = null;
 let knownCompletionIds = null;
 let focusSession = null;
+let latestLegacyFocus = null;
 let modalDismissed = true;
 let modalSessionKey = null;
 let modalRenderSignature = null;
@@ -114,7 +115,8 @@ async function poll() {
     surfaceLegacyChanges(uploadSessions, localSessions);
   }
 
-  focusSession = pickFinalizationFocus(finalizationJobs) || pickLegacyFocus(legacySessions);
+  latestLegacyFocus = pickLegacyFocus(legacySessions);
+  focusSession = pickFinalizationFocus(finalizationJobs) || latestLegacyFocus;
 
   if (modal.isOpen() && modalSessionKey) {
     const shown = sessions.find((session) => session.session_key === modalSessionKey);
@@ -196,6 +198,24 @@ function openModal(session) {
   modalDismissed = false;
   renderWidget();
   if (session.is_finalization) void refreshFinalizationDetails(session.job_id, { force: true });
+  acknowledgeAttention(session);
+}
+
+/**
+ * Opening an attention-required job counts as having seen it: the floating
+ * widget stops pointing at it once the modal is closed. The session keeps its
+ * attention status in the session list and in this modal.
+ */
+function acknowledgeAttention(session) {
+  if (!session?.is_finalization || session.status !== 'attention_required' || session.attention_acknowledged_at) return;
+  postJson(`/api/finalization/${encodeURIComponent(session.job_id)}/acknowledge`, {})
+    .then((response) => {
+      if (!response?.job) return;
+      latestFinalizationJobs.set(response.job.job_id, finalizationSession(response.job));
+      focusSession = pickFinalizationFocus([...latestFinalizationJobs.values()]) || latestLegacyFocus;
+      renderWidget();
+    })
+    .catch((error) => console.error('[finalization] Could not acknowledge attention:', error));
 }
 
 function renderModalBody(session, { force = false } = {}) {

@@ -49,3 +49,12 @@ assert.equal(
   finalizationStepLabel({ key: 'validate_future_format' }),
   'Validate Future Format',
 );
+
+// An acknowledged attention job no longer takes the widget focus.
+{
+  const seen = { job_id: 'a', status: 'attention_required', created_epoch: 2 };
+  const busy = { job_id: 'r', status: 'running', created_epoch: 1 };
+  assert.equal(pickFinalizationFocus([seen, busy]).job_id, 'a');
+  assert.equal(pickFinalizationFocus([{ ...seen, attention_acknowledged_at: '2026-09-23T10:00:00Z' }, busy]).job_id, 'r');
+  assert.equal(pickFinalizationFocus([{ ...seen, attention_acknowledged_at: 'x' }]), null);
+}

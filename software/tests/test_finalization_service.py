@@ -373,6 +373,26 @@ class FinalizationServiceTests(unittest.TestCase):
             self.assertIn("notion", destination.calls)
             self.assertTrue((session_root / "COMPLETE.json").is_file())
 
+    def test_acknowledging_attention_quiets_the_job_but_keeps_its_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = self._service(Path(temp_dir), recording_adapter=FailingRecordingAdapter())
+            job = service.commit_submission(SUBMISSION, config_data={}, recording_expected=True)
+            with self.assertRaises(InvalidTransitionError):
+                service.acknowledge_attention(job["job_id"])
+            service.process_due_jobs_once()
+
+            acknowledged = service.acknowledge_attention(job["job_id"])
+            self.assertEqual(acknowledged["status"], "attention_required")
+            self.assertTrue(acknowledged["attention_acknowledged_at"])
+            session_root = Path(temp_dir) / acknowledged["session_path"]
+            self.assertTrue((session_root / "ATTENTION_REQUIRED.json").is_file())
+
+            reloaded = self._service(Path(temp_dir), recording_adapter=FailingRecordingAdapter())
+            self.assertTrue(reloaded.get(job["job_id"])["attention_acknowledged_at"])
+
+            retried = reloaded.retry(job["job_id"])
+            self.assertNotIn("attention_acknowledged_at", retried)
+
     def test_degraded_confirmation_waits_for_attention_backup_to_settle(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             destination = DeferredNextcloudDestinationHandler()

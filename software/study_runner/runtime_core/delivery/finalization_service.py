@@ -508,9 +508,25 @@ class FinalizationService:
                 if destination_definition is None:
                     state["quality_status"] = "pending"
                     state.pop("degraded_confirmation", None)
+            state.pop("attention_acknowledged_at", None)
             self._persist_state(state, event={"event": "retry_requested", "step": target})
         self._wake.set()
         return self.public_job(state)
+
+    def acknowledge_attention(self, job_id: str) -> dict[str, Any]:
+        """Record that an operator has seen an attention-required job.
+
+        This only quiets the admin notification. The job keeps its
+        attention_required status, markers, and retry/degraded options.
+        """
+        with self._lock:
+            state = self._require_state(job_id)
+            if state.get("status") != "attention_required":
+                raise InvalidTransitionError("Only an attention-required finalization can be acknowledged.")
+            if not state.get("attention_acknowledged_at"):
+                state["attention_acknowledged_at"] = _iso_time(self._clock())
+                self._persist_state(state, event={"event": "attention_acknowledged"})
+            return self.public_job(state)
 
     def confirm_degraded(self, job_id: str, *, reason: str, confirmed_by: str = "admin") -> dict[str, Any]:
         explanation = str(reason or "").strip()
@@ -642,6 +658,7 @@ class FinalizationService:
             "warnings",
             "steps",
             "degraded_confirmation",
+            "attention_acknowledged_at",
         )
         return deepcopy({key: state[key] for key in allowed if key in state})
 
@@ -673,6 +690,7 @@ class FinalizationService:
                 return
             state["status"] = "attention_required"
             state["quality_status"] = "invalid"
+            state.pop("attention_acknowledged_at", None)
             if message not in state["warnings"]:
                 state["warnings"].append(message)
             try:
@@ -1170,6 +1188,7 @@ class FinalizationService:
     def _enter_attention(self, state: dict[str, Any], step_key: str, error: str) -> None:
         state["status"] = "attention_required"
         state["quality_status"] = "invalid"
+        state.pop("attention_acknowledged_at", None)
         warning = f"{step_key}: {error}"
         if warning not in state["warnings"]:
             state["warnings"].append(warning)

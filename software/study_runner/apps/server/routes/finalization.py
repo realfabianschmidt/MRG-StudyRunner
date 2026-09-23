@@ -53,6 +53,16 @@ def retry_finalization(job_id: str):
         return jsonify({"ok": False, "error": str(error)}), 409
 
 
+@bp.route("/api/finalization/<job_id>/acknowledge", methods=["POST"])
+def acknowledge_finalization(job_id: str):
+    try:
+        return jsonify({"ok": True, "job": _service().acknowledge_attention(job_id)})
+    except FinalizationNotFoundError as error:
+        return jsonify({"ok": False, "error": str(error)}), 404
+    except (InvalidTransitionError, FinalizationError) as error:
+        return jsonify({"ok": False, "error": str(error)}), 409
+
+
 @bp.route("/api/finalization/<job_id>/confirm-degraded", methods=["POST"])
 def confirm_degraded_finalization(job_id: str):
     payload = request.get_json(silent=True) or {}

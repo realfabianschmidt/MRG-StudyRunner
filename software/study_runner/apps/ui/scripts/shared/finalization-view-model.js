@@ -13,6 +13,8 @@ export function finalizationProgress(job) {
 
 function isFinalizationActive(job) {
   if (!job?.job_id || job.status === 'completed') return false;
+  // An acknowledged attention job stays attention_required, but no longer needs the widget.
+  if (job.status === 'attention_required' && job.attention_acknowledged_at) return false;
   if (job.status === 'completed_degraded') {
     return (Array.isArray(job.steps) ? job.steps : []).some((step) => (
       (step?.phase === 'publication' || String(step?.key || '').startsWith('publish_'))
