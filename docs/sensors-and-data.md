@@ -107,6 +107,26 @@ session.
 The exact file names, manifest fields and validation rules are in
 [plugin-recording-architecture.md](plugin-recording-architecture.md#raw-and-backup-recording).
 
+## Cover Page, Info Cards, And Recording Time
+
+The participant flow is: waiting slide, admin release, optional **cover page**,
+Participant ID card, then the study cards.
+
+- The cover page (Study settings, Participant experience) comes before the
+  Participant ID. No session, sensor recording, or marker exists yet, so the
+  time spent on it is not recorded and never appears in card timing, the
+  recording quality window, card summaries, or the CSV export.
+- Recording and the `study_start` marker begin, as before, when the
+  participant presses Start on the Participant ID card.
+- An **info card** is an ordinary card without an answer. It is recorded like
+  any other card: `question_shown` and `question_answered` markers bracket the
+  reading time, and the card summary gives that interval its own sensor
+  window. Put an info card directly after the Participant ID card to get a
+  recorded rest or baseline phase.
+- Images for info cards and the cover page are stored content-addressed next to
+  the studies and travel inside the exported `.study-runner` package
+  (`study.json`, `manifest.json` with SHA-256 per file, `assets/`).
+
 ## Card Summaries
 
 `card-summary.json` is derived only from the validated merged XDF and marker

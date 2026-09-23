@@ -26,7 +26,7 @@ from flask import Flask, jsonify
 from study_runner.runtime_core.studies.trial_service import configure_runtime
 from study_runner.runtime_core.studies.validation import ValidationError
 from study_runner.runtime_core.studies.card_extension_bridge import CardExtensionUnavailableError
-from . import admin, branding, certificate, finalization, pages, plugins, recovery, results, sensors, sessions, study, update, uploads
+from . import admin, branding, certificate, finalization, pages, plugins, recovery, results, sensors, sessions, study, study_assets, update, uploads
 
 
 def register_routes(app: Flask) -> None:
@@ -47,6 +47,7 @@ def register_routes(app: Flask) -> None:
     app.register_blueprint(sessions.bp)
     app.register_blueprint(certificate.bp)
     app.register_blueprint(branding.bp)
+    app.register_blueprint(study_assets.bp)
     app.register_blueprint(uploads.bp)
     app.register_blueprint(recovery.bp)
     app.register_blueprint(plugins.bp)

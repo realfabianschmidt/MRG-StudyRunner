@@ -44,6 +44,7 @@ Edit-safety legend:
 | `software/study_runner/contracts/recording_checkpoint.py` | The confirmed-prefix contract: how far a segment is *known* to be on disk, written by the worker after each durable flush and read by the host during recovery to name the unconfirmed tail | careful |
 | `software/study_runner/contracts/quality_journal.py` | Streaming quality counters (gaps, timestamp regressions, jitter, effective rate), wall-clock jump detection, ingest-backlog monitoring against the transport's bounded buffer, and the versioned quality profile whose thresholds turn a number into an event | careful |
 | `software/study_runner/contracts/card_validation_primitives.py` | `CardValidationError` and the small `_normalize_*`/`_require_*` input primitives every card plugin's driver imports; card semantics themselves live in the plugins, not here | no |
+| `software/study_runner/contracts/media_content.py` | Shared field rules (title, formatted text, image id, layout) for read-only participant content: the info card and the study cover page | no |
 | `software/study_runner/contracts/card_options.py` | Shared options-list normalization for choice/single/ranking cards | no |
 
 ## Apps server - HTTP routes (`software/study_runner/apps/server/routes/`)
@@ -61,6 +62,7 @@ Edit-safety legend:
 | `routes/sessions.py` | Read-only completed-session list, detail, and timeline-signal APIs | careful |
 | `routes/certificate.py` | Certificate status plus guarded root-CA export/import endpoints | no |
 | `routes/branding.py` | Uploads, removes, and serves the operator's group and funder logos | no |
+| `routes/study_assets.py` | Uploads and serves study images; exports and imports `.study-runner` study packages | no |
 | `routes/uploads.py` | Background-upload status/retry and validated result-folder opening | no |
 | `routes/recovery.py` | Lists crash-orphaned sessions and finalizes or discards them | no |
 | `routes/finalization.py` | Read-only status plus guarded retry, degraded-confirmation, and exact-session-folder actions for durable finalization jobs | no |
@@ -102,6 +104,8 @@ Edit-safety legend:
 | `software/study_runner/runtime_core/delivery/certificate_download_service.py` | Plain-HTTP, one-file bootstrap download for the local root CA | careful |
 | `software/study_runner/runtime_core/delivery/certificate_transfer_service.py` | Validates, exports, and transactionally imports the reusable local root CA | no |
 | `software/study_runner/runtime_core/settings/branding_service.py` | Validates logo uploads and resolves a slot to a stored file, never to a caller's path | no |
+| `software/study_runner/runtime_core/studies/study_assets_service.py` | Content-addressed study images (id = SHA-256 + detected type), with type/size checks and the rule that a saved study may only point at stored images | no |
+| `software/study_runner/runtime_core/studies/study_package_service.py` | Builds and verifies portable study packages (zip: study.json, manifest with SHA-256, assets/); still reads plain-JSON studies | careful |
 | `software/study_runner/runtime_core/delivery/withdrawal_service.py` | Consent withdrawal: stops writers, cancels pending uploads, deletes the session tree and the journal copies outside it, then leaves a `WITHDRAWN.json` tombstone; its ledger lives outside the folder it empties so an interrupted run can resume | dangerous |
 | `software/study_runner/runtime_core/delivery/upload_jobs_service.py` | Persistent upload journal, crash replay, backoff worker, and retry state | no |
 | `software/study_runner/runtime_core/delivery/upload_runtime.py` | Registers manifest-declared destination plugin handlers with persistent upload jobs | no |
@@ -320,6 +324,8 @@ one, unlike the plugin table above).
 | `shared/view-transition.js` | Full-screen sweep between admin views; swaps the view while covered | careful |
 | `shared/settings-shell.js` | Shared left-nav/right-panel wiring for both settings surfaces | careful |
 | `shared/dom-utils.js` | Shared safe DOM lookup, text/HTML assignment, and escaping helpers | careful |
+| `shared/rich-text.js` | Escape-first formatted text (a small Markdown subset) and the text-beside-image layout used by the info card and cover page | careful |
+| `shared/media-editor.js` | Editor fields for that content: title, text, image upload/removal, image description, layout | careful |
 | `shared/modal.js` | Shared accessible modal lifecycle, modal-shell markup, and the yes/no confirmation | careful |
 | `shared/branding.js` | Shared branding fetch and logo rendering for the waiting slide and the hub | careful |
 | `shared/ambient-bubbles.js` | Self-contained morphing background for the waiting slide; tune CONFIG at the top | no |

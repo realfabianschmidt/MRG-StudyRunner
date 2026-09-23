@@ -34,7 +34,7 @@ STIMULUS_EXCLUDED_KEYS = frozenset({"plugin_actions"})
 
 # question_type -> {"question": ..., "expected_question": ..., and for
 # answerable types "answer": ..., "expected_answer": ...}. Non-answer types
-# (participant-id, stimulus, finish) carry no "answer" key at all, matching
+# (participant-id, stimulus, finish, info) carry no "answer" key at all, matching
 # NON_ANSWER_QUESTION_TYPES in validation.py -- their absence here is itself
 # a check that the fixture set has not drifted from that set (see the test).
 CARD_TYPE_FIXTURES: dict[str, dict[str, Any]] = {
@@ -105,6 +105,23 @@ CARD_TYPE_FIXTURES: dict[str, dict[str, Any]] = {
             "type": "finish",
             "title": "Done",
             "prompt": "Thanks for participating.",
+        },
+    },
+    "info": {
+        "question": {
+            "type": "info",
+            "title": " Before we start ",
+            "text": "Please read **carefully**.\r\n\n- one\n- two",
+            "image_asset": "",
+            "layout": "image-left",
+        },
+        "expected_question": {
+            "type": "info",
+            "title": "Before we start",
+            "text": "Please read **carefully**.\n\n- one\n- two",
+            "image_asset": "",
+            "image_alt": "",
+            "layout": "text",
         },
     },
     "likert": {

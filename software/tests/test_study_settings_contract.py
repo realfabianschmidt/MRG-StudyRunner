@@ -75,6 +75,9 @@ class StudySettingsContractTests(unittest.TestCase):
                 # exists for it yet, but the round-trip through
                 # normalizeStudySettings() must not drop it.
                 "planned_session_duration_minutes",
+                # Optional page before the Participant ID card; mirrored by
+                # normalizeCoverPage() in study-settings.js.
+                "cover_page",
             },
         )
 

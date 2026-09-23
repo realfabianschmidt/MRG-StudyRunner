@@ -2713,3 +2713,27 @@ body.admin::before { display: none; }
   display: flex;
   gap: var(--s-2);
 }
+
+/* Image field of the shared read-only content editor (info card, cover page). */
+.me-image-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.me-preview {
+  max-width: 96px;
+  max-height: 72px;
+  object-fit: contain;
+  border: 1px solid var(--ink-14);
+  border-radius: var(--r-md);
+}
+.me-upload {
+  cursor: pointer;
+}
+.me-hint,
+.me-status {
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+  opacity: 0.7;
+}

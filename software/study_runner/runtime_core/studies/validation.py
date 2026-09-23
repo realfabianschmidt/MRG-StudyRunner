@@ -41,6 +41,7 @@ from study_runner.contracts.card_validation_primitives import (
     require_text,
 )
 from study_runner.plugin_framework.card_catalog import QuestionTypes
+from study_runner.contracts.media_content import MediaContentError, normalize_media_content
 from .card_extension_bridge import normalize_card_config, validate_card_answer
 
 ALLOWED_QUESTION_TYPES = QuestionTypes()
@@ -733,11 +734,31 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
         ),
         "plugins": plugins,
         "progress_bar_enabled": normalize_boolean(migrated.get("progress_bar_enabled", False)),
+        "cover_page": _validate_cover_page(migrated.get("cover_page")),
         "planned_session_duration_minutes": _optional_positive_minutes(
             migrated.get("planned_session_duration_minutes"),
             "study_settings.planned_session_duration_minutes",
         ),
     }
+
+
+def _validate_cover_page(value: Any) -> dict[str, Any]:
+    """Optional page shown after the admin releases the study, before the Participant ID card.
+
+    It is not a card: no session, recording, or marker exists yet, so it never
+    enters per-card timing or the recording quality window.
+    """
+    raw = value if isinstance(value, dict) else {}
+    if value is not None and not isinstance(value, dict):
+        raise ValidationError("study_settings.cover_page must be a JSON object.")
+    try:
+        content = normalize_media_content(raw, label="Cover page")
+    except MediaContentError as error:
+        raise ValidationError(str(error)) from error
+    button_label = normalize_text(raw.get("button_label"))
+    if len(button_label) > 60:
+        raise ValidationError("Cover page button label may be at most 60 characters.")
+    return {"enabled": normalize_boolean(raw.get("enabled", False)), **content, "button_label": button_label}
 
 
 def _validate_plugin_study_settings(

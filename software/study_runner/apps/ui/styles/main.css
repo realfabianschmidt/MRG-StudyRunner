@@ -682,3 +682,51 @@ label.field > span:first-child {
   box-shadow: 0 0 0 3px var(--accent-16);
 }
 
+
+/* Read-only participant content (info card, cover page): text with an optional
+   image beside it. Narrow screens stack the image above the text. */
+.media-layout {
+  display: grid;
+  gap: var(--s-6, 32px);
+  align-items: center;
+  text-align: left;
+}
+.media-layout--image-left,
+.media-layout--image-right {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.media-layout-figure {
+  margin: 0;
+}
+.media-layout-figure img {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: var(--r-lg, 12px);
+}
+.media-layout-title {
+  margin-bottom: var(--s-4, 16px);
+}
+.media-layout-body {
+  line-height: 1.6;
+}
+.media-layout-body > :first-child { margin-top: 0; }
+.media-layout-body > :last-child { margin-bottom: 0; }
+.media-layout-body h2,
+.media-layout-body h3 {
+  font-family: var(--font-heading);
+  margin: 1.2em 0 0.4em;
+}
+.media-layout-body ul {
+  padding-left: 1.3em;
+}
+@media (max-width: 720px) {
+  .media-layout--image-left,
+  .media-layout--image-right {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .media-layout--image-right .media-layout-figure {
+    order: -1;
+  }
+}

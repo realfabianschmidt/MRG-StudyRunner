@@ -81,11 +81,11 @@ test('stimulus and finish export no isAnswered hook: the controller default appl
   assert.equal(typeof finish.isAnswered, 'undefined');
 });
 
-test('every answerable registered type has an isAnswered hook; stimulus/finish deliberately do not', () => {
+test('every answerable registered type has an isAnswered hook; stimulus/finish/info deliberately do not', () => {
   const withoutHook = Object.entries(CARDS)
     .filter(([, cardModule]) => typeof cardModule.isAnswered !== 'function')
     .map(([type]) => type);
-  assert.deepEqual(new Set(withoutHook), new Set(['stimulus', 'finish']));
+  assert.deepEqual(new Set(withoutHook), new Set(['stimulus', 'finish', 'info']));
 });
 
 test('ranking and word-cloud are the two types with a bindInteractions hook', () => {

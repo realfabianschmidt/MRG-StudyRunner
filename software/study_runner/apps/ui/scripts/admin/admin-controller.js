@@ -1758,12 +1758,22 @@ function showToast(message, type = 'info') {
 function loadFromFile() {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.study-runner,.json,application/json';
+  input.accept = '.study-runner,.json,application/json,application/zip';
   input.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     try {
-      const config = JSON.parse(await file.text());
+      // The server unpacks a study package (study + images) or a plain JSON
+      // study and stores the images; saving the study itself stays below.
+      const body = new FormData();
+      body.append('file', file);
+      const response = await fetch('/api/admin/studies/import', { method: 'POST', body });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.config) {
+        showToast(payload.error || t('toast.invalidJson'), 'error');
+        return;
+      }
+      const config = payload.config;
       state.studyRunState = { status: 'loaded', study_id: config.study_id || '' };
       applyLoadedConfig(config);
       // Import has to persist. Loading the file into the editor and marking it
@@ -1798,8 +1808,13 @@ async function _activateStudyFromHub(id, options = {}) {
 
 async function downloadStudy(id) {
   try {
-    const config = await getJson(`/api/admin/studies/${encodeURIComponent(id)}`);
-    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+    // A package bundles the study with every image it shows.
+    const response = await fetch(`/api/admin/studies/${encodeURIComponent(id)}/package`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

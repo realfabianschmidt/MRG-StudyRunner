@@ -19,6 +19,7 @@ import {
   normalizePlannedSessionDurationMinutes,
   normalizeStudySettings,
 } from '../../shared/study-settings.js';
+import { bindMediaEditor, collectMediaEditor, renderMediaEditor } from '../../shared/media-editor.js';
 import {
   PLUGIN_UI_SURFACES,
   getPluginCatalog,
@@ -63,6 +64,7 @@ export function initializeStudySettingsPanel(options = {}) {
   });
   byId('btn-save-study-settings')?.addEventListener('click', () => void saveFromPanel());
   byId('btn-save-participant-settings')?.addEventListener('click', () => void saveFromPanel());
+  byId('study-cover-enabled')?.addEventListener('change', syncCoverEditor);
   byId('btn-save-plugin-destinations')?.addEventListener('click', () => void saveDestinationPlugins());
   byId('btn-study-settings-download')?.addEventListener('click', () => callbacks.downloadCurrentStudy?.());
 }
@@ -126,10 +128,41 @@ function fillFields() {
   renderSensorPlugins(settings);
   renderDestinationPlugins(settings);
   set('study-progress-bar-enabled', settings.progress_bar_enabled);
+  fillCoverPage(settings.cover_page);
   const duration = byId('study-planned-duration');
   if (duration) duration.value = settings.planned_session_duration_minutes ?? '';
   syncSensorControls();
   void refreshStudyPluginCredentialStates();
+}
+
+function fillCoverPage(cover) {
+  const enabled = byId('study-cover-enabled');
+  if (enabled) enabled.checked = Boolean(cover.enabled);
+  const fields = byId('study-cover-fields');
+  if (fields) {
+    fields.innerHTML = renderMediaEditor(cover, {
+      titleLabel: t('studySettings.coverTitle', 'Headline'),
+      textLabel: t('studySettings.coverText', 'Text'),
+    });
+    bindMediaEditor(fields);
+  }
+  const button = byId('study-cover-button-label');
+  if (button) button.value = cover.button_label || '';
+  syncCoverEditor();
+}
+
+function syncCoverEditor() {
+  const editor = byId('study-cover-editor');
+  if (editor) editor.hidden = !byId('study-cover-enabled')?.checked;
+}
+
+function collectCoverPage() {
+  const fields = byId('study-cover-fields');
+  return {
+    enabled: Boolean(byId('study-cover-enabled')?.checked),
+    ...(fields ? collectMediaEditor(fields) : {}),
+    button_label: String(byId('study-cover-button-label')?.value || '').trim(),
+  };
 }
 
 function renderDestinationPlugins(settings) {
@@ -521,6 +554,7 @@ async function saveFromPanel() {
     plugins,
     progress_bar_enabled: Boolean(byId('study-progress-bar-enabled')?.checked),
     planned_session_duration_minutes: plannedDuration,
+    cover_page: collectCoverPage(),
   });
   await callbacks.saveStudyConfig?.({
     successMessage: t('studySettings.saved', 'Study settings saved'),

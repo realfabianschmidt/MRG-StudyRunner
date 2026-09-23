@@ -30,6 +30,24 @@ export function defaultStudySettings() {
     plugins: defaultStudyPlugins(true),
     progress_bar_enabled: false,
     planned_session_duration_minutes: null,
+    cover_page: normalizeCoverPage(null),
+  };
+}
+
+/** Mirrors backend _validate_cover_page(): shown before the Participant ID card. */
+export function normalizeCoverPage(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const text = (field) => (typeof source[field] === 'string' ? source[field] : '');
+  const imageAsset = text('image_asset').trim();
+  const layout = ['text', 'image-left', 'image-right'].includes(source.layout) ? source.layout : 'text';
+  return {
+    enabled: Boolean(source.enabled),
+    title: text('title').trim(),
+    text: text('text'),
+    image_asset: imageAsset,
+    image_alt: text('image_alt').trim(),
+    layout: imageAsset ? layout : 'text',
+    button_label: text('button_label').trim(),
   };
 }
 
@@ -87,6 +105,7 @@ export function normalizeStudySettings(settings) {
     planned_session_duration_minutes: normalizePlannedSessionDurationMinutes(
       source.planned_session_duration_minutes,
     ),
+    cover_page: normalizeCoverPage(source.cover_page),
   };
 }
 

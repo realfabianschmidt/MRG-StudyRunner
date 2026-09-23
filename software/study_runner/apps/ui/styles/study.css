@@ -246,3 +246,23 @@
   opacity: .3;
   cursor: not-allowed;
 }
+
+/* Cover page: wider than a question card so text and image can sit side by
+   side; the single Start button sits centered at the bottom. */
+.screen--cover {
+  max-width: 960px;
+}
+.cover-actions {
+  display: flex;
+  justify-content: center;
+  padding-top: var(--s-8);
+}
+.cover-start {
+  min-width: 180px;
+  justify-content: center;
+}
+/* An info card with an image beside its text needs the same width. */
+#screen-questions:has(.q-card-study.active .media-layout--image-left),
+#screen-questions:has(.q-card-study.active .media-layout--image-right) {
+  max-width: 960px;
+}

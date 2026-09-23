@@ -19,6 +19,7 @@ from study_runner.runtime_core.studies.study_config_service import (
     study_config_revision,
 )
 from study_runner.runtime_core.studies.study_readiness_service import check_study_readiness
+from study_runner.runtime_core.studies.study_assets_service import StudyAssetError, require_assets
 from study_runner.data_core.host.recording_runtime import required_recording_plugins
 from study_runner.runtime_core.studies.trial_service import send_trial_marker, start_trial_session, stop_trial_session
 from study_runner.runtime_core.studies.trial_service import TrialDispatchError
@@ -85,6 +86,10 @@ def update_config():
     config_data.pop("_capabilities", None)
     previous_study_id = _current_study_id()
     validated_config = validate_and_normalize_config(config_data)
+    try:
+        require_assets(current_app.config["SAVED_STUDIES_DIR"], validated_config)
+    except StudyAssetError as error:
+        return jsonify({"ok": False, "error": str(error), "error_code": "missing_study_asset"}), 400
     try:
         revision = save_active_study(
             current_app.config["CONFIG_FILE"],

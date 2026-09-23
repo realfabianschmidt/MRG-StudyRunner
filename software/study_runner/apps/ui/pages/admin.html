@@ -416,6 +416,22 @@
                   <span class="switch"><input type="checkbox" id="study-progress-bar-enabled"><span class="switch-slider"></span></span>
                 </label>
               </div>
+              <div class="field">
+                <label class="switch-row" for="study-cover-enabled" style="margin-bottom: 0;">
+                  <span style="display:flex; flex-direction:column; gap:4px;">
+                    <strong style="color:var(--ink);" data-i18n="studySettings.coverEnabled">Show a cover page</strong>
+                    <small style="color:var(--ink-55); line-height:1.4;" data-i18n="studySettings.coverHint">Shown after you release the study and before the Participant ID card; the participant continues with a centered button. No session or sensor recording runs yet, and it is not a card, so it is never part of card timing or the recorded data.</small>
+                  </span>
+                  <span class="switch"><input type="checkbox" id="study-cover-enabled"><span class="switch-slider"></span></span>
+                </label>
+              </div>
+              <div id="study-cover-editor" hidden>
+                <div id="study-cover-fields"></div>
+                <div class="field">
+                  <label for="study-cover-button-label" data-i18n="studySettings.coverButtonLabel">Button label</label>
+                  <input id="study-cover-button-label" type="text" maxlength="60" data-i18n-placeholder="study.cover.start" placeholder="Start">
+                </div>
+              </div>
               <div class="dashboard-actions">
                 <button class="btn-primary" id="btn-save-participant-settings" type="button"><i class="iconoir-floppy-disk"></i> <span data-i18n="studySettings.saveButton">Save study settings</span></button>
               </div>

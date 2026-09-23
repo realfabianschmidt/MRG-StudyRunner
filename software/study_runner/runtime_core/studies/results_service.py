@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from study_runner.contracts.plugin_api import PluginContext
+from study_runner.plugin_framework.card_catalog import QuestionTypes
 from study_runner.plugin_framework.registry import (
     build_context,
     build_interval_summary as build_plugin_interval_summary,
@@ -18,6 +19,8 @@ from study_runner.plugin_framework.registry import (
 from ..settings.runtime_config import get_project_base_dir
 from study_runner.shared.atomic_io import atomic_write_json
 from study_runner.shared.filename_sanitizer import sanitize_identifier_for_filename
+
+ANSWERLESS_QUESTION_TYPES = QuestionTypes(answerless=True)
 
 
 TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
@@ -331,6 +334,9 @@ def build_answer_details(
             skipped = False
             if question_type == "participant-id":
                 answer_value = participant_id
+            elif question_type in ANSWERLESS_QUESTION_TYPES:
+                # Read-only cards (e.g. info) have no answer, only a viewing interval.
+                answer_value = None
             elif answer_key not in answers or answers.get(answer_key) is None:
                 if _question_is_required(question):
                     continue

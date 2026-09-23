@@ -1,7 +1,8 @@
 import { getJson, postJson as postJsonToServer } from '../shared/api-client.js';
-import { CARDS, loadCards } from '../cards/index.js';
+import { CARDS, isAnswerless, loadCards } from '../cards/index.js';
 import { renderInfoBottom, renderOptionalTag } from '../cards/card-info.js';
 import { escapeHtml } from '../shared/dom-utils.js';
+import { renderMediaLayout } from '../shared/rich-text.js';
 import { getStudyClientId, startStudyClientHeartbeat } from './study-client-heartbeat.js';
 import { initI18n, t } from '../shared/i18n.js';
 import { startDeadlineTimer, remainingWholeSeconds } from '../shared/deadline-timer.js';
@@ -58,6 +59,8 @@ function sendStudyBeacon(url, blob) {
 }
 
 const state = {
+  coverVisibleRunId: '',
+  coverDismissedRunId: '',
   config: {},
   sensorRuntime: {},
   startTime: null,
@@ -202,6 +205,7 @@ function showPreviewBanner() {
 }
 
 function showWaitingForAdminStart(options = {}) {
+  state.coverVisibleRunId = '';
   state.completedLocally = false;
   state.waitingForAdminStart = true;
   state.questionsBuilt = false;
@@ -224,6 +228,10 @@ async function activateStudyUiAfterAdminStart() {
   if (state.activationInProgress || state.questionsBuilt) {
     return;
   }
+  // The cover page stays up until "Start" is pressed; polling must not rebuild it.
+  if (state.coverVisibleRunId && state.coverVisibleRunId === currentRunKey()) {
+    return;
+  }
   state.activationInProgress = true;
   try {
     await loadStudyConfig();
@@ -236,6 +244,11 @@ async function activateStudyUiAfterAdminStart() {
       renderParticipantIdRequiredBlock();
       state.questionsBuilt = true;
       showScreen('questions');
+      return;
+    }
+    const cover = coverPageSettings();
+    if (cover && state.coverDismissedRunId !== currentRunKey() && !matchingSessionSnapshot()) {
+      showCoverPage(cover);
       return;
     }
     buildQuestions({ markInitialShown: false, startFirstStimulus: false });
@@ -262,6 +275,8 @@ function handleStudyRunState(runState) {
   const previousRunId = state.studyRunState?.run_id || '';
   const nextRunId = runState.run_id || '';
   if (previousRunId && nextRunId && previousRunId !== nextRunId) {
+    state.coverVisibleRunId = '';
+    state.coverDismissedRunId = '';
     state.completedLocally = false;
     state.completedRunId = '';
     state.questionsBuilt = false;
@@ -569,9 +584,48 @@ function clearSessionSnapshot() {
   }
 }
 
-function renderRecoveryBlockIfNeeded() {
+function matchingSessionSnapshot() {
   const snapshot = loadSessionSnapshot();
   if (!snapshot || snapshot.study_id !== (state.config.study_id || '') || snapshot.client_id !== getStudyClientId()) {
+    return null;
+  }
+  return snapshot;
+}
+
+function currentRunKey() {
+  return state.studyRunState?.run_id || 'local';
+}
+
+function coverPageSettings() {
+  const cover = state.config?.study_settings?.cover_page;
+  return cover?.enabled ? cover : null;
+}
+
+/**
+ * The cover page sits between the admin's release and the Participant ID card.
+ * No participant, session, sensor recording or marker exists yet, so it never
+ * enters card timing or the recording window; "Start" continues the normal flow.
+ */
+function showCoverPage(cover) {
+  const content = getElement('cover-content');
+  if (content) content.innerHTML = renderMediaLayout(cover);
+  const label = getElement('btn-cover-start-label');
+  if (label) label.textContent = cover.button_label || t('study.cover.start', 'Start');
+  state.coverVisibleRunId = currentRunKey();
+  showScreen('cover');
+  updateProgressBar(0, 0);
+}
+
+function dismissCoverPage() {
+  if (!state.coverVisibleRunId) return;
+  state.coverDismissedRunId = state.coverVisibleRunId;
+  state.coverVisibleRunId = '';
+  void activateStudyUiAfterAdminStart();
+}
+
+function renderRecoveryBlockIfNeeded() {
+  const snapshot = matchingSessionSnapshot();
+  if (!snapshot) {
     return false;
   }
 
@@ -657,6 +711,7 @@ function showRecoveredCard(targetIndex) {
 function bindEvents() {
   getElement('btn-prev').addEventListener('click', () => void goTo(state.currentIndex - 1));
   getElement('btn-next').addEventListener('click', () => void handleNext());
+  getElement('btn-cover-start')?.addEventListener('click', dismissCoverPage);
   getElement('btn-study-fullscreen')?.addEventListener('click', () => void toggleStudyFullscreen());
 
   const questionContainer = getElement('q-container');
@@ -2158,7 +2213,7 @@ function collectAnswers() {
   const answers = {};
 
   (state.config.questions || []).forEach((question, questionIndex) => {
-    if (question.type === 'stimulus' || question.type === 'participant-id' || question.type === 'finish') {
+    if (isAnswerless(question.type)) {
       return;
     }
     // An optional, untouched question is omitted entirely so the server can
