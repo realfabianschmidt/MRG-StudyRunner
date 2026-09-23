@@ -509,6 +509,17 @@ class PrebuiltCoreTests(unittest.TestCase):
             (windows / ".DS_Store").write_bytes(b"finder noise")
 
             self.assertEqual(setup.native_source_sha256(unix), setup.native_source_sha256(windows))
+
+            # Order must be byte-wise on every OS (Windows paths sort case-insensitively).
+            (unix / "UPSTREAM.md").write_bytes(b"lock\n")
+            (unix / "include").mkdir()
+            (unix / "include" / "a.h").write_bytes(b"h\n")
+            digest = __import__("hashlib").sha256()
+            for relative, content in sorted(
+                (("UPSTREAM.md", b"lock\n"), ("include/a.h", b"h\n"), ("src/core.cpp", b"int x;\nint y;\n"))
+            ):
+                digest.update(f"{relative}\0{len(content)}\0".encode("utf-8") + content)
+            self.assertEqual(setup.native_source_sha256(unix), digest.hexdigest())
             (unix / "src" / "core.cpp").write_bytes(b"int x;\nint z;\n")
             self.assertNotEqual(setup.native_source_sha256(unix), setup.native_source_sha256(windows))
 

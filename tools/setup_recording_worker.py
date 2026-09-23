@@ -183,14 +183,15 @@ def native_source_sha256(native_source_dir: Path = NATIVE_SOURCE_DIR) -> str:
 
     native_source_dir = Path(native_source_dir).resolve()
     digest = hashlib.sha256()
+    # Sort by the POSIX string: Windows path objects compare case-insensitively,
+    # which would order "UPSTREAM.md" and "include/" differently than macOS.
     files = sorted(
-        path
+        (path.relative_to(native_source_dir).as_posix(), path)
         for path in native_source_dir.rglob("*")
         if path.is_file()
         and not any(part.startswith(".") for part in path.relative_to(native_source_dir).parts)
     )
-    for path in files:
-        relative = path.relative_to(native_source_dir).as_posix()
+    for relative, path in files:
         content = path.read_bytes().replace(b"\r\n", b"\n")
         digest.update(f"{relative}\0{len(content)}\0".encode("utf-8"))
         digest.update(content)
