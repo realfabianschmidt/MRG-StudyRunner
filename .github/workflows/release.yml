@@ -52,10 +52,11 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade --constraint software/constraints/py312-bootstrap.txt pip
+          # The runner's own CMake knows its Visual Studio version; the older pinned
+          # CMake from pip falls back to NMake on Windows and cannot configure.
           python -m pip install \
             --constraint software/constraints/py312-common.txt \
-            --constraint software/constraints/py312-build-tools.txt \
-            cmake "pylsl==1.18.2" "pyxdf==1.16.8" "numpy==1.26.4"
+            "pylsl==1.18.2" "pyxdf==1.16.8" "numpy==1.26.4"
 
       - name: Build, CTest, and synthetic-XDF-test the core
         run: python tools/setup_recording_worker.py --require-canonical --json
