@@ -18,7 +18,7 @@ from study_runner.shared.study_identifiers import normalize_study_id
 
 from ..studies.study_config_service import patch_study_plugin_settings
 from ..studies.study_plugin_config import normalize_study_settings_plugins
-from .upload_jobs_service import UploadJobError, UploadJobService
+from .upload_jobs_service import PermanentUploadError, UploadJobError, UploadJobService
 
 
 def configure_upload_jobs(app) -> UploadJobService:
@@ -121,7 +121,11 @@ def _plugin_executor(
         if result.get("ok") is False:
             detail = str(result.get("error") or "unknown error")
             print(f"[UPLOADS] {destination} attempt failed: {detail}")
-            raise UploadJobError(f"{plugin.label} is temporarily unavailable; Study Runner will retry.")
+            if result.get("permanent") is True:
+                # Wrong credentials, an inaccessible target, or a missing
+                # setting: retrying cannot help, so say exactly what to fix.
+                raise PermanentUploadError(f"{plugin.label}: {detail}")
+            raise UploadJobError(f"{plugin.label}: {detail} (Study Runner will retry automatically.)")
         return result
 
     return execute

@@ -33,6 +33,15 @@ class UploadJobError(RuntimeError):
     """Raised for invalid job requests or unavailable payloads."""
 
 
+class PermanentUploadError(UploadJobError):
+    """The destination refused the upload for a reason retrying cannot fix.
+
+    Examples: a rejected API key, a page the integration may not access, or a
+    missing required setting. The job fails at once instead of retrying for
+    48 hours, and the operator sees the real reason.
+    """
+
+
 def retry_delay_seconds(attempts: int) -> int:
     """Return the roadmap backoff: 30 s, 2 m, 10 m, 30 m, then hourly."""
     normalized = max(1, int(attempts))
@@ -355,7 +364,7 @@ class UploadJobService:
             if result.get("ok") is False:
                 raise UploadJobError(str(result.get("error") or f"{kind} upload failed."))
         except Exception as error:
-            self._record_failure(job_id, str(error))
+            self._record_failure(job_id, str(error), permanent=isinstance(error, PermanentUploadError))
             return
 
         with self._lock:
@@ -377,7 +386,7 @@ class UploadJobService:
         except OSError as error:
             print(f"[UPLOADS] Could not remove completed job payload {payload_path.name}: {error}")
 
-    def _record_failure(self, job_id: str, error_message: str) -> None:
+    def _record_failure(self, job_id: str, error_message: str, *, permanent: bool = False) -> None:
         now = self._clock()
         with self._lock:
             job = self._jobs[job_id]
@@ -391,7 +400,7 @@ class UploadJobService:
             if not isinstance(created_epoch, (int, float)):
                 created_epoch = now
             expired = now - float(created_epoch) >= MAX_RETRY_AGE_SECONDS
-            if expired:
+            if expired or permanent:
                 event = {
                     "event": "failed",
                     "job_id": job_id,

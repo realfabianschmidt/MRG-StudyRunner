@@ -22,3 +22,9 @@ test('media layout places the image left or right, and ignores it for text-only'
   assert.doesNotMatch(textOnly, /<img/);
   assert.doesNotMatch(renderMediaLayout({ title: 'T', layout: 'image-left' }), /<img/);
 });
+
+test('inline code shows example values literally and stays escaped', () => {
+  const html = renderRichText('Starts with `ntn_` and `<b>`');
+  assert.match(html, /<code>ntn_<\/code>/);
+  assert.match(html, /<code>&lt;b&gt;<\/code>/);
+});

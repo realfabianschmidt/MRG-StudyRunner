@@ -120,6 +120,7 @@ def upload_study_result(
     hardware_config: dict[str, Any],
     saved_output: dict[str, Any],
     config_data: dict[str, Any] = None,
+    api_key: str = "",
 ) -> dict[str, Any]:
     """Upload one completed study session.
 
@@ -141,16 +142,30 @@ def upload_study_result(
 
     study_settings = config_data.get("study_settings", {})
     if not study_settings.get("notion_enabled"):
-        return {"ok": False, "skipped": True, "error": "Notion is disabled for this study."}
+        # Nothing to publish is not a failure: never retry or report it.
+        return {"ok": True, "skipped": True, "reason": "Notion is disabled for this study."}
 
     canonical_summary_error = _canonical_card_summary_error(result_payload, saved_output)
     if canonical_summary_error:
         return {"ok": False, "error": canonical_summary_error}
 
-    client = get_client(_config.get("api_key", ""))
+    key = str(api_key or _config.get("api_key", "") or "").strip()
+    if not key:
+        return {
+            "ok": False,
+            "permanent": True,
+            "error": "No Notion API key is stored for this study. Add it in the study's Notion settings.",
+        }
+    client = get_client(key)
     if client is None:
-        error_message = "Notion client is not ready on the server."
-        return {"ok": False, "error": error_message}
+        if not _config.get("enabled"):
+            return {
+                "ok": False,
+                "permanent": True,
+                "error": "Notion upload is not ready: it is switched off on this computer. "
+                "Turn it on under Settings > This computer > Notion.",
+            }
+        return {"ok": False, "error": "Notion upload is not ready: the Notion client could not be started."}
 
     study_config_updates: dict[str, str] = {}
     try:
@@ -192,16 +207,50 @@ def upload_study_result(
         return result
     except Exception as error:
         print(f"[NOTION] Upload failed: {error}")
-        result = {"ok": False, "error": str(error)}
+        permanent, message = classify_notion_error(error)
+        result = {"ok": False, "error": message}
+        if permanent:
+            result["permanent"] = True
         if study_config_updates:
             result["study_config_updates"] = study_config_updates
         return result
+
+
+# Notion answers these when retrying cannot help: fix the key, share the page,
+# or correct an ID. Anything else (rate limits, 5xx, network) is retried.
+_PERMANENT_NOTION_CODES = {
+    "unauthorized": "Notion rejected the API key. Check that it is the integration's secret and still valid.",
+    "restricted_resource": "The Notion integration may not open this page or database. In Notion, open the page, "
+    "choose ••• > Connections, and add your integration.",
+    "object_not_found": "Notion cannot find the page or database. Check the ID and that the page is shared with "
+    "your integration (••• > Connections).",
+    "validation_error": "Notion rejected the request: {detail}",
+    "invalid_request_url": "Notion rejected the request: {detail}",
+}
+
+
+def classify_notion_error(error: Exception) -> tuple[bool, str]:
+    """Return (permanent, operator-facing message) for an upload failure."""
+    code = str(getattr(error, "code", "") or "").lower()
+    code = code.rsplit(".", 1)[-1]  # an APIErrorCode enum prints as APIErrorCode.Unauthorized
+    for known, message in _PERMANENT_NOTION_CODES.items():
+        if code == known or code == known.replace("_", ""):
+            return True, message.format(detail=str(error))
+    text = str(error)
+    if "parent_page_id is required" in text:
+        return True, (
+            "No Notion page is set for this study. Enter the Parent Page ID (or a Database ID) "
+            "in the study's Notion settings."
+        )
+    return False, text
 
 
 def test_connection(
     *,
     api_key: str,
     timeout_seconds: int = 10,
+    parent_page_id: str = "",
+    database_id: str = "",
 ) -> dict[str, Any]:
     """
     Test Notion connectivity with the given credentials (without saving anything).
@@ -212,7 +261,7 @@ def test_connection(
         auto_install=True,
         label="NOTION",
     ):
-        return {"ok": False, "checks": [{"name": "Paket", "ok": False, "message": "notion-client konnte nicht installiert werden."}]}
+        return {"ok": False, "checks": [{"name": "Package", "ok": False, "message": "The notion-client package could not be installed."}]}
 
     from notion_client import Client, APIErrorCode, APIResponseError
 
@@ -223,14 +272,34 @@ def test_connection(
         client = Client(auth=api_key.strip(), timeout_ms=timeout_seconds * 1000)
         me = client.users.me()
         bot_name = me.get("name") or me.get("bot", {}).get("owner", {}).get("user", {}).get("name") or "Integration"
-        checks.append({"name": "API Key", "ok": True, "message": f'Verbunden als „{bot_name}"'})
+        checks.append({"name": "API Key", "ok": True, "message": f'Connected as "{bot_name}"'})
     except APIResponseError as error:
-        msg = "Ungültiger API Key." if error.code == APIErrorCode.Unauthorized else str(error)
+        msg = (
+            "Notion rejected the API key. Check that it is the integration's secret and still valid."
+            if error.code == APIErrorCode.Unauthorized
+            else str(error)
+        )
         checks.append({"name": "API Key", "ok": False, "message": msg})
         return {"ok": False, "checks": checks}
     except Exception as error:
-        checks.append({"name": "API Key", "ok": False, "message": f"Verbindung fehlgeschlagen: {error}"})
+        checks.append({"name": "API Key", "ok": False, "message": f"Connection failed: {error}"})
         return {"ok": False, "checks": checks}
+
+    # 2. The most common real problem: the page is not shared with the integration.
+    for label, raw_id, retrieve in (
+        ("Database", database_id, lambda value: client.databases.retrieve(database_id=value)),
+        ("Parent page", parent_page_id, lambda value: client.pages.retrieve(page_id=value)),
+    ):
+        target = _strip_dashes(str(raw_id or "").strip())
+        if not target:
+            continue
+        try:
+            retrieve(target)
+            checks.append({"name": label, "ok": True, "message": f"{label} is reachable for the integration."})
+        except Exception as error:
+            _permanent, message = classify_notion_error(error)
+            checks.append({"name": label, "ok": False, "message": message})
+        break
 
     overall_ok = all(c["ok"] is not False for c in checks)
     return {"ok": overall_ok, "checks": checks}

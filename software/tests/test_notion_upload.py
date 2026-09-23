@@ -401,7 +401,7 @@ class NotionPublishContractTests(unittest.TestCase):
         original = deepcopy(payload)
         client = self.client()
         with patch.object(adapter, "get_client", return_value=client):
-            result = plugin._publish(SimpleNamespace(hardware_config={}), payload)
+            result = plugin._publish(SimpleNamespace(hardware_config={}, secret=lambda *_: "study-key"), payload)
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["study_config_updates"], {"database_id": "createddb", "data_source_id": "source-1"})
         self.assertEqual(client.data_sources.query.call_args.kwargs["data_source_id"], "source-1")
@@ -412,7 +412,7 @@ class NotionPublishContractTests(unittest.TestCase):
         client = self.client()
         client.pages.create.side_effect = OSError("connection interrupted")
         with patch.object(adapter, "get_client", return_value=client):
-            result = plugin._publish(SimpleNamespace(hardware_config={}), self.payload())
+            result = plugin._publish(SimpleNamespace(hardware_config={}, secret=lambda *_: "study-key"), self.payload())
         self.assertFalse(result["ok"])
         self.assertEqual(result["study_config_updates"], {"database_id": "createddb", "data_source_id": "source-1"})
         self.assertIn("connection interrupted", result["error"])

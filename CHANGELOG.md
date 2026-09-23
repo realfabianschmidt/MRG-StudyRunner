@@ -17,6 +17,11 @@ All notable Study Runner changes are documented here. Release tags use
   images (zip with a SHA-256 manifest); plain JSON studies still import.
 - Fonts menu next to Logos: choose or upload the heading and body font for the
   admin and participant pages of this computer.
+- Session detail view: a "Completion & uploads" card lists every step after
+  submit with its status and error, and retries a failed upload at any time.
+- Plugin settings explain themselves: example values in every field, real field
+  names, and a "(?)" button with a plain-language setup guide (Notion,
+  Nextcloud; available to every plugin through manifest keys).
 
 ### Changed
 
@@ -25,6 +30,14 @@ All notable Study Runner changes are documented here. Release tags use
 
 ### Fixed
 
+- A failed upload no longer leaves a session stuck on "finalizing": the valid
+  local data is completed, the failure is shown as "upload failed" with the
+  real reason, and the upload can be retried later.
+- Wrong credentials, an unshared Notion page, or a deleted Nextcloud share now
+  fail at once with a clear message instead of retrying silently for 48 hours.
+- Notion uploads and "Test connection" now use the API key stored for the
+  study (before, only a computer-wide key was used). "Test connection" also
+  checks access to the Notion page and reports failures instead of success.
 - The BrainBit contact and battery streams, which only report before recording
   starts, no longer put short sessions into attention_required; the device
   select shows the connected band.

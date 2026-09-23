@@ -29,7 +29,15 @@ PRELIMINARY_ATTENTION_ARTIFACTS = {
 
 
 class NextcloudError(RuntimeError):
-    """Plain-language failure safe to surface without credentials."""
+    """Plain-language failure safe to surface without credentials.
+
+    ``permanent`` marks failures retrying cannot fix (rejected token or
+    password, a share that no longer exists), so the upload fails at once.
+    """
+
+    def __init__(self, message: str, *, permanent: bool = False) -> None:
+        super().__init__(message)
+        self.permanent = permanent
 
 
 @dataclass(frozen=True)
@@ -337,7 +345,15 @@ class NextcloudPublicShareClient:
     def _response_error(action: str, response) -> NextcloudError:
         status_code = int(getattr(response, "status_code", 0) or 0)
         if status_code in {401, 403}:
-            return NextcloudError("Nextcloud rejected the share token or password.")
+            return NextcloudError(
+                "Nextcloud rejected the share link or its password. Check both in the study's Nextcloud settings.",
+                permanent=True,
+            )
+        if status_code == 404 and action == "connect to share":
+            return NextcloudError(
+                "Nextcloud cannot find this share. The share link may have been deleted or mistyped.",
+                permanent=True,
+            )
         return NextcloudError(f"Could not {action}; Nextcloud returned HTTP {status_code}.")
 
 

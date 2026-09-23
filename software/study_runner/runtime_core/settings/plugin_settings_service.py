@@ -96,6 +96,7 @@ def build_plugin_settings_schema(hardware_config: dict[str, Any]) -> dict[str, A
                 "maximum": field.get("maximum"),
                 "label_key": field.get("label_key", ""),
                 "hint_key": field.get("hint_key", ""),
+                "placeholder_key": field.get("placeholder_key", ""),
                 "apply": field.get("apply", "restart"),
                 "value": effective_value(hardware_config, plugin.config_key, field),
                 "default": field.get("default"),

@@ -15,7 +15,7 @@ export function renderFinalizationJob(container, job, actions = {}) {
   const progress = finalizationProgress(job);
   const warnings = Array.isArray(job.warnings) ? job.warnings.filter(Boolean) : [];
   const artifacts = Array.isArray(job.artifacts) ? job.artifacts : [];
-  const status = finalizationStatusDisplay(job.status);
+  const status = finalizationStatusDisplay(job.status, job.upload_failures);
   const progressLabel = t('finalization.progress', '{done} of {total} steps completed')
     .replace('{done}', String(progress.done)).replace('{total}', String(progress.total));
 
@@ -153,7 +153,14 @@ function renderDegradedConfirmation(reasonDraft) {
     </section>`;
 }
 
-function finalizationStatusDisplay(status) {
+function finalizationStatusDisplay(status, uploadFailures = []) {
+  if (status === 'completed' && Array.isArray(uploadFailures) && uploadFailures.length) {
+    return {
+      icon: 'iconoir-warning-triangle upload-job-icon--failed',
+      text: t('finalization.status.completedUploadFailed', 'Saved locally - an upload failed'),
+      tone: 'attention',
+    };
+  }
   switch (status) {
     case 'completed':
       return { icon: 'iconoir-check-circle upload-job-icon--done', text: t('finalization.status.completed', 'Completed'), tone: 'done' };

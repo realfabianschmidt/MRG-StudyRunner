@@ -20,6 +20,7 @@ import {
   normalizeStudySettings,
 } from '../../shared/study-settings.js';
 import { bindMediaEditor, collectMediaEditor, renderMediaEditor } from '../../shared/media-editor.js';
+import { fieldLabel, fieldPlaceholder, openPluginHelp, renderPluginHelpButton } from '../../shared/plugin-help.js';
 import {
   PLUGIN_UI_SURFACES,
   getPluginCatalog,
@@ -49,6 +50,11 @@ export function initializeStudySettingsPanel(options = {}) {
     if (remove) void removeUnavailablePlugin(remove.dataset.removeUnavailablePlugin || '');
   });
   byId('study-plugin-destination-options')?.addEventListener('click', (event) => {
+    const help = event.target?.closest?.('[data-plugin-help]');
+    if (help) {
+      openPluginHelp(getPluginCatalog().plugins_by_key?.[help.dataset.pluginHelp]);
+      return;
+    }
     const saveCredential = event.target?.closest?.('[data-save-study-plugin-credential]');
     if (saveCredential) {
       void saveStudyPluginCredential(saveCredential.dataset.saveStudyPluginCredential || '');
@@ -185,7 +191,10 @@ function renderDestinationPlugins(settings) {
       <div class="stimulus-toggle-row study-plugin-row${enabled ? '' : ' stimulus-toggle-row--off'}" data-study-destination="${escapeHtml(key)}">
         <div class="study-plugin-main">
           <span class="stimulus-toggle-text"><strong>${escapeHtml(plugin.ui?.label || key)}</strong>${plugin.ui?.description ? `<small>${escapeHtml(plugin.ui.description)}</small>` : ''}</span>
-          <label class="switch" aria-label="${escapeHtml(plugin.ui?.label || key)}"><input type="checkbox" data-plugin-enabled ${enabled ? 'checked' : ''}><span class="switch-slider"></span></label>
+          <span class="study-plugin-controls">
+            ${renderPluginHelpButton(plugin)}
+            <label class="switch" aria-label="${escapeHtml(plugin.ui?.label || key)}"><input type="checkbox" data-plugin-enabled ${enabled ? 'checked' : ''}><span class="switch-slider"></span></label>
+          </span>
         </div>
         ${renderPluginStudyFields(key, schema, configured.settings || {})}
         ${renderStudyPluginCredential(plugin)}
@@ -287,7 +296,7 @@ function renderPluginStudyFields(pluginKey, schema, values) {
   if (!entries.length) return '';
   return `<div class="study-plugin-fields">${entries.map(([name, field]) => {
     const value = values[name] ?? field.default ?? '';
-    const label = field.label_key ? t(field.label_key, field.label || humanize(name)) : field.label || humanize(name);
+    const label = fieldLabel(name, field);
     const hint = field.description_key
       ? t(field.description_key, field.description || '')
       : field.description || '';
@@ -303,7 +312,8 @@ function renderPluginStudyFields(pluginKey, schema, values) {
     const limits = field.type === 'number'
       ? `${field.minimum !== undefined ? ` min="${escapeHtml(field.minimum)}"` : ''}${field.maximum !== undefined ? ` max="${escapeHtml(field.maximum)}"` : ''}`
       : '';
-    const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : '';
+    const example = fieldPlaceholder(field);
+    const placeholder = example ? ` placeholder="${escapeHtml(example)}"` : '';
     const unit = field.unit ? ` <small>${escapeHtml(field.unit)}</small>` : '';
     return `<label class="field"><span>${escapeHtml(label)}${unit}</span><input type="${inputType}" data-plugin-setting="${escapeHtml(name)}" data-setting-type="${escapeHtml(field.type || 'string')}" value="${escapeHtml(value)}"${limits}${placeholder}${disabled}${required}>${hint ? `<small class="settings-hint">${escapeHtml(hint)}</small>` : ''}</label>`;
   }).join('')}</div>`;
@@ -313,12 +323,13 @@ function renderStudyPluginCredential(plugin) {
   const credential = plugin.capability_config?.credentials || {};
   if (!credential.config_field || credential.per_study !== true) return '';
   const pluginKey = String(plugin.plugin_key);
-  const label = humanize(credential.config_field);
+  const label = fieldLabel(credential.config_field, credential);
+  const example = fieldPlaceholder(credential);
   return `
     <div class="study-plugin-credential" data-study-plugin-credential="${escapeHtml(pluginKey)}">
       <label class="field">
         <span>${escapeHtml(label)}</span>
-        <input type="password" autocomplete="new-password" data-study-plugin-credential-input>
+        <input type="password" autocomplete="new-password" data-study-plugin-credential-input${example ? ` placeholder="${escapeHtml(example)}"` : ''}>
         <small class="settings-hint" data-study-plugin-credential-state>${escapeHtml(t('studySettings.credentialLoading', 'Checking saved credential...'))}</small>
       </label>
       <div class="dashboard-actions">
@@ -339,7 +350,8 @@ function renderStudyPluginActions(plugin, studySchema) {
   const credentialField = String(plugin.capability_config?.credentials?.config_field || '');
   return `<div class="study-plugin-actions">${actions.map((action) => {
     const additionalFields = Object.entries(action.payload_schema || {})
-      .filter(([name]) => !Object.prototype.hasOwnProperty.call(studySchema || {}, name) && name !== credentialField)
+      .filter(([name]) => !Object.prototype.hasOwnProperty.call(studySchema || {}, name)
+        && name !== credentialField && name !== 'study_id')
       .map(([name, field]) => renderActionField(name, field))
       .join('');
     return `
@@ -355,6 +367,23 @@ function renderStudyPluginActions(plugin, studySchema) {
         <small class="settings-hint" data-study-plugin-action-result="${escapeHtml(action.key)}">${escapeHtml(action.description || '')}</small>
       </div>`;
   }).join('')}</div>`;
+}
+
+/**
+ * Plugins answer an action with ok:false plus an error or a list of named
+ * checks. Show every check, and never report a failed test as success.
+ */
+export function describeActionResult(details = {}) {
+  const checks = Array.isArray(details.checks) ? details.checks.filter((check) => check && typeof check === 'object') : [];
+  const ok = details.ok !== false && checks.every((check) => check.ok !== false);
+  const failed = checks.find((check) => check.ok === false);
+  const summary = ok
+    ? (details.message || details.last_message || t('studySettings.pluginActionDone', 'Action completed.'))
+    : (details.error || failed?.message || details.message || t('studySettings.pluginActionFailed', 'Action failed.'));
+  const lines = checks.length
+    ? checks.map((check) => `<span class="plugin-action-check plugin-action-check--${check.ok === false ? 'failed' : 'ok'}"><i class="iconoir-${check.ok === false ? 'xmark-circle' : 'check-circle'}"></i> ${escapeHtml(check.name ? `${check.name}: ` : '')}${escapeHtml(check.message || '')}</span>`).join('')
+    : `<span class="plugin-action-check plugin-action-check--${ok ? 'ok' : 'failed'}"><i class="iconoir-${ok ? 'check-circle' : 'xmark-circle'}"></i> ${escapeHtml(summary)}</span>`;
+  return { ok, summary, html: lines };
 }
 
 function renderActionField(name, field) {
@@ -440,7 +469,13 @@ async function runStudyPluginAction(button) {
   const actionForm = button.closest('[data-study-plugin-action-form]');
   const credentialField = String(plugin.capability_config?.credentials?.config_field || '');
   const payload = {};
+  // Lets a plugin test with the credential stored for this study.
+  const studyId = String(callbacks.getStudyConfig?.().study_id || '').trim();
+  if (studyId && Object.prototype.hasOwnProperty.call(action.payload_schema || {}, 'study_id')) {
+    payload.study_id = studyId;
+  }
   Object.entries(action.payload_schema || {}).forEach(([name, field]) => {
+    if (name === 'study_id') return;
     let input = [...(row?.querySelectorAll('[data-plugin-setting]') || [])]
       .find((candidate) => candidate.dataset.pluginSetting === name);
     if (!input && name === credentialField) input = row?.querySelector('[data-study-plugin-credential-input]');
@@ -467,8 +502,12 @@ async function runStudyPluginAction(button) {
       payload,
     );
     const details = response?.result || {};
-    if (result) result.textContent = details.message || details.last_message || t('studySettings.pluginActionDone', 'Action completed.');
-    callbacks.showToast?.(t('studySettings.pluginActionDone', 'Action completed.'), 'success');
+    const outcome = describeActionResult(details);
+    if (result) {
+      result.innerHTML = outcome.html;
+      result.classList.toggle('plugin-action-result--failed', !outcome.ok);
+    }
+    callbacks.showToast?.(outcome.summary, outcome.ok ? 'success' : 'error');
   } catch (error) {
     if (result) result.textContent = error.message || t('studySettings.pluginActionFailed', 'Action failed.');
     callbacks.showToast?.(error.message || t('studySettings.pluginActionFailed', 'Action failed.'), 'error');

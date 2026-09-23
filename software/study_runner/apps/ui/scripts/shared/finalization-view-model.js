@@ -11,7 +11,14 @@ export function finalizationProgress(job) {
   };
 }
 
+function hasUnseenUploadFailure(job) {
+  return job?.status === 'completed'
+    && Array.isArray(job.upload_failures) && job.upload_failures.length > 0
+    && !job.attention_acknowledged_at;
+}
+
 function isFinalizationActive(job) {
+  if (hasUnseenUploadFailure(job)) return true;
   if (!job?.job_id || job.status === 'completed') return false;
   // An acknowledged attention job stays attention_required, but no longer needs the widget.
   if (job.status === 'attention_required' && job.attention_acknowledged_at) return false;
@@ -27,8 +34,9 @@ function isFinalizationActive(job) {
 export function pickFinalizationFocus(jobs) {
   const active = (Array.isArray(jobs) ? jobs : []).filter(isFinalizationActive);
   const priority = { attention_required: 0, completed_degraded: 1, running: 2, queued: 3 };
+  const rank = (job) => (hasUnseenUploadFailure(job) ? 0.5 : priority[job.status] ?? 9);
   return active.sort((left, right) => {
-    const statusOrder = (priority[left.status] ?? 9) - (priority[right.status] ?? 9);
+    const statusOrder = rank(left) - rank(right);
     if (statusOrder) return statusOrder;
     return Number(right.created_epoch || 0) - Number(left.created_epoch || 0);
   })[0] || null;

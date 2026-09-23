@@ -334,6 +334,7 @@ def _session_summary(
     identity = _identity(session_root)
     manifest = _optional_json(session_root / "meta" / "manifest.json")
     marker = _marker_payload(session_root)
+    finalization_state = _optional_json(session_root / "meta" / "finalization-state.json")
     answers = payload.get("answers")
     answer_details = payload.get("answer_details")
     return {
@@ -350,7 +351,7 @@ def _session_summary(
         # from the per-machine documents rather than stored a second time.
         "lifecycle": derive_session_lifecycle(
             recording_plan=_optional_json(session_root / "meta" / "recording-plan.json"),
-            finalization_state=_optional_json(session_root / "meta" / "finalization-state.json"),
+            finalization_state=finalization_state,
             terminal_marker=marker,
             withdrawn=(session_root / WITHDRAWN_MARKER).is_file(),
         ),
@@ -368,6 +369,13 @@ def _session_summary(
         # here is the ordinary result, not the tombstone, even though the
         # session is withdrawn.
         "withdrawal_kind": _withdrawal_kind(session_root),
+        # Lets the session view load the finalization steps and retry an
+        # upload long after the live finalization notice is gone.
+        "finalization_job_id": str(finalization_state.get("job_id") or marker.get("job_id") or ""),
+        "finalization_status": str(finalization_state.get("status") or ""),
+        "upload_failures": [
+            str(step) for step in finalization_state.get("upload_failures") or [] if isinstance(step, str)
+        ],
     }
 
 

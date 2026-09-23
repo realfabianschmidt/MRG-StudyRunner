@@ -313,6 +313,7 @@ one, unlike the plugin table above).
 | `admin/sessions-browser.js` | Completed-session hub list, detail panel, and timeline data fetching | careful |
 | `admin/upload-monitor.js` | Background-upload completion modal and the corner progress widget it shrinks to | careful |
 | `admin/finalization-monitor-view.js` | Generic finalization modal/widget renderer and guarded operator actions | careful |
+| `admin/finalization-actions.js` | Retry, degraded confirmation and open-folder for a finalization job, shared by the live notice and the session detail's "Completion & uploads" card | no |
 | `admin/recovery-panel.js` | Hub banner listing crash-orphaned sessions, with finalize/discard actions | careful |
 | `admin/plugin-console.js` | Diagnostics modal: guided plugin status view plus the line-oriented expert console (SSE-fed) | careful |
 | `shared/study-settings.js` | THE client-side study-settings shape; mirrors `_validate_study_settings` | no |
@@ -326,6 +327,7 @@ one, unlike the plugin table above).
 | `shared/settings-shell.js` | Shared left-nav/right-panel wiring for both settings surfaces | careful |
 | `shared/dom-utils.js` | Shared safe DOM lookup, text/HTML assignment, and escaping helpers | careful |
 | `shared/rich-text.js` | Escape-first formatted text (a small Markdown subset) and the text-beside-image layout used by the info card and cover page | careful |
+| `shared/plugin-help.js` | The "(?)" setup help for a plugin: labels, example values and plain-language explanations, all from manifest translation keys | no |
 | `shared/media-editor.js` | Editor fields for that content: title, text, image upload/removal, image description, layout | careful |
 | `shared/modal.js` | Shared accessible modal lifecycle, modal-shell markup, and the yes/no confirmation | careful |
 | `shared/branding.js` | Shared branding fetch and logo rendering for the waiting slide and the hub | careful |

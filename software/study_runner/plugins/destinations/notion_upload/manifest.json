@@ -19,6 +19,7 @@
   "ui": {
     "label": "Notion upload",
     "description": "Publishes finalized result and card-summary JSON to Notion.",
+    "help_key": "pluginHelp.notion.intro",
     "order": 600,
     "visibility": {
       "dashboard": false,
@@ -56,7 +57,10 @@
     "credentials": {
       "config_field": "api_key",
       "env_var": "STUDY_RUNNER_NOTION_API_KEY",
-      "per_study": true
+      "per_study": true,
+      "label_key": "pluginSettings.notion.apiKey.label",
+      "placeholder_key": "pluginSettings.notion.apiKey.placeholder",
+      "help_key": "pluginHelp.notion.apiKey"
     },
     "admin_actions": {
       "actions": [
@@ -65,6 +69,9 @@
           "label": "Test connection",
           "payload_schema": {
             "api_key": {"type": "string", "required": false, "max_length": 256},
+            "parent_page_id": {"type": "string", "required": false, "max_length": 256},
+            "database_id": {"type": "string", "required": false, "max_length": 256},
+            "study_id": {"type": "string", "required": false, "max_length": 256},
             "timeout_seconds": {"type": "integer", "required": false, "minimum": 1, "maximum": 120}
           }
         }
@@ -89,9 +96,24 @@
       }
     },
     "study": {
-      "parent_page_id": {"type": "string", "default": ""},
-      "database_id": {"type": "string", "default": ""},
-      "data_source_id": {"type": "string", "default": "", "read_only": true}
+      "parent_page_id": {
+        "type": "string", "default": "",
+        "label_key": "pluginSettings.notion.parentPageId.label",
+        "placeholder_key": "pluginSettings.notion.parentPageId.placeholder",
+        "help_key": "pluginHelp.notion.parentPageId"
+      },
+      "database_id": {
+        "type": "string", "default": "",
+        "label_key": "pluginSettings.notion.databaseId.label",
+        "placeholder_key": "pluginSettings.notion.databaseId.placeholder",
+        "help_key": "pluginHelp.notion.databaseId"
+      },
+      "data_source_id": {
+        "type": "string", "default": "", "read_only": true,
+        "label_key": "pluginSettings.notion.dataSourceId.label",
+        "placeholder_key": "pluginSettings.notion.dataSourceId.placeholder",
+        "help_key": "pluginHelp.notion.dataSourceId"
+      }
     },
     "card_actions": {}
   },

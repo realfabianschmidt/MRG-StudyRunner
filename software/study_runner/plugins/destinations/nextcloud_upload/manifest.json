@@ -18,6 +18,7 @@
   "ui": {
     "label": "Nextcloud upload",
     "description": "Mirrors immutable session artifacts to a Nextcloud share.",
+    "help_key": "pluginHelp.nextcloud.intro",
     "order": 610,
     "visibility": {
       "dashboard": false,
@@ -47,7 +48,10 @@
     "credentials": {
       "config_field": "password",
       "env_var": "STUDY_RUNNER_NEXTCLOUD_PASSWORD",
-      "per_study": true
+      "per_study": true,
+      "label_key": "pluginSettings.nextcloud.password.label",
+      "placeholder_key": "pluginSettings.nextcloud.password.placeholder",
+      "help_key": "pluginHelp.nextcloud.password"
     },
     "admin_actions": {
       "actions": [
@@ -57,6 +61,7 @@
           "payload_schema": {
             "share_link": {"type": "string", "required": true, "max_length": 2048},
             "password": {"type": "string", "required": false, "max_length": 256},
+            "study_id": {"type": "string", "required": false, "max_length": 256},
             "timeout_seconds": {"type": "integer", "required": false, "minimum": 1, "maximum": 120}
           }
         }
@@ -67,7 +72,12 @@
   "settings": {
     "machine": {},
     "study": {
-      "share_link": {"type": "url", "format": "nextcloud_public_share", "default": ""}
+      "share_link": {
+        "type": "url", "format": "nextcloud_public_share", "default": "",
+        "label_key": "pluginSettings.nextcloud.shareLink.label",
+        "placeholder_key": "pluginSettings.nextcloud.shareLink.placeholder",
+        "help_key": "pluginHelp.nextcloud.shareLink"
+      }
     },
     "card_actions": {}
   },

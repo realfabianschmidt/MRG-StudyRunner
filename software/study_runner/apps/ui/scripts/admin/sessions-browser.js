@@ -10,6 +10,12 @@ import { t } from '../shared/i18n.js';
 import { byId, escapeHtml, formatDateTime, formatFileSize, setHidden, setText } from '../shared/dom-utils.js';
 import { createModal } from '../shared/modal.js';
 import { bindTimelineMarkers, renderSessionTimeline, updateStreamPoints } from './session-timeline.js';
+import { renderFinalizationJob } from './finalization-monitor-view.js';
+import {
+  confirmDegradedFinalization,
+  openFinalizationFolder,
+  retryFinalizationStep,
+} from './finalization-actions.js';
 
 const MAX_HUB_ITEMS = 25;
 const HUB_REFRESH_INTERVAL_MS = 10000;
@@ -19,6 +25,8 @@ let initialized = false;
 let currentMarkers = [];
 let currentSession = null;
 let refreshTimer = null;
+let finalizationTimer = null;
+const FINALIZATION_REFRESH_MS = 3000;
 
 export function initializeSessionsBrowser(options = {}) {
   callbacks = options;
@@ -102,7 +110,9 @@ async function openSessionDetail(studyId, participantId, sessionId, sessionFolde
     if (sessionFolder) params.set('session_folder', sessionFolder);
     const query = params.size ? `?${params.toString()}` : '';
     const session = await getJson(`/api/admin/sessions/${encodeURIComponent(studyId)}/${encodeURIComponent(participantId)}${query}`);
+    currentSession = session;
     renderSessionSummary(session);
+    void renderFinalizationCard(session);
     renderAnswerList(session);
     renderFileList(session);
     await renderTimeline(session);
@@ -506,8 +516,14 @@ function formatAnswerValue(value) {
   return String(value);
 }
 
-function sessionTags(session) {
+export function sessionTags(session) {
   const tags = [];
+  if (['queued', 'running'].includes(session.finalization_status)) {
+    tags.push(t('sessions.finalizingTag', 'finalizing'));
+  }
+  if (Array.isArray(session.upload_failures) && session.upload_failures.length) {
+    tags.push(t('sessions.uploadFailedTag', 'upload failed'));
+  }
   if (session.status === 'attention_required') {
     tags.push(t('sessions.attentionTag', 'attention required'));
   } else if (session.status === 'completed_degraded' || session.quality_status === 'degraded') {
@@ -515,6 +531,46 @@ function sessionTags(session) {
   }
   if (session.recovered) tags.push(t('sessions.recoveredTag', 'recovered'));
   return tags;
+}
+
+/**
+ * The steps after submit (validation, merge, uploads) with retry buttons.
+ * Unlike the live finalization notice this stays available for as long as the
+ * session exists, so a failed upload can be fixed and retried later.
+ */
+async function renderFinalizationCard(session) {
+  window.clearTimeout(finalizationTimer);
+  const card = byId('session-finalization-card');
+  const body = byId('session-finalization-body');
+  const jobId = session?.finalization_job_id;
+  if (!card || !body || !jobId) {
+    setHidden(card, true);
+    return;
+  }
+  let job;
+  try {
+    job = (await getJson(`/api/finalization/${encodeURIComponent(jobId)}`, { timeoutMs: 3000 }))?.job;
+  } catch (error) {
+    console.error('[sessions] Could not load the finalization steps:', error);
+  }
+  if (currentSession?.finalization_job_id !== jobId) return; // another session was opened meanwhile
+  if (!job) {
+    setHidden(card, true);
+    return;
+  }
+  setHidden(card, false);
+  const reload = () => renderFinalizationCard(currentSession);
+  const options = { showToast: callbacks.showToast, onDone: reload };
+  renderFinalizationJob(body, job, {
+    onRetry: (id, stepKey) => retryFinalizationStep(id, stepKey, options),
+    onConfirmDegraded: (id, reason) => confirmDegradedFinalization(id, reason, options),
+    onOpenFolder: (id) => openFinalizationFolder(id, options),
+  });
+  const stillWorking = ['queued', 'running'].includes(job.status)
+    || (job.steps || []).some((step) => ['running', 'retrying', 'pending'].includes(step.status) && String(step.key || '').startsWith('publish_'));
+  if (stillWorking && byId('view-session-detail')?.classList.contains('active')) {
+    finalizationTimer = window.setTimeout(() => void reload(), FINALIZATION_REFRESH_MS);
+  }
 }
 
 function formatDuration(totalSeconds) {

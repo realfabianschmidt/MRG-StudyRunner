@@ -22,6 +22,7 @@ from study_runner.runtime_core.settings.folder_open_service import (
 )
 from study_runner.runtime_core.delivery.upload_jobs_service import (
     MAX_RETRY_AGE_SECONDS,
+    PermanentUploadError,
     UploadJobService,
     retry_delay_seconds,
 )
@@ -142,6 +143,19 @@ class UploadJobServiceTests(unittest.TestCase):
             job = service.status()["sessions"][0]["jobs"][0]
             self.assertEqual(job["status"], "failed")
             self.assertIn("still offline", job["last_error"])
+
+    def test_permanent_failure_fails_at_once_with_the_real_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            def rejected(_payload):
+                raise PermanentUploadError("Notion upload: Notion rejected the API key.")
+
+            service = UploadJobService(Path(temp_dir), executors={"notion": rejected}, clock=ManualClock())
+            service.enqueue(**job_arguments())
+            service.process_due_jobs_once()
+
+            job = service.status()["sessions"][0]["jobs"][0]
+            self.assertEqual(job["status"], "failed", "retrying cannot fix a rejected key")
+            self.assertIn("rejected the API key", job["last_error"])
 
     def test_legacy_queue_migration_is_idempotent_and_preserves_bad_input(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

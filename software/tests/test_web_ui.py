@@ -417,15 +417,23 @@ class SettingsShellTests(unittest.TestCase):
         en = _json.loads(_read(WEB / "locales" / "en.json"))
         de = _json.loads(_read(WEB / "locales" / "de.json"))
 
+        # Every translation key a manifest names: field labels, examples and
+        # help, the credential's, and the plugin's help introduction. rglob,
+        # because plugins live one level deeper (sensors/, destinations/, ...).
+        text_keys = ("label_key", "placeholder_key", "help_key", "description_key")
         referenced: set[str] = set()
-        for manifest_path in (PROJECT_ROOT / "study_runner" / "plugins").glob("*/manifest.json"):
+        for manifest_path in (PROJECT_ROOT / "study_runner" / "plugins").rglob("manifest.json"):
             manifest = _json.loads(_read(manifest_path))
+            fields = []
             for scope in (manifest.get("settings") or {}).values():
-                if not isinstance(scope, dict):
-                    continue
-                for field in scope.values():
-                    if isinstance(field, dict) and field.get("label_key"):
-                        referenced.add(field["label_key"])
+                if isinstance(scope, dict):
+                    fields.extend(field for field in scope.values() if isinstance(field, dict))
+            fields.append((manifest.get("capabilities") or {}).get("credentials") or {})
+            fields.append(manifest.get("ui") or {})
+            for field in fields:
+                for key in text_keys:
+                    if field.get(key):
+                        referenced.add(field[key])
 
         self.assertEqual(sorted(referenced - set(en)), [], "label keys missing from en.json")
         self.assertEqual(sorted(referenced - set(de)), [], "label keys missing from de.json")

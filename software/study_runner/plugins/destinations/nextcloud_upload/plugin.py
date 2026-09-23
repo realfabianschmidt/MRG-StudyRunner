@@ -25,7 +25,7 @@ def _status(context: PluginContext) -> dict[str, Any]:
 
 
 def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
-    from .webdav_client import NextcloudPublicShareClient
+    from .webdav_client import NextcloudError, NextcloudPublicShareClient
 
     config_data = payload.get("config_data") or {}
     study_settings = config_data.get("study_settings") or {}
@@ -75,16 +75,22 @@ def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
         }
 
     result_payload = payload.get("result_payload") or {}
-    return NextcloudPublicShareClient(
-        share_link,
-        password=password,
-        timeout_seconds=timeout_seconds,
-    ).upload_session_folder(
-        local_folder,
-        study_id=str(result_payload.get("study_id") or ""),
-        participant_id=str(result_payload.get("participant_id") or ""),
-        session_relative_path=str(saved_output.get("session_relative_path") or ""),
-    )
+    try:
+        return NextcloudPublicShareClient(
+            share_link,
+            password=password,
+            timeout_seconds=timeout_seconds,
+        ).upload_session_folder(
+            local_folder,
+            study_id=str(result_payload.get("study_id") or ""),
+            participant_id=str(result_payload.get("participant_id") or ""),
+            session_relative_path=str(saved_output.get("session_relative_path") or ""),
+        )
+    except NextcloudError as error:
+        if not error.permanent:
+            raise
+        # Retrying cannot fix a rejected password or a deleted share.
+        return {"ok": False, "permanent": True, "error": str(error)}
 
 
 def _run_admin_action(
@@ -100,7 +106,9 @@ def _run_admin_action(
     share_link = str(payload.get("share_link") or "").strip()
     # An omitted password means "use whatever is already stored" - the
     # operator is testing before saving what they just typed.
-    password = str(payload.get("password") or "") or context.secret("nextcloud")
+    password = str(payload.get("password") or "") or context.secret(
+        "nextcloud", str(payload.get("study_id") or "").strip()
+    )
     timeout_seconds = int(payload.get("timeout_seconds") or 10)
     return test_connection(share_link, password=password, timeout_seconds=timeout_seconds)
 

@@ -198,10 +198,13 @@ class UploadJobDestinationHandler:
             return StepResult("done", details)
         if status == "failed":
             raise FinalizationError(str(existing.get("last_error") or f"{destination} upload failed."))
-        raise DeferredStep(
-            f"{destination} upload is {status or 'queued'}.",
-            retry_after_seconds=1.0,
-        )
+        # Wait for the upload queue's own next attempt instead of polling every
+        # second, and show why the previous attempt failed.
+        last_error = str(existing.get("last_error") or "").strip()
+        message = f"{destination} upload is {status or 'queued'}"
+        if last_error:
+            message += f"; last attempt: {last_error}"
+        raise DeferredStep(message + ".", retry_after_seconds=_seconds_until(existing.get("next_attempt_at")))
 
     def retry(self, destination: str, context: FinalizationContext) -> None:
         """Retry the deterministic upload job behind a finalization step.
@@ -497,6 +500,7 @@ class FinalizationService:
             self._reset_from(state, target)
             if destination_definition is not None and previous_status in {
                 "attention_required",
+                "completed",
                 "completed_degraded",
             }:
                 # A network retry cannot change the already established
@@ -521,8 +525,13 @@ class FinalizationService:
         """
         with self._lock:
             state = self._require_state(job_id)
-            if state.get("status") != "attention_required":
-                raise InvalidTransitionError("Only an attention-required finalization can be acknowledged.")
+            needs_notice = state.get("status") == "attention_required" or (
+                state.get("status") == "completed" and state.get("upload_failures")
+            )
+            if not needs_notice:
+                raise InvalidTransitionError(
+                    "Only an attention-required finalization or a failed upload can be acknowledged."
+                )
             if not state.get("attention_acknowledged_at"):
                 state["attention_acknowledged_at"] = _iso_time(self._clock())
                 self._persist_state(state, event={"event": "attention_acknowledged"})
@@ -659,6 +668,7 @@ class FinalizationService:
             "steps",
             "degraded_confirmation",
             "attention_acknowledged_at",
+            "upload_failures",
         )
         return deepcopy({key: state[key] for key in allowed if key in state})
 
@@ -726,6 +736,10 @@ class FinalizationService:
                 self._advance_destinations(state, degraded=True)
                 return
             if state.get("status") == "completed":
+                # Only an operator retry of a failed upload brings work here;
+                # the local dataset is already complete and stays sealed.
+                self._advance_destinations(state, degraded=False)
+                self._record_upload_failures(state)
                 return
             state["status"] = "running"
             self._persist_state(state, event={"event": "finalization_running"})
@@ -766,7 +780,26 @@ class FinalizationService:
                 return
             state["status"] = "completed"
             state["quality_status"] = "valid"
+            self._record_upload_failures(state, persist=False)
             self._persist_state(state, event={"event": "finalization_completed"})
+
+    def _record_upload_failures(self, state: dict[str, Any], *, persist: bool = True) -> None:
+        """Name the uploads that failed, so lists can show it without reading steps."""
+        failures = [
+            definition.step_key
+            for definition in self._destinations(state)
+            if _step(state, definition.step_key)["status"] == "failed"
+        ]
+        if failures == list(state.get("upload_failures") or []):
+            return
+        if failures:
+            state["upload_failures"] = failures
+            # A new failure deserves a new notice.
+            state.pop("attention_acknowledged_at", None)
+        else:
+            state.pop("upload_failures", None)
+        if persist:
+            self._persist_state(state, event={"event": "upload_failures_updated", "steps": failures})
 
     def _run_step(self, state: dict[str, Any], step_key: str) -> bool:
         step = _step(state, step_key)
@@ -956,7 +989,9 @@ class FinalizationService:
             if step["status"] in {"done", "skipped"}:
                 continue
             if step["status"] == "failed":
-                all_terminal = False
+                # Settled: an upload is a copy of valid local data. The failure
+                # is reported (upload_failures) and can be retried by an
+                # operator, but it must not keep the session "finalizing".
                 continue
             if definition.requires_valid_result and not degraded and any(
                 _step(state, key)["status"] == "failed" for key in CORE_STEPS
@@ -975,10 +1010,10 @@ class FinalizationService:
                 state,
                 step_key,
                 definition.destination,
-            ):
+            ) and step["status"] != "failed":
                 all_terminal = False
         return all_terminal and all(
-            _step(state, definition.step_key)["status"] in {"done", "skipped"}
+            _step(state, definition.step_key)["status"] in {"done", "skipped", "failed"}
             for definition in definitions
         )
 
@@ -1418,6 +1453,12 @@ class FinalizationService:
                 for definition in self._destinations(state)
                 if definition.publish_on_attention
             )
+        if status == "completed":
+            return any(
+                _step(state, definition.step_key)["status"] in {"pending", "retrying"}
+                and float(_step(state, definition.step_key).get("next_attempt_epoch") or 0) <= now
+                for definition in self._destinations(state)
+            )
         if status == "completed_degraded":
             return any(
                 _step(state, definition.step_key)["status"] in {"pending", "retrying"}
@@ -1452,7 +1493,7 @@ class FinalizationService:
         for definition in self._destinations(state):
             step = _step(state, definition.step_key)
             step_status = step["status"]
-            if step_status in {"done", "skipped"}:
+            if step_status in {"done", "skipped", "failed"}:
                 continue
             destinations_terminal = False
             if step_status == "pending" or (
@@ -1482,6 +1523,18 @@ class FinalizationService:
         if state is None:
             raise FinalizationNotFoundError("Finalization job was not found.")
         return state
+
+
+def _seconds_until(iso_value: Any, *, minimum: float = 1.0, maximum: float = 300.0) -> float:
+    """Seconds until an ISO timestamp, clamped so a clock skew never stalls a step."""
+    try:
+        target = dt.datetime.fromisoformat(str(iso_value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return minimum
+    if target.tzinfo is None:
+        target = target.replace(tzinfo=dt.timezone.utc)
+    remaining = target.timestamp() - time.time()
+    return max(minimum, min(maximum, remaining))
 
 
 def _initial_steps(

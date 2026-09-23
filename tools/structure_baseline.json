@@ -10,7 +10,7 @@
     "apps": 0,
     "apps.server": 4353,
     "apps.ui": 0,
-    "contracts": 2692,
+    "contracts": 2703,
     "data_core": 16,
     "data_core.contract": 1184,
     "data_core.host": 6280,
@@ -18,10 +18,10 @@
     "plugin_framework": 2722,
     "plugins": 0,
     "plugins.cards": 1144,
-    "plugins.destinations": 1607,
+    "plugins.destinations": 1710,
     "plugins.outputs": 154,
     "plugins.sensors": 13869,
-    "runtime_core": 13607,
+    "runtime_core": 13682,
     "shared": 448,
     "updates": 271
   }

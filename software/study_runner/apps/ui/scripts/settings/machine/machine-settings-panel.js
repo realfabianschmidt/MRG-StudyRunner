@@ -20,6 +20,7 @@ import { activateShellPanel, bindShellNav, renderShellNav, renderShellPanel } fr
 import { refreshCertificateStatus } from './certificate-settings-controller.js';
 import { refreshBrandingSettings, renderBrandingSettingsPanel } from './branding-settings-controller.js';
 import { refreshFontSettings, renderFontSettingsPanel } from './font-settings-controller.js';
+import { fieldLabel, fieldPlaceholder, openPluginHelp, renderPluginHelpButton } from '../../shared/plugin-help.js';
 import {
   PLUGIN_UI_SURFACES,
   getPluginCatalog,
@@ -112,6 +113,9 @@ export function renderSettingsHubShell() {
   });
   root?.querySelectorAll('[data-clear-plugin-credential]').forEach((button) => {
     button.addEventListener('click', () => void clearPluginCredential(button.dataset.clearPluginCredential));
+  });
+  root?.querySelectorAll('[data-plugin-help]').forEach((button) => {
+    button.addEventListener('click', () => openPluginHelp(getPluginCatalog().plugins_by_key?.[button.dataset.pluginHelp]));
   });
   root?.querySelector('[data-settings-retry]')?.addEventListener('click', () => void loadSettingsHubStatus());
 }
@@ -327,7 +331,7 @@ function renderPluginSettingsPanel(plugin) {
   // same numbers appear in two places with different refresh rates.
   return `
     <div class="settings-hub-plugin">
-      <div class="dashboard-card-title"><i class="${escapeHtml(pluginIcon(plugin))}"></i> <span>${escapeHtml(plugin.label || plugin.key)}</span></div>
+      <div class="dashboard-card-title plugin-card-title-with-help"><i class="${escapeHtml(pluginIcon(plugin))}"></i> <span>${escapeHtml(plugin.label || plugin.key)}</span>${renderPluginHelpButton(plugin.manifest)}</div>
       ${plugin.manifest?.ui?.description ? `<p class="settings-hint">${escapeHtml(plugin.manifest.ui.description)}</p>` : ''}
       ${renderPluginSettingsForm(plugin.key)}
       ${renderPluginCredentialForm(plugin)}
@@ -421,7 +425,9 @@ function renderSettingInput(inputId, field) {
     const max = field.maximum !== null && field.maximum !== undefined ? ` max="${escapeHtml(String(field.maximum))}"` : '';
     return `<input type="number" step="any" id="${inputId}" data-setting-name="${name}" value="${escapeHtml(String(field.value ?? ''))}"${min}${max}>`;
   }
-  return `<input type="text" id="${inputId}" data-setting-name="${name}" value="${escapeHtml(String(field.value ?? ''))}">`;
+  const example = field.placeholder_key ? t(field.placeholder_key, '') : '';
+  const placeholder = example ? ` placeholder="${escapeHtml(example)}"` : '';
+  return `<input type="text" id="${inputId}" data-setting-name="${name}" value="${escapeHtml(String(field.value ?? ''))}"${placeholder}>`;
 }
 
 async function savePluginSettings(pluginKey) {
@@ -470,8 +476,8 @@ function renderPluginCredentialForm(plugin) {
       <div class="dashboard-card-title"><i class="iconoir-key"></i> <span>${escapeHtml(t('pluginSettings.credentialTitle', 'Local credential'))}</span></div>
       <p class="settings-hint">${escapeHtml(t('pluginSettings.credentialHint', 'The saved value remains in the local secret store and is never returned to this page.'))}</p>
       <label class="field">
-        <span>${escapeHtml(humanize(field))}</span>
-        <input type="password" autocomplete="new-password" data-plugin-credential-input>
+        <span>${escapeHtml(fieldLabel(field, credential))}</span>
+        <input type="password" autocomplete="new-password" data-plugin-credential-input${fieldPlaceholder(credential) ? ` placeholder="${escapeHtml(fieldPlaceholder(credential))}"` : ''}>
         <small class="settings-hint" data-plugin-credential-state>${escapeHtml(status)}</small>
       </label>
       <div class="dashboard-actions">

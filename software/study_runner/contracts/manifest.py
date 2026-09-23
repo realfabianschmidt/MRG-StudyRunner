@@ -132,10 +132,13 @@ def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dic
     assets = _normalize_ui_assets(ui.get("assets"))
     timeline = _normalize_timeline_metadata(ui.get("timeline"))
     icon = _optional_text(ui.get("icon"))
+    # Translation key of the plugin's "(?)" help text (title + introduction);
+    # the per-field help lives on each setting as help_key.
+    help_key = _optional_text(ui.get("help_key"))
     unexpected_ui = sorted(
         set(ui) - {
             "label", "description", "order", "visibility", "extensions",
-            "assets", "timeline", "icon",
+            "assets", "timeline", "icon", "help_key",
         }
     )
     if unexpected_ui:
@@ -185,6 +188,7 @@ def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dic
             "assets": assets,
             "timeline": timeline,
             "icon": icon,
+            "help_key": help_key,
         },
         "capabilities": list(capability_config),
         "capability_config": capability_config,
@@ -500,7 +504,8 @@ def _normalize_credentials(config: dict[str, Any]) -> dict[str, Any]:
     someone remembering to keep them in step.
     """
 
-    allowed = {"config_field", "env_var", "per_study"}
+    presentation = ("label_key", "placeholder_key", "help_key")
+    allowed = {"config_field", "env_var", "per_study", *presentation}
     unexpected = sorted(set(config) - allowed)
     if unexpected:
         raise PluginManifestError(
@@ -509,7 +514,13 @@ def _normalize_credentials(config: dict[str, Any]) -> dict[str, Any]:
     config_field = _required_key(config, "config_field", prefix="credentials.")
     env_var = _optional_text(config.get("env_var")) or ""
     per_study = bool(config.get("per_study", False))
-    return {"config_field": config_field, "env_var": env_var, "per_study": per_study}
+    normalized = {"config_field": config_field, "env_var": env_var, "per_study": per_study}
+    # Translation keys only: how the secret's input is labelled and explained.
+    for key in presentation:
+        value = _optional_text(config.get(key))
+        if value:
+            normalized[key] = value
+    return normalized
 
 
 _QUESTION_TYPE_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")

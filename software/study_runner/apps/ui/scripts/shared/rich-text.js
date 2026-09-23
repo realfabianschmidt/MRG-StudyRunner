@@ -3,7 +3,7 @@
  * the study cover page.
  *
  * Everything is HTML-escaped first; only a tiny Markdown subset is then turned
- * into markup: "# " / "## " headings, "- " list items, **bold**, *italic*,
+ * into markup: "# " / "## " headings, "- " list items, **bold**, *italic*, `code`,
  * paragraphs separated by a blank line, and single line breaks. There are no
  * links and no raw HTML, so study text can never inject markup or script.
  */
@@ -13,6 +13,7 @@ export const MEDIA_LAYOUTS = ['text', 'image-left', 'image-right'];
 
 function inline(escaped) {
   return escaped
+    .replace(/`([^`\n]+?)`/g, '<code>$1</code>')
     .replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
 }

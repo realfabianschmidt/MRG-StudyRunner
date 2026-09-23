@@ -15,6 +15,11 @@ import {
 } from '../shared/finalization-view-model.js';
 import { createModal } from '../shared/modal.js';
 import { renderFinalizationJob } from './finalization-monitor-view.js';
+import {
+  confirmDegradedFinalization,
+  openFinalizationFolder,
+  retryFinalizationStep,
+} from './finalization-actions.js';
 
 const POLL_INTERVAL_MS = 3000;
 let callbacks = {};
@@ -207,7 +212,9 @@ function openModal(session) {
  * attention status in the session list and in this modal.
  */
 function acknowledgeAttention(session) {
-  if (!session?.is_finalization || session.status !== 'attention_required' || session.attention_acknowledged_at) return;
+  const needsNotice = session?.status === 'attention_required'
+    || (session?.status === 'completed' && (session.upload_failures || []).length > 0);
+  if (!session?.is_finalization || !needsNotice || session.attention_acknowledged_at) return;
   postJson(`/api/finalization/${encodeURIComponent(session.job_id)}/acknowledge`, {})
     .then((response) => {
       if (!response?.job) return;
@@ -230,10 +237,11 @@ function renderModalBody(session, { force = false } = {}) {
 }
 
 function renderFinalizationBody(job) {
+  const options = { showToast: callbacks.showToast, onDone: poll };
   renderFinalizationJob(modal.body, job, {
-    onRetry: retryFinalizationStep,
-    onConfirmDegraded: confirmDegraded,
-    onOpenFolder: openFinalizationFolder,
+    onRetry: (jobId, stepKey) => retryFinalizationStep(jobId, stepKey, options),
+    onConfirmDegraded: (jobId, reason) => confirmDegradedFinalization(jobId, reason, options),
+    onOpenFolder: (jobId) => openFinalizationFolder(jobId, options),
   });
 }
 
@@ -251,41 +259,6 @@ async function refreshFinalizationDetails(jobId, { force = false } = {}) {
     }
   } catch (error) {
     console.error('[finalization] Could not load finalization details:', error);
-  }
-}
-
-async function retryFinalizationStep(jobId, stepKey) {
-  try {
-    await postJson(`/api/finalization/${encodeURIComponent(jobId)}/retry`, { step: stepKey });
-    await poll();
-  } catch (error) {
-    console.error('[finalization] Step retry failed:', error);
-    callbacks.showToast?.(t('finalization.retryFailed', 'The finalization step could not be retried'), 'error');
-  }
-}
-
-async function confirmDegraded(jobId, reason) {
-  const explanation = String(reason || '').trim();
-  if (!explanation) return;
-  try {
-    await postJson(`/api/finalization/${encodeURIComponent(jobId)}/confirm-degraded`, {
-      reason: explanation,
-      confirmed_by: 'admin',
-    });
-    callbacks.showToast?.(t('finalization.degradedConfirmed', 'Degraded completion confirmed'), 'success');
-    await poll();
-  } catch (error) {
-    console.error('[finalization] Degraded confirmation failed:', error);
-    callbacks.showToast?.(t('finalization.degradedFailed', 'Degraded completion could not be confirmed'), 'error');
-  }
-}
-
-async function openFinalizationFolder(jobId) {
-  try {
-    await postJson(`/api/finalization/${encodeURIComponent(jobId)}/open-folder`, {});
-  } catch (error) {
-    console.error('[finalization] Could not open session folder:', error);
-    callbacks.showToast?.(t('finalization.openFolderFailed', 'Could not open the session folder'), 'error');
   }
 }
 
@@ -434,7 +407,10 @@ function renderWidget() {
     ({ done, total, percent } = progress);
     needsAttention = focusSession.status === 'attention_required'
       || (focusSession.steps || []).some((step) => step.status === 'failed');
-    title = needsAttention
+    const uploadOnly = focusSession.status === 'completed' && (focusSession.upload_failures || []).length > 0;
+    title = uploadOnly
+      ? t('finalization.widgetUploadFailed', 'Saved locally - an upload failed')
+      : needsAttention
       ? t('finalization.widgetAttention', 'Finalization needs attention')
       : t('finalization.widgetProgress', 'Finalizing {done}/{total}').replace('{done}', String(done)).replace('{total}', String(total));
   } else {

@@ -129,6 +129,7 @@ class NotionClientCacheTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertIn("not ready", result["error"])
+        self.assertTrue(result["permanent"], "a switched-off integration cannot fix itself by retrying")
 
     def test_upload_still_skips_when_the_study_disabled_notion(self) -> None:
         self._initialize()

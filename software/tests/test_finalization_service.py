@@ -15,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from study_runner.data_core.host.artifacts import sha256_file
 from study_runner.runtime_core.delivery.artifact_manifest_service import ArtifactManifestStore
 from study_runner.runtime_core.studies.card_summary_service import CardSummaryBuilder
+from study_runner.runtime_core.studies.sessions_index_service import list_sessions
 from study_runner.runtime_core.delivery.destination_plugin_service import (
     DestinationPluginDefinition,
 )
@@ -464,6 +465,41 @@ class FinalizationServiceTests(unittest.TestCase):
             self.assertTrue(state["runtime"]["merge_parity"])
             service.process_due_jobs_once()
             self.assertEqual(service.get(job["job_id"])["status"], "completed")
+
+    def test_failed_upload_completes_the_session_and_stays_retryable(self) -> None:
+        """A failed upload must not leave a valid session 'finalizing' forever."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = FailedPersistentDestinationHandler()
+            service = self._service(Path(temp_dir), destination_handler=destination)
+            job = service.commit_submission(
+                SUBMISSION,
+                config_data={"study_settings": {"notion_enabled": True, "nextcloud_enabled": True}},
+                recording_expected=True,
+            )
+            service.process_due_jobs_once()
+
+            failed = service.get(job["job_id"])
+            self.assertEqual(failed["status"], "completed")
+            self.assertEqual(failed["quality_status"], "valid")
+            self.assertEqual(failed["upload_failures"], ["publish_notion"])
+            self.assertTrue(any("persistent notion upload failed" in warning for warning in failed["warnings"]))
+            steps = {step["key"]: step["status"] for step in failed["steps"]}
+            self.assertEqual(steps["publish_nextcloud"], "done")
+            self.assertIn(steps["archive_session_journals"], {"done", "skipped"})
+            self.assertFalse(service._job_has_due_work(service._jobs[job["job_id"]], 10_000.0))
+            listed = [item for item in list_sessions(Path(temp_dir)) if item["session_id"] == failed["session_id"]]
+            self.assertEqual(len(listed), 1)
+            self.assertEqual(listed[0]["finalization_job_id"], job["job_id"])
+            self.assertEqual(listed[0]["finalization_status"], "completed")
+            self.assertEqual(listed[0]["upload_failures"], ["publish_notion"])
+
+            retried = service.retry(job["job_id"], step_key="publish_notion")
+            self.assertEqual(retried["status"], "completed", "retrying an upload never reopens the sealed session")
+            service.process_due_jobs_once()
+            done = service.get(job["job_id"])
+            self.assertEqual(done["status"], "completed")
+            self.assertNotIn("upload_failures", done)
+            self.assertEqual(next(s for s in done["steps"] if s["key"] == "publish_notion")["status"], "done")
 
     def test_local_source_purge_requires_matching_remote_hashes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

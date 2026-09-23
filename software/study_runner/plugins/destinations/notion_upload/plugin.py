@@ -83,11 +83,15 @@ def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    # The key is usually stored per study (Study settings > Notion); the
+    # machine-level key is only the fallback.
+    study_id = str(config_data.get("study_id") or "").strip()
     return adapter.upload_study_result(
         result_payload=payload.get("result_payload") or {},
         hardware_config=payload.get("hardware_config") or context.hardware_config,
         saved_output=payload.get("saved_output") or {},
         config_data=config_data,
+        api_key=context.secret("notion", study_id),
     )
 
 
@@ -103,9 +107,15 @@ def _run_admin_action(
 
     # An empty/omitted key means "use whatever is already stored" - the
     # operator is testing before saving what they just typed.
-    api_key = str(payload.get("api_key") or "").strip() or context.secret("notion")
+    study_id = str(payload.get("study_id") or "").strip()
+    api_key = str(payload.get("api_key") or "").strip() or context.secret("notion", study_id)
     timeout_seconds = int(payload.get("timeout_seconds") or 10)
-    return adapter.test_connection(api_key=api_key, timeout_seconds=timeout_seconds)
+    return adapter.test_connection(
+        api_key=api_key,
+        timeout_seconds=timeout_seconds,
+        parent_page_id=str(payload.get("parent_page_id") or ""),
+        database_id=str(payload.get("database_id") or ""),
+    )
 
 
 PLUGIN = Plugin(
