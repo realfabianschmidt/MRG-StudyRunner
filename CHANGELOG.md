@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.3.1 - 2026-09-24
+
 ### Added
 
 - AM Hub dashboard shows movement, breathing rate and heart rate as headline
