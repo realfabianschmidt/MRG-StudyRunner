@@ -24,7 +24,7 @@
   },
   "ui": {
     "label": "AM Hub",
-    "description": "Presence, position and movement from the Parasite AM Hub. Heart rate and breathing arrive once the hub forwards them.",
+    "description": "Presence, position, movement, vitals, valve state and link quality/latency from the Parasite AM Hub.",
     "order": 120,
     "visibility": {
       "dashboard": true,
@@ -69,7 +69,7 @@
           "channel": "moveEnergy"
         },
         {
-          "output": "distance_m",
+          "output": "distance_mm",
           "stream": "position",
           "channel": "personDist"
         },
@@ -121,6 +121,36 @@
       "channel_format": "float32",
       "channels": ["heartRate", "breathRate", "bioDistance", "bioX", "bioY"],
       "channel_units": ["beats_per_minute", "breaths_per_minute", "millimetre", "millimetre", "millimetre"]
+    },
+    {
+      "key": "radar_detail",
+      "source_id": "study_runner.am_hub.radar_detail",
+      "type": "RADAR_DETAIL",
+      "nominal_rate_hz": 10,
+      "clock_domain": "lsl",
+      "channel_format": "float32",
+      "channels": ["t1res", "t2res", "t3res", "presDetDist"],
+      "channel_units": ["millimetre", "millimetre", "millimetre", "millimetre"]
+    },
+    {
+      "key": "valves",
+      "source_id": "study_runner.am_hub.valves",
+      "type": "VALVES",
+      "nominal_rate_hz": 10,
+      "clock_domain": "lsl",
+      "channel_format": "float32",
+      "channels": ["ch0", "ch1", "ch2", "ch3", "ch4", "ch5", "ch6", "ch7", "sceneActive"],
+      "channel_units": ["boolean", "boolean", "boolean", "boolean", "boolean", "boolean", "boolean", "boolean", "boolean"]
+    },
+    {
+      "key": "hub_status",
+      "source_id": "study_runner.am_hub.hub_status",
+      "type": "HUB_STATUS",
+      "nominal_rate_hz": 10,
+      "clock_domain": "lsl",
+      "channel_format": "float32",
+      "channels": ["radarConnected", "radarTransport", "radarRssi", "radarRateHz", "radarLost", "radarLinkRttMs", "radarLatencyMs", "bioConnected", "bioTransport", "bioRssi", "bioRateHz", "bioLost", "bioLinkRttMs", "bioLatencyMs", "solenoidConnected", "solenoidTransport", "solenoidRssi", "solenoidRateHz", "solenoidLost", "solenoidLinkRttMs", "solenoidLatencyMs", "hubRttMs", "hubDroppedEvents"],
+      "channel_units": ["boolean", "enum", "decibel_milliwatt", "hertz", "count", "millisecond", "millisecond", "boolean", "enum", "decibel_milliwatt", "hertz", "count", "millisecond", "millisecond", "boolean", "enum", "decibel_milliwatt", "hertz", "count", "millisecond", "millisecond", "millisecond", "count"]
     }
   ],
   "settings": {
@@ -165,7 +195,10 @@
   "expected_data_rate": {
     "presence_hz": 10,
     "position_hz": 10,
-    "vitals_hz": 10
+    "vitals_hz": 10,
+    "radar_detail_hz": 10,
+    "valves_hz": 10,
+    "hub_status_hz": 10
   },
   "backpressure": {
     "max_in_flight": 1,

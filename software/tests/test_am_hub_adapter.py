@@ -90,11 +90,127 @@ class SseEventHandlingTests(unittest.TestCase):
         self.assertEqual(sample["presence"], 1.0)
         self.assertEqual(sample["moveEnergy"], 10.0)
 
-    def test_vitals_channel_stays_missing_until_the_hub_forwards_it(self) -> None:
+    def test_a_channel_the_hub_never_sent_stays_missing(self) -> None:
         with mock.patch.object(adapter.time, "time", return_value=1.0):
             adapter._handle_sse_event('{"type":"sample","addr":"/sensor/presence","value":1.0,"t":1.0}')
             adapter._publish_combined_sample()
         self.assertIsNone(adapter._latest_state["latest"]["heartRate"])
+
+    def test_hub_clock_offset_does_not_affect_freshness(self) -> None:
+        # Hub clock 1000 s behind this machine: values must still count as fresh.
+        with mock.patch.object(adapter.time, "time", return_value=5000.0):
+            adapter._handle_sse_event('{"type":"sample","addr":"/sensor/presMoveEnergy","value":5.0,"t":4000.0}')
+            adapter._publish_combined_sample()
+        self.assertEqual(adapter._latest_state["latest"]["moveEnergy"], 5.0)
+
+
+class V2EventTests(unittest.TestCase):
+    def setUp(self) -> None:
+        _reset_adapter_state()
+        adapter._config = {"enabled": True, "base_url": "http://hub", "lsl_enabled": False}
+        adapter._running = True
+        adapter._hub_rtts.clear()
+        adapter._hub_boards.clear()
+        adapter._frame_counts.clear()
+        adapter._seq_gaps.clear()
+        adapter._last_seq.clear()
+        adapter._hub_dropped_events = 0
+
+    def _frame(self, seq: int, values: dict, device: str = "radar_hub", role: str = "radar") -> str:
+        import json
+        return json.dumps({"type": "frame", "device": device, "role": role, "seq": seq,
+                           "t": 1.0, "values": values, "server_now": 1.0})
+
+    def test_frame_updates_all_values_of_the_packet_together(self) -> None:
+        with mock.patch.object(adapter.time, "time", return_value=10.0):
+            adapter._handle_sse_event(self._frame(1, {
+                "/sensor/personX": 12.0, "/sensor/personY": 34.0, "/sensor/t1res": 320.0,
+                "/sensor/presDetDist": 1500.0}))
+            adapter._publish_combined_sample()
+        latest = adapter._latest_state["latest"]
+        self.assertEqual((latest["personX"], latest["personY"]), (12.0, 34.0))
+        self.assertEqual(latest["t1res"], 320.0)
+        self.assertEqual(latest["presDetDist"], 1500.0)
+
+    def test_sequence_gaps_are_counted(self) -> None:
+        for seq in (1, 2, 5, 6):
+            adapter._handle_sse_event(self._frame(seq, {"/sensor/personX": 1.0}))
+        self.assertEqual(adapter._seq_gaps["radar_hub"], 2)
+        self.assertEqual(adapter._frame_counts["radar_hub"], 4)
+
+    def test_valve_topics_and_scene_state_reach_the_valves_stream(self) -> None:
+        with mock.patch.object(adapter.time, "time", return_value=10.0):
+            adapter._handle_sse_event(self._frame(1, {"/solenoid/CH3": 1.0}, "solenoid_hub", "solenoid"))
+            adapter._handle_sse_event('{"type":"valves","channels":[0,0,0,1,0,0,0,0],"scene_active":true,"server_now":1.0}')
+            adapter._publish_combined_sample()
+        latest = adapter._latest_state["latest"]
+        self.assertEqual(latest["ch3"], 1.0)
+        self.assertEqual(latest["sceneActive"], 1.0)
+
+    def test_status_yields_per_board_latency(self) -> None:
+        adapter._hub_rtts.extend([4.0, 4.0, 4.0])
+        status = ('{"type":"status","server_now":1.0,"devices":{"radar_hub":{"role":"radar","connected":true,'
+                  '"transport":"ble","rssi":-60,"rate_hz":10.0,"gap_count":3,"link_rtt_ms":20.0,"hub_latency_ms":1.5}}}')
+        with mock.patch.object(adapter.time, "time", return_value=10.0):
+            adapter._handle_sse_event(status)
+            adapter._publish_combined_sample()
+        latest = adapter._latest_state["latest"]
+        self.assertEqual(latest["radarLatencyMs"], 20.0 / 2 + 1.5 + 4.0 / 2)
+        self.assertEqual(latest["radarTransport"], 1.0)
+        self.assertEqual(latest["radarLost"], 3.0)
+        self.assertEqual(latest["hubRttMs"], 4.0)
+        self.assertEqual(adapter.get_status()["hub_boards"]["radar"]["latency_ms"], 13.5)
+
+    def test_hub_gap_events_are_counted(self) -> None:
+        adapter._handle_sse_event('{"type":"gap","dropped":7,"server_now":1.0}')
+        self.assertEqual(adapter.get_status()["data_quality"]["hub_dropped_events"], 7)
+
+    def test_hub_state_does_not_count_as_sensor_activity(self) -> None:
+        with mock.patch.object(adapter.time, "time", return_value=10.0):
+            adapter._handle_sse_event('{"type":"valves","channels":[],"scene_active":false,"server_now":1.0}')
+        self.assertIsNone(adapter._last_topic_update_epoch)
+
+
+class ConnectionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        _reset_adapter_state()
+
+    def test_falls_back_to_v1_when_the_hub_has_no_v2(self) -> None:
+        requested = []
+
+        class Response:
+            def __init__(self, status: int) -> None:
+                self.status_code = status
+
+            def raise_for_status(self) -> None:
+                pass
+
+            def iter_lines(self, decode_unicode: bool = True):
+                adapter._running = False     # end the loop after the v1 connect
+                return iter([])
+
+            def close(self) -> None:
+                pass
+
+        def fake_get(url, **_kwargs):
+            requested.append(url)
+            return Response(404 if url.endswith("/api/v2/stream") else 200)
+
+        adapter._config = {"enabled": True, "base_url": "http://hub", "reconnect_delay_seconds": 1.0,
+                           "auto_reconnect": False}
+        adapter._running = True
+        adapter._generation = 1
+        with mock.patch("requests.get", side_effect=fake_get):
+            adapter._sse_loop(1)
+        self.assertEqual(requested, ["http://hub/api/v2/stream", "http://hub/api/v1/stream"])
+        self.assertEqual(adapter._api_version, "v1")
+
+    def test_threads_of_an_old_run_stop_after_restart(self) -> None:
+        adapter._running = True
+        adapter._generation = 5
+        self.assertTrue(adapter._alive(5))
+        adapter._generation = 6
+        self.assertFalse(adapter._alive(5))
 
 
 class PreviewTests(unittest.TestCase):
