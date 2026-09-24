@@ -10,7 +10,7 @@ import { t } from '../shared/i18n.js';
 import { byId, escapeHtml, formatDateTime, formatFileSize, setHidden, setText } from '../shared/dom-utils.js';
 import { createModal } from '../shared/modal.js';
 import { bindTimelineMarkers, renderSessionTimeline, updateStreamPoints } from './session-timeline.js';
-import { renderFinalizationJob } from './finalization-monitor-view.js';
+import { renderSessionProgressRail } from './session-progress-rail.js';
 import {
   confirmDegradedFinalization,
   openFinalizationFolder,
@@ -33,7 +33,6 @@ export function initializeSessionsBrowser(options = {}) {
   if (initialized) return;
   initialized = true;
 
-  byId('btn-session-back')?.addEventListener('click', () => callbacks.switchView?.('view-hub'));
   byId('btn-session-withdraw')?.addEventListener('click', () => {
     if (currentSession) void openWithdrawalModal(currentSession);
   });
@@ -98,7 +97,7 @@ function renderHubList(listEl, sessions) {
   });
 }
 
-async function openSessionDetail(studyId, participantId, sessionId, sessionFolder) {
+export async function openSessionDetail(studyId, participantId, sessionId, sessionFolder) {
   callbacks.switchView?.('view-session-detail');
   setText('session-detail-title', t('sessions.detailLoading', 'Loading ...'));
   setText('session-detail-subtitle', '');
@@ -112,7 +111,7 @@ async function openSessionDetail(studyId, participantId, sessionId, sessionFolde
     const session = await getJson(`/api/admin/sessions/${encodeURIComponent(studyId)}/${encodeURIComponent(participantId)}${query}`);
     currentSession = session;
     renderSessionSummary(session);
-    void renderFinalizationCard(session);
+    void renderProgressRail(session);
     renderAnswerList(session);
     renderFileList(session);
     await renderTimeline(session);
@@ -534,38 +533,33 @@ export function sessionTags(session) {
 }
 
 /**
- * The steps after submit (validation, merge, uploads) with retry buttons.
- * Unlike the live finalization notice this stays available for as long as the
- * session exists, so a failed upload can be fixed and retried later.
+ * The session's whole course, left to right: started, ended, then every step
+ * after submit (validation, merge, uploads) with retry buttons. It stays
+ * available for as long as the session exists, so a failed upload can be
+ * fixed and retried later, and it is where the finalization notice leads.
  */
-async function renderFinalizationCard(session) {
+async function renderProgressRail(session) {
   window.clearTimeout(finalizationTimer);
-  const card = byId('session-finalization-card');
-  const body = byId('session-finalization-body');
-  const jobId = session?.finalization_job_id;
-  if (!card || !body || !jobId) {
-    setHidden(card, true);
-    return;
+  const body = byId('session-progress-rail');
+  if (!body || !session) return;
+  const jobId = session.finalization_job_id;
+  let job = null;
+  if (jobId) {
+    try {
+      job = (await getJson(`/api/finalization/${encodeURIComponent(jobId)}`, { timeoutMs: 3000 }))?.job || null;
+    } catch (error) {
+      console.error('[sessions] Could not load the finalization steps:', error);
+    }
   }
-  let job;
-  try {
-    job = (await getJson(`/api/finalization/${encodeURIComponent(jobId)}`, { timeoutMs: 3000 }))?.job;
-  } catch (error) {
-    console.error('[sessions] Could not load the finalization steps:', error);
-  }
-  if (currentSession?.finalization_job_id !== jobId) return; // another session was opened meanwhile
-  if (!job) {
-    setHidden(card, true);
-    return;
-  }
-  setHidden(card, false);
-  const reload = () => renderFinalizationCard(currentSession);
+  if (currentSession !== session) return; // another session was opened meanwhile
+  const reload = () => renderProgressRail(currentSession);
   const options = { showToast: callbacks.showToast, onDone: reload };
-  renderFinalizationJob(body, job, {
+  renderSessionProgressRail(body, session, job, {
     onRetry: (id, stepKey) => retryFinalizationStep(id, stepKey, options),
     onConfirmDegraded: (id, reason) => confirmDegradedFinalization(id, reason, options),
     onOpenFolder: (id) => openFinalizationFolder(id, options),
   });
+  if (!job) return;
   const stillWorking = ['queued', 'running'].includes(job.status)
     || (job.steps || []).some((step) => ['running', 'retrying', 'pending'].includes(step.status) && String(step.key || '').startsWith('publish_'));
   if (stillWorking && byId('view-session-detail')?.classList.contains('active')) {

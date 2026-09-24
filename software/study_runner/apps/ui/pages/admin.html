@@ -588,13 +588,16 @@
           <button class="btn-secondary--danger btn-secondary" id="btn-session-withdraw" type="button">
             <i class="iconoir-trash"></i> <span data-i18n="sessions.withdraw.button">Withdraw consent</span>
           </button>
-          <button class="btn-secondary" id="btn-session-back" type="button">
-            <i class="iconoir-home"></i> <span data-i18n="sessions.backToHub">Back to hub</span>
-          </button>
         </div>
       </div>
 
       <div class="dashboard-grid settings-grid">
+        <article class="dashboard-card dashboard-card--wide" id="session-progress-card">
+          <div class="dashboard-card-title"><i class="iconoir-git-commit"></i> <span data-i18n="sessions.rail.title">Session progress</span></div>
+          <div class="settings-hint" data-i18n="sessions.finalizationHint">Every step after the participant pressed submit. A failed upload does not affect the saved data; fix the cause (for example the credentials) and try again here.</div>
+          <div id="session-progress-rail"></div>
+        </article>
+
         <article class="dashboard-card dashboard-card--wide">
           <div class="dashboard-card-title"><i class="iconoir-database"></i> <span data-i18n="sessions.whatWasRecorded">What was recorded</span></div>
           <div class="status-grid status-grid--row">
@@ -619,12 +622,6 @@
               <div class="settings-hint" id="session-files-hint"></div>
             </div>
           </div>
-        </article>
-
-        <article class="dashboard-card dashboard-card--wide" id="session-finalization-card" hidden>
-          <div class="dashboard-card-title"><i class="iconoir-cloud-upload"></i> <span data-i18n="sessions.finalizationTitle">Completion &amp; uploads</span></div>
-          <div class="settings-hint" data-i18n="sessions.finalizationHint">Every step after the participant pressed submit. A failed upload does not affect the saved data; fix the cause (for example the credentials) and try again here.</div>
-          <div id="session-finalization-body"></div>
         </article>
 
         <article class="dashboard-card dashboard-card--wide" id="session-quality-card">

@@ -395,6 +395,9 @@ def start() -> None:
             )
             return
         _desired_running = True
+        # A new run starts with no samples from an earlier participant.
+        _history.clear()
+        _history_last_epoch_by_tag.clear()
         _stream_contract_ready.clear()
         _eeg_lsl_channels = ()
         _lsl_outlets.pop("EEG", None)

@@ -190,6 +190,8 @@ def start() -> dict[str, Any]:
 
         _running = True
         _stop_event.clear()
+        # A new run starts with no samples from an earlier participant.
+        _history.clear()
         with _topics_lock:
             _topics.clear()
         _reader_thread = threading.Thread(target=_sse_loop, daemon=True)

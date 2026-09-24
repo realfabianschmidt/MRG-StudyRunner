@@ -4,8 +4,9 @@ import { initializeCertificateSettings } from '../settings/machine/certificate-s
 import { initializeBrandingSettings } from '../settings/machine/branding-settings-controller.js';
 import { initializeFontSettings } from '../settings/machine/font-settings-controller.js';
 import { applyFonts, loadBranding, renderGroupLogo } from '../shared/branding.js';
-import { initializeSessionsBrowser, loadCompletedSessions } from './sessions-browser.js';
+import { initializeSessionsBrowser, loadCompletedSessions, openSessionDetail } from './sessions-browser.js';
 import { initializeUploadMonitor } from './upload-monitor.js';
+import { initializeOperatorNotices } from './operator-notices.js';
 import { initializeRecoveryPanel, loadRecoveryCandidates } from './recovery-panel.js';
 import { defaultStudySettings, normalizeStudySettings } from '../shared/study-settings.js';
 import { transitionToView } from '../shared/view-transition.js';
@@ -238,7 +239,17 @@ async function init() {
     downloadCurrentStudy: () => void downloadStudy(getCurrentStudyName()),
   });
   initializeSessionsBrowser({ showToast, switchView });
-  initializeUploadMonitor({ showToast, onLocalCompletion: () => void loadCompletedSessions() });
+  initializeUploadMonitor({
+    showToast,
+    onLocalCompletion: () => void loadCompletedSessions(),
+    onOpenSession: (session) => openSessionDetail(
+      session.study_id,
+      session.participant_id,
+      session.session_id,
+      session.session_folder,
+    ),
+  });
+  initializeOperatorNotices({ showToast });
   initializeRecoveryPanel({ showToast, onFinalized: loadCompletedSessions });
 
   try {
@@ -558,6 +569,10 @@ function runStatusLabel(status) {
 function runStatusHint(status, runState) {
   const gateHint = tabletGateHint(state.tabletGate);
   if (status === 'running') {
+    const startError = runState?.last_start_error?.message || '';
+    if (startError) {
+      return t('hub.runHint.startFailed', 'The tablet could not start the study: {reason}').replace('{reason}', startError);
+    }
     return gateHint || t('hub.runHint.running', 'The participant tablet can enter the study now.');
   }
   if (status === 'completed') {
@@ -656,7 +671,8 @@ async function startLoadedStudyRun({ buttonId = 'btn-hub-start-study', goToDashb
       const saved = await saveConfig({ skipToast: true });
       if (saved === false) return;
     }
-    const response = await postJson('/api/admin/study-run/start', {}, { timeoutMs: 2000 });
+    const response = await postStartStudyRun();
+    if (!response) return;
     state.studyRunState = response?.run_state || null;
     state.tabletGate = response?.tablet_gate || state.tabletGate;
     renderStudyRunState();
@@ -678,6 +694,35 @@ async function startLoadedStudyRun({ buttonId = 'btn-hub-start-study', goToDashb
       button.innerHTML = previousHtml;
       renderStudyRunState();
     }
+  }
+}
+
+// Play asks the server first; when a sensor the study needs is not live the
+// server answers 409 with the list, and the admin decides whether to start
+// anyway (runtime_core/studies/live_sensor_readiness.py). Returns null when
+// the admin cancels.
+async function postStartStudyRun() {
+  try {
+    return await postJson('/api/admin/study-run/start', {}, { timeoutMs: 4000 });
+  } catch (error) {
+    const issues = error.status === 409 ? error.payload?.live_issues : null;
+    if (!Array.isArray(issues) || !issues.length) throw error;
+    const lines = issues.map((issue) => {
+      const status = t(`dashboard.status.${issue.status}`, String(issue.status || '').replace(/_/g, ' '));
+      return `• ${issue.label}: ${status}${issue.problem ? ` – ${issue.problem}` : ''}`;
+    });
+    const proceed = await confirmWithModal({
+      title: t('liveCheck.title', 'Sensors are not connected'),
+      message: [
+        ...lines,
+        '',
+        t('liveCheck.body', 'Start and check these sensors on the dashboard first. Without them the session cannot record their data.'),
+      ].join('\n'),
+      confirmLabel: t('liveCheck.startAnyway', 'Start anyway'),
+      cancelLabel: t('common.cancel', 'Cancel'),
+    });
+    if (!proceed) return null;
+    return postJson('/api/admin/study-run/start', { override_live_check: true }, { timeoutMs: 4000 });
   }
 }
 

@@ -1,6 +1,7 @@
 import { t } from '/static/scripts/shared/i18n.js';
 import { renderEditorToggle, renderStudyHeader } from '/static/scripts/cards/card-info.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
+import { cardState, onSessionReset } from '/static/scripts/cards/session-state.js';
 
 export const meta = { type: 'mood-meter', icon: 'app-window', label: 'Mood Meter', pill: 'pill-mood-meter' };
 
@@ -37,14 +38,14 @@ const QUADRANTS = [
   },
 ];
 
-// Per-card state: { [cardIndex]: { selected: Set<string> } }
-const _state = {};
-// Per-card question config cache (set in renderStudy)
-const _questions = {};
-
+// Per-session state for one card: the chosen words and its question config.
+// Lives in the shared session store so the next participant starts empty.
 function getState(i) {
-  if (!_state[i]) _state[i] = { selected: new Set() };
-  return _state[i];
+  return cardState('mood-meter', i, () => ({ selected: new Set(), question: null }));
+}
+
+function questionFor(i) {
+  return getState(i).question ?? defaultQuestion;
 }
 
 function getWordLists(q) {
@@ -56,7 +57,7 @@ function getWordLists(q) {
 
 
 export function renderStudy(q, i) {
-  _questions[i] = q;
+  getState(i).question = q;
   const quads = getWordLists(q);
 
   const tiles = quads.map(quad => {
@@ -143,7 +144,7 @@ function updateOverview(cardIndex) {
   const grid = document.getElementById(`mm-grid-${cardIndex}`);
   if (!grid) return;
 
-  const q = _questions[cardIndex] ?? defaultQuestion;
+  const q = questionFor(cardIndex);
   const quads = getWordLists(q);
   const state = getState(cardIndex);
   const anySelected = state.selected.size > 0;
@@ -186,7 +187,13 @@ export function onClick(event) {
 
 // ── Overlay ──────────────────────────────────────────────────────────────────
 
-let activeOverlay = null;
+// The open overlay is DOM, not state: it is looked up and closed on reset.
+function activeOverlay() {
+  if (typeof document === 'undefined') return null;
+  return document.querySelector('#mm-overlay:not([data-closing])');
+}
+
+onSessionReset(() => closeOverlay(false));
 
 // Hex layout constants
 const CELL_W = 130, CELL_H = 96, ROWS = 5, COLS = 5;
@@ -342,9 +349,9 @@ function setupPan(overlay, viewport, space, initPanX, initPanY, cardIndex, allow
 }
 
 function openOverlay(cardIndex, quadId, originRect) {
-  if (activeOverlay) closeOverlay(false);
+  if (activeOverlay()) closeOverlay(false);
 
-  const q = _questions[cardIndex] ?? defaultQuestion;
+  const q = questionFor(cardIndex);
   const quads = getWordLists(q);
   const initialQuad = quads.find(qd => qd.id === quadId) || quads[0];
   const allowMultiple = q.allow_multiple !== false;
@@ -383,7 +390,6 @@ function openOverlay(cardIndex, quadId, originRect) {
   overlay.style.opacity = '0';
 
   document.body.appendChild(overlay);
-  activeOverlay = overlay;
 
   // Build initial bubble space
   const viewport = overlay.querySelector('#mm-bubble-viewport');
@@ -412,9 +418,9 @@ function openOverlay(cardIndex, quadId, originRect) {
 }
 
 function closeOverlay(animate) {
-  const overlay = activeOverlay;
+  const overlay = activeOverlay();
   if (!overlay) return;
-  activeOverlay = null;
+  overlay.dataset.closing = 'true';
 
   if (overlay._escHandler) document.removeEventListener('keydown', overlay._escHandler);
 

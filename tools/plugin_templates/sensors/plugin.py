@@ -13,6 +13,9 @@ LSL/XDF data without a physical device attached.
 `recording_source` require; everything else (start/stop, admin actions,
 credentials) is opt-in per declared capability -- see
 docs/developer-guide.md, "Adding A Recording Sensor".
+
+No data between sessions: if you add `start`, clear any sample buffers or
+cached readings there, so a new run never sees an earlier participant's data.
 """
 from __future__ import annotations
 

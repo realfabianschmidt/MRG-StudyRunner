@@ -2802,3 +2802,166 @@ body.admin::before { display: none; }
 
 /* Confirmation texts may list several consequences, one per line. */
 .confirm-modal-message { white-space: pre-line; }
+
+/* Operator notices: tablet errors and refused participant actions. Stay
+   until clicked (scripts/admin/operator-notices.js). */
+.operator-notices {
+  position: fixed;
+  right: 24px;
+  bottom: 160px;
+  z-index: 9001;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  width: min(360px, calc(100vw - 32px));
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.operator-notices[hidden] {
+  display: none;
+}
+
+.operator-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  width: 100%;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--ink-14);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--r-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.operator-notice--error { border-left-color: var(--neg); }
+.operator-notice--warning { border-left-color: var(--warn); }
+
+.operator-notice i {
+  flex-shrink: 0;
+  margin-top: 2px;
+  font-size: 1.1rem;
+}
+
+.operator-notice--error i { color: var(--neg); }
+
+.operator-notice-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.operator-notice-meta {
+  font-size: .75rem;
+  color: var(--ink-55);
+}
+
+.operator-notice-message {
+  font-size: .8125rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .operator-notices {
+    right: 16px;
+    left: 16px;
+    width: auto;
+  }
+}
+
+/* Session progress rail: started, ended, then every finalization step, left
+   to right (scripts/admin/session-progress-rail.js). Scrolls sideways on
+   narrow screens instead of wrapping into an unreadable column. */
+.progress-rail {
+  display: flex;
+  gap: 0;
+  margin: var(--s-4) 0 0;
+  padding: 0 0 var(--s-2);
+  list-style: none;
+  overflow-x: auto;
+}
+
+.progress-rail-step {
+  position: relative;
+  display: flex;
+  flex: 1 0 112px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 112px;
+  padding: 0 var(--s-2);
+  text-align: center;
+}
+
+/* The connecting line runs from each dot to the next one. */
+.progress-rail-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  left: calc(50% + 16px);
+  right: calc(-50% + 16px);
+  height: 2px;
+  background: var(--ink-14);
+}
+
+.progress-rail-step--done:not(:last-child)::after {
+  background: var(--pos);
+}
+
+.progress-rail-dot {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--ink-08);
+  color: var(--ink-55);
+  font-size: 1rem;
+}
+
+.progress-rail-step--done .progress-rail-dot { background: var(--pos); color: var(--bg-elevated); }
+.progress-rail-step--running .progress-rail-dot { color: var(--accent); }
+.progress-rail-step--retrying .progress-rail-dot { background: var(--warn-14); color: var(--warn); }
+.progress-rail-step--failed .progress-rail-dot { background: var(--neg); color: var(--bg-elevated); }
+
+.progress-rail-label {
+  font-size: .8125rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.progress-rail-hint {
+  font-size: .75rem;
+  color: var(--ink-55);
+}
+
+.progress-rail-problems {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+
+.progress-rail-problem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--ink-14);
+  border-left: 4px solid var(--neg);
+  border-radius: var(--r-md);
+}
+
+@media (max-width: 640px) {
+  .progress-rail-problem {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

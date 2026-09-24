@@ -8,6 +8,17 @@
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
 import { renderStudyHeader } from '/static/scripts/cards/card-info.js';
 
+// No data between sessions: keep no mutable module-level variables here. This
+// card reads its answer back from the DOM (collectAnswer below). A card that
+// needs state the DOM does not hold uses the shared per-session store, which
+// the participant page empties before the next participant:
+//
+//   import { cardState, onSessionReset } from '/static/scripts/cards/session-state.js';
+//   const selection = (i) => cardState('example-question', i, () => ({ picked: new Set() })).picked;
+//   onSessionReset(() => document.querySelector('.example-overlay')?.remove());
+//
+// Plugin discovery refuses a card.js that keeps module-level state.
+
 export const meta = { type: 'example-question', icon: 'text', label: 'Example question', pill: 'pill-example' };
 
 export function renderStudy(q, i) {

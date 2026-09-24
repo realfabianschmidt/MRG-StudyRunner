@@ -548,11 +548,19 @@ def _public_job(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def _safe_result(result: dict[str, Any]) -> dict[str, Any]:
-    return {
+    # remote_sha256 is what finalization's purge step verifies local sources
+    # against; dropping it here kept every source file forever.
+    safe = {
         key: value
         for key, value in result.items()
-        if key in {"ok", "uploaded", "endpoint", "message"}
+        if key in {"ok", "uploaded", "endpoint", "message", "remote_path"}
     }
+    remote_hashes = result.get("remote_sha256")
+    if isinstance(remote_hashes, dict):
+        safe["remote_sha256"] = {
+            str(name): str(digest) for name, digest in remote_hashes.items() if isinstance(digest, str)
+        }
+    return safe
 
 
 def _iso_time(epoch: float) -> str:

@@ -205,9 +205,13 @@ identity and requires a migration note plus fixture updates.
 A plugin implements only the handlers required by its capabilities:
 
 - `initialize(context)`: create local clients, bridges, or device state.
-- `get_status(context)`: return a fast cached status.
-- `start`, `stop`, `restart`: runtime control.
-- `readiness(context)`: detailed preflight checks.
+- `get_status(context)`: return a fast cached status. Its `status` value is
+  also the live check before Play: a selected study sensor counts as ready
+  only while it reports `connected`, `ready`, `receiving`, `streaming`, or
+  `recording` (`runtime_core/studies/live_sensor_readiness.py`); anything else
+  is shown to the admin with `last_error`/`last_message` as the reason.
+- `start`, `stop`, `restart`: runtime control. `start` also clears sample
+  buffers or cached readings so a new run never sees an earlier participant.
 - `run_admin_action(context, action_key, payload)`: manifest-allow-listed repair or
   diagnostic actions.
 - `run_participant_action(context, action_key, payload)` and
@@ -276,6 +280,13 @@ Create these four files:
    `isAnswered`, `bindInteractions`, `onInput`, and `onClick` hooks are
    dispatched generically. Store defaults received by `configureCard()` and use
    them for every fallback; do not author a second JavaScript default object.
+5. **No data between sessions.** `card.js` keeps no mutable module-level
+   state. Read the answer back from the rendered DOM, or keep it with
+   `cardState(owner, index, init)` from `/static/scripts/cards/session-state.js`
+   and close overlays in `onSessionReset()`. The participant page clears that
+   store whenever questions are built or a session ends, and reloads itself
+   before the next participant. Discovery refuses a card that breaks the rule
+   (`plugin_framework/card_session_isolation.py`).
 
 Add a golden fixture in `tests/support/card_type_fixtures.py` with a realistic
 question, frozen normalized config, and a submitted/frozen answer unless the

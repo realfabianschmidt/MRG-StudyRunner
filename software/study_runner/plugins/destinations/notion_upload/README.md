@@ -20,7 +20,8 @@ a subprocess and never imports its Python modules directly (see
   mapping, and the actual page upload.
 - `manifest.json` — declares this as an `upload_destination` capability
   plugin, its one credential (`STUDY_RUNNER_NOTION_API_KEY`), its study
-  settings (`parent_page_id`, `database_id`), and its one admin action
+  settings (`parent_page_id`, `database_id`, and the discovered
+  `data_source_id`/`sessions_database_id`), and its one admin action
   (`test_connection`). `sample_delivery: none` — like Nextcloud, it moves
   already-finalized files, not live samples.
 
@@ -36,6 +37,24 @@ this project's specific needs (database/data-source discovery, participant
 metadata property creation, error classification via `APIErrorCode`/
 `APIResponseError`). Everything Notion-specific here is standard, documented
 SDK usage, not adapted from a vendor example.
+
+## What it writes
+
+Two databases under the study's parent page, each found by its title before
+anything is created, so a lost response or a retry never duplicates them:
+
+- **StudyRunner Participants** — one row per pseudonymized participant ID,
+  with the intake fields the participant card marks as stored, a session
+  count, and the first/last session date.
+- **StudyRunner Sessions** — one row per session, related to its participant
+  row, with start, end, duration, card/answered/skipped counts and the
+  sensors that delivered data. The session's page holds two real Notion
+  tables: every card's answer with its duration, and every sensor stream's
+  per-card statistics (mean/mode, min, max, std, coverage, longest gap) from
+  the finalized `card-summary.json`. Nothing here names a specific sensor.
+
+The Session ID column is the idempotency key; a commit marker is the page's
+last block, so a retry finishes or replaces a cut-short row.
 
 ## Settings
 

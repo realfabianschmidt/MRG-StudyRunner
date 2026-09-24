@@ -1,8 +1,11 @@
 """
 Notion adapter - uploads anonymized study results to a Notion database.
 
-Each participant gets one database page identified by their pseudonymized hash ID.
-Each completed study session is appended as a toggle block to that page.
+Two databases under the study's parent page: "StudyRunner Participants" (one
+row per pseudonymized participant, with the stored intake fields) and
+"StudyRunner Sessions" (one row per session, related to its participant). A
+session's page holds real tables: every card's answer, and every sensor's
+per-card statistics from the finalized card-summary.json.
 
 Network failures are returned to the central upload-job service, which owns the
 persistent retry journal for every destination.
@@ -13,7 +16,6 @@ Enable:   set "notion": { "enabled": true, ... } in study_content/settings/hardw
 from __future__ import annotations
 
 import hashlib
-import re
 import time
 from pathlib import Path
 from typing import Any
@@ -176,31 +178,25 @@ def upload_study_result(
         session_id = str(result_payload.get("session_id") or "").strip()
         if not session_id:
             raise RuntimeError("Finalized result.json has no session_id.")
-        existing_toggle = _find_session_toggle(client, page_id, session_id)
-        current_count = _get_session_count(client, page_id)
-        session_num = (
-            _session_number_from_toggle(existing_toggle) or max(1, current_count)
-            if existing_toggle
-            else current_count + 1
-        )
-        upsert = _append_session_block(
+        sessions_db_id = _ensure_sessions_database(client, db_id, study_settings, study_config_updates)
+        upsert = _upsert_session_page(
             client,
+            sessions_db_id,
             page_id,
-            session_num,
             result_payload,
             hardware_config,
             saved_output,
-            existing_toggle=existing_toggle,
         )
+        current_count = _get_session_count(client, page_id)
         _update_participant_properties(
             client,
             page_id,
-            max(session_num, current_count),
+            current_count + 1 if upsert == "created" else max(1, current_count),
             result_payload,
             config_data,
         )
         pid_short = str(result_payload.get("participant_id") or "?")[:8]
-        print(f"[NOTION] Uploaded session {session_num} for participant {pid_short}…")
+        print(f"[NOTION] Session {upsert} for participant {pid_short}…")
         result = {"ok": True, "session_id": session_id, "upsert": upsert}
         if study_config_updates:
             result["study_config_updates"] = study_config_updates
@@ -400,9 +396,19 @@ def _ensure_database(
     if not parent_page_id:
         raise RuntimeError("Notion parent_page_id is required in study_settings to auto-create a Notion database.")
 
+    # A database of this name under the parent page is reused, so a lost
+    # response or a second study on the same page never duplicates it.
+    existing_id = _find_child_database(client, parent_page_id, PARTICIPANTS_DATABASE_TITLE)
+    if existing_id:
+        study_settings["notion_database_id"] = existing_id
+        updates["database_id"] = existing_id
+        _ensure_participant_metadata_properties(client, existing_id, study_settings, config_data, updates)
+        print(f"[NOTION] Reusing database: {existing_id}")
+        return existing_id
+
     db_args = {
         "parent": {"type": "page_id", "page_id": parent_page_id},
-        "title": [{"type": "text", "text": {"content": "StudyRunner Participants"}}],
+        "title": [{"type": "text", "text": {"content": PARTICIPANTS_DATABASE_TITLE}}],
     }
 
     schema = {
@@ -578,113 +584,374 @@ def _update_participant_properties(
     )
 
 
-def _append_session_block(
-    client: Any,
-    page_id: str,
-    session_num: int,
-    result_payload: dict[str, Any],
-    hardware_config: dict[str, Any],
-    saved_output: dict[str, Any],
-    *,
-    existing_toggle: dict[str, Any] | None = None,
-) -> str:
-    study_id = str(result_payload.get("study_id") or "—")
-    session_id = str(result_payload.get("session_id") or "")
-    session_date = _session_date_iso(result_payload)
-    ts_start = str(result_payload.get("timestamp_start") or "")
-    ts_end = str(result_payload.get("timestamp_end") or "")
-
-    toggle_title = f"Session {session_num} · {study_id} · {session_date} [session:{session_id}]"
-    canonical_output = _is_canonical_finalized_output(result_payload, saved_output)
-    answer_lines = _format_answers(
-        result_payload,
-        include_legacy_sensor_summaries=not canonical_output,
-    )
-    biosignal_lines = _format_biosignals(
-        hardware_config,
-        saved_output,
-        canonical_output=canonical_output,
-    )
-
-    children: list[dict[str, Any]] = [
-        _paragraph(f"Dauer: {ts_start[:16]} → {ts_end[:16]} ({_duration_minutes(ts_start, ts_end)} min)"),
-        _heading("Antworten"),
-        *[_bullet(line) for line in (answer_lines or ["(keine Antworten)"])],
-        _heading("Biosignale"),
-        *[_bullet(line) for line in (biosignal_lines or ["(keine Sensoren aktiv)"])],
-    ]
-
-    commit_marker = f"study-runner-session-commit:{session_id}"
-    if existing_toggle and _toggle_contains_text(
-        client,
-        str(existing_toggle.get("id") or ""),
-        commit_marker,
-    ):
-        return "unchanged"
-
-    if existing_toggle:
-        toggle_id = str(existing_toggle.get("id") or "")
-    else:
-        # The session id in the title is the idempotency key. A retry reuses
-        # this toggle even if the preceding network response was lost.
-        response = client.blocks.children.append(
-            block_id=page_id,
-            children=[{
-                "object": "block",
-                "type": "toggle",
-                "toggle": {
-                    "rich_text": [{"type": "text", "text": {"content": _truncate(toggle_title)}}],
-                },
-            }],
-        )
-        toggle_id = response["results"][0]["id"]
-
-    children.append(_paragraph(commit_marker))
-
-    # 2. Antworten und Biosignale sicher in 100er-Blöcken in den Toggle einfügen
-    for i in range(0, len(children), 100):
-        client.blocks.children.append(
-            block_id=toggle_id,
-            children=children[i:i+100]
-        )
-    return "updated" if existing_toggle else "created"
+PARTICIPANTS_DATABASE_TITLE = "StudyRunner Participants"
+SESSIONS_DATABASE_TITLE = "StudyRunner Sessions"
+NOTION_CHILDREN_LIMIT = 100
+ANSWER_TABLE_HEADER = ["#", "Karte", "Frage", "Antwort", "Dauer (s)"]
+BIOSIGNAL_TABLE_HEADER = [
+    "Karte", "Sensor / Stream", "Kanal", "Mittel / Modus", "Min", "Max", "Std", "Abdeckung", "Max. Lücke (s)",
+]
 
 
-def _find_session_toggle(client: Any, page_id: str, session_id: str) -> dict[str, Any] | None:
-    marker = f"[session:{session_id}]"
+def _find_child_database(client: Any, parent_page_id: str, title: str) -> str:
+    """Id of a database titled ``title`` directly under the parent page, or ''."""
     cursor = None
     while True:
-        kwargs: dict[str, Any] = {"block_id": page_id, "page_size": 100}
+        kwargs: dict[str, Any] = {"block_id": parent_page_id, "page_size": 100}
         if cursor:
             kwargs["start_cursor"] = cursor
         response = client.blocks.children.list(**kwargs)
         for block in response.get("results") or []:
-            if block.get("type") != "toggle":
+            if block.get("type") != "child_database":
                 continue
-            title = _rich_text_plain((block.get("toggle") or {}).get("rich_text") or [])
-            if marker in title:
-                return block
-        if not response.get("has_more"):
-            return None
-        cursor = response.get("next_cursor")
+            if str((block.get("child_database") or {}).get("title") or "").strip() == title:
+                return _strip_dashes(str(block.get("id") or ""))
+        cursor = response.get("next_cursor") if response.get("has_more") else None
         if not cursor:
-            return None
+            return ""
 
 
-def _session_number_from_toggle(toggle: dict[str, Any] | None) -> int | None:
-    if not toggle:
-        return None
-    title = _rich_text_plain((toggle.get("toggle") or {}).get("rich_text") or [])
-    match = re.match(r"Session\s+(\d+)", title)
-    return int(match.group(1)) if match else None
+def _data_source_of(client: Any, db_id: str) -> str:
+    if not hasattr(client, "data_sources"):
+        return db_id
+    try:
+        data_sources = client.databases.retrieve(database_id=db_id).get("data_sources") or []
+    except Exception as error:
+        print(f"[NOTION] Could not retrieve data source: {error}")
+        return db_id
+    return str(data_sources[0]["id"]) if data_sources else db_id
 
 
-def _toggle_contains_text(client: Any, toggle_id: str, marker: str) -> bool:
-    if not toggle_id:
+def _sessions_parent_page(client: Any, participants_db_id: str, study_settings: dict[str, Any]) -> str:
+    parent = _strip_dashes(study_settings.get("notion_parent_page_id", ""))
+    if parent:
+        return parent
+    # Only a database id was configured: put the sessions next to it.
+    database = client.databases.retrieve(database_id=participants_db_id)
+    parent = (database.get("parent") or {}).get("page_id") or ""
+    if not parent:
+        raise RuntimeError(
+            "Notion parent_page_id is required in study_settings to create the sessions database."
+        )
+    return _strip_dashes(str(parent))
+
+
+def _ensure_sessions_database(
+    client: Any,
+    participants_db_id: str,
+    study_settings: dict[str, Any],
+    updates: dict[str, str],
+) -> str:
+    """One row per session, related to its participant row."""
+    db_id = _strip_dashes(study_settings.get("notion_sessions_database_id", ""))
+    if db_id:
+        return db_id
+    parent_page_id = _sessions_parent_page(client, participants_db_id, study_settings)
+    db_id = _find_child_database(client, parent_page_id, SESSIONS_DATABASE_TITLE)
+    if not db_id:
+        schema: dict[str, Any] = {
+            "Session": {"title": {}},
+            "Session ID": {"rich_text": {}},
+            "Participant ID": {"rich_text": {}},
+            "Study": {"rich_text": {}},
+            "Start": {"date": {}},
+            "Ende": {"date": {}},
+            "Dauer (min)": {"number": {"format": "number"}},
+            "Karten": {"number": {"format": "number"}},
+            "Beantwortet": {"number": {"format": "number"}},
+            "Übersprungen": {"number": {"format": "number"}},
+            "Sensoren": {"multi_select": {}},
+        }
+        if hasattr(client, "data_sources"):
+            relation = {
+                "data_source_id": _data_source_of(client, participants_db_id),
+                "type": "dual_property",
+                "dual_property": {},
+            }
+        else:
+            relation = {"database_id": participants_db_id, "type": "dual_property", "dual_property": {}}
+        db_args: dict[str, Any] = {
+            "parent": {"type": "page_id", "page_id": parent_page_id},
+            "title": [{"type": "text", "text": {"content": SESSIONS_DATABASE_TITLE}}],
+        }
+        try:
+            database = _create_database(client, db_args, {**schema, "Participant": {"relation": relation}})
+        except Exception as error:
+            # The relation is a convenience; the Participant ID column already
+            # links every session. Never lose the upload over it.
+            print(f"[NOTION] Sessions database without relation ({error}).")
+            database = _create_database(client, db_args, schema)
+        db_id = _strip_dashes(str(database["id"]))
+        print(f"[NOTION] Auto-created sessions database: {db_id}")
+    study_settings["notion_sessions_database_id"] = db_id
+    updates["sessions_database_id"] = db_id
+    return db_id
+
+
+def _create_database(client: Any, db_args: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
+    args = dict(db_args)
+    if hasattr(client, "data_sources"):
+        args["initial_data_source"] = {"properties": schema}
+    else:
+        args["properties"] = schema
+    return client.databases.create(**args)
+
+
+def _query_database(
+    client: Any,
+    db_id: str,
+    filter_: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Rows matching ``filter_`` and the parent object for a new row."""
+    if hasattr(client, "data_sources"):
+        source_id = _data_source_of(client, db_id)
+        results = client.data_sources.query(data_source_id=source_id, filter=filter_)
+        return results.get("results") or [], {"type": "data_source_id", "data_source_id": source_id}
+    results = client.databases.query(database_id=db_id, filter=filter_)
+    return results.get("results") or [], {"database_id": db_id}
+
+
+def _upsert_session_page(
+    client: Any,
+    sessions_db_id: str,
+    participant_page_id: str,
+    result_payload: dict[str, Any],
+    hardware_config: dict[str, Any],
+    saved_output: dict[str, Any],
+) -> str:
+    """Write one session as a database row whose page holds real tables.
+
+    The Session ID column is the idempotency key, and the commit marker is the
+    last block: a row with its marker is complete ("unchanged"); a row without
+    it was cut short and is replaced.
+    """
+    session_id = str(result_payload.get("session_id") or "")
+    commit_marker = f"study-runner-session-commit:{session_id}"
+    rows, parent = _query_database(
+        client, sessions_db_id, {"property": "Session ID", "rich_text": {"equals": session_id}},
+    )
+    replaced = False
+    for row in rows:
+        if _page_contains_text(client, str(row.get("id") or ""), commit_marker):
+            return "unchanged"
+        client.pages.update(page_id=row["id"], archived=True)
+        replaced = True
+
+    properties = _session_properties(result_payload, saved_output, participant_page_id)
+    try:
+        page = client.pages.create(parent=parent, properties=properties)
+    except Exception:
+        # A sessions database that was created without the relation column.
+        properties.pop("Participant", None)
+        page = client.pages.create(parent=parent, properties=properties)
+
+    blocks = _session_page_blocks(result_payload, hardware_config, saved_output)
+    blocks.append(_paragraph(commit_marker))
+    for start in range(0, len(blocks), NOTION_CHILDREN_LIMIT):
+        client.blocks.children.append(block_id=page["id"], children=blocks[start:start + NOTION_CHILDREN_LIMIT])
+    return "updated" if replaced else "created"
+
+
+def _session_properties(
+    result_payload: dict[str, Any],
+    saved_output: dict[str, Any],
+    participant_page_id: str,
+) -> dict[str, Any]:
+    participant_id = str(result_payload.get("participant_id") or "unknown")
+    ts_start = str(result_payload.get("timestamp_start") or "")
+    ts_end = str(result_payload.get("timestamp_end") or "")
+    details = [detail for detail in result_payload.get("answer_details") or [] if isinstance(detail, dict)]
+    answerable = [
+        detail for detail in details
+        if detail.get("question_type") not in {"stimulus", "info", "finish", "participant-id"}
+    ]
+    skipped = sum(1 for detail in answerable if detail.get("skipped"))
+
+    def text(value: str) -> dict[str, Any]:
+        return {"rich_text": [{"type": "text", "text": {"content": _truncate(value)}}]}
+
+    title = f"{participant_id[:8]} · {_session_date_iso(result_payload)}"
+    properties: dict[str, Any] = {
+        "Session": {"title": [{"type": "text", "text": {"content": title}}]},
+        "Session ID": text(str(result_payload.get("session_id") or "")),
+        "Participant ID": text(participant_id),
+        "Study": text(str(result_payload.get("study_id") or "—")),
+        "Karten": {"number": len(details)},
+        "Beantwortet": {"number": len(answerable) - skipped},
+        "Übersprungen": {"number": skipped},
+        "Sensoren": {"multi_select": [{"name": name[:100]} for name in _sensor_names(saved_output)]},
+        "Participant": {"relation": [{"id": participant_page_id}]},
+    }
+    if ts_start:
+        properties["Start"] = {"date": {"start": ts_start}}
+    if ts_end:
+        properties["Ende"] = {"date": {"start": ts_end}}
+    minutes = _duration_minutes(ts_start, ts_end)
+    if minutes != "?":
+        properties["Dauer (min)"] = {"number": int(minutes)}
+    return properties
+
+
+def _sensor_names(saved_output: dict[str, Any]) -> list[str]:
+    summary = saved_output.get("card_summary")
+    cards = summary.get("cards") if isinstance(summary, dict) else None
+    names: set[str] = set()
+    for card in cards or []:
+        streams = card.get("streams") if isinstance(card, dict) else None
+        for stream in (streams or {}).values():
+            if isinstance(stream, dict) and stream.get("plugin_key"):
+                names.add(str(stream["plugin_key"]))
+    return sorted(names)
+
+
+def _session_page_blocks(
+    result_payload: dict[str, Any],
+    hardware_config: dict[str, Any],
+    saved_output: dict[str, Any],
+) -> list[dict[str, Any]]:
+    ts_start = str(result_payload.get("timestamp_start") or "")
+    ts_end = str(result_payload.get("timestamp_end") or "")
+    blocks: list[dict[str, Any]] = [
+        _paragraph(
+            f"Studie: {result_payload.get('study_id') or '—'} · "
+            f"{ts_start[:16]} → {ts_end[:16]} ({_duration_minutes(ts_start, ts_end)} min)"
+        ),
+        _heading("Antworten"),
+    ]
+    answer_rows = _answer_table_rows(result_payload)
+    blocks.extend(_tables(ANSWER_TABLE_HEADER, answer_rows) if answer_rows else [_paragraph("(keine Antworten)")])
+
+    blocks.append(_heading("Biosignale pro Karte"))
+    summary = saved_output.get("card_summary")
+    if isinstance(summary, dict) and isinstance(summary.get("cards"), list):
+        bio_rows = _biosignal_table_rows(summary, result_payload)
+        if bio_rows:
+            blocks.extend(_tables(BIOSIGNAL_TABLE_HEADER, bio_rows))
+        else:
+            blocks.append(_paragraph("(keine Sensoren aktiv)"))
+    else:
+        canonical = _is_canonical_finalized_output(result_payload, saved_output)
+        lines = _format_biosignals(hardware_config, saved_output, canonical_output=canonical)
+        blocks.extend(_bullet(line) for line in (lines or ["(keine Sensoren aktiv)"]))
+    return blocks
+
+
+def _card_labels(result_payload: dict[str, Any]) -> dict[int, str]:
+    labels: dict[int, str] = {}
+    for detail in result_payload.get("answer_details") or []:
+        if not isinstance(detail, dict) or not isinstance(detail.get("question_index"), int):
+            continue
+        index = detail["question_index"]
+        number = detail.get("question_number") or index + 1
+        labels[index] = f"Q{number} · {detail.get('question_type') or 'card'}"
+    return labels
+
+
+def _answer_table_rows(result_payload: dict[str, Any]) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for detail in result_payload.get("answer_details") or []:
+        if not isinstance(detail, dict):
+            continue
+        question_type = str(detail.get("question_type") or "")
+        if question_type == "stimulus":
+            answer = "(Stimulus)"
+        elif detail.get("skipped"):
+            answer = "— (übersprungen)"
+        else:
+            answer = _format_answer_value(detail.get("answer"))
+        seconds = detail.get("interval_seconds", detail.get("seconds_since_previous_answer"))
+        if not isinstance(seconds, (int, float)):
+            seconds = _seconds_between(detail.get("shown_at"), detail.get("answered_at"))
+        rows.append([
+            str(detail.get("question_number") or ""),
+            question_type,
+            str(detail.get("question_prompt") or "").replace("\n", " ").strip(),
+            answer,
+            f"{seconds:.1f}" if isinstance(seconds, (int, float)) else "",
+        ])
+    if rows:
+        return rows
+    # Results without per-question details still list their raw answers.
+    return [
+        [str(key), "", "", _format_answer_value(value), ""]
+        for key, value in sorted((result_payload.get("answers") or {}).items())
+        if value is not None
+    ]
+
+
+def _biosignal_table_rows(summary: dict[str, Any], result_payload: dict[str, Any]) -> list[list[str]]:
+    """Any plugin's streams from finalized card-summary.json; no plugin is named here."""
+    labels = _card_labels(result_payload)
+    rows: list[list[str]] = []
+    for card in summary.get("cards") or []:
+        if not isinstance(card, dict):
+            continue
+        index = card.get("question_index")
+        if isinstance(index, int):
+            card_label = labels.get(index, f"Q{index + 1}")
+        else:
+            card_label = str(card.get("card_id") or "Karte")
+        streams = card.get("streams") if isinstance(card.get("streams"), dict) else {}
+        for stream_key, stream in streams.items():
+            if not isinstance(stream, dict):
+                continue
+            source = f"{stream.get('plugin_key') or 'plugin'} / {stream_key}"
+            coverage = _fmt_percent(stream.get("coverage"))
+            gap = _fmt_metric(stream.get("max_gap_seconds"))
+            channels = stream.get("channels") if isinstance(stream.get("channels"), dict) else {}
+            if not channels:
+                rows.append([card_label, source, "", "", "", "", "", coverage, gap])
+                continue
+            for channel_name, channel in channels.items():
+                if not isinstance(channel, dict):
+                    continue
+                if channel.get("kind") == "categorical":
+                    rows.append([
+                        card_label, source, str(channel_name), str(channel.get("mode") or "n/a"),
+                        "", "", "", coverage, gap,
+                    ])
+                else:
+                    rows.append([
+                        card_label, source, str(channel_name),
+                        _fmt_metric(channel.get("mean")), _fmt_metric(channel.get("min")),
+                        _fmt_metric(channel.get("max")), _fmt_metric(channel.get("stddev")),
+                        coverage, gap,
+                    ])
+    return rows
+
+
+def _tables(header: list[str], rows: list[list[str]]) -> list[dict[str, Any]]:
+    """Notion table blocks; one table holds at most 100 rows, header included."""
+    per_table = NOTION_CHILDREN_LIMIT - 1
+    return [_table(header, rows[start:start + per_table]) for start in range(0, len(rows), per_table)]
+
+
+def _table(header: list[str], rows: list[list[str]]) -> dict[str, Any]:
+    def row(cells: list[str]) -> dict[str, Any]:
+        return {
+            "object": "block",
+            "type": "table_row",
+            "table_row": {"cells": [[{"type": "text", "text": {"content": _truncate(cell)}}] for cell in cells]},
+        }
+
+    return {
+        "object": "block",
+        "type": "table",
+        "table": {
+            "table_width": len(header),
+            "has_column_header": True,
+            "has_row_header": False,
+            "children": [row(header), *(row(cells) for cells in rows)],
+        },
+    }
+
+
+def _page_contains_text(client: Any, page_id: str, marker: str) -> bool:
+    if not page_id:
         return False
     cursor = None
     while True:
-        kwargs: dict[str, Any] = {"block_id": toggle_id, "page_size": 100}
+        kwargs: dict[str, Any] = {"block_id": page_id, "page_size": 100}
         if cursor:
             kwargs["start_cursor"] = cursor
         response = client.blocks.children.list(**kwargs)
@@ -693,9 +960,7 @@ def _toggle_contains_text(client: Any, toggle_id: str, marker: str) -> bool:
             rich_text = (block.get(block_type) or {}).get("rich_text") or []
             if marker in _rich_text_plain(rich_text):
                 return True
-        if not response.get("has_more"):
-            return False
-        cursor = response.get("next_cursor")
+        cursor = response.get("next_cursor") if response.get("has_more") else None
         if not cursor:
             return False
 
@@ -708,67 +973,16 @@ def _rich_text_plain(items: list[dict[str, Any]]) -> str:
     )
 
 
-def _format_answers(
-    result_payload: dict[str, Any],
-    *,
-    include_legacy_sensor_summaries: bool = False,
-) -> list[str]:
-    answer_details = result_payload.get("answer_details") or []
-    if isinstance(answer_details, list) and answer_details:
-        return _format_answer_details(
-            answer_details,
-            include_legacy_sensor_summaries=include_legacy_sensor_summaries,
-        )
-
-    answers = result_payload.get("answers") or {}
-    lines = []
-    for key, value in sorted(answers.items()):
-        if value is None:
-            continue
-        if isinstance(value, list):
-            formatted = " → ".join(str(v) for v in value)
-        else:
-            formatted = str(value)
-        lines.append(f"{key}: {formatted}")
-    return lines
-
-
-def _format_answer_details(
-    answer_details: list[dict[str, Any]],
-    *,
-    include_legacy_sensor_summaries: bool = False,
-) -> list[str]:
-    lines: list[str] = []
-    for detail in answer_details:
-        question_number = detail.get("question_number")
-        question_type = detail.get("question_type") or "question"
-        prompt = str(detail.get("question_prompt") or "").replace("\n", " ").strip()
-        answer_text = "\u2014" if detail.get("skipped") else _format_answer_value(detail.get("answer"))
-        interval_seconds = detail.get("interval_seconds", detail.get("seconds_since_previous_answer"))
-        interval_text = f"{interval_seconds:.1f}s" if isinstance(interval_seconds, (int, float)) else "n/a"
-        interval_kind = detail.get("biosignal_interval_kind") or "question_visible"
-        answer_label = "Stimulus" if question_type == "stimulus" else f"Antwort: {answer_text}"
-        line = (
-            f"Q{question_number} [{question_type}] {prompt or '(ohne Prompt)'} | "
-            f"{answer_label} | Intervall: {interval_kind}, {interval_text}"
-        )
-        if include_legacy_sensor_summaries:
-            biomarker_text = _format_interval_biomarkers(detail.get("biosignal_interval") or {})
-            line += f" | Legacy-RAM-Snapshot (nicht kanonisch): {biomarker_text}"
-        lines.append(line)
-    return lines
-
-
 def _format_biosignals(
     hardware_config: dict[str, Any],
     saved_output: dict[str, Any],
     *,
     canonical_output: bool = False,
 ) -> list[str]:
-    card_summary = saved_output.get("card_summary") or {}
-    if isinstance(card_summary, dict) and isinstance(card_summary.get("cards"), list):
-        return _format_card_summary(card_summary)
+    """Bullet lines for results from before canonical card summaries existed.
 
+    Canonical card summaries render as a table (_biosignal_table_rows).
+    """
     # Finalized v3 results never fall back to old in-memory values. The upload
     # entry point rejects this state; the formatter guard keeps direct calls
     # fail-closed as well.
@@ -835,97 +1049,6 @@ def _canonical_card_summary_error(
     return None
 
 
-def _format_card_summary(summary: dict[str, Any]) -> list[str]:
-    """Render arbitrary plugins from finalized card-summary.json."""
-
-    lines: list[str] = []
-    for card in summary.get("cards") or []:
-        if not isinstance(card, dict):
-            continue
-        card_label = (
-            f"Q{card.get('question_index')}"
-            if card.get("question_index") is not None
-            else str(card.get("card_id") or "Card")
-        )
-        streams = card.get("streams") if isinstance(card.get("streams"), dict) else {}
-        for stream_key, stream in streams.items():
-            if not isinstance(stream, dict):
-                continue
-            plugin = str(stream.get("plugin_key") or "plugin")
-            quality = (
-                f"n={stream.get('count', 0)}, valid={stream.get('valid_count', 0)}, "
-                f"coverage={_fmt_metric(stream.get('coverage'))}, missing={stream.get('missing_count')}, "
-                f"drops={stream.get('drop_count')}, max_gap={_fmt_metric(stream.get('max_gap_seconds'))}s"
-            )
-            channels = stream.get("channels") if isinstance(stream.get("channels"), dict) else {}
-            if not channels:
-                lines.append(f"{card_label} | {plugin}/{stream_key} | {quality}")
-                continue
-            for channel_name, channel in channels.items():
-                if not isinstance(channel, dict):
-                    continue
-                if channel.get("kind") == "categorical":
-                    stats = (
-                        f"mode={channel.get('mode') or 'n/a'}, "
-                        f"frequencies={channel.get('frequencies') or {}}"
-                    )
-                else:
-                    stats = (
-                        f"mean={_fmt_metric(channel.get('mean'))}, "
-                        f"min={_fmt_metric(channel.get('min'))}, "
-                        f"max={_fmt_metric(channel.get('max'))}, "
-                        f"std={_fmt_metric(channel.get('stddev'))}"
-                    )
-                lines.append(
-                    f"{card_label} | {plugin}/{stream_key}/{channel_name} | {stats} | {quality}"
-                )
-    return lines
-
-
-def _format_interval_biomarkers(interval_summary: dict[str, Any]) -> str:
-    parts: list[str] = []
-
-    brainbit = interval_summary.get("brainbit") or {}
-    if brainbit.get("available"):
-        parts.append(
-            "BrainBit "
-            f"att={_fmt_metric(brainbit.get('avg_attention'))}, "
-            f"rel={_fmt_metric(brainbit.get('avg_relaxation'))}, "
-            f"delta={_fmt_metric(brainbit.get('avg_delta'))}, "
-            f"theta={_fmt_metric(brainbit.get('avg_theta'))}, "
-            f"alpha={_fmt_metric(brainbit.get('avg_alpha'))}, "
-            f"beta={_fmt_metric(brainbit.get('avg_beta'))}, "
-            f"gamma={_fmt_metric(brainbit.get('avg_gamma'))}"
-        )
-    else:
-        parts.append("BrainBit n/a")
-
-    radar = interval_summary.get("mini_radar") or {}
-    if radar.get("available"):
-        parts.append(
-            "Radar "
-            f"hr={_fmt_metric(radar.get('avg_heart_rate'))}, "
-            f"br={_fmt_metric(radar.get('avg_breath_rate'))}, "
-            f"q={_fmt_metric(radar.get('avg_quality'))}, "
-            f"dist={_fmt_metric(radar.get('avg_distance'))}"
-        )
-    else:
-        parts.append("Radar n/a")
-
-    camera = interval_summary.get("camera_emotion") or {}
-    if camera.get("available"):
-        parts.append(
-            "Camera "
-            f"emotion={camera.get('dominant_emotion') or 'n/a'}, "
-            f"face={_fmt_metric(camera.get('avg_face_confidence'))}, "
-            f"conf={_fmt_metric(camera.get('avg_emotion_confidence'))}"
-        )
-    else:
-        parts.append("Camera n/a")
-
-    return " | ".join(parts)
-
-
 def _format_answer_value(value: Any) -> str:
     if isinstance(value, dict):
         return ", ".join(f"{key}={val}" for key, val in value.items()) or "n/a"
@@ -942,6 +1065,22 @@ def _fmt_metric(value: Any) -> str:
     if isinstance(value, (int, float)):
         return f"{value:.2f}"
     return str(value)
+
+
+def _fmt_percent(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        return f"{value * 100:.0f} %"
+    return "n/a"
+
+
+def _seconds_between(start: Any, end: Any) -> float | None:
+    try:
+        import datetime
+        t0 = datetime.datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+        t1 = datetime.datetime.fromisoformat(str(end).replace("Z", "+00:00"))
+        return (t1 - t0).total_seconds()
+    except (TypeError, ValueError):
+        return None
 
 
 def _strip_dashes(value: str) -> str:

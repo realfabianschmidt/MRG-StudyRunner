@@ -42,6 +42,7 @@ RETIRED_CAPABILITIES = {
 
 DEFAULT_POLL_INTERVAL_MS = 2_000
 DEFAULT_REQUEST_TIMEOUT_MS = 1_000
+MAX_PUBLISH_TIMEOUT_MS = 30 * 60 * 1000
 UI_VISIBILITY_AREAS = (
     "dashboard",
     "settings_hub",
@@ -374,9 +375,12 @@ def _normalize_process_runtime(value: Any, *, api_version: int) -> dict[str, Any
             raise PluginManifestError(
                 f"runtime.operation_timeouts_ms.{operation} must be an integer"
             ) from error
-        if timeout_value < 50 or timeout_value > 120_000:
+        # An upload of a whole session may legitimately take many minutes;
+        # every other operation must answer quickly.
+        max_timeout = MAX_PUBLISH_TIMEOUT_MS if operation == "publish" else 120_000
+        if timeout_value < 50 or timeout_value > max_timeout:
             raise PluginManifestError(
-                f"runtime.operation_timeouts_ms.{operation} must be 50..120000"
+                f"runtime.operation_timeouts_ms.{operation} must be 50..{max_timeout}"
             )
         operation_timeouts[operation] = timeout_value
     raw_actions = value.get("actions", [])

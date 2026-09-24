@@ -13,6 +13,7 @@
     "actions": [],
     "trial_events": [],
     "can_toggle": false,
+    "operation_timeouts_ms": {"publish": 1800000, "admin_action": 30000},
     "sidecar": {}
   },
   "ui": {
@@ -34,7 +35,7 @@
       "requires_valid_result": false,
       "publish_on_attention": true,
       "republish_on_degraded": true,
-      "purge_verified_sources": true,
+      "purge_verified_sources": false,
       "legacy": {
         "enabled_field": "nextcloud_enabled",
         "settings": {"share_link": "nextcloud_share_link"}

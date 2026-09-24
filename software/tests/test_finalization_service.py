@@ -378,9 +378,13 @@ class FinalizationServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             service = self._service(Path(temp_dir), recording_adapter=FailingRecordingAdapter())
             job = service.commit_submission(SUBMISSION, config_data={}, recording_expected=True)
-            with self.assertRaises(InvalidTransitionError):
-                service.acknowledge_attention(job["job_id"])
+            # Seeing a job that is still working only quiets its notice.
+            seen = service.acknowledge_attention(job["job_id"])
+            self.assertNotIn("attention_acknowledged_at", seen)
+            self.assertEqual(seen["acknowledged_signature"], seen["notice_signature"])
             service.process_due_jobs_once()
+            failed = service.get(job["job_id"])
+            self.assertNotEqual(failed["acknowledged_signature"], failed["notice_signature"])
 
             acknowledged = service.acknowledge_attention(job["job_id"])
             self.assertEqual(acknowledged["status"], "attention_required")

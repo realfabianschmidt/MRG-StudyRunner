@@ -17,7 +17,13 @@ function hasUnseenUploadFailure(job) {
     && !job.attention_acknowledged_at;
 }
 
+// The admin clicked this notice and nothing new has happened since.
+function isNoticeSeen(job) {
+  return Boolean(job?.acknowledged_signature) && job.acknowledged_signature === job.notice_signature;
+}
+
 function isFinalizationActive(job) {
+  if (isNoticeSeen(job)) return false;
   if (hasUnseenUploadFailure(job)) return true;
   if (!job?.job_id || job.status === 'completed') return false;
   // An acknowledged attention job stays attention_required, but no longer needs the widget.

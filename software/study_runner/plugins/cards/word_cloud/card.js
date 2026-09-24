@@ -1,16 +1,14 @@
 import { t } from '/static/scripts/shared/i18n.js';
 import { renderEditorToggle, renderStudyHeader } from '/static/scripts/cards/card-info.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
+import { cardState } from '/static/scripts/cards/session-state.js';
 
 export const meta = { type: 'word-cloud', icon: 'chat-bubble', label: 'Word Cloud', pill: 'pill-word-cloud' };
 
 
-// Per-card selection state: { [cardIndex]: Set<string> }
-const _selected = {};
-
+// Selected words of one card in the running session (cards/session-state.js).
 function getSelected(i) {
-  if (!_selected[i]) _selected[i] = new Set();
-  return _selected[i];
+  return cardState('word-cloud', i, () => ({ selected: new Set() })).selected;
 }
 
 // ── Render ───────────────────────────────────────────────────────────────────
@@ -19,8 +17,8 @@ export function renderStudy(q, i) {
   const words = q.words?.length ? q.words : defaultQuestion.words;
   const isMultiple = q.allow_multiple !== false;
 
-  // Clear any prior state for this card
-  _selected[i] = new Set();
+  // Rendering starts from an empty selection even within one session.
+  getSelected(i).clear();
 
   const chips = words.map(w => `
     <button type="button"

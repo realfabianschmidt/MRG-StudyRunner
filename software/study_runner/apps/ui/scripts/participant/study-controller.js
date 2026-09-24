@@ -1,5 +1,6 @@
 import { getJson, postJson as postJsonToServer } from '../shared/api-client.js';
 import { CARDS, isAnswerless, loadCards } from '../cards/index.js';
+import { resetAllCardState } from '../cards/session-state.js';
 import { renderInfoBottom, renderOptionalTag } from '../cards/card-info.js';
 import { escapeHtml } from '../shared/dom-utils.js';
 import { renderMediaLayout } from '../shared/rich-text.js';
@@ -84,6 +85,7 @@ const state = {
   completedLocally: false,
   completedRunId: '',
   pendingSubmission: null,
+  freshPageRequested: false,
 };
 
 const STUDY_SESSION_STATE_KEY = 'study-runner-active-session';
@@ -268,41 +270,56 @@ async function activateStudyUiAfterAdminStart() {
   }
 }
 
+// Clears everything this page holds about the current participant: every
+// card's session state and the controller's own copy of the participant ID.
+function resetParticipantSessionState() {
+  resetAllCardState();
+  state.participantIdOverride = '';
+  state.participantMetadataOverride = {};
+  state.pendingSubmission = null;
+}
+
+function pageHoldsSession() {
+  return state.questionsBuilt || state.completedLocally || Boolean(state.startTime);
+}
+
+// The guarantee that no participant ever sees or submits data from the one
+// before: when a session is over, the page is loaded again from scratch, which
+// drops all JavaScript state (cards, overlays, timers, listeners) whether or
+// not a card follows the session-state rule. Only the snapshot of the ended
+// session is removed; a not-yet-confirmed submission stays for its own retry.
+function startFreshParticipantPage(reason) {
+  if (IS_PREVIEW || state.freshPageRequested || state.submitInFlight) {
+    return false;
+  }
+  state.freshPageRequested = true;
+  clearSessionSnapshot();
+  state.startTime = null;
+  state.sessionId = '';
+  state.sensorSessionStarted = false;
+  resetParticipantSessionState();
+  console.info(`[study] Starting a fresh participant page (${reason}).`);
+  window.location.replace(window.location.href);
+  return true;
+}
+
 function handleStudyRunState(runState) {
   if (!runState || typeof runState !== 'object') {
     return;
   }
-  const previousRunId = state.studyRunState?.run_id || '';
-  const nextRunId = runState.run_id || '';
-  if (previousRunId && nextRunId && previousRunId !== nextRunId) {
-    state.coverVisibleRunId = '';
-    state.coverDismissedRunId = '';
-    state.completedLocally = false;
-    state.completedRunId = '';
-    state.questionsBuilt = false;
-    state.startTime = null;
-    state.sessionId = '';
-    state.sensorSessionStarted = false;
-  }
-  state.studyRunState = runState;
-  if (state.completedLocally && runState.status === 'loaded') {
-    state.completedLocally = false;
-    state.completedRunId = '';
-    state.questionsBuilt = false;
-    state.startTime = null;
-    state.sessionId = '';
-    state.sensorSessionStarted = false;
-    showWaitingForAdminStart();
+  if (state.freshPageRequested) {
     return;
   }
-  if (state.completedLocally && runState.status === 'running' && nextRunId !== state.completedRunId) {
-    state.completedLocally = false;
-    state.completedRunId = '';
-    state.questionsBuilt = false;
-    state.startTime = null;
-    state.sessionId = '';
-    state.sensorSessionStarted = false;
+  const previousRunId = state.studyRunState?.run_id || '';
+  const nextRunId = runState.run_id || '';
+  const runChanged = Boolean(previousRunId && nextRunId && previousRunId !== nextRunId);
+  const sessionOver = runChanged
+    || (state.completedLocally && runState.status === 'loaded')
+    || runState.status === 'aborted';
+  if (sessionOver && pageHoldsSession() && startFreshParticipantPage(runChanged ? 'new_run' : runState.status)) {
+    return;
   }
+  state.studyRunState = runState;
   if (runState.conflict === true || runState.status === 'blocked') {
     showWaitingForAdminStart({
       title: t('study.tabletConflict.title', 'This tablet is not assigned'),
@@ -384,8 +401,11 @@ function estimateServerEpochMs(clientPerfMs = performance.now()) {
 }
 
 let _studyNoticeTimer = null;
-function showStudyNotice(message, type = 'error', durationMs = 6000) {
+function showStudyNotice(message, type = 'error', durationMs = 6000, options = {}) {
   // In-page notice instead of a blocking browser popup on the tablet.
+  if (options.reportToAdmin !== false) {
+    reportNoticeToAdmin(message, type);
+  }
   let toast = document.getElementById('study-toast');
   if (!toast) {
     toast = document.createElement('div');
@@ -396,6 +416,21 @@ function showStudyNotice(message, type = 'error', durationMs = 6000) {
   toast.className = `toast toast--${type} show`;
   clearTimeout(_studyNoticeTimer);
   _studyNoticeTimer = setTimeout(() => toast.classList.remove('show'), durationMs);
+}
+
+// Every error or warning shown to the participant also reaches the admin
+// dashboard (runtime_core/studies/operator_notices.py). Best-effort: the
+// reliable event queue is for recording data, not for this.
+function reportNoticeToAdmin(message, type) {
+  if (type !== 'error' && type !== 'warning') {
+    return;
+  }
+  void postJson('/api/study/session/client-event', {
+    event: 'participant_notice',
+    severity: type,
+    message: String(message || ''),
+    ...getSessionPayload(),
+  }, { timeoutMs: 1500 }).catch(() => {});
 }
 
 function getClientClockOffsetMs() {
@@ -1087,6 +1122,9 @@ function buildQuestions(options = {}) {
   const markInitialShown = options.markInitialShown !== false;
   const startFirstStimulus = options.startFirstStimulus !== false;
   void stopActiveStimulus({ shouldSendStop: false });
+  // Cards always render from empty session state; answers already taken for
+  // this session (the participant ID) live in the controller's overrides.
+  resetAllCardState();
 
   const container = getElement('q-container');
   container.replaceChildren();
@@ -1357,6 +1395,7 @@ async function abortStudyAfterPrepareFailure() {
   }
   await stopStudySensorSession();
   state.startTime = null;
+  resetParticipantSessionState();
   showWaitingForAdminStart({
     title: t('study.prepareAbortedTitle', 'Study stopped'),
     body: t('study.prepareAbortedBody', 'The card was not shown. Please tell the study supervisor.'),
@@ -1364,6 +1403,7 @@ async function abortStudyAfterPrepareFailure() {
 }
 
 function showPrepareFailureDialog(error) {
+  reportNoticeToAdmin(`${t('study.prepareFailedTitle', 'Card could not be prepared')}: ${error?.message || String(error)}`, 'error');
   return new Promise((resolve) => {
     let settled = false;
     const finish = (choice) => {
@@ -2036,7 +2076,11 @@ async function startStudySensorSession() {
   } catch (error) {
     state.sensorSessionStarted = false;
     console.error('[study] Could not start study sensor session:', error);
-    showStudyNotice(t('study.startFailed', 'Could not start the study session.'));
+    // A refusal the server answered was already reported to the admin with
+    // its reason; only an unanswered request must be reported from here.
+    showStudyNotice(t('study.startFailed', 'Could not start the study session.'), 'error', 6000, {
+      reportToAdmin: !error?.status,
+    });
     return false;
   }
 }
@@ -2373,6 +2417,8 @@ async function submitResults() {
     // Finalization now owns end-marker, producer stop, worker drain, and XDF
     // footer ordering. Calling /session/stop here would recreate the old race.
     state.sensorSessionStarted = false;
+    // The submission is on the server; nothing of it stays in this page.
+    resetParticipantSessionState();
     void participantExtensions.dispose('submission_committed');
 
     const finishIndex = (state.config.questions || []).findIndex(q => q.type === 'finish');

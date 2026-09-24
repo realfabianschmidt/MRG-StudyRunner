@@ -1,6 +1,6 @@
 # Cards
 
-Two files. Neither one draws a question itself — a card type's own drawing
+Three files. None of them draws a question itself — a card type's own drawing
 code lives in its extension (`plugins/cards/<type>/card.js`), loaded
 through the plugin catalog. This folder only holds what every card shares.
 
@@ -17,6 +17,20 @@ through the plugin catalog. This folder only holds what every card shares.
   toggle, and, on the participant side, the type tag and optional-tag badge.
   Card modules use these helpers for a consistent frame in the editor and
   participant page.
+- **`session-state.js`** — the only place a card may keep state the DOM does
+  not hold. `cardState(owner, index, init)` returns this session's state for
+  one card; `onSessionReset(fn)` registers cleanup such as closing an overlay.
+  The participant page calls `resetAllCardState()` whenever it builds the
+  questions and when a session ends, and reloads itself before the next
+  participant.
+
+## No data between sessions
+
+A card never keeps participant data in a module-level variable. It reads its
+answer back from the rendered DOM, or stores it with `cardState()`. Plugin
+discovery refuses a `card.js` with mutable module-level state
+(`plugin_framework/card_session_isolation.py`); `export let defaultQuestion`,
+set by `configureCard()`, is the one allowed exception.
 
 ## Shared container and styles
 

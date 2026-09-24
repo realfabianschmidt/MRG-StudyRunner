@@ -115,6 +115,9 @@ Edit-safety legend:
 | `software/study_runner/runtime_core/settings/runtime_config.py` | Paths, ports, app mode, data-folder resolution | careful |
 | `software/study_runner/runtime_core/studies/study_config_service.py` | Load/save the active study and the saved-studies folder | careful |
 | `software/study_runner/runtime_core/studies/study_run_state_service.py` | Persists the operator-controlled loaded/running/completed run state | careful |
+| `software/study_runner/runtime_core/studies/study_run_abort.py` | Admin abort: freezes a recording session, or closes a running run that never started recording | careful |
+| `software/study_runner/runtime_core/studies/operator_notices.py` | Persisted notices for the admin: every tablet error and every refused session start, until clicked | careful |
+| `software/study_runner/runtime_core/studies/live_sensor_readiness.py` | Live check on Play: which selected study sensors are not delivering data right now | careful |
 | `software/study_runner/data_core/host/study_sensor_runtime.py` | Which sensors are effectively on (study settings + overrides) | careful |
 | `software/study_runner/runtime_core/studies/trial_service.py` | Sends stimulus start/stop markers to plugins and the two built-in recording sources | careful |
 | `software/study_runner/runtime_core/studies/study_client_service.py` | Tablet heartbeat bookkeeping | careful |
@@ -213,6 +216,7 @@ browser module a manifest declares under `ui.extensions`.
 | `registry.py` | The façade almost everything else calls: manifest-driven plugin lookup, generic actions, interval summaries, sidecar exports | careful |
 | `plugin_catalog.py` | Discovers trusted plugin folders and validates API-v5 manifests before dispatch | no |
 | `plugin_layout.py` | Defines trusted plugin category roots shared by discovery, drivers, UI assets, and self-check | no |
+| `card_session_isolation.py` | Refuses a card whose `card.js` keeps mutable module-level state, so no answer can reach the next participant | careful |
 | `driver_runtime.py` | Runtime used by the single `driver.py` entry point every API-v5 plugin process runs | careful |
 | `process_host.py` | Host-side supervisor for API-v5 drivers: start/stop/restart, line-oriented console, reserved-prefix RPC; cards additionally get no app context and terminate their process on an RPC timeout, everyone else does not | careful |
 | `card_catalog.py` | Package 5g.B5: `card_bindings()` -- the manifest-driven `question_type -> (catalog entry, card_contract)` lookup every card-aware caller reads instead of a hardcoded type list; `QuestionTypes` is the live set view `ALLOWED_QUESTION_TYPES`/`NON_ANSWER_QUESTION_TYPES` wrap | careful |
@@ -314,7 +318,8 @@ one, unlike the plugin table above).
 | `admin/session-timeline.js` | Renders completed-session sensor lanes and answer markers as offline SVG | careful |
 | `admin/sessions-browser.js` | Completed-session hub list, detail panel, and timeline data fetching | careful |
 | `admin/upload-monitor.js` | Background-upload completion modal and the corner progress widget it shrinks to | careful |
-| `admin/finalization-monitor-view.js` | Generic finalization modal/widget renderer and guarded operator actions | careful |
+| `admin/operator-notices.js` | Shows operator notices as a toast and keeps them in a stack until clicked | careful |
+| `admin/session-progress-rail.js` | Session detail progress rail: started, ended, every finalization step left to right, with retry and degraded confirmation | careful |
 | `admin/finalization-actions.js` | Retry, degraded confirmation and open-folder for a finalization job, shared by the live notice and the session detail's "Completion & uploads" card | no |
 | `admin/recovery-panel.js` | Hub banner listing crash-orphaned sessions, with finalize/discard actions | careful |
 | `admin/plugin-console.js` | Diagnostics modal: guided plugin status view plus the line-oriented expert console (SSE-fed) | careful |
@@ -347,6 +352,7 @@ one, unlike the plugin table above).
 | `shared/qr-code.js` | QR code rendering for the access card | no |
 | `cards/index.js` | Package 5g.B5: `loadCards()` fetches each installed card's `card.js` (`/api/plugins/<key>/assets/card.js`) and Python-authoritative defaults (`/api/plugins/<key>/card-defaults`) instead of a static import list; the 12 card modules themselves now live in `plugins/cards/<name>/card.js` | careful |
 | `cards/card-info.js` | The shared editor frame every card composes into: question text, instruction, note, toggle group | careful |
+| `cards/session-state.js` | `cardState()` / `onSessionReset()`: the only place a card keeps non-DOM state; cleared at every session boundary | careful |
 
 Locales (`apps/ui/locales/en.json`, `de.json`) hold every UI string; both
 files must have identical keys (a test checks this). `web/vendor/`

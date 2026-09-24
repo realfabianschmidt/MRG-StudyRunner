@@ -4,8 +4,9 @@ import threading
 
 from flask import Blueprint, current_app, jsonify, request
 
-from study_runner.plugin_framework.registry import initialize_plugin, run_runtime_action
-from study_runner.runtime_core.delivery.withdrawal_service import WithdrawalError
+from study_runner.plugin_framework.registry import get_plugin_manifests, initialize_plugin, run_runtime_action
+from study_runner.runtime_core.studies.live_sensor_readiness import live_sensor_issues, selected_study_sensors
+from study_runner.runtime_core.studies.study_run_abort import StudyRunAbortError, abort_study_run
 from study_runner.runtime_core.settings.admin_status_service import build_admin_status
 from study_runner.runtime_core.settings.runtime_config import build_runtime_info
 from study_runner.runtime_core.settings.shortcut_service import ShortcutError, create_desktop_shortcut
@@ -22,7 +23,6 @@ from study_runner.plugin_framework.plugin_secrets import (
 from study_runner.data_core.host.study_sensor_runtime import STUDY_SENSOR_KEYS
 from study_runner.runtime_core.studies.validation import validate_and_normalize_config
 from .helpers import (
-    _abort_study_run,
     _clear_session_overrides,
     _exit_process_soon,
     _plugin_context,
@@ -253,6 +253,19 @@ def admin_study_run_status():
     return jsonify({"ok": True, "run_state": run_state, "tablet_gate": client_status.get("single_tablet", {})})
 
 
+@bp.route("/api/admin/notices", methods=["GET"])
+def admin_notices():
+    notices = current_app.config["OPERATOR_NOTICES"].unacknowledged()
+    return jsonify({"ok": True, "notices": notices})
+
+
+@bp.route("/api/admin/notices/ack", methods=["POST"])
+def admin_acknowledge_notices():
+    payload = request.get_json(silent=True) or {}
+    count = current_app.config["OPERATOR_NOTICES"].acknowledge(str(payload.get("id") or ""))
+    return jsonify({"ok": True, "acknowledged": count})
+
+
 @bp.route("/api/admin/study-run/load", methods=["POST"])
 def admin_load_study_run():
     payload = request.get_json() or {}
@@ -306,6 +319,19 @@ def admin_start_study_run():
             ),
             409,
         )
+    payload = request.get_json(silent=True) or {}
+    live_issues = _live_sensor_issues(config_data)
+    if live_issues and not payload.get("override_live_check"):
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": "Required sensors are not connected.",
+                    "live_issues": live_issues,
+                }
+            ),
+            409,
+        )
     client_status = get_client_status(active_study_id=str(config_data["study_id"]))
     tablet_gate = client_status.get("single_tablet", {})
     if not tablet_gate.get("can_start"):
@@ -319,9 +345,32 @@ def admin_start_study_run():
             ),
             409,
         )
-    run_state = _start_study_run(config_data["study_id"], str(tablet_gate.get("selected_client_id") or ""))
+    run_state = _start_study_run(
+        config_data["study_id"],
+        str(tablet_gate.get("selected_client_id") or ""),
+        started_despite=live_issues or None,
+    )
     print(f"[STUDY-RUN] Started study: {config_data['study_id']}")
     return jsonify({"ok": True, "run_state": run_state, "tablet_gate": tablet_gate})
+
+
+def _live_sensor_issues(config_data: dict) -> list[dict]:
+    coordinator = current_app.config.get("SENSOR_COORDINATOR")
+    manifests = get_plugin_manifests()
+    if coordinator is None or not selected_study_sensors(config_data, manifests):
+        return []
+    plugin_statuses = coordinator.build_status(_plugin_context()).get("plugins") or {}
+    return live_sensor_issues(config_data, plugin_statuses, manifests)
+
+
+@bp.route("/api/admin/study-run/live-check", methods=["GET"])
+def admin_study_run_live_check():
+    """The same live check Play runs, for the hub to show before it is pressed."""
+    try:
+        config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
+    except Exception as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True, "live_issues": _live_sensor_issues(config_data)})
 
 
 @bp.route("/api/admin/study-run/stop", methods=["POST"])
@@ -334,43 +383,38 @@ def admin_stop_study_run():
 
 @bp.route("/api/admin/study-run/abort", methods=["POST"])
 def admin_abort_study_run():
-    """End the currently recording session on the admin's word, reason required.
+    """End the running study on the admin's word, reason required.
 
-    Unlike ``/stop`` (a plain gate release), this reaches into the live
-    recording: freezes it the same way a normal completion does, keeps every
-    captured file, and leaves the same WITHDRAWN.json tombstone a consent
-    withdrawal would -- with ``kind: "admin_abort"`` and the given reason, so
-    an operator or a later reader never mistakes it for a participant
-    withdrawing consent (see withdrawal_service.py).
+    Works whenever the run shows ``running``: a recording session is frozen
+    with an ``admin_abort`` tombstone, and a run whose session never started
+    recording is simply closed (see runtime_core/studies/study_run_abort.py).
     """
     payload = request.get_json(silent=True) or {}
-    reason = str(payload.get("reason") or "").strip()
-    if not reason:
-        return jsonify({"ok": False, "error": "A reason is required to abort a study."}), 400
-
-    recording_runtime = current_app.config.get("RECORDING_RUNTIME_SERVICE")
-    current = recording_runtime.current_status() if recording_runtime is not None else None
-    if current is None:
-        return jsonify({"ok": False, "error": "No study is currently recording."}), 404
-    session_id = str(current.get("session_id") or "")
-    paths = recording_runtime.find_paths(session_id) if session_id else None
-    if paths is None:
-        return jsonify({"ok": False, "error": "Could not locate the active session on disk."}), 404
-
     try:
-        withdrawal_state = current_app.config["WITHDRAWAL_SERVICE"].abort(
-            session_id=session_id,
-            session_root=paths.root,
-            reason=reason,
+        result = abort_study_run(
+            reason=str(payload.get("reason") or ""),
             requested_by=str(payload.get("requested_by") or "admin"),
+            run_state_store=current_app.config["STUDY_RUN_STATE"],
+            session_store=current_app.config["SESSION_STORE"],
+            recording_runtime=current_app.config.get("RECORDING_RUNTIME_SERVICE"),
+            withdrawal_service=current_app.config["WITHDRAWAL_SERVICE"],
         )
-    except WithdrawalError as error:
-        return jsonify({"ok": False, "error": str(error)}), 500
+    except StudyRunAbortError as error:
+        return jsonify({"ok": False, "error": str(error)}), error.status_code
 
-    run_state = _abort_study_run(reason)
     sensor_result = _stop_study_sensor_runtime()
-    print(f"[STUDY-RUN] Aborted study: {run_state.get('study_id')} -- {reason}")
-    return jsonify({"ok": True, "run_state": run_state, "withdrawal": withdrawal_state, **sensor_result})
+    run_state = result.run_state
+    print(f"[STUDY-RUN] Aborted study ({result.outcome}): {run_state.get('study_id')} -- {run_state.get('aborted_reason')}")
+    return jsonify(
+        {
+            "ok": True,
+            "outcome": result.outcome,
+            "run_state": run_state,
+            "withdrawal": result.withdrawal,
+            "closed_sessions": result.closed_sessions,
+            **sensor_result,
+        }
+    )
 
 
 @bp.route("/api/admin/session-overrides/reset", methods=["POST"])

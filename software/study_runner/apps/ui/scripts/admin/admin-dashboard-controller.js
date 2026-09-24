@@ -15,6 +15,7 @@ import {
 } from '../shared/plugin-catalog.js';
 
 const POLL_INTERVAL_MS = 2000;
+const STATUS_REQUEST_TIMEOUT_MS = 8000;
 
 let pollTimer = null;
 let callbacks = {};
@@ -179,19 +180,37 @@ function getDashboardElements() {
   };
 }
 
+// One refresh at a time: a slow server must not stack up overlapping polls.
+// A failure names its step and is toasted once until the next success, so a
+// problem is visible without a toast every two seconds.
+let statusRefreshInFlight = false;
+let lastStatusFailure = '';
+
 async function refreshAdminStatus(elements, showToast) {
+  if (statusRefreshInFlight) return;
+  statusRefreshInFlight = true;
+  let step = 'status';
   try {
     const [status, runtimeInfo] = await Promise.all([
-      getJson('/api/admin/status'),
-      getJson('/api/runtime-info'),
+      getJson('/api/admin/status', { timeoutMs: STATUS_REQUEST_TIMEOUT_MS }),
+      getJson('/api/runtime-info', { timeoutMs: STATUS_REQUEST_TIMEOUT_MS }),
       loadPluginCatalog(),
     ]);
+    step = 'extensions';
     await loadPluginUiExtensions('dashboard');
+    step = 'render';
     status.runtime_info = runtimeInfo;
     renderAdminStatus(elements, status);
+    lastStatusFailure = '';
   } catch (error) {
-    console.error('[admin] Could not load admin status:', error);
-    showToast?.(t('dashboard.statusFailed', 'Dashboard status failed'), 'error');
+    const detail = `${step}: ${error?.message || error}`;
+    console.error(`[admin] Dashboard status failed (${detail})`, error);
+    if (detail !== lastStatusFailure) {
+      lastStatusFailure = detail;
+      showToast?.(`${t('dashboard.statusFailed', 'Dashboard status failed')} (${detail})`, 'error');
+    }
+  } finally {
+    statusRefreshInFlight = false;
   }
 }
 

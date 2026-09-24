@@ -20,6 +20,13 @@ from .process_host import PROTOCOL_PREFIX
 _OUTPUT_LOCK = threading.Lock()
 _PROTOCOL_OUTPUT = None
 
+# Operations that can take minutes (an upload) run beside the request loop, so
+# status polls and admin actions are still answered while they work. One at a
+# time: the host sends the next only after this one answered or timed out, and
+# a timed-out one ends with the whole process (process_host.py).
+BACKGROUND_OPERATIONS = frozenset({"publish"})
+_background_busy = threading.Event()
+
 
 def run_plugin_driver(plugin_key: str) -> int:
     """Keep plugin/thread prints off the machine protocol's stdout pipe."""
@@ -127,6 +134,9 @@ def _serve_plugin_driver(plugin_key: str) -> int:
                         context = _context_from_payload(refreshed)
                     if context is None:
                         raise RuntimeError("plugin has not been initialized")
+                    if operation in BACKGROUND_OPERATIONS:
+                        _start_background_operation(plugin, context, operation, payload, request_id)
+                        continue
                     result, should_exit = _dispatch(plugin, context, operation, payload)
                 _emit_response(request_id, ok=True, result=result)
             except Exception as error:
@@ -310,6 +320,29 @@ def _context_from_payload(value: Any) -> PluginContext:
 
 def _dict(value: Any) -> dict[str, Any]:
     return deepcopy(value) if isinstance(value, dict) else {}
+
+
+def _start_background_operation(
+    plugin: Plugin,
+    context: PluginContext,
+    operation: str,
+    payload: dict[str, Any],
+    request_id: str,
+) -> None:
+    if _background_busy.is_set():
+        raise RuntimeError(f"{operation} is already running in this plugin")
+    _background_busy.set()
+
+    def run() -> None:
+        try:
+            result, _ = _dispatch(plugin, context, operation, payload)
+            _emit_response(request_id, ok=True, result=result)
+        except Exception as error:
+            _emit_response(request_id, ok=False, error=f"{type(error).__name__}: {error}")
+        finally:
+            _background_busy.clear()
+
+    threading.Thread(target=run, name=f"plugin-{operation}", daemon=True).start()
 
 
 def _emit_response(

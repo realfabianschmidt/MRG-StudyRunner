@@ -232,8 +232,8 @@ def _load_study_run(study_id: str) -> dict:
     return _study_run_state_store().set_loaded(study_id)
 
 
-def _start_study_run(study_id: str, active_client_id: str = "") -> dict:
-    return _study_run_state_store().start(study_id, active_client_id)
+def _start_study_run(study_id: str, active_client_id: str = "", started_despite: list | None = None) -> dict:
+    return _study_run_state_store().start(study_id, active_client_id, started_despite=started_despite)
 
 
 def _complete_study_run(study_id: str, session_id: str) -> dict:
@@ -582,11 +582,45 @@ def _stop_study_session_tracking(session_id: str) -> bool:
     return _session_store().mark_completed(session_id)
 
 
+def _report_operator_notice(message: str, **details) -> dict:
+    """Put a problem in front of the admin (see runtime_core/studies/operator_notices.py)."""
+    return current_app.config["OPERATOR_NOTICES"].add(message, **details)
+
+
 def _record_study_client_event(payload: dict) -> dict:
+    # An error or warning the tablet showed its participant always reaches
+    # the admin, whether or not a session exists yet to attach it to.
+    notice = None
+    severity = str(payload.get("severity") or "").strip()
+    if severity in {"error", "warning"} and str(payload.get("message") or "").strip():
+        notice = _report_operator_notice(
+            str(payload.get("message")),
+            severity=severity,
+            source="tablet",
+            code=str(payload.get("event") or ""),
+            study_id=str(payload.get("study_id") or ""),
+            session_id=str(payload.get("session_id") or ""),
+            participant_id=str(payload.get("participant_id") or ""),
+        )
     session = _session_store().record_client_event(payload)
+    result: dict = {"notice": notice} if notice else {}
     if session is None:
-        return {"recorded": False, "reason": "session_not_found"}
-    return {"recorded": True, "session": _public_study_session(session)}
+        return {**result, "recorded": False, "reason": "session_not_found"}
+    return {**result, "recorded": True, "session": _public_study_session(session)}
+
+
+def _record_session_start_failure(message: str, payload: dict, study_id: str) -> None:
+    """A session the admin started but the tablet could not begin: show it on
+    the run (the dashboard's "running" gets a reason) and as a notice."""
+    _study_run_state_store().record_start_failure(message)
+    _report_operator_notice(
+        f"The tablet could not start the study: {message}",
+        severity="error",
+        source="server",
+        code="session_start_failed",
+        study_id=study_id,
+        participant_id=str(payload.get("participant_id") or ""),
+    )
 
 
 def _public_study_session(session: dict | None) -> dict | None:

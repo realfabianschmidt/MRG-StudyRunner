@@ -1,6 +1,7 @@
 import { t } from '/static/scripts/shared/i18n.js';
 import { renderEditorToggle, renderStudyHeader } from '/static/scripts/cards/card-info.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
+import { cardState } from '/static/scripts/cards/session-state.js';
 
 // Field metadata: render kind, label, and (for choice fields) default options.
 // `configurable: true` fields expose an editable option list in the settings modal.
@@ -98,8 +99,12 @@ export const meta = {
 };
 
 
-let _computedId = null;
-let _computedMetadata = null;
+// The computed code and stored fields of the participant in the running
+// session. Kept in the shared session store so the next participant starts
+// without the previous code (see cards/session-state.js).
+function idState() {
+  return cardState('participant-id', 'current', () => ({ id: null, metadata: null }));
+}
 
 export function renderStudy(q, _i) {
   const prompt = q.prompt || defaultQuestion.prompt;
@@ -271,13 +276,11 @@ function syncFieldRow(editorEl, fieldKey) {
 
 // ── Per-field settings modal ─────────────────────────────────────────────────
 
-let _activeFieldModal = null;
-
 function closeFieldModal() {
-  if (_activeFieldModal) {
-    if (_activeFieldModal._escHandler) document.removeEventListener('keydown', _activeFieldModal._escHandler);
-    _activeFieldModal.remove();
-    _activeFieldModal = null;
+  const modal = document.querySelector('.pid-field-modal');
+  if (modal) {
+    if (modal._escHandler) document.removeEventListener('keydown', modal._escHandler);
+    modal.remove();
   }
 }
 
@@ -288,7 +291,7 @@ function openFieldModal(editorEl, fieldKey) {
   const configurable = isConfigurable(fieldKey);
 
   const backdrop = document.createElement('div');
-  backdrop.className = 'modal-backdrop';
+  backdrop.className = 'modal-backdrop pid-field-modal';
 
   const optionsSection = configurable ? `
     <div class="field">
@@ -341,7 +344,6 @@ function openFieldModal(editorEl, fieldKey) {
     </div>`;
 
   document.body.appendChild(backdrop);
-  _activeFieldModal = backdrop;
 
   backdrop.addEventListener('click', (event) => {
     if (event.target === backdrop) closeFieldModal();
@@ -437,7 +439,7 @@ export function collectConfig(el) {
 }
 
 export function collectAnswer() {
-  return _computedId;
+  return idState().id;
 }
 
 export function isAnswered() {
@@ -445,7 +447,8 @@ export function isAnswered() {
 }
 
 export function collectMetadata() {
-  return _computedMetadata ? { ..._computedMetadata } : {};
+  const { metadata } = idState();
+  return metadata ? { ...metadata } : {};
 }
 
 export function onInput(event) {
@@ -456,12 +459,15 @@ export function onInput(event) {
 }
 
 async function _updateHash(cardBody) {
+  // Bound before the await: a session reset mid-hash must not write into the
+  // next participant's state.
+  const state = idState();
   const entries = collectRenderedFieldEntries(cardBody);
   const hasKeyField = entries.some((entry) => entry.useForKey);
 
   if (!entries.length || !hasKeyField || entries.some((entry) => !entry.value)) {
-    _computedId = null;
-    _computedMetadata = null;
+    state.id = null;
+    state.metadata = null;
     const box = cardBody.querySelector('.pid-code-box');
     if (box) box.hidden = true;
     cardBody.dispatchEvent(new Event('participantid:changed', { bubbles: true }));
@@ -477,7 +483,7 @@ async function _updateHash(cardBody) {
     if (window.crypto && window.crypto.subtle) {
       const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
       const hex = Array.from(new Uint8Array(buffer)).map((b) => b.toString(16).padStart(2, '0')).join('');
-      _computedId = hex.slice(0, 16);
+      state.id = hex.slice(0, 16);
     } else {
       let h1 = 0xdeadbeef ^ raw.length, h2 = 0x41c6ce57 ^ raw.length;
       for (let i = 0; i < raw.length; i++) {
@@ -487,24 +493,25 @@ async function _updateHash(cardBody) {
       }
       h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
       h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-      _computedId = (Math.abs(h1).toString(16) + Math.abs(h2).toString(16)).padStart(16, '0').slice(0, 16);
+      state.id = (Math.abs(h1).toString(16) + Math.abs(h2).toString(16)).padStart(16, '0').slice(0, 16);
     }
 
-    _computedMetadata = {};
+    const metadata = {};
     entries
       .filter((entry) => entry.store)
       .forEach((entry) => {
-        _computedMetadata[entry.key] = entry.value;
+        metadata[entry.key] = entry.value;
       });
+    state.metadata = metadata;
 
     const display = cardBody.querySelector('.pid-code-display');
-    if (display) display.textContent = _computedId.slice(0, 8);
+    if (display) display.textContent = state.id.slice(0, 8);
     const box = cardBody.querySelector('.pid-code-box');
     if (box) box.hidden = false;
   } catch (error) {
     console.error('Hash generation failed:', error);
-    _computedId = null;
-    _computedMetadata = null;
+    state.id = null;
+    state.metadata = null;
   }
 
   cardBody.dispatchEvent(new Event('participantid:changed', { bubbles: true }));

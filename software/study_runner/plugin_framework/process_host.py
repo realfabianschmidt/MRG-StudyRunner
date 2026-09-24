@@ -34,6 +34,9 @@ LOG_ROTATE_BYTES = 10 * 1024 * 1024
 LOG_ROTATE_GENERATIONS = 3
 MAX_RESTARTS = 3
 STARTUP_TIMEOUT_MS = 5_000
+# A timed-out publish keeps uploading in the child while the host already
+# schedules the retry; stopping the child is the only way to avoid that race.
+TERMINATE_ON_TIMEOUT_OPERATIONS = frozenset({"publish"})
 RESPONSE_ERROR_KINDS = frozenset({"invalid_input", "extension_failure"})
 
 
@@ -159,7 +162,14 @@ class PluginProcessRuntime:
         _start_if_needed: bool = True,
     ) -> Any:
         if _start_if_needed:
-            self._ensure_started()
+            started_new = self._ensure_started()
+            if started_new and not self.is_card and operation != "initialize":
+                # A child started here (e.g. after a publish timed out and
+                # was stopped) must be initialized before it can serve.
+                with self._lock:
+                    context = self._context
+                if context is not None:
+                    self.initialize(context)
         else:
             with self._lock:
                 process = self._process
@@ -205,11 +215,13 @@ class PluginProcessRuntime:
                 configured_timeout_ms = max(STARTUP_TIMEOUT_MS, configured_timeout_ms)
             timeout = max(0.05, float(configured_timeout_ms) / 1_000.0)
             if not pending.event.wait(timeout):
-                # Only stateless cards opt into termination on RPC timeout.
+                # Stateless cards, and any operation whose late completion
+                # would race the host's own retry (a publish), end the worker
+                # on timeout; the next call starts a fresh one.
                 # Remove the waiter first so no late response can revive this call.
                 with self._lock:
                     self._pending.pop(request_id, None)
-                if self.is_card and _start_if_needed:
+                if (self.is_card or operation in TERMINATE_ON_TIMEOUT_OPERATIONS) and _start_if_needed:
                     self._terminate_after_timeout(process, operation, timeout)
                 raise PluginProcessError(
                     f"Plugin '{self.key}' timed out during {operation} after {timeout:.3f}s."
@@ -245,7 +257,7 @@ class PluginProcessRuntime:
             # concurrent request can still observe this live-but-doomed worker
             # and bypass the supervisor's recovery backoff.
             self._recovering = True
-        self._append_output("system", f"Terminating card worker after {operation} timed out ({timeout:.3f}s).")
+        self._append_output("system", f"Terminating plugin worker after {operation} timed out ({timeout:.3f}s).")
         try:
             process.terminate()
         except OSError:
@@ -292,12 +304,14 @@ class PluginProcessRuntime:
                 self._last_exit_code = process.returncode
                 self._last_exit_at = time.time()
 
-    def _ensure_started(self, *, _recovery: bool = False) -> None:
+    def _ensure_started(self, *, _recovery: bool = False) -> bool:
+        """Start the child if it is not running; True when a new one started."""
+        started_new = False
         with self._lock:
             if self.is_card and not _recovery and self._recovering:
                 raise PluginProcessError(f"Card '{self.key}' is recovering; please retry shortly.")
             if self._process is not None and self._process.poll() is None:
-                return
+                return False
             if self.is_card and not _recovery:
                 if self._process is not None:
                     raise PluginProcessError(f"Card '{self.key}' is recovering; please retry shortly.")
@@ -344,6 +358,7 @@ class PluginProcessRuntime:
             self._completed_operations.clear()
             self._configure_log_path()
             self._append_output("system", f"Started plugin driver (pid {process.pid}).")
+            started_new = True
             threading.Thread(
                 target=self._read_stream,
                 args=(process, "stdout", process.stdout),
@@ -362,6 +377,7 @@ class PluginProcessRuntime:
                 name=f"plugin-{self.key}-wait",
                 daemon=True,
             ).start()
+        return started_new
 
     def _command(self) -> list[str]:
         entrypoint = str(self.runtime_config.get("entrypoint") or "driver.py")

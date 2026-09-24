@@ -80,6 +80,7 @@ def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
                 "notion_parent_page_id": str(plugin_settings.get("parent_page_id") or "").strip(),
                 "notion_database_id": str(plugin_settings.get("database_id") or "").strip(),
                 "notion_data_source_id": str(plugin_settings.get("data_source_id") or "").strip(),
+                "notion_sessions_database_id": str(plugin_settings.get("sessions_database_id") or "").strip(),
             }
         )
 

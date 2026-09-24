@@ -154,6 +154,8 @@ def start() -> dict[str, Any]:
 
         _running = True
         _stop_event.clear()
+        # A new run starts with no samples from an earlier participant.
+        _history.clear()
         if _connection_type() == "ble":
             _reset_ble_stats()
             target = _ble_loop

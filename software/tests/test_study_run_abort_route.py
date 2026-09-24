@@ -1,8 +1,8 @@
 """POST /api/admin/study-run/abort: end a live session, keep everything it recorded.
 
-The route's own job is thin -- require a reason, find the currently
-recording session, delegate to WithdrawalService.abort(), and update
-study_run_state -- so these tests exercise exactly that plumbing rather than
+The route's own job is thin -- it delegates to
+runtime_core/studies/study_run_abort.py, which freezes a recording session via
+WithdrawalService.abort() or, when nothing records, closes the running run -- so these tests exercise exactly that plumbing rather than
 re-proving abort()'s own behavior (test_withdrawal_service.py already does).
 """
 from __future__ import annotations
@@ -64,7 +64,7 @@ class StudyRunAbortRouteTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertFalse(response.get_json()["ok"])
 
-    def test_aborting_with_nothing_recording_is_a_404(self) -> None:
+    def test_aborting_with_nothing_running_is_a_404(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             app = self._app(temp_dir)
             response = app.test_client().post(
@@ -72,6 +72,28 @@ class StudyRunAbortRouteTests(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 404)
             self.assertFalse(response.get_json()["ok"])
+
+    def test_a_running_study_without_a_recording_can_still_be_aborted(self) -> None:
+        """The tablet's session start failed: the run shows "running" but no
+        recording exists. Abort must still end it instead of answering 404."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = self._app(temp_dir)
+            app.config["STUDY_RUN_STATE"].start("study-a", "tablet-1")
+            session = app.config["SESSION_STORE"].start_or_reuse(
+                {"study_id": "study-a", "participant_id": "p1", "client_id": "tablet-1"}
+            )
+
+            response = app.test_client().post(
+                "/api/admin/study-run/abort", json={"reason": "sensor never connected"}
+            )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.get_json()
+            self.assertEqual(payload["outcome"], "run_only")
+            self.assertEqual(payload["run_state"]["status"], "aborted")
+            self.assertEqual(payload["run_state"]["aborted_reason"], "sensor never connected")
+            self.assertIn(session["session_id"], payload["closed_sessions"])
+            self.assertEqual(app.config["SESSION_STORE"].list_active(), [])
 
     def test_abort_stops_the_session_updates_run_state_and_keeps_the_data(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

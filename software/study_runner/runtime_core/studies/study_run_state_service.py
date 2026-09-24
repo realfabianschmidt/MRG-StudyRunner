@@ -91,7 +91,13 @@ class StudyRunStateStore:
             self._persist_locked()
             return self.public()
 
-    def start(self, study_id: str, active_client_id: str = "") -> dict[str, Any]:
+    def start(
+        self,
+        study_id: str,
+        active_client_id: str = "",
+        *,
+        started_despite: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         normalized = _clean_study_id(study_id)
         client_id = str(active_client_id or "").strip()
         now = self._now()
@@ -120,6 +126,9 @@ class StudyRunStateStore:
                 "updated_at": _format_time(now),
                 "updated_at_epoch": now,
             }
+            if started_despite:
+                # The admin started although these sensors were not live.
+                self._state["started_despite"] = list(started_despite)
             self._persist_locked()
             return self.public()
 
@@ -185,6 +194,31 @@ class StudyRunStateStore:
             }
             self._persist_locked()
             return self.public()
+
+    def record_start_failure(self, message: str) -> dict[str, Any]:
+        """Note why the tablet could not begin the running run. The run stays
+        ``running`` (the tablet may retry); a new start() clears the note."""
+        now = self._now()
+        with self._lock:
+            if self._state.get("status") == RUNNING_STATUS:
+                self._state = {
+                    **self._state,
+                    "last_start_error": {
+                        "message": str(message or "").strip(),
+                        "at": _format_time(now),
+                        "at_epoch": now,
+                    },
+                    "updated_at": _format_time(now),
+                    "updated_at_epoch": now,
+                }
+                self._persist_locked()
+            return self.public()
+
+    def clear_start_failure(self) -> None:
+        with self._lock:
+            if "last_start_error" in self._state:
+                self._state = {k: v for k, v in self._state.items() if k != "last_start_error"}
+                self._persist_locked()
 
     def public(self) -> dict[str, Any]:
         with self._lock:

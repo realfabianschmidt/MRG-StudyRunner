@@ -13,6 +13,7 @@
     "actions": [],
     "trial_events": [],
     "can_toggle": true,
+    "operation_timeouts_ms": {"publish": 300000, "admin_action": 30000},
     "sidecar": {}
   },
   "lifecycle": {"reinitialize_on_disable": true},
@@ -36,7 +37,7 @@
       "publish_on_attention": false,
       "republish_on_degraded": false,
       "purge_verified_sources": false,
-      "discovered_settings": ["database_id", "data_source_id"],
+      "discovered_settings": ["database_id", "data_source_id", "sessions_database_id"],
       "legacy": {
         "enabled_field": "notion_enabled",
         "settings": {
@@ -113,6 +114,12 @@
         "label_key": "pluginSettings.notion.dataSourceId.label",
         "placeholder_key": "pluginSettings.notion.dataSourceId.placeholder",
         "help_key": "pluginHelp.notion.dataSourceId"
+      },
+      "sessions_database_id": {
+        "type": "string", "default": "", "read_only": true,
+        "label_key": "pluginSettings.notion.sessionsDatabaseId.label",
+        "placeholder_key": "pluginSettings.notion.dataSourceId.placeholder",
+        "help_key": "pluginHelp.notion.sessionsDatabaseId"
       }
     },
     "card_actions": {}

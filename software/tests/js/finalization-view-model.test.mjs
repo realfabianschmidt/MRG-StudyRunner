@@ -38,6 +38,12 @@ assert.deepEqual(finalizationProgress(queued), { done: 2, total: 3, percent: 67 
 assert.equal(pickFinalizationFocus([completed, queued, attention]), attention);
 assert.equal(pickFinalizationFocus([completed, degradedPublishing]), degradedPublishing);
 assert.equal(finalizationSessionKey(attention), 'finalization:attention');
+
+// A clicked notice stays quiet until its signature changes.
+const seenRetrying = { ...queued, job_id: 'seen', status: 'running', notice_signature: 'active|publish_nextcloud:retrying', acknowledged_signature: 'active|publish_nextcloud:retrying' };
+assert.equal(pickFinalizationFocus([seenRetrying]), null);
+const newProblem = { ...seenRetrying, notice_signature: 'attention_required|validate_sources:failed' };
+assert.equal(pickFinalizationFocus([newProblem]), newProblem);
 assert.equal(
   finalizationStepLabel(
     { key: 'publish_future_archive', label: 'Publish research archive' },

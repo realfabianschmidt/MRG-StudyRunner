@@ -67,8 +67,8 @@ registry (`index.js`) and the shared card frame (`card-info.js`).
 | `admin-dashboard-controller.js` | The live "Biosignal Dashboard": sensor tiles, plugin controls, study-client status, polled every couple of seconds. | `/api/admin/status` → rendered live tiles |
 | `sessions-browser.js` | The completed-sessions list and the full session detail view (answers, files, withdrawal). | session data → the hub list + detail page |
 | `session-timeline.js` | Draws the session detail view's timeline: one row per recorded signal, answer markers on top, as inline SVG. Reads `shared/timeline-view-model.js` for what to draw. | a session's recorded streams → an SVG timeline |
-| `upload-monitor.js` | The persistent "finish saving a session" monitor: polling, retry, and confirming a partially-failed save. Delegates the actual rendering to `finalization-monitor-view.js`. | finalization jobs → the monitor widget + its actions |
-| `finalization-monitor-view.js` | Pure rendering for one finalization job (used by `upload-monitor.js`); no polling or network calls of its own. | one job → its HTML |
+| `upload-monitor.js` | The corner notice for sessions being finalized. A click opens the session's detail view and marks the notice seen until something new happens to the job. | finalization jobs → the notice widget |
+| `session-progress-rail.js` | Pure rendering of one session's progress rail in the detail view (started, ended, every finalization step, retry and degraded confirmation); no polling of its own. | session + job → its HTML |
 | `recovery-panel.js` | The hub banner for a session orphaned by a crash: finalize it normally, or discard it. | crash-recovery candidates → the banner + its two actions |
 | `plugin-console.js` | The live diagnostics console for one plugin: a status snapshot plus a line-by-line event stream, gated behind a confirmed operator unlock. | a plugin key → an open console dialog |
 

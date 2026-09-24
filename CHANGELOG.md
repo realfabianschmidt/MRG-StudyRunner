@@ -5,7 +5,34 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Added
+
+- Session detail shows a progress rail (started, ended, every save/merge/
+  upload step with retry). A click on the finalization notice opens it and
+  hides the notice until something new happens; the finalization modal and
+  "Back to hub" button are gone.
+- Every error the tablet shows, and every refused session start, reaches
+  the admin as a toast and a notice that stays until clicked.
+- Play warns when a sensor the study needs is not delivering data; the admin
+  can start anyway.
+- Notion: a "StudyRunner Sessions" database with one row per session, and
+  real tables for every card's answer and each sensor's per-card statistics.
+
 ### Fixed
+
+- No card value can carry over to the next participant (the Mood Meter and
+  the participant ID used to). The tablet reloads after every session, cards
+  keep state only in a shared per-session store, and plugin discovery refuses
+  a card that keeps module-level state.
+- Nextcloud and Notion uploads had only one second; they now get enough time,
+  a timed-out upload is stopped instead of racing its retry, and status polls
+  are answered while an upload runs. Notion no longer creates duplicate
+  databases.
+- Nextcloud "Test connection" writes, reads back and deletes a test file, so a
+  read-only or file-drop share is reported as such.
+- "Abort study" works whenever the run shows running, also when the session
+  never started recording.
+- Nextcloud is a pure backup: local raw XDF files are always kept.
 
 - The image picker for the cover page and info cards no longer greys out PNG
   and JPG files on macOS; unsupported images (e.g. iPhone HEIC) get a clear

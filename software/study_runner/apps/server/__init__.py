@@ -32,6 +32,7 @@ from study_runner.plugin_framework.plugin_secrets import resolve_plugin_secret
 from study_runner.data_core.host.sensor_coordinator_service import SensorCoordinator
 from study_runner.data_core.host.sensor_flush_service import SensorFlushService
 from study_runner.runtime_core.studies.study_client_service import reset_client_status
+from study_runner.runtime_core.studies.operator_notices import OperatorNoticeStore
 from study_runner.runtime_core.studies.session_store import SessionStore
 from study_runner.runtime_core.studies.study_config_service import load_config
 from study_runner.runtime_core.studies.study_run_state_service import StudyRunStateStore
@@ -122,6 +123,7 @@ def create_app() -> Flask:
     app.config["CLOCK_SYNC_SERVICE"] = ClockSyncService()
     app.config["SENSOR_COORDINATOR"] = SensorCoordinator()
     app.config["SESSION_STORE"] = SessionStore(app.config["DATA_DIR"])
+    app.config["OPERATOR_NOTICES"] = OperatorNoticeStore(app.config["DATA_DIR"])
     app.config["TRIAL_EVENT_SERVICE"] = TrialEventService(
         app.config["DATA_DIR"],
         scheduling_enabled=not is_background_disabled(),

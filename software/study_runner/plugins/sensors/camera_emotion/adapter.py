@@ -107,6 +107,8 @@ def initialize(
 
 
 def start() -> dict[str, Any]:
+    # A new run starts with no samples from an earlier participant.
+    _history.clear()
     if not _config:
         _set_state({"status": "not_configured", "last_message": "Camera affect adapter is not configured."})
     elif not _config.get("enabled"):

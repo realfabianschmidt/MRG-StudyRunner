@@ -215,7 +215,7 @@ class DestinationDiscoveryManifestTests(unittest.TestCase):
 
     def test_discovery_allowlist_is_explicit_and_validated(self) -> None:
         manifest = json.loads((PROJECT_ROOT / "study_runner/plugins/destinations/notion_upload/manifest.json").read_text())
-        self.assertEqual(normalize_manifest(manifest)["capability_config"]["upload_destination"]["discovered_settings"], ["database_id", "data_source_id"])
+        self.assertEqual(normalize_manifest(manifest)["capability_config"]["upload_destination"]["discovered_settings"], ["database_id", "data_source_id", "sessions_database_id"])
         capability = manifest["capabilities"]["upload_destination"]
         for invalid in ("database_id", ["database_id", "database_id"], ["nested.field"], [42], [{}]):
             with self.subTest(invalid=invalid):

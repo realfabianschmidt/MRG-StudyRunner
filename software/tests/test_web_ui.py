@@ -552,13 +552,19 @@ class PluginUiContractTests(unittest.TestCase):
         self.assertIn("const sensors = { ...current.sensors }", study_panel)
 
     def test_finalization_view_accepts_unknown_steps_and_is_accessible(self) -> None:
-        view = _read(WEB / "scripts" / "admin" / "finalization-monitor-view.js")
+        view = _read(WEB / "scripts" / "admin" / "session-progress-rail.js")
         monitor = _read(WEB / "scripts" / "admin" / "upload-monitor.js")
+        admin_html = _read(WEB / "pages" / "admin.html")
 
         self.assertNotIn("STEP_LABELS", view)
         self.assertIn("finalizationStepLabel(step, t)", view)
-        self.assertIn('role="progressbar"', view)
+        self.assertIn("sessions.rail.title", view)
         self.assertIn('role="progressbar"', monitor)
+        # The notice leads to the session instead of opening a modal.
+        self.assertNotIn("createModal", monitor)
+        self.assertIn("onOpenSession", monitor)
+        self.assertIn('id="session-progress-rail"', admin_html)
+        self.assertNotIn("btn-session-back", admin_html)
         self.assertNotIn('iconoir-cloud-upload"></i>', monitor)
 
     def test_required_readiness_blockers_cannot_be_confirmed_away(self) -> None:

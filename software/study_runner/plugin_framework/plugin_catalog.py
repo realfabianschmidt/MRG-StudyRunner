@@ -26,6 +26,7 @@ from study_runner.contracts.manifest import (
     validate_admin_action_payload,
     validate_and_normalize_manifest,
 )
+from .card_session_isolation import card_module_violations, violation_message
 from .plugin_layout import trusted_roots, candidate_directories
 from study_runner.shared.runtime_mode import is_frozen
 from study_runner.contracts.plugin_api import Plugin
@@ -273,6 +274,11 @@ def _validate_declared_ui_assets(directory: Path, manifest: dict[str, Any]) -> N
             ) from error
         if not candidate.is_file():
             raise PluginManifestError(f"declared UI asset does not exist: {relative_path}")
+    card_module = (ui.get("extensions") or {}).get("card")
+    if card_module:
+        violations = card_module_violations(plugin_root / PurePosixPath(card_module))
+        if violations:
+            raise PluginManifestError(violation_message(card_module, violations))
 
 
 def _invalid_entry(candidate: _Candidate) -> PluginCatalogEntry:

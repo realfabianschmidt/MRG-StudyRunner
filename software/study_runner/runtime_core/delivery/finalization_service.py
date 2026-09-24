@@ -302,6 +302,9 @@ class FinalizationService:
             clock=clock,
         )
         self._lock = threading.RLock()
+        # Jobs whose _advance is running; the lock is let go during a long
+        # step, so this keeps a second caller from advancing the same job.
+        self._advancing: set[str] = set()
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -518,22 +521,29 @@ class FinalizationService:
         return self.public_job(state)
 
     def acknowledge_attention(self, job_id: str) -> dict[str, Any]:
-        """Record that an operator has seen an attention-required job.
+        """Record that an operator has looked at this job.
 
-        This only quiets the admin notification. The job keeps its
-        attention_required status, markers, and retry/degraded options.
+        Clicking the notice quiets it until something new happens: the job's
+        current notice signature is stored, and the admin shows the notice
+        again only when the signature changes (a new failure, a finished
+        run). An attention-required job additionally keeps the historic
+        ``attention_acknowledged_at``. Status, markers, and retry/degraded
+        options are unchanged.
         """
         with self._lock:
             state = self._require_state(job_id)
+            changed = False
             needs_notice = state.get("status") == "attention_required" or (
                 state.get("status") == "completed" and state.get("upload_failures")
             )
-            if not needs_notice:
-                raise InvalidTransitionError(
-                    "Only an attention-required finalization or a failed upload can be acknowledged."
-                )
-            if not state.get("attention_acknowledged_at"):
+            if needs_notice and not state.get("attention_acknowledged_at"):
                 state["attention_acknowledged_at"] = _iso_time(self._clock())
+                changed = True
+            signature = _notice_signature(state)
+            if state.get("acknowledged_signature") != signature:
+                state["acknowledged_signature"] = signature
+                changed = True
+            if changed:
                 self._persist_state(state, event={"event": "attention_acknowledged"})
             return self.public_job(state)
 
@@ -668,9 +678,12 @@ class FinalizationService:
             "steps",
             "degraded_confirmation",
             "attention_acknowledged_at",
+            "acknowledged_signature",
             "upload_failures",
         )
-        return deepcopy({key: state[key] for key in allowed if key in state})
+        public = deepcopy({key: state[key] for key in allowed if key in state})
+        public["notice_signature"] = _notice_signature(state)
+        return public
 
     def _worker_loop(self) -> None:
         while not self._stop.is_set():
@@ -725,6 +738,17 @@ class FinalizationService:
                 )
 
     def _advance(self, job_id: str) -> None:
+        with self._lock:
+            if job_id in self._advancing:
+                return
+            self._advancing.add(job_id)
+        try:
+            self._advance_locked(job_id)
+        finally:
+            with self._lock:
+                self._advancing.discard(job_id)
+
+    def _advance_locked(self, job_id: str) -> None:
         with self._lock:
             state = self._jobs.get(job_id)
             if state is None:
@@ -812,7 +836,15 @@ class FinalizationService:
         self._persist_state(state, event={"event": "step_started", "step": step_key})
         context = self._context(state)
         try:
-            outcome = self._execute_step(step_key, context)
+            # A merge or statistics step can take minutes. Status reads,
+            # retries of other jobs, and new submissions must not wait for it,
+            # so the lock is let go while the step itself works; the step's
+            # own state is only written back under the lock below.
+            self._lock.release()
+            try:
+                outcome = self._execute_step(step_key, context)
+            finally:
+                self._lock.acquire()
         except RetryableStepError as error:
             step.update(
                 status="retrying",
@@ -1650,6 +1682,22 @@ def _read_json_object(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"Expected JSON object: {path}")
     return payload
+
+
+def _notice_signature(state: Mapping[str, Any]) -> str:
+    """What the admin's notice is about: the outcome and any step in trouble.
+
+    Plain progress (a step finishing) does not change it, so an acknowledged
+    notice stays quiet while the job keeps working.
+    """
+    status = str(state.get("status") or "")
+    phase = "active" if status in {"queued", "running"} else status
+    problems = sorted(
+        f"{step.get('key')}:{step.get('status')}"
+        for step in state.get("steps") or []
+        if step.get("status") in {"failed", "retrying"}
+    )
+    return "|".join([phase, *problems])
 
 
 def _iso_time(epoch: float) -> str:

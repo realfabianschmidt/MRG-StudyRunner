@@ -78,7 +78,7 @@ class NextcloudServiceTests(unittest.TestCase):
                 parse_share_link(invalid)
 
     def test_primary_endpoint_is_selected_by_propfind(self) -> None:
-        session = FakeSession([207])
+        session = FakeSession([207, 201, 200, 204])
         client = NextcloudPublicShareClient(
             "https://cloud.example/s/token",
             password="secret",
@@ -97,7 +97,7 @@ class NextcloudServiceTests(unittest.TestCase):
     def test_legacy_endpoint_is_used_after_primary_404_or_405(self) -> None:
         for fallback_status in (404, 405):
             with self.subTest(status=fallback_status):
-                session = FakeSession([fallback_status, 207])
+                session = FakeSession([fallback_status, 207, 201, 200, 204])
                 result = test_connection(
                     "https://cloud.example/s/token",
                     session=session,
@@ -203,6 +203,26 @@ class NextcloudServiceTests(unittest.TestCase):
                 )
 
         self.assertFalse(any(call["method"] == "PUT" for call in session.calls))
+
+    def test_connection_test_proves_the_share_is_writable_and_cleans_up(self) -> None:
+        session = FakeSession([207, 201, 200, 204])
+        result = test_connection("https://cloud.example/s/token", session=session)
+        self.assertTrue(result["ok"])
+        self.assertIn("writable", result["message"])
+        self.assertEqual([call["method"] for call in session.calls], ["PROPFIND", "PUT", "GET", "DELETE"])
+        self.assertEqual(session.remote_content, {})
+
+    def test_a_read_only_share_fails_the_connection_test(self) -> None:
+        session = FakeSession([207, 403])
+        result = test_connection("https://cloud.example/s/token", session=session)
+        self.assertFalse(result["ok"])
+        self.assertIn("read-only", result["error"])
+
+    def test_a_file_drop_share_fails_the_connection_test(self) -> None:
+        session = FakeSession([207, 201, 403])
+        result = test_connection("https://cloud.example/s/token", session=session)
+        self.assertFalse(result["ok"])
+        self.assertIn("file-drop", result["error"])
 
     def test_authentication_failure_is_plain_and_does_not_echo_secret(self) -> None:
         session = FakeSession([401])

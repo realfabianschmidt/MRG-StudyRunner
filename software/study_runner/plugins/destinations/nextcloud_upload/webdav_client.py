@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
@@ -91,11 +92,32 @@ class NextcloudPublicShareClient:
         self._endpoint: str | None = None
 
     def test_connection(self) -> dict[str, Any]:
+        """Prove the share can do what an upload does: write, read back, delete.
+
+        Reaching the share is not enough -- a read-only link answers PROPFIND
+        and then refuses every upload, which used to pass this test.
+        """
         endpoint = self._select_endpoint()
+        probe = (f".studyrunner-write-test-{uuid.uuid4().hex[:12]}.txt",)
+        body = b"Study Runner connection test. Safe to delete."
+        put = self._request("PUT", _remote_url(endpoint, probe), data=body)
+        if put.status_code not in SUCCESS_STATUS:
+            raise self._response_error("write a test file", put)
+        read_back = self._request("GET", _remote_url(endpoint, probe))
+        if read_back.status_code not in SUCCESS_STATUS:
+            raise NextcloudError(
+                "The share accepts uploads but does not let Study Runner read them back "
+                "(a file-drop link). Set the share link to 'Allow upload and editing'.",
+                permanent=True,
+            )
+        deleted = self._request("DELETE", _remote_url(endpoint, probe))
+        message = "Nextcloud share is reachable and writable."
+        if deleted.status_code not in SUCCESS_STATUS:
+            message += f" The test file {probe[0]} could not be removed; you may delete it."
         return {
             "ok": True,
             "endpoint": "dav" if "/public.php/dav/" in endpoint else "legacy_webdav",
-            "message": "Nextcloud share is reachable.",
+            "message": message,
         }
 
     def upload_session_folder(
@@ -344,6 +366,14 @@ class NextcloudPublicShareClient:
     @staticmethod
     def _response_error(action: str, response) -> NextcloudError:
         status_code = int(getattr(response, "status_code", 0) or 0)
+        if status_code == 403 and action != "connect to share":
+            # The link and password were accepted for reading, so a 403 here
+            # means the share itself does not allow this write.
+            return NextcloudError(
+                f"Nextcloud does not allow Study Runner to {action}: the share link is read-only. "
+                "Set it to 'Allow upload and editing'.",
+                permanent=True,
+            )
         if status_code in {401, 403}:
             return NextcloudError(
                 "Nextcloud rejected the share link or its password. Check both in the study's Nextcloud settings.",

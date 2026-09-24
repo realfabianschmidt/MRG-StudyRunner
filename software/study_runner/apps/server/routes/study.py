@@ -32,6 +32,7 @@ from study_runner.runtime_core.studies.validation import validate_and_normalize_
 from .helpers import (
     _current_config_data,
     _public_study_session,
+    _record_session_start_failure,
     _record_study_client_event,
     _refresh_trial_runtime,
     _resume_study_session,
@@ -42,6 +43,7 @@ from .helpers import (
     _start_or_reuse_study_session,
     _start_study_sensor_runtime,
     _study_run_state,
+    _study_run_state_store,
     _stop_study_session_tracking,
     _stop_study_sensor_runtime,
     _valid_participant_id,
@@ -150,9 +152,16 @@ def _carry_credentials_on_rename(previous_study_id: str, new_study_id: str) -> N
 @bp.route("/api/study/session/start", methods=["POST"])
 def start_study_session():
     payload = request.get_json() or {}
-    if not _valid_participant_id(payload.get("participant_id")):
-        return jsonify({"ok": False, "error": "Participant ID is required before a study can start."}), 400
     config_data = _current_config_data()
+    study_id = str(config_data.get("study_id") or "")
+
+    def refuse(message: str, status_code: int, **details):
+        # Whatever the tablet is told, the admin is told too.
+        _record_session_start_failure(message, payload, study_id)
+        return jsonify({"ok": False, "error": message, **details}), status_code
+
+    if not _valid_participant_id(payload.get("participant_id")):
+        return refuse("Participant ID is required before a study can start.", 400)
     recording_runtime = current_app.config.get("RECORDING_RUNTIME_SERVICE")
     readiness = check_study_readiness(
         config_data,
@@ -165,42 +174,26 @@ def start_study_session():
         ),
     )
     if readiness.get("start_blocked"):
-        return (
-            jsonify(
-                {
-                    "ok": False,
-                    "error": "Required plugins or recording infrastructure are not ready.",
-                    "readiness": readiness,
-                }
-            ),
-            409,
-        )
+        return refuse("Required plugins or recording infrastructure are not ready.", 409, readiness=readiness)
     run_state = _study_run_state(config_data["study_id"])
     if payload.get("require_admin_start") and run_state.get("status") != "running":
-        return jsonify({"ok": False, "error": "The study has not been started by the admin yet."}), 409
+        return refuse("The study has not been started by the admin yet.", 409)
     client_id = str(payload.get("client_id") or "").strip()
     active_client_id = str(run_state.get("active_client_id") or "").strip()
     if payload.get("require_admin_start") and active_client_id and client_id != active_client_id:
-        return jsonify({"ok": False, "error": "Another tablet is already assigned to this study run."}), 409
+        return refuse("Another tablet is already assigned to this study run.", 409)
     payload_run_id = str(payload.get("study_run_id") or "").strip()
     if payload.get("require_admin_start") and payload_run_id and payload_run_id != str(run_state.get("run_id") or ""):
-        return jsonify({"ok": False, "error": "The tablet is using an older study run. Please wait for the latest start signal."}), 409
+        return refuse("The tablet is using an older study run. Please wait for the latest start signal.", 409)
     session = _start_or_reuse_study_session(payload)
     result = _start_study_sensor_runtime(config_data.get("study_settings", {}))
     required_failures = _required_sensor_runtime_failures(config_data, result.get("runtime") or {})
     if required_failures:
         _stop_study_sensor_runtime()
         _stop_study_session_tracking(str(session.get("session_id") or ""))
-        return (
-            jsonify(
-                {
-                    "ok": False,
-                    "error": "A required sensor plugin could not start.",
-                    "plugin_failures": required_failures,
-                }
-            ),
-            503,
-        )
+        details = "; ".join(f"{failure['plugin']}: {failure['error']}" for failure in required_failures)
+        message = f"A required sensor plugin could not start ({details})."
+        return refuse(message, 503, plugin_failures=required_failures)
 
     recording_result: dict = {"recording_expected": False, "status": "skipped", "plugins": []}
     if recording_runtime is not None:
@@ -217,21 +210,17 @@ def start_study_session():
             if required_recording:
                 _stop_study_sensor_runtime()
                 _stop_study_session_tracking(str(session.get("session_id") or ""))
-                return (
-                    jsonify(
-                        {
-                            "ok": False,
-                            "error": f"Canonical XDF recording could not start: {error}",
-                            "recording": {"status": "attention_required", "error": str(error)},
-                        }
-                    ),
+                return refuse(
+                    f"Canonical XDF recording could not start: {error}",
                     503,
+                    recording={"status": "attention_required", "error": str(error)},
                 )
             recording_result = {
                 "recording_expected": True,
                 "status": "attention_required",
                 "error": str(error),
             }
+    _study_run_state_store().clear_start_failure()
     return jsonify(
         {
             "ok": True,
