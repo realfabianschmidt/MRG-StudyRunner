@@ -57,11 +57,13 @@ function run(cmd, args, options = {}) {
   }
 
   if (result.status !== 0) {
-    if (capture && result.stderr) {
-      process.stderr.write(result.stderr);
-    }
+    // An allowed failure is an expected answer (e.g. "tag does not exist yet"),
+    // judged by the caller -- its stderr is not an error for the operator.
     if (options.allowFailure) {
       return result;
+    }
+    if (capture && result.stderr) {
+      process.stderr.write(result.stderr);
     }
     fail(`Command failed: ${cmd} ${args.join(' ')}`);
   }
