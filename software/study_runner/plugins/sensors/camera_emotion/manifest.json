@@ -23,7 +23,7 @@
   "ui": {
     "label": "Tablet camera emotion",
     "description": "Tablet camera frames and derived emotion values through the backend LSL bridge.",
-    "order": 120,
+    "order": 130,
     "visibility": {
       "dashboard": true,
       "settings_hub": true,

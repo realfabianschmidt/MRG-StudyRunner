@@ -1,4 +1,4 @@
-"""AM Hub adapter for presence, position, movement (and future vitals) data.
+"""AM Hub adapter for presence, position, movement, vitals, valve and link data.
 
 The AM Hub is a Raspberry Pi service that controls the Parasite autonomous
 material and exposes its sensor readings over a small, unauthenticated
@@ -110,6 +110,7 @@ LSL_CHANNEL_UNITS: dict[str, tuple[str, ...]] = {
 # ui/dashboard.js's TREND_CONFIG.
 TREND_MOVEMENT_CHANNELS: tuple[str, ...] = ("moveEnergy", "staticEnergy")
 TREND_POSITION_CHANNELS: tuple[str, ...] = ("personX", "personY")
+TREND_VITALS_CHANNELS: tuple[str, ...] = ("heartRate", "breathRate")
 PUBLISH_RATE_HZ = 10.0
 # The combined sample publishes on a fixed tick regardless of whether the hub
 # sent anything new -- a topic older than this is republished as missing
@@ -156,7 +157,11 @@ _last_seq: dict[str, int] = {}
 # Dashboard trend graphs: a bounded, ~1 Hz preview per graph, same shape and
 # cadence as the BrainBit dashboard's preview (at/received_at/values/validity)
 # so its ui/dashboard.js auto-scale/gap logic can be ported unchanged.
-_preview: dict[str, deque[dict[str, Any]]] = {"movement": deque(maxlen=60), "position": deque(maxlen=60)}
+_preview: dict[str, deque[dict[str, Any]]] = {
+    "movement": deque(maxlen=60),
+    "position": deque(maxlen=60),
+    "vitals": deque(maxlen=60),
+}
 _last_preview_epoch = 0.0
 # AM Hub reports at ~10 Hz; sized to hold a full study session.
 _history: deque[dict[str, Any]] = deque(maxlen=history_maxlen(PUBLISH_RATE_HZ))
@@ -254,6 +259,7 @@ def start() -> dict[str, Any]:
         _seq_gaps.clear()
         _last_seq.clear()
         _hub_dropped_events = 0
+        _clear_preview()
         _reader_thread = threading.Thread(target=_sse_loop, args=(generation,), daemon=True)
         _publisher_thread = threading.Thread(target=_publish_loop, args=(generation,), daemon=True)
         _ping_thread = threading.Thread(target=_ping_loop, args=(generation,), daemon=True)
@@ -649,6 +655,14 @@ def _publish_combined_sample() -> None:
     ingest_sample(payload, source="am_hub")
 
 
+def _clear_preview() -> None:
+    global _last_preview_epoch
+    with _preview_lock:
+        for points in _preview.values():
+            points.clear()
+        _last_preview_epoch = 0.0
+
+
 def _update_preview(sample: dict[str, Any]) -> None:
     global _last_preview_epoch
 
@@ -660,6 +674,7 @@ def _update_preview(sample: dict[str, Any]) -> None:
     groups = {
         "movement": {name: sample.get(name) for name in TREND_MOVEMENT_CHANNELS},
         "position": {name: sample.get(name) for name in TREND_POSITION_CHANNELS},
+        "vitals": {name: sample.get(name) for name in TREND_VITALS_CHANNELS},
     }
     with _preview_lock:
         for key, values in groups.items():

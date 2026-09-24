@@ -28,9 +28,7 @@ def _reset_adapter_state() -> None:
     adapter._history.clear()
     adapter._topics.clear()
     adapter._last_topic_update_epoch = None
-    adapter._preview["movement"].clear()
-    adapter._preview["position"].clear()
-    adapter._last_preview_epoch = 0.0
+    adapter._clear_preview()
     adapter._latest_state = {
         "status": "not_configured",
         "latest": {},
@@ -233,6 +231,22 @@ class PreviewTests(unittest.TestCase):
         adapter.ingest_sample({"moveEnergy": 1.0}, source="test")
         adapter.ingest_sample({"moveEnergy": 2.0}, source="test")  # same instant, throttled away
         self.assertEqual(len(adapter._preview["movement"]), 1)
+
+    def test_vitals_preview_carries_heart_and_breath_rate(self) -> None:
+        adapter.ingest_sample({"heartRate": 70.0, "breathRate": 14.0}, source="test")
+        vitals = adapter._preview["vitals"][-1]
+        self.assertEqual(vitals["validity"], "valid")
+        self.assertEqual(vitals["values"], {"heartRate": 70.0, "breathRate": 14.0})
+
+    def test_start_clears_every_preview_so_no_session_sees_the_previous_one(self) -> None:
+        adapter.ingest_sample({"moveEnergy": 1.0, "personX": 2.0, "heartRate": 70.0}, source="test")
+        with mock.patch.object(adapter, "_sse_loop"), mock.patch.object(adapter, "_publish_loop"),                 mock.patch.object(adapter, "_ping_loop"):
+            adapter.start()
+        try:
+            self.assertTrue(all(not points for points in adapter._preview.values()))
+            self.assertEqual(adapter._last_preview_epoch, 0.0)
+        finally:
+            adapter.stop()
 
 
 class StalenessTests(unittest.TestCase):

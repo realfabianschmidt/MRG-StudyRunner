@@ -5,6 +5,19 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Added
+
+- AM Hub dashboard shows movement, breathing rate and heart rate as headline
+  values plus a 60-second heart/breathing-rate graph.
+
+### Fixed
+
+- AM Hub dashboard graphs are cleared on every start, so a new session no
+  longer shows the previous participant's curves.
+- German UI shows the AM Hub dashboard in German (translations were missing).
+- Dashboard order: MR60 moves to the end next to BrainBit (old); Camera
+  Emotion no longer shares its position with AM Hub.
+
 ## 1.3.0 - 2026-09-24
 
 ### Added

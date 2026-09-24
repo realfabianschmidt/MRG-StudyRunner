@@ -85,7 +85,7 @@ Python modules directly - it only starts `driver.py` as a subprocess (see
 - `driver.py` - the only executable entry point (`run_plugin_driver("am_hub")`).
 - `plugin.py` - status/lifecycle registration.
 - `adapter.py` - the SSE client, topic cache, combined-sample publisher, hub ping, LSL mirror and result sidecar export.
-- `ui/dashboard.js` - the admin dashboard tile: a status row and two live trend graphs (movement energy, position).
+- `ui/dashboard.js` - the admin dashboard tile: a status row, headline tiles for movement, breathing rate and heart rate, and three live trend graphs (movement energy, heart/breathing rate, position). All previews are cleared on every start, so no session sees the previous one.
 
 ## Where The Code Comes From
 

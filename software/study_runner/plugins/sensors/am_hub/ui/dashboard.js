@@ -22,7 +22,22 @@ const TREND_CONFIG = {
     unit: ' mm',
     titleFallback: 'Position (relative to the sensor)',
   },
+  vitals: {
+    names: ['heartRate', 'breathRate'],
+    colors: ['#b2182b', '#2166ac'],
+    signed: false,
+    minStep: 10,
+    unit: ' /min',
+    titleFallback: 'Heart & breathing rate',
+  },
 };
+
+// Headline values: [channel, i18n key, fallback label, unit].
+const VITAL_TILES = [
+  ['moveEnergy', 'movement', 'Movement', ''],
+  ['breathRate', 'breathRate', 'Breathing rate', ' /min'],
+  ['heartRate', 'heartRate', 'Heart rate', ' BPM'],
+];
 
 function computeDisplayMax(points, end, names, minStep) {
   let recentMax = 0;
@@ -82,7 +97,9 @@ export function renderDashboard({ plugin: amHub }, ui) {
       ${renderRuntimeToggle(amHub, ui)}
     </div>
     <p role="status">${formatMessage(amHub, ui)}</p>
+    ${renderVitalTiles(amHub, ui)}
     ${renderTrend('movement', amHub, ui)}
+    ${renderTrend('vitals', amHub, ui)}
     ${renderTrend('position', amHub, ui)}
     <details><summary>${ui.escapeHtml(ui.t('amHub.monitor.details', 'Acquisition details'))}</summary>
     <dl class="status-list">
@@ -99,6 +116,18 @@ export function renderDashboard({ plugin: amHub }, ui) {
     </dl>
     </details>
   `;
+}
+
+/** Latest movement, breathing and heart rate at a glance; "-" when missing or stale. */
+function renderVitalTiles(amHub, ui) {
+  const latest = amHub.latest || {};
+  const stale = amHub.status === 'stale';
+  const tiles = VITAL_TILES.map(([channel, key, fallback, unit]) => {
+    const value = latest[channel];
+    const shown = !stale && Number.isFinite(value) ? ui.formatValue(value, unit) : '-';
+    return `<div><small>${ui.escapeHtml(ui.t(`amHub.tile.${key}`, fallback))}</small><br><strong>${shown}</strong></div>`;
+  }).join('');
+  return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">${tiles}</div>`;
 }
 
 /** Toggle replaces Start/Stop; the icon button next to it replaces Restart. */

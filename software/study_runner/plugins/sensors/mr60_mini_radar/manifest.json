@@ -25,7 +25,7 @@
   "ui": {
     "label": "MR60 Mini-radar",
     "description": "Presence, heart-rate and respiration measurements.",
-    "order": 110,
+    "order": 910,
     "visibility": {
       "dashboard": true,
       "settings_hub": true,
