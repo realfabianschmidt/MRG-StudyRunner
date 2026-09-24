@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.3.0 - 2026-09-24
+
 ### Added
 
 - Session detail shows a progress rail (started, ended, every save/merge/
