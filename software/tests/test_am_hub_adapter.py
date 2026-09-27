@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 import sys
@@ -29,6 +30,9 @@ def _reset_adapter_state() -> None:
     adapter._topics.clear()
     adapter._last_topic_update_epoch = None
     adapter._clear_preview()
+    adapter._hub_rtts.clear()
+    adapter._lost_baseline.clear()
+    adapter._api_version = None
     adapter._latest_state = {
         "status": "not_configured",
         "latest": {},
@@ -115,7 +119,6 @@ class V2EventTests(unittest.TestCase):
         adapter._hub_dropped_events = 0
 
     def _frame(self, seq: int, values: dict, device: str = "radar_hub", role: str = "radar") -> str:
-        import json
         return json.dumps({"type": "frame", "device": device, "role": role, "seq": seq,
                            "t": 1.0, "values": values, "server_now": 1.0})
 
@@ -155,9 +158,28 @@ class V2EventTests(unittest.TestCase):
         latest = adapter._latest_state["latest"]
         self.assertEqual(latest["radarLatencyMs"], 20.0 / 2 + 1.5 + 4.0 / 2)
         self.assertEqual(latest["radarTransport"], 1.0)
-        self.assertEqual(latest["radarLost"], 3.0)
+        self.assertEqual(latest["radarLost"], 0.0)  # the hub's count before this session
         self.assertEqual(latest["hubRttMs"], 4.0)
         self.assertEqual(adapter.get_status()["hub_boards"]["radar"]["latency_ms"], 13.5)
+
+    def _status(self, gap_count: int) -> str:
+        return ('{"type":"status","server_now":1.0,"devices":{"radar_hub":{"role":"radar","connected":true,'
+                f'"transport":"ble","rate_hz":10.0,"gap_count":{gap_count}}}}}}}')
+
+    def test_lost_counts_only_packets_lost_since_this_session_started(self) -> None:
+        with mock.patch.object(adapter.time, "time", return_value=10.0):
+            adapter._handle_sse_event(self._status(40))
+            adapter._handle_sse_event(self._status(43))
+            adapter._publish_combined_sample()
+        self.assertEqual(adapter._latest_state["latest"]["radarLost"], 3.0)
+        self.assertEqual(adapter.get_status()["hub_boards"]["radar"]["lost"], 3.0)
+
+    def test_a_hub_restart_restarts_the_lost_count(self) -> None:
+        with mock.patch.object(adapter.time, "time", return_value=10.0):
+            for gap_count in (40, 2):
+                adapter._handle_sse_event(self._status(gap_count))
+            adapter._publish_combined_sample()
+        self.assertEqual(adapter._latest_state["latest"]["radarLost"], 2.0)
 
     def test_hub_gap_events_are_counted(self) -> None:
         adapter._handle_sse_event('{"type":"gap","dropped":7,"server_now":1.0}')
@@ -167,6 +189,54 @@ class V2EventTests(unittest.TestCase):
         with mock.patch.object(adapter.time, "time", return_value=10.0):
             adapter._handle_sse_event('{"type":"valves","channels":[],"scene_active":false,"server_now":1.0}')
         self.assertIsNone(adapter._last_topic_update_epoch)
+
+
+class ContractValueTests(unittest.TestCase):
+    """Firmware units and the firmware's 0-for-no-value become contract values."""
+
+    def setUp(self) -> None:
+        _reset_adapter_state()
+
+    def _publish(self, values: dict[str, float]) -> dict:
+        frame = {"type": "frame", "device": "x", "role": "radar", "seq": 1, "t": 1.0, "values": values}
+        with mock.patch.object(adapter.time, "time", return_value=10.0):
+            adapter._handle_sse_event(json.dumps(frame))
+            adapter._publish_combined_sample()
+        return adapter._latest_state["latest"]
+
+    def test_bio_distance_cm_and_target_speed_cm_per_s_are_stored_in_mm(self) -> None:
+        latest = self._publish({"/sensor/bioDist": 85.0, "/sensor/t1x": 100.0, "/sensor/t1y": 900.0,
+                                "/sensor/t1speed": -12.0})
+        self.assertEqual(latest["bioDistance"], 850.0)
+        self.assertEqual(latest["t1speed"], -120.0)
+        self.assertEqual(latest["t1y"], 900.0)  # already mm
+
+    def test_zero_vitals_are_missing_not_a_reading(self) -> None:
+        latest = self._publish({"/sensor/heartBpm": 0.0, "/sensor/breathRate": 0.0, "/sensor/bioDist": 0.0,
+                                "/sensor/bioT1x": 0.0, "/sensor/bioT1y": 0.0})
+        for channel in ("heartRate", "breathRate", "bioDistance", "bioX", "bioY"):
+            self.assertIsNone(latest[channel], channel)
+
+    def test_real_vitals_are_kept(self) -> None:
+        latest = self._publish({"/sensor/heartBpm": 72.0, "/sensor/breathRate": 15.0,
+                                "/sensor/bioT1x": 0.0, "/sensor/bioT1y": 640.0})
+        self.assertEqual((latest["heartRate"], latest["breathRate"]), (72.0, 15.0))
+        self.assertEqual((latest["bioX"], latest["bioY"]), (0.0, 640.0))  # one axis may be 0
+
+    def test_an_empty_target_slot_is_missing(self) -> None:
+        latest = self._publish({"/sensor/t2x": 0.0, "/sensor/t2y": 0.0, "/sensor/t2speed": 0.0,
+                                "/sensor/t2res": 0.0, "/sensor/t1x": 5.0, "/sensor/t1y": 0.0})
+        for channel in ("t2x", "t2y", "t2speed", "t2res"):
+            self.assertIsNone(latest[channel], channel)
+        self.assertEqual(latest["t1x"], 5.0)
+
+    def test_nearest_target_is_missing_while_no_target_is_tracked(self) -> None:
+        latest = self._publish({"/sensor/targetCount": 0.0, "/sensor/personDist": 0.0,
+                                "/sensor/personX": 0.0, "/sensor/personY": 0.0, "/sensor/presence": 0.0})
+        for channel in ("personDist", "personX", "personY"):
+            self.assertIsNone(latest[channel], channel)
+        self.assertEqual(latest["presence"], 0.0)  # "nobody there" is a real reading
+        self.assertEqual(latest["targetCount"], 0.0)
 
 
 class ConnectionTests(unittest.TestCase):
@@ -202,6 +272,52 @@ class ConnectionTests(unittest.TestCase):
             adapter._sse_loop(1)
         self.assertEqual(requested, ["http://hub/api/v2/stream", "http://hub/api/v1/stream"])
         self.assertEqual(adapter._api_version, "v1")
+
+    def test_v2_is_tried_again_after_a_v1_connection_ends(self) -> None:
+        requested = []
+
+        class Response:
+            def __init__(self, status: int) -> None:
+                self.status_code = status
+
+            def raise_for_status(self) -> None:
+                pass
+
+            def iter_lines(self, decode_unicode: bool = True):
+                return iter([])
+
+            def close(self) -> None:
+                pass
+
+        def fake_get(url, **_kwargs):
+            requested.append(url)
+            if len(requested) == 3:
+                adapter._running = False
+            return Response(404 if url.endswith("/api/v2/stream") and len(requested) == 1 else 200)
+
+        adapter._config = {"enabled": True, "base_url": "http://hub", "reconnect_delay_seconds": 0.0,
+                           "auto_reconnect": True}
+        adapter._running = True
+        adapter._generation = 1
+        with mock.patch("requests.get", side_effect=fake_get):
+            adapter._sse_loop(1)
+        self.assertEqual(requested, ["http://hub/api/v2/stream", "http://hub/api/v1/stream",
+                                     "http://hub/api/v2/stream"])
+
+    def test_a_failing_ping_clears_the_hub_round_trip(self) -> None:
+        adapter._hub_rtts.extend([4.0, 4.0])
+        adapter._config = {"enabled": True, "base_url": "http://hub"}
+        adapter._api_version = "v2"
+        adapter._running = True
+        adapter._generation = 1
+
+        def failing_get(*_args, **_kwargs):
+            adapter._running = False
+            raise OSError("hub gone")
+
+        with mock.patch("requests.Session.get", side_effect=failing_get):
+            adapter._ping_loop(1)
+        self.assertIsNone(adapter._hub_rtt_ms())
 
     def test_threads_of_an_old_run_stop_after_restart(self) -> None:
         adapter._running = True

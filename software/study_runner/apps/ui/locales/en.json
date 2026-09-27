@@ -270,6 +270,8 @@
   "dashboard.field.targets": "Tracked targets",
   "dashboard.field.vitals": "Vitals (heart / breath)",
   "dashboard.field.amHubDataLsl": "AM Hub data LSL",
+  "dashboard.field.amHubBoards": "Boards (link, rate, latency, lost)",
+  "dashboard.field.amHubLink": "Hub round trip / losses",
   "dashboard.field.valid": "Valid",
   "dashboard.field.stabilized": "Stabilized",
   "dashboard.field.distance": "Distance",

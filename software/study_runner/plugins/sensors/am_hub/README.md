@@ -10,9 +10,10 @@ The AM Hub exposes an unauthenticated HTTP/SSE API. `adapter.py` opens
 `GET {base_url}/api/v2/stream` and falls back to `/api/v1/stream`
 automatically when the hub is older (HTTP 404 on v2).
 
-Configure the hub's address under `am_hub.base_url` in
+Configure the hub's address in the Settings Hub (AM Hub → AM Hub URL) or
+under `am_hub.base_url` in
 `software/study_content/settings/hardware_settings.json` (e.g.
-`http://am-hub.local:8000`). No BLE scan, no device picker: one AM Hub, one
+`http://am-hub.local:8000`), and enable the plugin. No BLE scan, no device picker: one AM Hub, one
 fixed URL. The hub itself decides per board whether it is reached over
 Bluetooth or WiFi.
 
@@ -28,6 +29,15 @@ for timing or freshness.
 
 - **Freshness:** a topic counts as fresh from the moment it *arrives here* (`time.time()` in this process). A channel is only included in a tick while its topic arrived within the last `TOPIC_STALE_SECONDS` (2.5 s, matching `manifest.json`'s `capabilities.backup_projection.stale_after_ms`). Otherwise it publishes as missing (`None` -> `NaN`), never as the old value. This also means a Raspberry Pi clock that runs off (no RTC, no NTP in hotspot mode) cannot turn data into `NaN` or keep stale data "live".
 - **v1 `init` history:** only the hub-side age of a value (hub time minus hub time) is used, to backdate its arrival.
+- **v1 fallback per attempt:** after a v1 connection ends, the next reconnect tries v2 again, so a hub that gains v2 is picked up without a restart.
+
+## Units And Missing Values
+
+`_hub_values_to_contract()` in `adapter.py` is the one place where hub values
+become contract values, on every tick:
+
+- **Units:** the bio board sends `bioDistance` in cm and the LD2450 sends target speed in cm/s. Both are multiplied by 10, so the streams stay in mm and mm/s (`CHANNEL_SCALE`). All other distances and positions already arrive in mm.
+- **0 means "no value":** the firmware sends 0 when a sensor has been silent for 2 s or sees no target. So `heartRate`, `breathRate` and `bioDistance` of exactly 0 are recorded as missing (`NaN`). So is a target slot at x = y = 0 (with its speed and resolution), `bioX`/`bioY` at 0/0, and `personDist`/`personX`/`personY` while `targetCount` is 0.
 
 ## Streams
 
@@ -45,7 +55,8 @@ and `vitals` are unchanged (frozen contracts). `radar_detail`, `valves` and
 `hub_status` are added by this version.
 
 `hub_status` channel meanings:
-- **Lost:** packets the hub estimates were lost on the air, from the board's packet timing.
+- **Lost:** packets the hub estimates were lost on the air, from the board's packet timing. The hub counts from its own start; the adapter reports only the packets lost since this session's `start()`.
+- **Rssi:** in dBm, but not the same measurement on both transports. On BLE it is the signal at connect time and is not updated while connected. On WiFi it is the board's signal to its router, not to the hub.
 - **hubDroppedEvents:** events the hub had to drop for this client. The hub reports every drop with the exact count, and it should stay 0.
 
 The backup projection's distance output is named `distance_mm`: `personDist` is in millimetres.
@@ -70,7 +81,7 @@ timestamp.
 Besides the usual fields, `get_status()` reports:
 - `api_version`,
 - `hub_boards` (per board link, transport, rate, lost packets, latency parts),
-- `hub_rtt_ms`,
+- `hub_rtt_ms` (empty while pings fail, so no old value stands in),
 - `data_quality` (`frames` per board, `seq_gaps` per board, `hub_dropped_events`).
 
 The hub numbers frames per board (`seq`), so every packet that goes missing
@@ -85,7 +96,7 @@ Python modules directly - it only starts `driver.py` as a subprocess (see
 - `driver.py` - the only executable entry point (`run_plugin_driver("am_hub")`).
 - `plugin.py` - status/lifecycle registration.
 - `adapter.py` - the SSE client, topic cache, combined-sample publisher, hub ping, LSL mirror and result sidecar export.
-- `ui/dashboard.js` - the admin dashboard tile: a status row, headline tiles for movement, breathing rate and heart rate, and three live trend graphs (movement energy, heart/breathing rate, position). All previews are cleared on every start, so no session sees the previous one.
+- `ui/dashboard.js` - the admin dashboard tile: a status row, headline tiles for movement, breathing rate and heart rate, and three live trend graphs (movement energy, heart/breathing rate, position), and per-board link, latency and losses under "Acquisition details". All previews are cleared on every start, so no session sees the previous one.
 
 ## Where The Code Comes From
 

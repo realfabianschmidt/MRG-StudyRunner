@@ -1,5 +1,12 @@
 {
   "_comment": "Desktop-only Study Runner plugin settings for Windows, macOS, and Linux. Use the dashboard controls for common enabled flags and runtime actions.",
+  "am_hub": {
+    "auto_reconnect": true,
+    "base_url": "",
+    "data_timeout_seconds": 5,
+    "enabled": false,
+    "reconnect_delay_seconds": 3
+  },
   "brainbit": {
     "auto_restart_max_attempts": 3,
     "debug": false,

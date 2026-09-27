@@ -300,6 +300,8 @@
   "dashboard.field.targets": "Erfasste Ziele",
   "dashboard.field.vitals": "Vitalwerte (Herz / Atmung)",
   "dashboard.field.amHubDataLsl": "AM-Hub-Daten-LSL",
+  "dashboard.field.amHubBoards": "Boards (Verbindung, Rate, Latenz, verloren)",
+  "dashboard.field.amHubLink": "Hub-Umlaufzeit / Verluste",
   "dashboard.field.valid": "Valide",
   "dashboard.field.stabilized": "Stabilisiert",
   "dashboard.field.distance": "Distanz",

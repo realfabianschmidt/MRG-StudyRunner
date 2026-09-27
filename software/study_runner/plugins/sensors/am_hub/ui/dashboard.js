@@ -111,6 +111,8 @@ export function renderDashboard({ plugin: amHub }, ui) {
       <dt>${ui.fieldLabel('position', 'Nearest target')}</dt><dd>${formatPosition(latest, ui)}</dd>
       <dt>${ui.fieldLabel('targets', 'Tracked targets')}</dt><dd>${formatTargets(latest, ui)}</dd>
       <dt>${ui.fieldLabel('vitals', 'Vitals (heart / breath)')}</dt><dd>${ui.formatSensorChannels(latest, ['heartRate', 'breathRate'])}</dd>
+      <dt>${ui.fieldLabel('amHubBoards', 'Boards (link, rate, latency, lost)')}</dt><dd>${formatBoards(amHub, ui)}</dd>
+      <dt>${ui.fieldLabel('amHubLink', 'Hub round trip / losses')}</dt><dd>${formatHubLink(amHub, ui)}</dd>
       <dt>${ui.fieldLabel('lastActive', 'Last active')}</dt><dd>${ui.formatTimestampAge(latest.server_received_at || amHub.last_activity_at, amHub.seconds_since_last_activity)}</dd>
       <dt>${ui.fieldLabel('amHubDataLsl', 'AM Hub data LSL')}</dt><dd>${ui.formatEnabled(amHub.lsl_enabled)}</dd>
     </dl>
@@ -167,6 +169,23 @@ function formatPosition(latest, ui) {
   if (latest.personX !== null && latest.personX !== undefined) parts.push(`x: ${ui.formatValue(latest.personX, ' mm')}`);
   if (latest.personY !== null && latest.personY !== undefined) parts.push(`y: ${ui.formatValue(latest.personY, ' mm')}`);
   return parts.length ? parts.join(', ') : '-';
+}
+
+/** One line per board: connected, transport, rate, end-to-end latency, packets lost this session. */
+function formatBoards(amHub, ui) {
+  const rows = Object.entries(amHub.hub_boards || {}).map(([role, board]) => {
+    const link = board.connected ? String(board.transport || '').toUpperCase() || 'on' : 'offline';
+    return `${ui.escapeHtml(role)}: ${ui.escapeHtml(link)}, ${ui.formatValue(board.rate_hz, ' Hz')}, `
+      + `${ui.formatValue(board.latency_ms, ' ms')}, lost ${ui.formatValue(board.lost)}`;
+  });
+  return rows.length ? rows.join('<br>') : '-';
+}
+
+function formatHubLink(amHub, ui) {
+  const quality = amHub.data_quality || {};
+  const seqGaps = Object.values(quality.seq_gaps || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+  return `${ui.formatValue(amHub.hub_rtt_ms, ' ms')} · seq gaps ${ui.formatValue(seqGaps)}`
+    + ` · hub dropped ${ui.formatValue(quality.hub_dropped_events)}`;
 }
 
 function formatTargets(latest, ui) {

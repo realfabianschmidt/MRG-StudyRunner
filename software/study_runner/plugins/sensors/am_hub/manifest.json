@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "am_hub",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "category": "biosignal",
   "config_key": "am_hub",
   "runtime": {

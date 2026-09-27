@@ -91,6 +91,24 @@ CHANNEL_TOPICS.update({
     "hubDroppedEvents": "hub:hubDroppedEvents",
 })
 TOPIC_CHANNELS: dict[str, str] = {topic: channel for channel, topic in CHANNEL_TOPICS.items()}
+# Hub values arrive in the firmware's units; the stream contract is mm and
+# mm/s. MR60 bio distance is cm, LD2450 target speed is cm/s.
+CHANNEL_SCALE: dict[str, float] = {
+    "bioDistance": 10.0,
+    "t1speed": 10.0, "t2speed": 10.0, "t3speed": 10.0,
+}
+# The firmware sends 0 instead of "no value" (sensor silent for 2 s, no
+# target). A heart/breath rate or distance of exactly 0 is never a reading.
+ZERO_MEANS_MISSING: tuple[str, ...] = ("heartRate", "breathRate", "bioDistance")
+# A target at x = y = 0 is an empty slot (the firmware's own rule): its whole
+# group is missing. The nearest target is missing when no target is tracked.
+EMPTY_AT_ORIGIN: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("bioX", "bioY", ("bioX", "bioY")),
+    ("t1x", "t1y", ("t1x", "t1y", "t1speed", "t1res")),
+    ("t2x", "t2y", ("t2x", "t2y", "t2speed", "t2res")),
+    ("t3x", "t3y", ("t3x", "t3y", "t3speed", "t3res")),
+)
+NEAREST_TARGET_CHANNELS: tuple[str, ...] = ("personDist", "personX", "personY")
 LSL_SOURCE_IDS = {key: f"study_runner.am_hub.{key}" for key in STREAM_CHANNELS}
 LSL_CHANNEL_UNITS: dict[str, tuple[str, ...]] = {
     "presence": ("boolean", "enum", "millimetre", "arbitrary_unit", "arbitrary_unit", "count"),
@@ -154,6 +172,7 @@ _hub_dropped_events = 0
 _frame_counts: dict[str, int] = {}
 _seq_gaps: dict[str, int] = {}
 _last_seq: dict[str, int] = {}
+_lost_baseline: dict[str, float] = {}
 # Dashboard trend graphs: a bounded, ~1 Hz preview per graph, same shape and
 # cadence as the BrainBit dashboard's preview (at/received_at/values/validity)
 # so its ui/dashboard.js auto-scale/gap logic can be ported unchanged.
@@ -258,6 +277,7 @@ def start() -> dict[str, Any]:
         _frame_counts.clear()
         _seq_gaps.clear()
         _last_seq.clear()
+        _lost_baseline.clear()
         _hub_dropped_events = 0
         _clear_preview()
         _reader_thread = threading.Thread(target=_sse_loop, args=(generation,), daemon=True)
@@ -425,6 +445,7 @@ def _sse_loop(generation: int) -> None:
         import requests
 
         version = "v2" if prefer_v2 else "v1"
+        prefer_v2 = True  # v1 is only this attempt's fallback; a hub may gain v2
         response = None
         try:
             _set_state({"status": "waiting", "last_message": f"Connecting to AM Hub at {_config.get('base_url')} ({version})."})
@@ -555,6 +576,7 @@ def _handle_hub_status(devices: Any, received: float) -> None:
         if not isinstance(info, dict) or info.get("role") not in HUB_ROLES:
             continue
         role = info["role"]
+        lost = _lost_this_session(role, _to_float(info.get("gap_count")))
         link_rtt = _to_float(info.get("link_rtt_ms"))
         hub_latency = _to_float(info.get("hub_latency_ms"))
         latency = None
@@ -562,7 +584,7 @@ def _handle_hub_status(devices: Any, received: float) -> None:
             latency = link_rtt / 2 + hub_latency + hub_rtt / 2
         _hub_boards[role] = {
             "connected": bool(info.get("connected")), "transport": info.get("transport"),
-            "rssi": info.get("rssi"), "rate_hz": info.get("rate_hz"), "lost": info.get("gap_count"),
+            "rssi": info.get("rssi"), "rate_hz": info.get("rate_hz"), "lost": lost,
             "link_rtt_ms": link_rtt, "hub_latency_ms": hub_latency,
             "latency_ms": round(latency, 2) if latency is not None else None,
             "detail": info.get("detail"),
@@ -572,11 +594,22 @@ def _handle_hub_status(devices: Any, received: float) -> None:
             f"hub:{role}Transport": TRANSPORT_CODES.get(info.get("transport")),
             f"hub:{role}Rssi": info.get("rssi"),
             f"hub:{role}RateHz": info.get("rate_hz"),
-            f"hub:{role}Lost": info.get("gap_count"),
+            f"hub:{role}Lost": lost,
             f"hub:{role}LinkRttMs": link_rtt,
             f"hub:{role}LatencyMs": latency,
         })
     _update_topics(updates, received)
+
+
+def _lost_this_session(role: str, gap_count: float | None) -> float | None:
+    """The hub counts lost packets since it started; a session only sees the
+    ones lost since its own start(). A smaller count means the hub restarted."""
+    if gap_count is None:
+        return None
+    baseline = _lost_baseline.setdefault(role, gap_count)
+    if gap_count < baseline:
+        baseline = _lost_baseline[role] = 0.0
+    return gap_count - baseline
 
 
 def _count_hub_dropped(count: int) -> None:
@@ -600,10 +633,13 @@ def _ping_loop(generation: int) -> None:
             started = time.perf_counter()
             try:
                 response = session.get(f"{_config['base_url']}/api/v2/ping", timeout=2.0)
-                if response.ok:
-                    _hub_rtts.append((time.perf_counter() - started) * 1000.0)
+                ok = response.ok
             except Exception:
-                pass
+                ok = False
+            if ok:
+                _hub_rtts.append((time.perf_counter() - started) * 1000.0)
+            else:
+                _hub_rtts.clear()  # an old round trip must not stand in for a failing one
         _stop_event.wait(PING_INTERVAL_SECONDS)
     session.close()
 
@@ -652,7 +688,25 @@ def _publish_combined_sample() -> None:
             payload[channel] = None
         else:
             payload[channel] = entry["value"]
-    ingest_sample(payload, source="am_hub")
+    ingest_sample(_hub_values_to_contract(payload), source="am_hub")
+
+
+def _hub_values_to_contract(payload: dict[str, Any]) -> dict[str, Any]:
+    """The one place hub values become contract values: firmware units ->
+    mm / mm/s, and the firmware's 0-for-no-value -> missing (NaN in LSL)."""
+    values = dict(payload)
+    for channel, factor in CHANNEL_SCALE.items():
+        if values.get(channel) is not None:
+            values[channel] = values[channel] * factor
+    for channel in ZERO_MEANS_MISSING:
+        if values.get(channel) == 0:
+            values[channel] = None
+    for x_channel, y_channel, group in EMPTY_AT_ORIGIN:
+        if values.get(x_channel) == 0 and values.get(y_channel) == 0:
+            values.update(dict.fromkeys(group))
+    if values.get("targetCount") == 0:
+        values.update(dict.fromkeys(NEAREST_TARGET_CHANNELS))
+    return values
 
 
 def _clear_preview() -> None:
