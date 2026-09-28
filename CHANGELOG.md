@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.4.0 - 2026-09-28
+
 ### Added
 
 - **Settings > Data folder:** studies, results, settings, credentials, logos
