@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.3.2 - 2026-09-28
+
 ### Changed
 
 - AM Hub values are recorded in the declared units: the bio board's distance
