@@ -61,6 +61,9 @@ def build_package(saved_studies_dir: Path, config: Mapping[str, Any]) -> bytes:
             info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
+            # ZipInfo defaults to the host OS; pin it so a package is
+            # byte-identical on Windows, macOS and Linux.
+            info.create_system = 0
             archive.writestr(info, data)
     return buffer.getvalue()
 
