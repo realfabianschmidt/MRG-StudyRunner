@@ -277,33 +277,34 @@ class RuntimeDirTests(unittest.TestCase):
         else:
             sys.frozen = self._original_frozen
 
-    def test_source_checkout_uses_the_in_repo_default(self) -> None:
+    def test_logs_go_to_the_runtime_folder_next_to_the_results_in_a_source_checkout(self) -> None:
         if hasattr(sys, "frozen"):
             del sys.frozen
 
         result = brainbit_plugin._runtime_dir(self.context, None, "plugins/brainbit/logs", "logs")
 
-        self.assertIn("plugins", result.replace("\\", "/"))
+        self.assertEqual(Path(result), Path("/writable/runtime/brainbit/logs").resolve())
 
-    def test_packaged_build_without_setting_uses_the_writable_folder(self) -> None:
+    def test_logs_go_to_the_runtime_folder_in_a_packaged_build(self) -> None:
         sys.frozen = True
 
         result = brainbit_plugin._runtime_dir(self.context, None, "plugins/brainbit/logs", "logs")
 
-        self.assertEqual(Path(result), Path("/writable/brainbit/logs"))
+        self.assertEqual(Path(result), Path("/writable/runtime/brainbit/logs").resolve())
 
-    def test_packaged_build_redirects_paths_that_point_into_the_bundle(self) -> None:
-        # Settings files written by 0.4 pin the in-repo path explicitly; trusting
-        # them in a packaged build would try to write inside the app bundle.
-        sys.frozen = True
+    def test_a_setting_that_points_into_the_program_files_is_redirected(self) -> None:
+        # Older settings files pin the in-program path; an update would move
+        # everything written there into its backup.
+        if hasattr(sys, "frozen"):
+            del sys.frozen
 
         result = brainbit_plugin._runtime_dir(
             self.context, "study_runner/plugins/sensors/brainbit/logs", "plugins/brainbit/logs", "logs"
         )
 
-        self.assertEqual(Path(result), Path("/writable/brainbit/logs"))
+        self.assertEqual(Path(result), Path("/writable/runtime/brainbit/logs").resolve())
 
-    def test_packaged_build_keeps_an_explicit_external_folder(self) -> None:
+    def test_an_explicit_external_folder_is_kept(self) -> None:
         sys.frozen = True
         external = str(Path("/operator/chosen/logs"))
 

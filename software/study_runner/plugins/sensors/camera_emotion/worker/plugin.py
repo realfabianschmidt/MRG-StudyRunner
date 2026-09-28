@@ -16,7 +16,12 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from study_runner.plugin_framework.adapter_utils import config_section, timestamp
+from study_runner.plugin_framework.adapter_utils import (
+    config_section,
+    plugin_runtime_dir,
+    runtime_path_setting,
+    timestamp,
+)
 from study_runner.contracts.plugin_api import PluginContext, Plugin
 from study_runner.shared.runtime_mode import get_project_base_dir
 from .model_errors import (
@@ -189,14 +194,15 @@ def _configure(context: PluginContext) -> None:
     script_path = context.resolve_project_path(
         context.resolve_platform_value(worker_config.get("script_path")) or DEFAULT_WORKER["script_path"]
     )
-    log_dir_value = context.resolve_platform_value(worker_config.get("log_dir"))
     default_log_dir = _compatible_runtime_path(
-        storage_root / "runtime" / "camera_emotion" / "worker" / "logs",
+        plugin_runtime_dir(context, "camera_emotion", "worker", "logs"),
         storage_root / "runtime" / "local_emotion_worker" / "logs",
     )
-    log_dir = Path(
-        context.resolve_project_path(log_dir_value) if log_dir_value else str(default_log_dir)
-    )
+    # Shared rule: an operator's own log folder is kept; empty or inside the
+    # program files (older settings) means the runtime folder.
+    log_dir = runtime_path_setting(context, worker_config.get("log_dir"), "camera_emotion", "worker", "logs")
+    if log_dir == plugin_runtime_dir(context, "camera_emotion", "worker", "logs"):
+        log_dir = default_log_dir  # which reuses a v2 cache if one exists
     log_dir.mkdir(parents=True, exist_ok=True)
     deepface_home = context.resolve_project_path(context.resolve_platform_value(worker_config.get("deepface_home")))
     if not deepface_home:

@@ -497,7 +497,8 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertNotIn("camera_permission", payload["study_clients"]["clients"][0])
 
     def test_emotion_worker_repair_runtime_route_reports_package_and_model_state(self) -> None:
-        with tempfile.TemporaryDirectory() as data_dir:
+        # The worker log now lives in the data folder and stays open (Windows lock).
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as data_dir:
             env = {
                 "STUDY_RUNNER_DATA_DIR": data_dir,
                 "STUDY_RUNNER_DISABLE_HARDWARE": "1",
@@ -512,7 +513,9 @@ class RuntimeRoutesTests(unittest.TestCase):
                     "model_asset_install": {"status": "queued"},
                 },
             ):
-                response = app.test_client().post("/api/admin/emotion-worker/repair-runtime")
+                response = app.test_client().post(
+                    "/api/admin/plugins/camera_emotion/actions/repair_runtime", json={}
+                )
 
         payload = response.get_json()
         self.assertEqual(response.status_code, 200)
@@ -520,7 +523,7 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertEqual(payload["result"]["dependency_install"]["status"], "running")
         self.assertEqual(payload["result"]["model_asset_install"]["status"], "queued")
 
-    def test_camera_live_status_replaces_separate_preview_page(self) -> None:
+    def test_removed_fixed_key_camera_routes_and_preview_page_are_gone(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
                 "STUDY_RUNNER_DATA_DIR": data_dir,
@@ -530,16 +533,9 @@ class RuntimeRoutesTests(unittest.TestCase):
                 app = create_app()
 
             client = app.test_client()
-            live_status = client.get("/api/admin/camera/live/status")
-            preview_page = client.get("/camera-preview")
-
-        payload = live_status.get_json()
-        self.assertEqual(live_status.status_code, 200)
-        self.assertTrue(payload["ok"])
-        self.assertIn("available", payload)
-        self.assertEqual(live_status.headers["Deprecation"], "true")
-        self.assertIn("successor-version", live_status.headers["Link"])
-        self.assertEqual(preview_page.status_code, 404)
+            self.assertEqual(client.get("/api/admin/camera/live/status").status_code, 404)
+            self.assertEqual(client.post("/api/admin/camera/start").status_code, 404)
+            self.assertEqual(client.get("/camera-preview").status_code, 404)
 
     def test_create_shortcut_route_returns_service_result(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:

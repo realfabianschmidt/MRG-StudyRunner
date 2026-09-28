@@ -206,11 +206,10 @@ class ParticipantLanguageTests(unittest.TestCase):
                 self.assertNotIn("camera_emotion", text)
                 self.assertNotIn("CAMERA_PREVIEW", text)
 
-        compatibility_routes = _read(
+        # The fixed-key camera/emotion-worker shims are gone: sensors.py names no plugin either.
+        self.assertNotIn("camera_emotion", _read(
             PROJECT_ROOT / "study_runner" / "apps" / "server" / "routes" / "sensors.py"
-        )
-        self.assertIn("Deprecated fixed-key shim", compatibility_routes)
-        self.assertIn('headers["Deprecation"] = "true"', compatibility_routes)
+        ))
 
 
 class EditorFieldOrderTests(unittest.TestCase):

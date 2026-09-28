@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from study_runner.plugin_framework.adapter_utils import config_section
+from study_runner.plugin_framework.adapter_utils import config_section, runtime_path_setting
 from study_runner.contracts.plugin_api import PluginContext, Plugin
 
 
@@ -28,11 +28,18 @@ def _read_json_file(path: Path) -> dict[str, Any]:
 def _runtime_dir(context: PluginContext, configured: Any, default_relative: str, name: str) -> str | None:
     """Resolve a BrainBit working/log folder to somewhere writable.
 
+    Logs (and the state file next to them) always go to the plugin's runtime
+    folder next to the results -- see ``runtime_path_setting``. The rest of
+    this docstring is about the working folder.
+
     In packaged builds the bundled project folder can be read-only (or a temp
     extraction dir), so anything the CLI writes at runtime goes next to the
     saved results instead. Settings files from earlier versions pin the in-repo
     paths explicitly, so those are redirected too rather than trusted blindly.
     """
+    if name == "logs":
+        # Shared rule: logs and state never go into the program files.
+        return str(runtime_path_setting(context, configured, "brainbit", "logs"))
     from study_runner.shared.runtime_mode import is_frozen
 
     writable = str(context.data_dir.parent / "brainbit" / name)
@@ -86,7 +93,7 @@ def _initialize(context: PluginContext) -> None:
         debug=config.get("debug", False),
         # Native LSL is the mandatory recording path for an enabled sensor.
         # Legacy hardware settings may still contain ``lsl.enabled: false``;
-        # API v3 intentionally ignores that obsolete kill switch.
+        # the plugin API intentionally ignores that obsolete kill switch.
         lsl_enabled=True,
         lsl_auto_install=lsl_config.get("auto_install", True),
         lsl_stream_prefix=lsl_config.get("stream_prefix", "BrainBit"),
@@ -110,7 +117,6 @@ def _status(context: PluginContext) -> dict[str, Any]:
     adapter_status = adapter.get_status()
     log_dir = Path(
         _runtime_dir(context, config.get("log_dir"), DEFAULT_BRAINBIT["log_dir"], "logs")
-        or context.base_dir / DEFAULT_BRAINBIT["log_dir"]
     )
     state_path = log_dir / "brainbit_state.json"
     state_payload = _read_json_file(state_path)
@@ -283,13 +289,7 @@ def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
     actions = actions if isinstance(actions, dict) else {}
     adapter.set_routing(
         forward_to_lsl=None,
-        forward_to_touchdesigner=bool(
-            actions.get(
-                "to_touchdesigner",
-                # One-release compatibility for already-open legacy tablets.
-                options.get("brainbit_to_touchdesigner", False),
-            )
-        ),
+        forward_to_touchdesigner=bool(actions.get("to_touchdesigner", False)),
     )
 
 

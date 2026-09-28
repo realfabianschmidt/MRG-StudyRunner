@@ -1,9 +1,9 @@
 ﻿"""
 Camera affect adapter for tablet selfie-camera snapshots.
 
-The first implementation accepts browser snapshots and produces a conservative placeholder
-emotion result. A later worker can replace the placeholder analysis with a stronger model while
-keeping the same routes, timestamps, and LSL stream shape.
+Browser snapshots are forwarded to the Emotion Worker (local or remote), which
+returns the face/emotion analysis. Without a reachable worker the result says
+so (emotion "unknown", confidence 0 and an error) -- nothing is guessed.
 """
 from __future__ import annotations
 
@@ -23,9 +23,6 @@ from study_runner.contracts.stream_contract import apply_stream_contract_desc, l
 _state_lock = Lock()
 _config: dict[str, Any] = {}
 _lsl_outlets: dict[str, Any] = {}
-_cv2: Any = None
-_np: Any = None
-_face_cascade: Any = None
 # Browser capture is intentionally throttled to 1 Hz by default to avoid tablet
 # and network backpressure during live runs.
 MIN_SNAPSHOT_INTERVAL_MS = 1000
@@ -101,9 +98,6 @@ def initialize(
 
     if _config["enabled"] and _config["lsl_enabled"]:
         _initialize_lsl_outlets()
-
-    if _config["enabled"] and _config["worker_mode"] in {"opencv_haar", "opencv_cnn"}:
-        _initialize_opencv()
 
 
 def start() -> dict[str, Any]:
@@ -406,18 +400,13 @@ def _extract_frame_info(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _analyze_frame(payload: dict[str, Any]) -> dict[str, Any]:
     mode = _config.get("worker_mode", "local_worker")
-    if mode in {"opencv_haar", "opencv_cnn"}:
-        opencv_result = _analyze_frame_with_opencv(payload)
-        if opencv_result is not None:
-            return opencv_result
-    elif mode in {"local_worker", "remote_worker"}:
-        worker_result = _forward_to_emotion_worker(payload)
-        if worker_result is not None:
-            return worker_result
-    return _analyze_frame_placeholder(payload)
+    if mode in {"local_worker", "remote_worker"}:
+        return _forward_to_emotion_worker(payload)
+    # Never invent a result: without a worker there is no emotion reading.
+    return _worker_error_result(f"unsupported worker_mode {mode!r}; use local_worker or remote_worker")
 
 
-def _forward_to_emotion_worker(payload: dict[str, Any]) -> dict[str, Any] | None:
+def _forward_to_emotion_worker(payload: dict[str, Any]) -> dict[str, Any]:
     """Forward frame to the local Emotion Worker and return its result."""
     import urllib.error
     import urllib.request
@@ -458,28 +447,6 @@ def _forward_to_emotion_worker(payload: dict[str, Any]) -> dict[str, Any] | None
         return _worker_error_result(reason)
 
 
-def _analyze_frame_placeholder(payload: dict[str, Any]) -> dict[str, Any]:
-    """Return a stable shape when no real face/emotion model is active."""
-    face_detected = bool(payload.get("face_detected", False))
-    emotion = str(payload.get("emotion") or "unknown")
-    if emotion not in _EMOTIONS:
-        emotion = "unknown"
-
-    scores = {name: 0.0 for name in _EMOTIONS}
-    scores[emotion] = 1.0 if emotion != "unknown" else 0.0
-    scores["unknown"] = 1.0 if emotion == "unknown" else 0.0
-
-    return {
-        "worker_mode": _config.get("worker_mode", "local_worker"),
-        "face_detected": face_detected,
-        "emotion": emotion,
-        "confidence": 0.0 if emotion == "unknown" else 1.0,
-        "face_confidence": 1.0 if face_detected else 0.0,
-        "scores": scores,
-        "overlay": payload.get("overlay") if isinstance(payload.get("overlay"), dict) else {},
-    }
-
-
 def _worker_error_result(reason: str) -> dict[str, Any]:
     scores = {name: 0.0 for name in _EMOTIONS}
     return {
@@ -491,143 +458,8 @@ def _worker_error_result(reason: str) -> dict[str, Any]:
         "scores": scores,
         "overlay": {},
         "error": reason,
-        "install_hint": "Run 'pip install -r software/requirements.txt' on the server computer, then restart the local Emotion Worker.",
+        "install_hint": "Run the Study Runner installer again (tools/install-windows.cmd or tools/install-macos.sh), then restart the Emotion Worker from the dashboard.",
     }
-
-
-def _analyze_frame_with_opencv(payload: dict[str, Any]) -> dict[str, Any] | None:
-    if not _initialize_opencv():
-        return None
-
-    frame = _decode_image(payload)
-    if frame is None:
-        return _analyze_frame_placeholder(payload)
-
-    gray = _cv2.cvtColor(frame, _cv2.COLOR_BGR2GRAY)
-    faces = _face_cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.1,
-        minNeighbors=5,
-        minSize=(30, 30),
-    )
-
-    scores = {name: 0.0 for name in _EMOTIONS}
-    scores["unknown"] = 1.0
-
-    if len(faces) == 0:
-        return {
-            "worker_mode": _config.get("worker_mode", "opencv_haar"),
-            "face_detected": False,
-            "emotion": "unknown",
-            "confidence": 0.0,
-            "face_confidence": 0.0,
-            "scores": scores,
-            "overlay": {},
-        }
-
-    x, y, width, height = max(faces, key=lambda face: face[2] * face[3])
-    image_area = max(1, frame.shape[0] * frame.shape[1])
-    face_area_ratio = (float(width) * float(height)) / float(image_area)
-    face_confidence = max(0.0, min(1.0, face_area_ratio / 0.35))
-
-    return {
-        "worker_mode": _config.get("worker_mode", "opencv_haar"),
-        "face_detected": True,
-        "emotion": "unknown",
-        "confidence": 0.0,
-        "face_confidence": round(face_confidence, 4),
-        "scores": scores,
-        "overlay": {
-            "face_box": {
-                "x": int(x),
-                "y": int(y),
-                "width": int(width),
-                "height": int(height),
-            }
-        },
-    }
-
-
-def _initialize_opencv() -> bool:
-    global _cv2, _np, _face_cascade
-
-    if _face_cascade is not None:
-        return True
-
-    if not ensure_requirements(
-        [("numpy", "numpy")],
-        auto_install=bool(_config.get("auto_install", True)),
-        label="Camera emotion NumPy",
-    ):
-        _set_state({
-            "status": "failed",
-            "last_message": (
-                "A required component for camera analysis (NumPy) is not installed. "
-                "Run 'pip install -r software/requirements.txt' or reinstall Study Runner."
-            ),
-        })
-        return False
-
-    try:
-        import numpy as np
-    except Exception as error:
-        _set_state({"status": "failed", "last_message": f"NumPy initialization failed: {error}"})
-        return False
-
-    if _get_numpy_major_version(np) >= 2:
-        _set_state(
-            {
-                "status": "failed",
-                "last_message": "OpenCV camera analysis needs numpy<2.0 in this environment. Run pip install -r requirements.txt.",
-            }
-        )
-        return False
-
-    if not ensure_requirements(
-        [("cv2", "opencv-python-headless")],
-        auto_install=bool(_config.get("auto_install", True)),
-        label="Camera emotion OpenCV",
-    ):
-        _set_state({"status": "failed", "last_message": "OpenCV is unavailable for camera analysis."})
-        return False
-
-    try:
-        import cv2
-
-        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        face_cascade = cv2.CascadeClassifier(cascade_path)
-        if face_cascade.empty():
-            raise RuntimeError("OpenCV Haar cascade could not be loaded.")
-
-        _cv2 = cv2
-        _np = np
-        _face_cascade = face_cascade
-        return True
-    except Exception as error:
-        _set_state({"status": "failed", "last_message": f"OpenCV initialization failed: {error}"})
-        return False
-
-
-def _get_numpy_major_version(np_module: Any) -> int:
-    version = str(getattr(np_module, "__version__", "0"))
-    try:
-        return int(version.split(".", 1)[0])
-    except (TypeError, ValueError):
-        return 0
-
-
-def _decode_image(payload: dict[str, Any]) -> Any:
-    image_data = str(payload.get("image") or payload.get("image_base64") or "")
-    if not image_data:
-        return None
-
-    encoded = image_data.split(",", 1)[-1]
-    try:
-        image_bytes = base64.b64decode(encoded, validate=False)
-        buffer = _np.frombuffer(image_bytes, dtype=_np.uint8)
-        return _cv2.imdecode(buffer, _cv2.IMREAD_COLOR)
-    except Exception:
-        return None
 
 
 def _initialize_lsl_outlets() -> None:

@@ -1,20 +1,13 @@
-"""Hardware settings and generic plugin runtime endpoints.
-
-Fixed-key routes at the bottom are one-release compatibility shims only. They
-never import a plugin module and return HTTP 410 when that bundle is absent.
-"""
+"""Hardware settings and generic plugin runtime endpoints."""
 import json
 
 from flask import Blueprint, current_app, jsonify, request
-from werkzeug.exceptions import BadRequest, UnsupportedMediaType
 
 from study_runner.plugin_framework.registry import (
     apply_enabled_runtime,
     get_plugin,
     get_plugin_status,
     initialize_plugin,
-    run_admin_action,
-    run_participant_action,
     run_runtime_action,
 )
 from study_runner.runtime_core.settings.hardware_settings_service import (
@@ -37,7 +30,6 @@ from .helpers import (
     _plugin_context,
     _rebuild_active_study_runtime_config,
     _refresh_trial_runtime,
-    _request_json_object,
     _save_hardware_secret_payload,
     _sensor_runtime_state,
     _session_overrides,
@@ -46,33 +38,6 @@ from .helpers import (
 )
 
 bp = Blueprint("sensors", __name__)
-
-
-def _mark_deprecated(response, successor: str):
-    """Annotate a fixed-key compatibility route without changing its payload."""
-
-    flask_response = response[0] if isinstance(response, tuple) else response
-    flask_response.headers["Deprecation"] = "true"
-    flask_response.headers["Warning"] = (
-        f'299 Study-Runner "Deprecated compatibility route; use {successor}"'
-    )
-    flask_response.headers["Link"] = f'<{successor}>; rel="successor-version"'
-    return response
-
-
-def _removed_compatibility_plugin(plugin_key: str, successor: str):
-    if get_plugin(plugin_key) is not None:
-        return None
-    return _mark_deprecated(
-        (
-            jsonify({
-                "ok": False,
-                "error": f"Plugin '{plugin_key}' is not installed; this compatibility route is unavailable.",
-            }),
-            410,
-        ),
-        successor,
-    )
 
 
 @bp.route("/api/hardware-config")
@@ -388,129 +353,3 @@ def _run_plugin_action_json(plugin_key: str, action: str):
 @bp.route("/api/admin/plugins/<plugin_key>/<action>", methods=["POST"])
 def run_plugin_runtime_action(plugin_key: str, action: str):
     return _run_plugin_action_json(plugin_key, action)
-
-
-@bp.route("/api/admin/camera/start", methods=["POST"])
-def start_camera_affect():
-    """Deprecated fixed-key shim for the generic runtime action route."""
-
-    successor = "/api/admin/plugins/camera_emotion/start"
-    return _removed_compatibility_plugin("camera_emotion", successor) or _mark_deprecated(
-        _run_plugin_action_json("camera_emotion", "start"),
-        successor,
-    )
-
-
-@bp.route("/api/admin/camera/stop", methods=["POST"])
-def stop_camera_affect():
-    """Deprecated fixed-key shim for the generic runtime action route."""
-
-    successor = "/api/admin/plugins/camera_emotion/stop"
-    return _removed_compatibility_plugin("camera_emotion", successor) or _mark_deprecated(
-        _run_plugin_action_json("camera_emotion", "stop"),
-        successor,
-    )
-
-
-@bp.route("/api/admin/camera/live/status")
-def camera_live_status():
-    """Deprecated fixed-key shim; status is now owned by the plugin."""
-
-    successor = "/api/admin/status"
-    missing = _removed_compatibility_plugin("camera_emotion", successor)
-    if missing is not None:
-        return missing
-    status = get_plugin_status("camera_emotion", _plugin_context())
-    preview = status.get("preview")
-    if not isinstance(preview, dict):
-        # Preserve the deprecated endpoint's response shape even if the
-        # isolated process is unavailable. Older clients distinguish an
-        # unavailable preview from an idle one through this explicit flag.
-        preview = {
-            "available": False,
-            "active": False,
-            "last_message": status.get("last_message") or "Camera preview is unavailable.",
-        }
-    return _mark_deprecated(
-        jsonify(
-            {
-                "ok": True,
-                "available": bool(preview.get("available", False)),
-                "active": bool(preview.get("active", False)),
-                **preview,
-            }
-        ),
-        successor,
-    )
-
-
-@bp.route("/api/study/camera-monitor/start", methods=["POST"])
-def start_study_camera_monitor():
-    """Deprecated fixed-key shim for pre-v3 participant extensions."""
-
-    successor = "/api/plugins/camera_emotion/participant/actions/start_monitor"
-    missing = _removed_compatibility_plugin("camera_emotion", successor)
-    if missing is not None:
-        return missing
-    try:
-        dispatched = run_participant_action(
-            "camera_emotion",
-            "start_monitor",
-            _plugin_context(),
-            _request_json_object(),
-        )
-        return _mark_deprecated(
-            jsonify({"ok": True, "runtime": dispatched.get("result")}),
-            successor,
-        )
-    except (UnsupportedMediaType, BadRequest) as error:
-        status = 415 if isinstance(error, UnsupportedMediaType) else 400
-        return _mark_deprecated(
-            (jsonify({"ok": False, "error": error.description}), status),
-            successor,
-        )
-    except ValueError as error:
-        return _mark_deprecated(
-            (jsonify({"ok": False, "error": str(error)}), 400),
-            successor,
-        )
-
-
-@bp.route("/api/admin/emotion-worker/repair-runtime", methods=["POST"])
-def repair_emotion_worker_runtime():
-    successor = "/api/admin/plugins/camera_emotion/actions/repair_runtime"
-    missing = _removed_compatibility_plugin("camera_emotion", successor)
-    if missing is not None:
-        return missing
-    try:
-        result = run_admin_action(
-            "camera_emotion",
-            "repair_runtime",
-            _plugin_context(machine_admin=True),
-            {},
-        )
-        return _mark_deprecated(jsonify(result), successor)
-    except Exception as error:
-        return _mark_deprecated(
-            (jsonify({"ok": False, "error": str(error)}), 500), successor
-        )
-
-
-@bp.route("/api/admin/emotion-worker/install-dependencies", methods=["POST"])
-def install_emotion_worker_dependencies():
-    successor = "/api/admin/plugins/camera_emotion/actions/install_dependencies"
-    missing = _removed_compatibility_plugin("camera_emotion", successor)
-    if missing is not None:
-        return missing
-    try:
-        result = run_admin_action(
-            "camera_emotion",
-            "install_dependencies",
-            _plugin_context(machine_admin=True),
-            {},
-        )
-        return _mark_deprecated(jsonify(result), successor)
-    except Exception as error:
-        return _mark_deprecated(
-            (jsonify({"ok": False, "error": str(error)}), 500), successor
-        )

@@ -38,7 +38,7 @@
     "timeline": {
       "lane_aliases": [],
       "preferred_channels": [
-        "analysis.emotion_confidence", "analysis.face_confidence"
+        "happy", "sad", "neutral", "face_confidence"
       ]
     }
   },

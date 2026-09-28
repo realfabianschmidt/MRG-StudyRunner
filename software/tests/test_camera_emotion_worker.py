@@ -98,20 +98,31 @@ class CameraEmotionWorkerTests(unittest.TestCase):
         self.assertIn("error", result["analysis"])
         self.assertEqual(camera_adapter.get_status()["status"], "failed")
 
-    def test_preview_frame_is_not_added_to_study_history(self) -> None:
+    def test_without_a_worker_no_emotion_is_invented_from_the_browser_payload(self) -> None:
         camera_adapter.initialize(enabled=True, worker_mode="placeholder")
-
         result = camera_adapter.process_frame(
-            {
-                "preview": True,
-                "image": "data:image/jpeg;base64,AAAA",
-                "image_format": "jpeg",
-                "width": 320,
-                "height": 240,
-                "emotion": "happy",
-                "face_detected": True,
-            }
+            {"image": "data:image/jpeg;base64,AAAA", "emotion": "happy", "face_detected": True}
         )
+        self.assertEqual(result["analysis"]["emotion"], "unknown")
+        self.assertEqual(result["analysis"]["confidence"], 0.0)
+        self.assertIn("unsupported worker_mode", result["analysis"]["error"])
+
+    def test_preview_frame_is_not_added_to_study_history(self) -> None:
+        camera_adapter.initialize(enabled=True, worker_mode="local_worker")
+        worker_result = {"emotion": "happy", "face_detected": True, "confidence": 0.9, "scores": {}, "overlay": {}}
+
+        with patch.object(camera_adapter, "_forward_to_emotion_worker", return_value=worker_result):
+            result = camera_adapter.process_frame(
+                {
+                    "preview": True,
+                    "image": "data:image/jpeg;base64,AAAA",
+                    "image_format": "jpeg",
+                    "width": 320,
+                    "height": 240,
+                    "emotion": "happy",
+                    "face_detected": True,
+                }
+            )
 
         self.assertTrue(result["accepted"])
         self.assertTrue(result["preview"])

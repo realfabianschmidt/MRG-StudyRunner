@@ -48,10 +48,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# The six real, removable plugins as of this round - see plugins/README.md.
+# The real, removable integration plugins - see plugins/README.md.
 # lsl_markers and clock_diagnostics are deliberately absent: they are core
 # recording code now, not plugins (test_plugin_removability.py).
-REAL_PLUGIN_KEYS = ("brainbit", "camera_emotion", "mini_radar", "notion", "nextcloud", "osc")
+REAL_PLUGIN_KEYS = (
+    "am_hub", "brainbit", "brainbit_old", "camera_emotion", "mini_radar", "notion", "nextcloud", "osc",
+)
 
 
 def _function_source_lower(fn) -> str:

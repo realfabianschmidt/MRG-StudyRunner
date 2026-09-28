@@ -10,6 +10,7 @@ import atexit
 import asyncio
 import contextlib
 import json
+import math
 import struct
 import threading
 import time
@@ -48,6 +49,9 @@ _config: dict[str, Any] = {}
 _serial_connection: Any = None
 _reader_thread: threading.Thread | None = None
 _running = False
+# Bumped on every start()/stop(): a reader of an older run sees the change and
+# exits, so a restart can never leave two readers on one port (as in am_hub).
+_generation = 0
 _stop_event = threading.Event()
 _recording_enabled = False
 _registered_shutdown = False
@@ -136,7 +140,7 @@ def initialize(
 
 def start() -> dict[str, Any]:
     """Start serial or BLE reading when mini-radar is enabled."""
-    global _running, _reader_thread
+    global _running, _reader_thread, _generation
 
     if not _config:
         _set_state({"status": "not_configured", "last_message": "Mini-radar adapter is not configured."})
@@ -151,8 +155,17 @@ def start() -> dict[str, Any]:
     with _lock:
         if _running:
             return get_status()
+        old_thread = _reader_thread
+    if old_thread is not None and old_thread is not threading.current_thread():
+        old_thread.join(timeout=float(_config.get("ble_scan_timeout_seconds", 5.0)) + 2.0)
+
+    with _lock:
+        if _running:
+            return get_status()
 
         _running = True
+        _generation += 1
+        generation = _generation
         _stop_event.clear()
         # A new run starts with no samples from an earlier participant.
         _history.clear()
@@ -161,7 +174,7 @@ def start() -> dict[str, Any]:
             target = _ble_loop
         else:
             target = _read_loop
-        _reader_thread = threading.Thread(target=target, daemon=True)
+        _reader_thread = threading.Thread(target=target, args=(generation,), daemon=True)
         _reader_thread.start()
 
     _set_state(
@@ -178,10 +191,11 @@ def start() -> dict[str, Any]:
 
 def stop() -> dict[str, Any]:
     """Stop reading and close the radar connection."""
-    global _running
+    global _running, _generation
 
     with _lock:
         _running = False
+        _generation += 1
         _stop_event.set()
         _close_serial_connection()
 
@@ -192,6 +206,10 @@ def stop() -> dict[str, Any]:
 def restart() -> dict[str, Any]:
     stop()
     return start()
+
+
+def _alive(generation: int) -> bool:
+    return _running and generation == _generation
 
 
 def is_configured() -> bool:
@@ -300,11 +318,11 @@ def export_interval_samples(start_epoch: float, end_epoch: float) -> list[dict[s
     return [_public_sample(sample) for sample in _samples_in_interval(start_epoch, end_epoch)]
 
 
-def _read_loop() -> None:
+def _read_loop(generation: int) -> None:
     global _running
 
     last_reconnect_attempt = 0.0
-    while _running:
+    while _alive(generation):
         if _serial_connection is None:
             now = time.time()
             if now - last_reconnect_attempt >= _config.get("reconnect_delay", 5.0):
@@ -343,11 +361,11 @@ def _read_loop() -> None:
         ingest_sample(payload, source="serial")
 
     with _lock:
-        if _reader_thread is threading.current_thread():
+        if generation == _generation:
             _running = False
 
 
-def _ble_loop() -> None:
+def _ble_loop(generation: int) -> None:
     global _running
 
     if not ensure_requirements(
@@ -359,26 +377,26 @@ def _ble_loop() -> None:
             "status": "failed",
             "last_message": (
                 "Bluetooth support for the mini-radar is not installed on this computer. "
-                "Run 'pip install -r software/requirements.txt' or reinstall Study Runner."
+                "Run the Study Runner installer again (tools/install-windows.cmd or tools/install-macos.sh)."
             ),
         })
         with _lock:
-            if _reader_thread is threading.current_thread():
+            if generation == _generation:
                 _running = False
         return
 
     try:
-        asyncio.run(_ble_async_loop())
+        asyncio.run(_ble_async_loop(generation))
     except Exception as error:
         _set_state({"status": "failed", "last_message": f"Mini-radar BLE loop failed: {error}"})
     finally:
         with _lock:
-            if _reader_thread is threading.current_thread():
+            if generation == _generation:
                 _running = False
 
 
-async def _ble_async_loop() -> None:
-    while _running:
+async def _ble_async_loop(generation: int) -> None:
+    while _alive(generation):
         try:
             device = await _find_ble_device()
             if device is None:
@@ -393,17 +411,17 @@ async def _ble_async_loop() -> None:
                 )
                 if not _config.get("auto_reconnect", True):
                     break
-                await _ble_delay(retry_delay)
+                await _ble_delay(retry_delay, generation)
                 continue
 
-            await _run_ble_client(device)
+            await _run_ble_client(device, generation)
         except Exception as error:
-            if _running:
+            if _alive(generation):
                 _set_state({"status": "waiting", "last_message": f"Mini-radar BLE connection failed: {error}"})
 
-        if not _running or not _config.get("auto_reconnect", True):
+        if not _alive(generation) or not _config.get("auto_reconnect", True):
             break
-        await _ble_delay(float(_config.get("reconnect_delay", 5.0)))
+        await _ble_delay(float(_config.get("reconnect_delay", 5.0)), generation)
 
 
 async def _find_ble_device() -> Any:
@@ -436,7 +454,7 @@ async def _find_ble_device() -> Any:
     return None
 
 
-async def _run_ble_client(device: Any) -> None:
+async def _run_ble_client(device: Any, generation: int) -> None:
     from bleak import BleakClient
 
     characteristic_uuid = _config.get("ble_characteristic_uuid", BLE_CHARACTERISTIC_UUID)
@@ -448,19 +466,19 @@ async def _run_ble_client(device: Any) -> None:
         _set_state({"status": "connected", "last_message": f"Mini-radar BLE connected to {device_label}."})
         await client.start_notify(characteristic_uuid, _handle_ble_notification)
         try:
-            while _running and client.is_connected:
+            while _alive(generation) and client.is_connected:
                 await asyncio.sleep(0.2)
         finally:
             with contextlib.suppress(Exception):
                 await client.stop_notify(characteristic_uuid)
 
-    if _running:
+    if _alive(generation):
         _set_state({"status": "waiting", "last_message": "Mini-radar BLE disconnected."})
 
 
-async def _ble_delay(seconds: float) -> None:
+async def _ble_delay(seconds: float, generation: int) -> None:
     deadline = time.monotonic() + max(0.0, seconds)
-    while _running and time.monotonic() < deadline:
+    while _alive(generation) and time.monotonic() < deadline:
         await asyncio.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
 
 
@@ -555,7 +573,7 @@ def _open_serial_connection() -> None:
             "status": "failed",
             "last_message": (
                 "USB/serial support for the mini-radar is not installed on this computer. "
-                "Run 'pip install -r software/requirements.txt' or reinstall Study Runner."
+                "Run the Study Runner installer again (tools/install-windows.cmd or tools/install-macos.sh)."
             ),
         })
         return
@@ -676,7 +694,7 @@ def _push_lsl_values(stream_key: str, sample: dict[str, Any], fields: tuple[str,
     values = []
     for field in fields:
         value = sample.get(field)
-        values.append(float(value) if value is not None else 0.0)
+        values.append(float(value) if value is not None else math.nan)  # missing is NaN, never a 0 reading
 
     try:
         outlet.push_sample(values)

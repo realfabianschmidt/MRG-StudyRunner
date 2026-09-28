@@ -47,7 +47,7 @@
     "timeline": {
       "lane_aliases": [],
       "preferred_channels": [
-        "payload.alpha", "payload.beta", "payload.theta", "payload.delta", "payload.gamma"
+        "alpha", "beta", "theta", "delta", "gamma"
       ]
     }
   },

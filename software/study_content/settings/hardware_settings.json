@@ -40,7 +40,6 @@
     "emotion_worker": {
       "auto_start": true,
       "health_timeout_seconds": 0.75,
-      "log_dir": "study_runner/plugins/sensors/camera_emotion/worker/logs",
       "python_executable": {
         "macos": "",
         "windows": ""

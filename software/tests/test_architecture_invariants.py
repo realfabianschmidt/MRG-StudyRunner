@@ -72,8 +72,7 @@ class OnlyDataCoreWritesXdfBytesTests(unittest.TestCase):
 class ContractsDependsOnNothingTests(unittest.TestCase):
     def test_contracts_imports_nothing_from_the_rest_of_the_app(self) -> None:
         contracts_dir = STUDY_RUNNER_ROOT / "contracts"
-        if not contracts_dir.is_dir():
-            self.skipTest("study_runner/contracts/ does not exist yet (created in Phase 2/3)")
+        self.assertTrue(contracts_dir.is_dir())
 
         other_areas = {
             path.relative_to(STUDY_RUNNER_ROOT).parts[0]
