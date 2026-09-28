@@ -5,7 +5,19 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Fixed
+
+- `.study-runner` packages are byte-identical on Windows, macOS and Linux;
+  the ZIP header recorded the building system, which failed the Linux
+  release tests for 1.5.2.
+
 ## 1.5.3 - 2026-09-28
+
+### Fixed
+
+- `.study-runner` packages are byte-identical on Windows, macOS and Linux;
+  the ZIP header recorded the building system, which failed the Linux
+  release tests for 1.5.2.
 
 ## 1.5.2 - 2026-09-28
 
