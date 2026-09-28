@@ -70,6 +70,17 @@ def safe_path_component(value: str, *, fallback: str) -> str:
     return f"{prefix}--{digest}"
 
 
+def study_storage_dir(data_dir: Path | str, study_id: str) -> Path:
+    """The one folder per study inside the data folder.
+
+    Sessions (``participants/...``), answer snapshots (``_partial``), sensor
+    flush files (``_flush``) and raw recovery dumps (``_recovery``) all live
+    here. Before, the helper folders used a differently sanitized name, so a
+    study with capitals or spaces got a second, mostly empty folder.
+    """
+    return Path(data_dir) / safe_path_component(str(study_id or ""), fallback="study")
+
+
 @dataclass(frozen=True)
 class SessionIdentity:
     """Stable identity used to reserve one immutable session directory."""

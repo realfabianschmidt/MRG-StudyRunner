@@ -88,15 +88,9 @@ export function renderTrend(kind, plugin, ui, now = Date.now() / 1000) {
 export function renderDashboard({ plugin: amHub }, ui) {
   const latest = amHub.latest || {};
 
+  // Status, presence and the switch are drawn by the shared connection panel.
   return `
-    <div class="dashboard-status-row">
-      <div class="dashboard-status-row-info">
-        <span class="status-pill status-pill--${ui.escapeHtml(amHub.status || 'unknown')}">${ui.escapeHtml(ui.statusLabel(amHub.status))}</span>
-        <strong>${ui.formatEnabled(amHub.configured_enabled ?? amHub.enabled)}</strong>
-      </div>
-      ${renderRuntimeToggle(amHub, ui)}
-    </div>
-    <p role="status">${formatMessage(amHub, ui)}</p>
+    <p class="status-muted" role="status">${formatMessage(amHub, ui)}</p>
     ${renderVitalTiles(amHub, ui)}
     ${renderTrend('movement', amHub, ui)}
     ${renderTrend('vitals', amHub, ui)}
@@ -130,26 +124,6 @@ function renderVitalTiles(amHub, ui) {
     return `<div><small>${ui.escapeHtml(ui.t(`amHub.tile.${key}`, fallback))}</small><br><strong>${shown}</strong></div>`;
   }).join('');
   return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">${tiles}</div>`;
-}
-
-/** Toggle replaces Start/Stop; the icon button next to it replaces Restart. */
-function renderRuntimeToggle(amHub, ui) {
-  const running = !!amHub.can_stop;
-  const toggleDisabled = !(amHub.can_start || amHub.can_stop) ? 'disabled' : '';
-  const restartDisabled = amHub.can_restart ? '' : 'disabled';
-  const toggleLabel = ui.t(running ? 'dashboard.action.stop' : 'dashboard.action.start', running ? 'Stop' : 'Start');
-  const restartLabel = ui.t('dashboard.action.restart', 'Restart');
-  return `<div class="dashboard-status-row-actions">
-    <label class="dashboard-toggle" title="${ui.escapeHtml(toggleLabel)}">
-      <span class="switch">
-        <input type="checkbox" data-runtime-toggle="${ui.escapeHtml(amHub.key || '')}" ${running ? 'checked' : ''} ${toggleDisabled}
-            aria-label="${ui.escapeHtml(toggleLabel)}">
-        <span class="switch-slider"></span>
-      </span>
-    </label>
-    <button type="button" class="btn-icon-only" data-dashboard-action="runtime_${ui.escapeHtml(amHub.key || '')}_restart" ${restartDisabled}
-        title="${ui.escapeHtml(restartLabel)}" aria-label="${ui.escapeHtml(restartLabel)}"><i class="iconoir-refresh"></i></button>
-  </div>`;
 }
 
 function formatMessage(amHub, ui) {

@@ -1,4 +1,4 @@
-"""Executable API-v4 process entrypoint for the mini_radar plugin."""
+"""Executable API-v5 process entrypoint for the mini_radar plugin."""
 from study_runner.plugin_framework.driver_runtime import run_plugin_driver
 
 

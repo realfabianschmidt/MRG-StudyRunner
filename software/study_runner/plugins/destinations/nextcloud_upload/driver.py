@@ -1,4 +1,4 @@
-"""Executable API-v4 process entrypoint for the nextcloud plugin."""
+"""Executable API-v5 process entrypoint for the nextcloud plugin."""
 from study_runner.plugin_framework.driver_runtime import run_plugin_driver
 
 

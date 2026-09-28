@@ -170,6 +170,9 @@ class ParticipantLanguageTests(unittest.TestCase):
 
     def test_participant_lifecycle_is_manifest_extension_driven(self) -> None:
         controller = _read(WEB / "scripts" / "participant" / "study-controller.js")
+        stimulus = _read(WEB / "scripts" / "participant" / "participant-stimulus-execution.js")
+        submission = _read(WEB / "scripts" / "participant" / "participant-result-submission.js")
+        participant_sources = controller + stimulus + submission
         camera_extension = _read(
             PROJECT_ROOT / "study_runner" / "plugins" / "sensors" / "camera_emotion" / "ui" / "participant.js"
         )
@@ -181,11 +184,11 @@ class ParticipantLanguageTests(unittest.TestCase):
         self.assertNotIn("startCameraCaptureSession", controller)
         self.assertIn("loadPluginUiExtensions('participant')", controller)
         self.assertNotIn("await queueParticipantExtensionSync", controller)
-        self.assertIn("participantExtensions.startStimulus", controller)
-        self.assertIn("participantExtensions.beforeSubmit", controller)
-        self.assertIn("plugin_status: participantExtensions.heartbeatStatus()", controller)
-        self.assertIn("runParticipantAction", controller)
-        self.assertIn("ingestParticipant", controller)
+        self.assertIn("participantExtensions.startStimulus", stimulus)
+        self.assertIn("participantExtensions.beforeSubmit", submission)
+        self.assertIn("plugin_status: participantExtensions.heartbeatStatus()", submission)
+        self.assertIn("runParticipantAction", participant_sources)
+        self.assertIn("ingestParticipant", participant_sources)
         self.assertIn("createParticipantExtension", camera_extension)
         self.assertIn("startCameraCaptureSession", camera_extension)
         self.assertIn("context.runParticipantAction", camera_extension)
@@ -218,7 +221,7 @@ class EditorFieldOrderTests(unittest.TestCase):
     ORDER = ("renderPromptField", "renderInstructionField", "renderEditor", "renderNoteField", "renderEditorToggles")
 
     def test_open_overlay_composes_the_agreed_order(self) -> None:
-        admin = _read(WEB / "scripts" / "admin" / "admin-controller.js")
+        admin = _read(WEB / "scripts" / "admin" / "admin-study-editor.js")
         start = admin.index("editorEl.innerHTML = [")
         block = admin[start : admin.index("].join('');", start)]
 
@@ -310,7 +313,7 @@ class PreviewModeTests(unittest.TestCase):
 
     def test_both_start_buttons_drive_the_same_flow(self) -> None:
         """One start path, two entry points - the spinner follows the button."""
-        admin = _read(WEB / "scripts" / "admin" / "admin-controller.js")
+        admin = _read(WEB / "scripts" / "admin" / "admin-run-control.js")
 
         self.assertIn("buttonId = 'btn-hub-start-study'", admin)
         self.assertIn("buttonId: 'btn-workspace-start'", admin)
@@ -437,6 +440,25 @@ class SettingsShellTests(unittest.TestCase):
         self.assertEqual(sorted(referenced - set(en)), [], "label keys missing from en.json")
         self.assertEqual(sorted(referenced - set(de)), [], "label keys missing from de.json")
 
+    def test_every_shipped_manifest_has_operator_description_and_setting_help(self) -> None:
+        plugin_root = PROJECT_ROOT / "study_runner" / "plugins"
+        problems = []
+        for manifest_path in plugin_root.rglob("manifest.json"):
+            manifest = json.loads(_read(manifest_path))
+            plugin_key = manifest.get("plugin_key") or manifest_path.parent.name
+            ui = manifest.get("ui") or {}
+            if not str(ui.get("description") or "").strip():
+                problems.append(f"{plugin_key}: ui.description is missing")
+            if manifest.get("category") != "card" and not ui.get("help_key"):
+                problems.append(f"{plugin_key}: ui.help_key is missing")
+            for scope_name, scope in (manifest.get("settings") or {}).items():
+                if not isinstance(scope, dict):
+                    continue
+                for field_name, field in scope.items():
+                    if isinstance(field, dict) and not field.get("help_key"):
+                        problems.append(f"{plugin_key}: {scope_name}.{field_name} has no help_key")
+        self.assertEqual(problems, [])
+
     def test_per_study_settings_are_not_reachable_from_the_machine_hub(self) -> None:
         """Study settings belong to the study, machine settings to the computer.
 
@@ -550,6 +572,17 @@ class PluginUiContractTests(unittest.TestCase):
         self.assertIn("const plugins = { ...current.plugins }", study_panel)
         self.assertIn("const sensors = { ...current.sensors }", study_panel)
 
+    def test_study_credentials_are_not_offered_for_the_whole_computer(self) -> None:
+        panel = _read(WEB / "scripts" / "settings" / "machine" / "machine-settings-panel.js")
+        self.assertIn("credential.per_study === true", panel)
+
+    def test_editor_preview_cards_are_mounted_live(self) -> None:
+        editor = _read(WEB / "scripts" / "admin" / "admin-study-editor.js")
+        admin_css = _read(WEB / "styles" / "admin.css")
+        self.assertIn("mountCard(", editor)
+        self.assertIn("{ mode: 'preview' }", editor)
+        self.assertIn(".preview-card-wrap.selected .q-card-study {\n  pointer-events: auto;", admin_css)
+
     def test_finalization_view_accepts_unknown_steps_and_is_accessible(self) -> None:
         view = _read(WEB / "scripts" / "admin" / "session-progress-rail.js")
         monitor = _read(WEB / "scripts" / "admin" / "upload-monitor.js")
@@ -567,7 +600,7 @@ class PluginUiContractTests(unittest.TestCase):
         self.assertNotIn('iconoir-cloud-upload"></i>', monitor)
 
     def test_required_readiness_blockers_cannot_be_confirmed_away(self) -> None:
-        admin = _read(WEB / "scripts" / "admin" / "admin-controller.js")
+        admin = _read(WEB / "scripts" / "admin" / "admin-run-control.js")
         start = admin.index("async function startLoadedStudyRun")
         blocked = admin.index("state.readiness?.start_blocked === true", start)
         warning = admin.index("state.readiness?.ready === false", blocked)
@@ -579,7 +612,7 @@ class PluginUiContractTests(unittest.TestCase):
         self.assertNotIn("confirmWithModal(", blocked_branch)
 
     def test_readiness_failures_are_persistent_and_survive_a_stale_precheck(self) -> None:
-        admin = _read(WEB / "scripts" / "admin" / "admin-controller.js")
+        admin = _read(WEB / "scripts" / "admin" / "admin-run-control.js")
         admin_html = _read(WEB / "pages" / "admin.html")
 
         self.assertIn('id="hub-study-readiness"', admin_html)
@@ -592,7 +625,7 @@ class PluginUiContractTests(unittest.TestCase):
         self.assertIn("recording_worker_unavailable", admin)
 
     def test_stimulus_deadline_is_fixed_before_prepare_and_stop_does_not_wait(self) -> None:
-        source = _read(WEB / "scripts" / "participant" / "study-controller.js")
+        source = _read(WEB / "scripts" / "participant" / "participant-stimulus-execution.js")
         start = source.index("async function startStimulusCard")
         schedule = source.index("const scheduleStartMs = performance.now()", start)
         prepare = source.index("'/api/trial/prepare'", start)

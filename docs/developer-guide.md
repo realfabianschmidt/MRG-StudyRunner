@@ -1,5 +1,8 @@
 # Developer Guide
 
+For the complete operator-visible card contract and minimal examples, see the
+[Study Card Catalog](card-catalog.md).
+
 Study Runner uses trusted built-in integration plugins. A plugin is a Python
 package below `software/study_runner/plugins/`; there is no web upload,
 marketplace, automatic dependency installation, or untrusted code path.

@@ -12,13 +12,15 @@ installation, start it with `tools/start-windows.cmd` or
 - `software/study_runner/runtime_core/`: study, settings, and delivery services.
 - `software/study_runner/data_core/host/`: recording orchestration and validation.
 - `software/study_runner/plugins/`: manifest-driven (API v5) plugins —
-  AM Hub, BrainBit (plus the fallback BrainBit old), MR60 mini-radar,
+  AM Hub, BrainBit, MR60 mini-radar,
   camera/emotion, Notion, Nextcloud, OSC/TouchDesigner, and the study cards
   (full list in `software/study_runner/plugins/README.md`).
 - `software/study_runner/data_core/worker/`: detached Python recording worker.
 - `software/recording_worker/native/`: small native XDF-core source.
 - `software/study_runner/apps/ui/`: browser pages, styles, scripts, cards, and
   locales.
+- [Study Card Catalog](card-catalog.md): purpose, setup, and recorded answer
+  shape for every card available in the editor.
 - `software/study_content/settings/`: active study, machine settings, and local
   secrets.
 - `software/study_content/studies/`: saved study presets.
@@ -54,17 +56,39 @@ environment.
 ## How A Study Run Works
 
 1. Start the Python server and open `/admin`.
-2. Load or edit the study.
-3. Confirm required plugin readiness. Every required recording source must be
-   connected, have its XDF segment open, and have delivered a fresh sample.
-4. Open the participant URL on the assigned tablet over trusted HTTPS.
-5. Start the run from Admin. The participant enters the pseudonymous ID.
-6. The detached worker records each plugin to its own XDF, plus the slowest-grid
+2. Load or edit the study. The loaded study decides which sensors run: the
+   ones it needs are started, all others are stopped. A study without
+   sensors runs none.
+3. Open the participant URL on the assigned tablet over trusted HTTPS. It
+   waits with the study name and logo.
+4. Prepare the sensors on the dashboard. Every sensor tile shows the same
+   connection panel: a status line (for example "Connected – electrode contact
+   good · calibration done"), a green **Ready** once it can be recorded, the
+   on/off switch, and its steps. The highlighted button is always the next
+   step. For BrainBit:
+   - **Search** finds headbands. Exactly one is connected automatically;
+     with several, choose one in the list, which connects at once. A known
+     band reconnects by itself after a restart.
+   - Electrode contact is measured automatically when the band connects.
+     **Measure contact** repeats it without reconnecting.
+   - **Initialize** calibrates the attention and relaxation values for the
+     person wearing the band (about 6 s, sitting still, eyes open).
+   Data streams live to the preview but is not recorded yet.
+5. Press **Start study** in the dashboard's study bar (or in the hub). It is
+   highlighted once every needed sensor is ready and the tablet is connected;
+   otherwise the bar names what is still missing.
+6. The tablet shows the info page, if the study has one, then the
+   participant ID. Submitting the ID starts the recording; nothing is
+   reconnected or re-initialized then. The study-start marker is written only
+   once every sensor stream has data in the file.
+7. The detached worker records each plugin to its own XDF, plus the slowest-grid
    QC backup and hidden marker/clock streams.
 7. Browser timers use real monotonic deadlines. A hidden tab does not pause a
    stimulus.
 8. On Submit, the participant submission is committed locally. Only then does
-   the completion page appear.
+   the completion page appear. The recording closes once every stream has data
+   past the end marker. The sensors keep running for the next participant;
+   BrainBit falls back to "measure contact and initialize" for the new person.
 9. The session detail's progress rail shows freeze, source validation, merge,
    merge parity, card statistics, manifest, Notion, Nextcloud, and guarded
    purge, with retries; a notice appears when something needs attention.
@@ -171,9 +195,19 @@ Useful diagnostic server flags remain:
   do not affect the participant screen.
 
 Open the finalization details to inspect warnings and artifacts. Retry the
-specific failed step first. If data loss is real and scientifically acceptable,
-an admin may confirm degraded completion with a written reason. This creates
-`completed_degraded` and preserves the warning in published output.
+specific failed step first. There are two kinds of findings:
+
+- **Quality warnings** (for example a stream that starts a few milliseconds
+  late, or a sensor that was not calibrated): the data is readable. Choose
+  **Continue with warning** and give a reason. Merge, card statistics, CSV and
+  manifest are still created, and the session ends `completed_degraded` with
+  the reason stored.
+- **Blocking problems** (for example an unreadable file): nothing can be
+  derived. **Confirm degraded completion** with a written reason closes the
+  session with the raw data as it is.
+
+Sessions that an earlier version stopped right after the confirmation show
+**Continue processing** when their data only had quality warnings.
 
 ## Data And Purge Safety
 

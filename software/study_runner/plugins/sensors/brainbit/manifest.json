@@ -20,12 +20,13 @@
       "admin_action": 90000,
       "trial_start": 2000,
       "trial_stop": 2000,
+      "session_end": 5000,
       "interval_summary": 5000,
       "interval_export": 15000,
       "shutdown": 15000
     },
     "actions": ["start", "stop", "restart"],
-    "trial_events": ["start", "stop"],
+    "trial_events": ["start", "stop", "session_end"],
     "can_toggle": true,
     "sidecar": {
       "sensor": "brainbit",
@@ -36,6 +37,7 @@
   "ui": {
     "label": "BrainBit",
     "description": "BrainBit EEG acquisition and derived metrics.",
+    "help_key": "pluginHelp.brainbit.intro",
     "order": 100,
     "visibility": {
       "dashboard": true,
@@ -68,18 +70,24 @@
       ]
     },
     "health": {},
+    "connection": {
+      "device_noun_key": "sensorConnection.noun.headband",
+      "signal_label_key": "sensorConnection.signal.electrodeContact",
+      "setup_label_key": "sensorConnection.setup.calibration",
+      "setup_per_participant": true
+    },
     "machine_settings": {},
     "study_settings": {},
     "card_actions": {},
     "interval_summary": {},
     "sidecar_export": {},
     "admin_actions": {
-      "rendered_by_dashboard": true,
       "actions": [
         {
           "key": "select_device",
-          "label": "Connect",
-          "description": "Persist this discovered BrainBit band and restart its adapter.",
+          "role": "select",
+          "label": "Select headband",
+          "description": "Remember this BrainBit band and connect to it.",
           "payload_schema": {
             "index": {"type": "integer", "minimum": 0},
             "name": {"type": "string", "max_length": 256},
@@ -99,8 +107,9 @@
             "label_fields": ["name", "serial", "serial_number", "address"]
           }
         },
-        {"key": "scan_devices", "label": "Search again", "description": "Disconnect and search for BrainBit headsets.", "confirm": true},
-        {"key": "check_contact", "label": "Check electrode contact", "description": "Restart acquisition to measure contact before EEG resumes.", "confirm": true}
+        {"key": "scan_devices", "role": "scan", "label": "Search", "description": "Search for BrainBit headbands. Exactly one found is connected automatically."},
+        {"key": "check_contact", "role": "measure_signal", "label": "Measure contact", "description": "Pause the EEG for about 6 s and measure the electrode contact, without reconnecting."},
+        {"key": "calibrate", "role": "initialize", "label": "Initialize", "description": "Calibrate the attention and relaxation indices for this participant (about 6 s, sitting still, eyes open)."}
       ]
     }
   },
@@ -146,39 +155,50 @@
       "scan_seconds": {
         "type": "number", "unit": "s", "path": "scan_seconds", "default": 5,
         "minimum": 1, "maximum": 60, "label_key": "pluginSettings.brainbit.scanSeconds",
-        "apply": "restart", "scope": "machine"
+        "apply": "restart", "scope": "machine",
+        "help_key": "pluginHelp.brainbit.scanSeconds"
       },
       "disconnect_timeout_ms": {
         "type": "number", "unit": "ms", "path": "disconnect_timeout_ms", "default": 45000,
         "minimum": 1000, "maximum": 120000,
-        "label_key": "pluginSettings.brainbit.disconnectTimeout", "apply": "restart", "scope": "machine"
+        "label_key": "pluginSettings.brainbit.disconnectTimeout", "apply": "restart", "scope": "machine",
+        "help_key": "pluginHelp.brainbit.disconnectTimeout"
       },
       "serial_number": {
         "type": "string", "path": "serial_number", "default": "",
-        "label_key": "pluginSettings.brainbit.serialNumber", "apply": "restart", "scope": "machine"
+        "label_key": "pluginSettings.brainbit.serialNumber", "apply": "restart", "scope": "machine",
+        "help_key": "pluginHelp.brainbit.serialNumber"
       },
       "device_address": {
         "type": "string", "path": "device_address", "default": "",
-        "label_key": "pluginSettings.brainbit.deviceAddress", "apply": "restart", "scope": "machine"
+        "label_key": "pluginSettings.brainbit.deviceAddress", "apply": "restart", "scope": "machine",
+        "help_key": "pluginHelp.brainbit.deviceAddress"
       },
       "device_name": {
         "type": "string", "path": "device_name", "default": "",
-        "label_key": "pluginSettings.brainbit.deviceName", "apply": "restart", "scope": "machine"
+        "label_key": "pluginSettings.brainbit.deviceName", "apply": "restart", "scope": "machine",
+        "help_key": "pluginHelp.brainbit.deviceName"
       },
       "settle_seconds": {
         "type": "number", "unit": "s", "path": "settle_seconds", "default": 2,
         "minimum": 0, "maximum": 30,
-        "label_key": "pluginSettings.brainbit.settleSeconds", "apply": "restart", "scope": "machine"
+        "label_key": "pluginSettings.brainbit.settleSeconds", "apply": "restart", "scope": "machine",
+        "help_key": "pluginHelp.brainbit.settleSeconds"
       },
       "auto_restart_max_attempts": {
         "type": "number", "path": "auto_restart_max_attempts", "default": 3,
         "minimum": 0, "maximum": 20,
-        "label_key": "pluginSettings.brainbit.autoRestartMaxAttempts", "apply": "restart", "scope": "machine"
+        "label_key": "pluginSettings.brainbit.autoRestartMaxAttempts", "apply": "restart", "scope": "machine",
+        "help_key": "pluginHelp.brainbit.autoRestartMaxAttempts"
       }
     },
     "study": {},
     "card_actions": {
-      "to_touchdesigner": {"type": "boolean", "default": true}
+      "to_touchdesigner": {
+        "type": "boolean",
+        "default": true,
+        "help_key": "pluginHelp.brainbit.toTouchdesigner"
+      }
     }
   },
   "poll_interval_ms": 1000,

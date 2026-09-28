@@ -99,6 +99,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/finalization/<job_id>/retry"),
     ("POST", "/api/finalization/<job_id>/acknowledge"),
     ("POST", "/api/finalization/<job_id>/confirm-degraded"),
+    ("POST", "/api/finalization/<job_id>/continue"),
     ("POST", "/api/finalization/<job_id>/open-folder"),
     ("GET", "/api/plugins/catalog"),
     ("GET", "/api/plugins/<plugin_key>/assets/<path:asset_path>"),

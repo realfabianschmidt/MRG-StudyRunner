@@ -6,6 +6,7 @@
 // closest to that point bloom around the orb. Records words + position.
 import { t } from '/static/scripts/shared/i18n.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
+import { prefersReducedMotion, runAnimation } from '/static/scripts/cards/card-motion.js';
 import {
   QUADRANTS,
   blobPath,
@@ -14,9 +15,7 @@ import {
   createSpring,
   haptic,
   nearestWords,
-  prefersReducedMotion,
   quadrantAt,
-  runAnimation,
   shapeAt,
   wordCoordinates,
 } from './mood-core.js';
@@ -118,7 +117,8 @@ export function bind(cardElement, i, ctx) {
   field.addEventListener('pointerup', release);
   field.addEventListener('pointercancel', release);
 
-  if (reduced) draw(0);
+  // Bound before the card is attached: draw once it has a size.
+  if (reduced) requestAnimationFrame(() => draw(0));
 }
 
 function collapseWords(field) {

@@ -23,6 +23,7 @@
   "ui": {
     "label": "Tablet camera emotion",
     "description": "Tablet camera frames and derived emotion values through the backend LSL bridge.",
+    "help_key": "pluginHelp.camera.intro",
     "order": 130,
     "visibility": {
       "dashboard": true,
@@ -81,6 +82,11 @@
       }
     },
     "health": {},
+    "connection": {
+      "device_noun_key": "sensorConnection.noun.camera",
+      "signal_label_key": "sensorConnection.signal.face",
+      "setup_per_participant": false
+    },
     "machine_settings": {},
     "study_settings": {},
     "card_actions": {},
@@ -139,39 +145,51 @@
       "snapshot_interval_ms": {
         "type": "number", "unit": "ms", "path": "snapshot_interval_ms", "default": 200,
         "minimum": 100, "maximum": 10000, "label_key": "pluginSettings.camera.snapshotInterval",
-        "apply": "immediate", "scope": "machine"
+        "apply": "immediate", "scope": "machine",
+        "help_key": "pluginHelp.camera.snapshotInterval"
       },
       "emotion_worker_timeout_ms": {
         "type": "number", "unit": "ms", "path": "emotion_worker_timeout_ms", "default": 5000,
         "minimum": 250, "maximum": 60000, "label_key": "pluginSettings.camera.workerTimeout",
-        "apply": "immediate", "scope": "machine"
+        "apply": "immediate", "scope": "machine",
+        "help_key": "pluginHelp.camera.workerTimeout"
       },
       "emotion_worker_url": {
         "type": "url", "path": "emotion_worker_url", "default": "http://127.0.0.1:3001",
-        "label_key": "pluginSettings.camera.workerUrl", "apply": "restart", "scope": "machine"
+        "label_key": "pluginSettings.camera.workerUrl", "apply": "restart", "scope": "machine",
+        "help_key": "pluginHelp.camera.workerUrl"
       },
       "emotion_worker.auto_start": {
         "type": "boolean", "path": "emotion_worker.auto_start", "default": true,
-        "label_key": "pluginSettings.camera.workerAutoStart", "apply": "restart", "scope": "machine"
+        "label_key": "pluginSettings.camera.workerAutoStart", "apply": "restart", "scope": "machine",
+        "help_key": "pluginHelp.camera.workerAutoStart"
       },
       "emotion_worker.health_timeout_seconds": {
         "type": "number", "unit": "s", "path": "emotion_worker.health_timeout_seconds", "default": 0.75,
         "minimum": 0.25, "maximum": 60,
-        "label_key": "pluginSettings.camera.workerHealthTimeout", "apply": "immediate", "scope": "machine"
+        "label_key": "pluginSettings.camera.workerHealthTimeout", "apply": "immediate", "scope": "machine",
+        "help_key": "pluginHelp.camera.workerHealthTimeout"
       },
       "worker_mode": {
         "type": "choice", "path": "worker_mode", "options": ["local_worker", "remote_worker"],
         "default": "local_worker", "label_key": "pluginSettings.camera.workerMode",
-        "apply": "restart", "scope": "machine"
+        "apply": "restart", "scope": "machine",
+        "help_key": "pluginHelp.camera.workerMode"
       },
       "overlay_enabled": {
         "type": "boolean", "path": "overlay_enabled", "default": true,
-        "label_key": "pluginSettings.camera.overlay", "apply": "immediate", "scope": "machine"
+        "label_key": "pluginSettings.camera.overlay", "apply": "immediate", "scope": "machine",
+        "help_key": "pluginHelp.camera.overlay"
       }
     },
     "study": {},
     "card_actions": {
-      "snapshot_interval_ms": {"type": "number", "default": 1000, "minimum": 100}
+      "snapshot_interval_ms": {
+        "type": "number",
+        "default": 1000,
+        "minimum": 100,
+        "help_key": "pluginHelp.camera.cardSnapshotInterval"
+      }
     }
   },
   "poll_interval_ms": 1000,

@@ -90,6 +90,35 @@ class StudyPluginMigrationTests(unittest.TestCase):
             {"enabled": True, "required": True, "settings": {"mode": "fast"}},
         )
 
+    def test_removed_brainbit_old_stays_explicit_and_is_never_remapped(self) -> None:
+        source_settings = {"legacy_gain": 7, "device_address": "AA:BB:CC:DD"}
+        validated = validate_and_normalize_config(
+            {
+                "study_id": "Historic BrainBit study",
+                "questions": [{"type": "finish"}],
+                "study_settings": {
+                    "plugins": {
+                        "brainbit_old": {
+                            "enabled": True,
+                            "required": True,
+                            "settings": source_settings,
+                        }
+                    }
+                },
+            }
+        )
+        selection = validated["study_settings"]["plugins"]["brainbit_old"]
+        self.assertEqual(selection["settings"], source_settings)
+        self.assertNotEqual(selection, validated["study_settings"]["plugins"]["brainbit"])
+
+        readiness = check_study_readiness(validated, {}, {}, https_active=True)
+        missing = [
+            blocker for blocker in readiness["blockers"]
+            if blocker.get("code") == "plugin_unavailable" and blocker.get("plugin") == "brainbit_old"
+        ]
+        self.assertEqual(len(missing), 1)
+        self.assertTrue(missing[0]["blocking"])
+
     def test_empty_catalog_preserves_missing_plugins_and_card_actions_opaquely(self) -> None:
         from study_runner.data_core.host import study_sensor_runtime
         from study_runner.plugin_framework import registry

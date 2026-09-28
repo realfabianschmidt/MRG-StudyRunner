@@ -82,14 +82,30 @@ def wait_for_required_worker_sources(
     required_sources: set[str],
     timeout_seconds: float = 4.0,
     maximum_primary_age_seconds: float = 2.0,
+    secondary_grace_seconds: float = 2.0,
     monotonic: Callable[[], float] = time.monotonic,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> Mapping[str, Any]:
-    """Gate visual study onset on worker-observed required-source freshness."""
+    """Gate the study-start marker until every regular sensor stream is being written.
+
+    Waiting for the primary stream alone was not enough: derived streams (for
+    example band power at 25 Hz) open their LSL inlet a little later, so their
+    first sample landed after the marker and the session failed its
+    time-coverage check although every sample was recorded.
+
+    The primary stream of each required study sensor must hold a fresh sample
+    within ``timeout_seconds``; otherwise the start fails. Every other regular
+    stream (``nominal_rate_hz > 0``) is then waited for up to
+    ``secondary_grace_seconds`` more. A derived stream may legitimately be
+    silent (for example before a calibration), so after the grace the start
+    continues and the silent streams are returned as ``late_streams``; the
+    source validation reports them as a quality warning.
+    """
 
     deadline = monotonic() + timeout_seconds
     last_issues: list[str] = ["worker did not publish readiness state"]
-    while monotonic() < deadline:
+    primary_ready_at: float | None = None
+    while monotonic() < deadline or primary_ready_at is not None:
         response = client.send(
             "health",
             {"session_id": session_id, "generation": generation},
@@ -104,6 +120,7 @@ def wait_for_required_worker_sources(
         source_states = health.get("sources")
         source_states = source_states if isinstance(source_states, Mapping) else {}
         issues: list[str] = []
+        late: list[str] = []
         for plugin_key in sorted(required_sources):
             source = source_states.get(plugin_key)
             if not isinstance(source, Mapping):
@@ -122,45 +139,171 @@ def wait_for_required_worker_sources(
             capabilities = set((manifests.get(plugin_key) or {}).get("capabilities") or [])
             if "study_sensor" not in capabilities:
                 continue
-            manifest_streams = (manifests.get(plugin_key) or {}).get("streams") or []
-            primary_manifest = next(
-                (
-                    item
-                    for item in manifest_streams
-                    if isinstance(item, Mapping) and bool(item.get("primary"))
-                ),
-                manifest_streams[0] if manifest_streams else {},
+            primary_issues, secondary_issues = split_stream_readiness_issues(
+                plugin_key,
+                streams,
+                maximum_age_seconds=maximum_primary_age_seconds,
             )
-            primary_key = (
-                str(primary_manifest.get("key") or "")
-                if isinstance(primary_manifest, Mapping)
-                else ""
-            )
-            primary = next(
-                (
-                    item
-                    for item in streams
-                    if isinstance(item, Mapping) and str(item.get("key") or "") == primary_key
-                ),
-                None,
-            )
-            if not isinstance(primary, Mapping) or int(primary.get("sample_count") or 0) < 1:
-                issues.append(f"{plugin_key}: primary stream has no sample")
-                continue
-            age = primary.get("last_sample_age_seconds")
-            try:
-                fresh = age is not None and 0.0 <= float(age) <= maximum_primary_age_seconds
-            except (TypeError, ValueError):
-                fresh = False
-            if not fresh:
-                issues.append(f"{plugin_key}: primary sample is stale")
-        if not issues:
+            issues.extend(primary_issues)
+            late.extend(secondary_issues)
+        if issues:
+            primary_ready_at = None
+            last_issues = issues
+            if monotonic() >= deadline:
+                break
+            sleeper(0.1)
+            continue
+        if not late:
             return health
-        last_issues = issues
-        sleeper(0.1)
+        if primary_ready_at is None:
+            primary_ready_at = monotonic()
+        if monotonic() - primary_ready_at >= secondary_grace_seconds:
+            return {**dict(health), "late_streams": late}
+        sleeper(0.05)
     raise RecordingRuntimeError(
         "required recording sources did not become ready: " + "; ".join(last_issues)
     )
+
+
+def _stream_rate(item: Mapping[str, Any]) -> float:
+    try:
+        rate = float(item.get("nominal_rate_hz") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return rate if math.isfinite(rate) and rate > 0 else 0.0
+
+
+def _stream_issue(plugin_key: str, item: Mapping[str, Any], maximum_age_seconds: float) -> str | None:
+    rate = _stream_rate(item)
+    stream_key = str(item.get("key") or item.get("source_id") or "stream")
+    if int(item.get("sample_count") or 0) < 1:
+        return f"{plugin_key}.{stream_key}: no sample recorded yet"
+    age = item.get("last_sample_age_seconds")
+    limit = max(float(maximum_age_seconds), 5.0 / rate)
+    try:
+        fresh = age is not None and 0.0 <= float(age) <= limit
+    except (TypeError, ValueError):
+        fresh = False
+    return None if fresh else f"{plugin_key}.{stream_key}: latest sample is stale"
+
+
+def split_stream_readiness_issues(
+    plugin_key: str,
+    streams: list[Any],
+    *,
+    maximum_age_seconds: float = 2.0,
+) -> tuple[list[str], list[str]]:
+    """Return ``(primary issues, other regular stream issues)``.
+
+    The primary stream is the one the worker marks ``primary``; without a
+    mark, the fastest regular stream (the raw signal) plays that role.
+    Irregular event streams (rate 0) never block: they may be quiet.
+    """
+
+    regular = [item for item in streams if isinstance(item, Mapping) and _stream_rate(item) > 0]
+    if not regular:
+        return [], []
+    primary = next((item for item in regular if bool(item.get("primary"))), None)
+    if primary is None:
+        primary = max(regular, key=_stream_rate)
+    primary_issues: list[str] = []
+    secondary_issues: list[str] = []
+    for item in regular:
+        issue = _stream_issue(plugin_key, item, maximum_age_seconds)
+        if issue is None:
+            continue
+        (primary_issues if item is primary else secondary_issues).append(issue)
+    return primary_issues, secondary_issues
+
+
+def regular_stream_readiness_issues(
+    plugin_key: str,
+    streams: list[Any],
+    *,
+    maximum_age_seconds: float = 2.0,
+) -> list[str]:
+    """Name every regular stream that has not written a fresh sample yet."""
+
+    primary_issues, secondary_issues = split_stream_readiness_issues(
+        plugin_key,
+        streams,
+        maximum_age_seconds=maximum_age_seconds,
+    )
+    return [*primary_issues, *secondary_issues]
+
+
+def stream_tail_issues(
+    source_states: Mapping[str, Any],
+    required_sources: set[str],
+    *,
+    marker_lsl_timestamp: float,
+) -> list[str]:
+    """Name every regular stream whose last sample is still before the end marker."""
+
+    issues: list[str] = []
+    for plugin_key in sorted(required_sources):
+        source = source_states.get(plugin_key)
+        if not isinstance(source, Mapping):
+            continue
+        streams = source.get("streams")
+        for item in streams if isinstance(streams, list) else []:
+            if not isinstance(item, Mapping) or _stream_rate(item) <= 0:
+                continue
+            stream_key = str(item.get("key") or item.get("source_id") or "stream")
+            last = item.get("last_timestamp")
+            try:
+                reached = last is not None and float(last) >= float(marker_lsl_timestamp)
+            except (TypeError, ValueError):
+                reached = False
+            if not reached:
+                issues.append(f"{plugin_key}.{stream_key}")
+    return issues
+
+
+def wait_for_stream_tail(
+    client: LoopbackWorkerClient,
+    *,
+    session_id: str,
+    generation: int,
+    required_sources: set[str],
+    marker_lsl_timestamp: float,
+    timeout_seconds: float = 3.0,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    """Wait until every regular stream has written data past the end marker.
+
+    This replaces stopping the sensors before the recording is frozen: the
+    sensors keep streaming for the next participant, and the file is closed
+    only once each stream covers the marker-defined session window. A timeout
+    never blocks finalization; the lagging streams are reported instead and
+    the source validation names them as a quality warning.
+    """
+
+    deadline = monotonic() + max(0.0, timeout_seconds)
+    lagging: list[str] = ["worker did not publish stream state"]
+    while True:
+        response = client.send(
+            "health",
+            {"session_id": session_id, "generation": generation},
+            command_id=f"health-tail-{session_id}-g{generation}-{time.monotonic_ns()}",
+        )
+        require_worker_ok(response.ok, response.error, "report recording tail")
+        health = response.result
+        if health.get("frozen"):
+            return {"reached": False, "lagging_streams": [], "worker_already_frozen": True}
+        source_states = health.get("sources")
+        source_states = source_states if isinstance(source_states, Mapping) else {}
+        lagging = stream_tail_issues(
+            source_states,
+            required_sources,
+            marker_lsl_timestamp=marker_lsl_timestamp,
+        )
+        if not lagging:
+            return {"reached": True, "lagging_streams": []}
+        if monotonic() >= deadline:
+            return {"reached": False, "lagging_streams": lagging}
+        sleeper(0.1)
 
 
 def require_worker_ok(ok: bool, error: str | None, operation: str) -> None:

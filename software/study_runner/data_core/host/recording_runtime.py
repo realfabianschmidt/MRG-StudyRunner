@@ -75,6 +75,7 @@ from .recording_runtime_support import (
     require_worker_ok as _require_worker_ok,
     session_relative_path as _session_relative_path,
     wait_for_required_worker_sources as _wait_for_required_worker_sources,
+    wait_for_stream_tail as _wait_for_stream_tail,
 )
 from .recording_worker_launcher import (
     DetachedWorkerLauncher,
@@ -876,13 +877,14 @@ class RecordingRuntimeService:
         )
         _require_worker_ok(response.ok, response.error, "start backup projection")
 
-        _wait_for_required_worker_sources(
+        readiness = _wait_for_required_worker_sources(
             client,
             session_id=paths.identity.session_id,
             generation=generation,
             manifests=manifests,
             required_sources=required_sources,
         )
+        late_streams = list((readiness or {}).get("late_streams") or [])
 
         lease_store = RecordingLeaseStore(paths.recording_lease_file)
         existing_lease = lease_store.load()
@@ -907,6 +909,9 @@ class RecordingRuntimeService:
             worker_health_failures=0,
             recovery_count=max(0, generation - 1),
             optional_source_warnings=optional_source_warnings,
+            # Regular streams without data when the study started (e.g. a
+            # derived stream before calibration). Validation reports them.
+            late_streams_at_start=late_streams,
             last_error=None,
         )
         atomic_write_json(paths.recording_plan_file, plan)
@@ -1015,6 +1020,49 @@ class RecordingRuntimeService:
                     "last_error": plan.get("last_worker_health_error") or plan.get("last_error"),
                 }
         return None
+
+    def wait_for_stream_tail(
+        self,
+        paths: ArtifactPaths,
+        marker_lsl_timestamp: float | None,
+        *,
+        timeout_seconds: float = 3.0,
+    ) -> dict[str, Any]:
+        """Hold the freeze until every regular sensor stream passed the end marker.
+
+        Best effort: a missing marker timestamp, a missing worker, or a timeout
+        returns a report instead of raising, so finalization always continues.
+        """
+
+        if marker_lsl_timestamp is None:
+            return {"reached": False, "skipped": "end_marker_has_no_lsl_timestamp"}
+        try:
+            plan = self._load_plan(paths)
+        except RecordingRuntimeError as error:
+            return {"reached": False, "skipped": str(error)}
+        if plan.get("status") == "frozen":
+            return {"reached": False, "skipped": "already_frozen"}
+        sensor_sources = {
+            str(key)
+            for key in plan.get("recording_plugins") or []
+            if str(key) not in INTERNAL_RECORDING_SOURCE_KEYS
+        }
+        if not sensor_sources:
+            return {"reached": True, "lagging_streams": []}
+        endpoint = WorkerStateStore(paths.worker_state_file).load()
+        if endpoint is None:
+            return {"reached": False, "skipped": "worker_state_missing"}
+        try:
+            return _wait_for_stream_tail(
+                LoopbackWorkerClient(endpoint, timeout_seconds=RECORDING_COMMAND_TIMEOUT_SECONDS),
+                session_id=paths.identity.session_id,
+                generation=endpoint.generation,
+                required_sources=sensor_sources,
+                marker_lsl_timestamp=float(marker_lsl_timestamp),
+                timeout_seconds=timeout_seconds,
+            )
+        except Exception as error:
+            return {"reached": False, "skipped": f"{type(error).__name__}: {error}"}
 
     def freeze_worker(self, paths: ArtifactPaths, *, command_id: str) -> dict[str, Any]:
         plan = self._load_plan(paths)

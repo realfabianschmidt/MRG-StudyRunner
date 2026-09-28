@@ -45,7 +45,7 @@ from .helpers import (
     _study_run_state,
     _study_run_state_store,
     _stop_study_session_tracking,
-    _stop_study_sensor_runtime,
+    _end_study_sensor_session,
     _valid_participant_id,
 )
 
@@ -189,8 +189,9 @@ def start_study_session():
     result = _start_study_sensor_runtime(config_data.get("study_settings", {}))
     required_failures = _required_sensor_runtime_failures(config_data, result.get("runtime") or {})
     if required_failures:
-        _stop_study_sensor_runtime()
-        _stop_study_session_tracking(str(session.get("session_id") or ""))
+        # The session stays open: the tablet's retry reuses it (same session
+        # id, same data folder) instead of creating a new folder per attempt.
+        _end_study_sensor_session(notify=False)
         details = "; ".join(f"{failure['plugin']}: {failure['error']}" for failure in required_failures)
         message = f"A required sensor plugin could not start ({details})."
         return refuse(message, 503, plugin_failures=required_failures)
@@ -208,8 +209,9 @@ def start_study_session():
         except Exception as error:
             required_recording = list(required_recording_plugins(config_data))
             if required_recording:
-                _stop_study_sensor_runtime()
-                _stop_study_session_tracking(str(session.get("session_id") or ""))
+                # Keep the session: a retry reattaches to the same recording
+                # plan and folder rather than reserving a new one.
+                _end_study_sensor_session(notify=False)
                 return refuse(
                     f"Canonical XDF recording could not start: {error}",
                     503,
@@ -263,7 +265,10 @@ def stop_study_session():
     payload = request.get_json() or {}
     session_id = str(payload.get("session_id") or "").strip()
     _stop_study_session_tracking(session_id)
-    result = _stop_study_sensor_runtime()
+    result = _end_study_sensor_session(
+        notify=True,
+        options={"reason": "session_stopped", "session_id": session_id},
+    )
     return jsonify({"ok": True, **result})
 
 
@@ -282,7 +287,7 @@ def resume_study_session():
         sensor_result.get("runtime") or {},
     )
     if required_failures:
-        _stop_study_sensor_runtime()
+        _end_study_sensor_session(notify=False)
         return (
             jsonify(
                 {

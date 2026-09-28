@@ -83,7 +83,6 @@ def initialize(
     *,
     enabled: bool,
     api_key: str,
-    auto_retry_failed: bool,
     timeout_seconds: int,
     data_dir: Path,
 ) -> None:
@@ -95,7 +94,6 @@ def initialize(
     _config = {
         "enabled": bool(enabled),
         "api_key": api_key or "",
-        "auto_retry_failed": bool(auto_retry_failed),
         "timeout_seconds": max(1, int(timeout_seconds)),
     }
 

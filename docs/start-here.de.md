@@ -319,8 +319,7 @@ https://support.apple.com/en-us/102390
 
 Study Runner kann aktuell diese Sensoren/Integrationen nutzen:
 
-- BrainBit EEG ueber Bluetooth/NeuroSDK (`brainbit`; die fruehere Umsetzung
-  bleibt als Rueckfall `brainbit_old` verfuegbar).
+- BrainBit EEG ueber Bluetooth/NeuroSDK (`brainbit`).
 - AM Hub (`am_hub`): Praesenz, Position, Bewegung, Herz- und Atemfrequenz,
   Ventilzustand und Verbindungsqualitaet vom Parasite AM Hub.
 - MR60 Radar ueber ESP32-C6 BLE-Firmware (`mini_radar`).
@@ -337,10 +336,36 @@ effektiv aktiv ist, die Tablet-Seite offen ist und die Kamera erlaubt wurde.
 Vor dem Studienstart werden diese Bilder nur fuer den Live-Monitor genutzt.
 Gespeichert wird erst nach gueltiger Participant ID und Studienstart.
 
-Die Sensor-Auswahl in den Studien-Einstellungen ist der gespeicherte Standard.
-Das Dashboard darf diese Auswahl temporaer fuer die aktuelle Server-Session
-ueberstimmen. Das ist praktisch fuer Tests im Labor. Mit `Reset to study
-settings` faellt alles wieder auf die gespeicherten Studienwerte zurueck.
+Die geladene Studie bestimmt, welche Sensoren laufen: Beim Laden starten die
+Sensoren, die sie braucht, alle anderen werden gestoppt. Eine Studie ohne
+Sensorik hat keine aktiven Sensoren. Der An/Aus-Schalter im Dashboard weicht
+davon voruebergehend ab, bis die Studie neu geladen wird. Mit `Auf Studie
+zuruecksetzen` faellt alles wieder auf die Studienwerte zurueck.
+
+### Ablauf im Labor
+
+1. Studie laden, Tablet verbinden (es zeigt Studie und Logo).
+2. Im Dashboard die Sensoren vorbereiten. Jede Sensor-Kachel zeigt dieselbe
+   Kopfzeile: Status (z. B. "Verbunden – Elektrodenkontakt gut ·
+   Kalibrierung fertig"), ein gruenes **Bereit**, den Schalter und die
+   Schritte. Der hervorgehobene Knopf ist immer der naechste Schritt.
+   - BrainBit ohne bekanntes Band: **Suchen**. Genau ein gefundenes Band wird
+     automatisch verbunden; bei mehreren das Band in der Liste waehlen, das
+     verbindet sofort. Ein bekanntes Band verbindet sich spaeter von selbst.
+   - Der Elektrodenkontakt wird beim Verbinden automatisch gemessen.
+     **Kontakt messen** wiederholt das ohne Neuverbindung.
+   - **Initialisieren** kalibriert fuer die Person, die das Band traegt
+     (etwa 6 s ruhig sitzen, Augen offen).
+   Die Daten laufen schon live in die Vorschau, werden aber noch nicht
+   aufgenommen.
+3. **Studie starten** in der Studienleiste des Dashboards (oder im Hub). Der
+   Knopf wird hervorgehoben, sobald alle noetigen Sensoren bereit sind und das
+   Tablet verbunden ist; sonst nennt die Leiste, was noch fehlt.
+4. Das Tablet zeigt die Infoseite (falls vorhanden) und dann die Participant
+   ID. Mit dem Absenden der ID beginnt die Aufnahme. Dabei wird nichts neu
+   verbunden oder initialisiert.
+5. Nach der Session laufen die Sensoren weiter. BrainBit verlangt fuer die
+   naechste Person wieder Kontakt messen und Initialisieren.
 
 Auf Windows x64 und Mac Apple Silicon werden DeepFace, TensorFlow/tf-keras,
 OpenCV und der lokale Emotion Worker vom Installationsskript aus
@@ -362,6 +387,13 @@ Danach sieht der Participant bereits die Abschlussseite. Im Admin-Fenster laufen
 XDF-Abschluss, Quellenpruefung, Merge, Statistik, Notion und Nextcloud sichtbar
 im Hintergrund weiter. Ein Fehler wird als `attention_required` angezeigt und
 nie still als Erfolg behandelt.
+
+Findet die Pruefung nur Qualitaetswarnungen (etwa einen Stream, der wenige
+Millisekunden zu spaet beginnt), sind die Daten nutzbar: **Mit Warnung
+fortsetzen** mit Begruendung, dann entstehen Merge, Statistik und CSV trotzdem
+und die Session ist als eingeschraenkt markiert. Nur bei blockierenden
+Problemen (etwa einer unlesbaren Datei) wird die Session mit den Rohdaten
+abgeschlossen, wie sie sind.
 
 ## Neues Update veroeffentlichen
 

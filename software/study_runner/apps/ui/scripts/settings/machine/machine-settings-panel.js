@@ -468,7 +468,9 @@ function renderPluginCredentialForm(plugin) {
   const manifest = plugin.manifest || {};
   const credential = manifest.capability_config?.credentials || {};
   const field = String(credential.config_field || '');
-  if (!field) return '';
+  // A credential that belongs to each study is entered in that study's
+  // settings, never here for the whole computer.
+  if (!field || credential.per_study === true) return '';
   const section = host.state.hardwareConfig?.[plugin.key] || {};
   const configured = section[`${field}_configured`] === true;
   const scope = String(section[`${field}_scope`] || section[`${field}_source`] || '');

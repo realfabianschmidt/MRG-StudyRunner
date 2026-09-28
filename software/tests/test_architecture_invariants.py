@@ -1,6 +1,4 @@
-"""Target-doc invariants (`MRG_Recorder_Core_Architektur_1.0.md` section 14)
-that already hold today, pinned as green regression locks before the 1.0
-package restructure moves anything.
+"""Architecture invariants for the current DataCore and contracts layout.
 
 Two invariants live here rather than in `test_import_boundaries.py`:
 
@@ -10,12 +8,9 @@ Two invariants live here rather than in `test_import_boundaries.py`:
   `data_core.worker.core`, e.g. `recording/worker_binary.py` imports
   `probe_core_library` to validate the native library without writing to
   it); it's specifically about which files instantiate the writer class.
-- #3, "`contracts/` imports nothing from the rest of the app" -- there is no
-  `study_runner/contracts/` package yet (it is created during Phase 2/3).
-  The test below activates automatically the moment the first file is placed
-  there, rather than needing a follow-up reminder; until then it passes
-  vacuously, which is correct and not a blind spot, since there is no code to
-  hide a violation in.
+- #3, "`contracts/` imports nothing from the rest of the app" -- the contracts
+  package is the stable inward-facing boundary and must remain independent of
+  runtime, UI, and plugin implementations.
 """
 from __future__ import annotations
 

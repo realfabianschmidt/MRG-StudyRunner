@@ -403,8 +403,7 @@ study unless explicitly unlocked with a recorded reason.
 
 Current built-in plugins:
 
-- **BrainBit** EEG through the repo-local NeuroSDK CLI (`brainbit`), with the
-  earlier implementation kept as the fallback plugin `brainbit_old`.
+- **BrainBit** EEG through the repo-local NeuroSDK CLI (`brainbit`).
 - **AM Hub** (`am_hub`): presence, position, movement, heart and breathing
   rate, valve state and per-board link quality/latency from the Parasite AM Hub.
 - **MR60 mini-radar** through ESP32-C6 BLE firmware in

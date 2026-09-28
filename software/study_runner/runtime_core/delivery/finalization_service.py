@@ -93,6 +93,27 @@ class DeferredStep(RetryableStepError):
     """The external operation is journaled/running, rather than failed."""
 
 
+class QualityAttentionError(FinalizationError):
+    """A step found only quality warnings: the data is usable but incomplete.
+
+    Unlike other failures, an operator may accept these with a reason. The
+    step is then re-run, its warnings are accepted, and the remaining
+    processing (merge, card summary, CSV, manifest) continues. The session
+    ends ``completed_degraded`` instead of stopping half-processed.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        issues: list[dict[str, Any]] | None = None,
+        details: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.issues = [dict(issue) for issue in issues or []]
+        self.details = dict(details or {})
+
+
 @dataclass(frozen=True)
 class StepResult:
     status: str = "done"
@@ -515,6 +536,8 @@ class FinalizationService:
                 if destination_definition is None:
                     state["quality_status"] = "pending"
                     state.pop("degraded_confirmation", None)
+                    state.pop("accepted_quality_warnings", None)
+                    state.pop("quality_acceptance", None)
             state.pop("attention_acknowledged_at", None)
             self._persist_state(state, event={"event": "retry_requested", "step": target})
         self._wake.set()
@@ -575,6 +598,19 @@ class FinalizationService:
                     f"Wait for the attention-required {labels} backup to finish or fail "
                     "before confirming degraded completion."
                 )
+            acceptance = state.get("quality_acceptance")
+            if isinstance(acceptance, Mapping) and _step(
+                state, str(acceptance.get("step") or "")
+            ).get("status") == "failed":
+                self._continue_with_accepted_warnings(
+                    state,
+                    target=str(acceptance.get("step")),
+                    reason=explanation,
+                    confirmed_by=confirmed_by,
+                    issues=list(acceptance.get("issues") or []),
+                )
+                self._wake.set()
+                return self.public_job(state)
             context = self._context(state)
             self._ensure_degraded_result(context, explanation)
             _step(state, "purge_local_sources").update(
@@ -628,6 +664,85 @@ class FinalizationService:
         self._wake.set()
         return self.public_job(state)
 
+    def continue_processing(self, job_id: str, *, confirmed_by: str = "admin") -> dict[str, Any]:
+        """Finish a session that was confirmed degraded before processing continued.
+
+        Earlier versions stopped a degraded session right after the operator's
+        confirmation: merge, card summary, CSV and manifest stayed pending
+        forever. When the failed step only found quality warnings, this picks
+        the job up again with the reason already given and runs every
+        remaining step. A blocking finding cannot be continued.
+        """
+        with self._lock:
+            state = self._require_state(job_id)
+            if state.get("status") != "completed_degraded":
+                raise InvalidTransitionError("Only a degraded finalization can be processed further.")
+            target = _first_unfinished_core_step(state)
+            if target is None:
+                raise InvalidTransitionError("This finalization has no remaining processing steps.")
+            last_error = str(_step(state, target).get("last_error") or "")
+            if last_error and not _error_has_only_quality_warnings(last_error):
+                raise InvalidTransitionError(
+                    "The recorded data has a blocking problem; it cannot be processed further."
+                )
+            confirmation = state.get("degraded_confirmation") or {}
+            self._continue_with_accepted_warnings(
+                state,
+                target=target,
+                reason=str(confirmation.get("reason") or "continued after degraded confirmation"),
+                confirmed_by=confirmed_by,
+                issues=[],
+            )
+        self._wake.set()
+        return self.public_job(state)
+
+    def _continue_with_accepted_warnings(
+        self,
+        state: dict[str, Any],
+        *,
+        target: str,
+        reason: str,
+        confirmed_by: str,
+        issues: list[Any],
+    ) -> None:
+        """Re-run ``target`` with its quality warnings accepted, then continue."""
+        confirmed_at = _iso_time(self._clock())
+        republish = any(
+            _step(state, definition.step_key).get("status") == "done"
+            for definition in self._destinations(state)
+        )
+        self._reset_from(state, target)
+        if republish:
+            # An attention upload already published generation 1; the
+            # completed artifacts form a new publication generation.
+            state["publication_generation"] = int(state.get("publication_generation") or 1) + 1
+        state["accepted_quality_warnings"] = {
+            "step": target,
+            "reason": reason,
+            "confirmed_by": str(confirmed_by or "admin"),
+            "confirmed_at": confirmed_at,
+            "issues": deepcopy(issues),
+        }
+        state["degraded_confirmation"] = {
+            "reason": reason,
+            "confirmed_by": str(confirmed_by or "admin"),
+            "confirmed_at": confirmed_at,
+            "continued_processing": True,
+        }
+        state["quality_status"] = "degraded"
+        state["status"] = "queued"
+        state.pop("quality_acceptance", None)
+        state.pop("attention_acknowledged_at", None)
+        self._persist_state(
+            state,
+            event={
+                "event": "degraded_confirmed",
+                "reason": reason,
+                "continue_processing": True,
+                "step": target,
+            },
+        )
+
     def process_due_jobs_once(self, *, limit: int | None = None) -> int:
         now = self._clock()
         with self._lock:
@@ -680,9 +795,30 @@ class FinalizationService:
             "attention_acknowledged_at",
             "acknowledged_signature",
             "upload_failures",
+            "quality_acceptance",
+            "accepted_quality_warnings",
         )
         public = deepcopy({key: state[key] for key in allowed if key in state})
         public["notice_signature"] = _notice_signature(state)
+        # What the operator can do next, decided here so every UI agrees.
+        public["can_continue_with_warnings"] = bool(
+            state.get("status") == "attention_required"
+            and isinstance(state.get("quality_acceptance"), Mapping)
+        )
+        unfinished = _first_unfinished_core_step(state)
+        public["can_continue_processing"] = bool(
+            state.get("status") == "completed_degraded"
+            and unfinished is not None
+            and _error_has_only_quality_warnings(
+                str(
+                    next(
+                        (step for step in state.get("steps", []) if step.get("key") == unfinished),
+                        {},
+                    ).get("last_error")
+                    or ""
+                )
+            )
+        )
         return public
 
     def _worker_loop(self) -> None:
@@ -780,32 +916,46 @@ class FinalizationService:
             # The scientific artifact set is now immutable. Publish the
             # completion marker before network work so Nextcloud can upload it
             # strictly last; the public job remains ``running`` until every
-            # enabled destination has independently finished.
+            # enabled destination has independently finished. A session whose
+            # quality warnings were accepted completes as degraded.
+            degraded = isinstance(state.get("accepted_quality_warnings"), Mapping)
+            final_status = "completed_degraded" if degraded else "completed"
+            quality_status = "degraded" if degraded else "valid"
             if not state["runtime"].get("local_completion_published"):
                 context = self._context(state)
+                details: dict[str, Any] = {
+                    "quality_status": quality_status,
+                    "scope": "scientific_local_commit",
+                }
+                if degraded:
+                    details["reason"] = state["accepted_quality_warnings"].get("reason")
                 self.manifest_store.publish_marker(
                     context.paths,
-                    status="completed",
+                    status=final_status,
                     job_id=state["job_id"],
-                    details={
-                        "quality_status": "valid",
-                        "scope": "scientific_local_commit",
-                    },
+                    details=details,
                 )
                 state["runtime"]["local_completion_published"] = True
-                state["quality_status"] = "valid"
+                state["quality_status"] = quality_status
                 self._persist_state(state, event={"event": "local_completion_published"})
 
-            if not self._advance_destinations(state, degraded=False):
+            if not self._advance_destinations(state, degraded=degraded):
                 return
-            if not self._run_purge(state):
+            if degraded:
+                purge = _step(state, "purge_local_sources")
+                if purge["status"] not in {"done", "skipped"}:
+                    purge.update(
+                        status="skipped",
+                        details={"reason": "local_sources_are_retained_for_degraded_sessions"},
+                    )
+            elif not self._run_purge(state):
                 return
-            if not self._run_journal_archive(state, finalization_status="completed"):
+            if not self._run_journal_archive(state, finalization_status=final_status):
                 return
-            state["status"] = "completed"
-            state["quality_status"] = "valid"
+            state["status"] = final_status
+            state["quality_status"] = quality_status
             self._record_upload_failures(state, persist=False)
-            self._persist_state(state, event={"event": "finalization_completed"})
+            self._persist_state(state, event={"event": "finalization_completed", "status": final_status})
 
     def _record_upload_failures(self, state: dict[str, Any], *, persist: bool = True) -> None:
         """Name the uploads that failed, so lists can show it without reading steps."""
@@ -854,8 +1004,39 @@ class FinalizationService:
             )
             self._persist_state(state, event={"event": "step_retrying", "step": step_key, "error": str(error)})
             return False
+        except QualityAttentionError as error:
+            accepted = state.get("accepted_quality_warnings")
+            if isinstance(accepted, Mapping):
+                # The operator already accepted this step's warnings with a
+                # reason: record them on the step and keep processing.
+                step.update(
+                    status="done",
+                    details={
+                        **deepcopy(error.details),
+                        "accepted_with_warnings": {
+                            "reason": accepted.get("reason"),
+                            "confirmed_by": accepted.get("confirmed_by"),
+                            "confirmed_at": accepted.get("confirmed_at"),
+                            "issues": deepcopy(error.issues),
+                        },
+                    },
+                    completed_at=_iso_time(self._clock()),
+                )
+                warning = f"{step_key}: accepted with warnings: {error}"
+                if warning not in state["warnings"]:
+                    state["warnings"].append(warning)
+                self._persist_state(
+                    state,
+                    event={"event": "step_completed", "step": step_key, "status": "done", "accepted_with_warnings": True},
+                )
+                return True
+            step.update(status="failed", last_error=str(error), failed_at=_iso_time(self._clock()))
+            state["quality_acceptance"] = {"step": step_key, "issues": deepcopy(error.issues)}
+            self._enter_attention(state, step_key, str(error))
+            return False
         except Exception as error:
             step.update(status="failed", last_error=str(error), failed_at=_iso_time(self._clock()))
+            state.pop("quality_acceptance", None)
             self._enter_attention(state, step_key, str(error))
             return False
 
@@ -988,20 +1169,28 @@ class FinalizationService:
         return list(events.keys()) if isinstance(events, Mapping) else []
 
     def _write_result_manifest(self, context: FinalizationContext) -> StepResult:
+        accepted = context.state.get("accepted_quality_warnings")
+        if isinstance(accepted, Mapping):
+            quality_status = "degraded"
+        else:
+            quality_status = "valid" if context.state["runtime"].get("merge_parity") else "not_applicable"
+        server_finalization: dict[str, Any] = {
+            "job_id": context.state["job_id"],
+            "status": "completed_local",
+            "quality_status": quality_status,
+            "card_summary_file": "card-summary.json",
+        }
+        if isinstance(accepted, Mapping):
+            server_finalization["quality_warning"] = accepted.get("reason")
         result = {
             **context.submission,
-            "server_finalization": {
-                "job_id": context.state["job_id"],
-                "status": "completed_local",
-                "quality_status": "valid" if context.state["runtime"].get("merge_parity") else "not_applicable",
-                "card_summary_file": "card-summary.json",
-            },
+            "server_finalization": server_finalization,
         }
         atomic_write_json(context.paths.result_file, result)
         manifest = self.manifest_store.write(
             context.paths,
             identity=context.paths.identity,
-            quality_status="valid" if context.state["runtime"].get("merge_parity") else "not_applicable",
+            quality_status=quality_status,
             merge_parity=bool(context.state["runtime"].get("merge_parity")),
             provenance={
                 "finalization_schema": FINALIZATION_SCHEMA,
@@ -1702,3 +1891,41 @@ def _notice_signature(state: Mapping[str, Any]) -> str:
 
 def _iso_time(epoch: float) -> str:
     return dt.datetime.fromtimestamp(float(epoch), tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _first_unfinished_core_step(state: Mapping[str, Any]) -> str | None:
+    steps = {
+        step.get("key"): step
+        for step in state.get("steps", []) or []
+        if isinstance(step, Mapping)
+    }
+    for key in CORE_STEPS:
+        step = steps.get(key)
+        if step is not None and step.get("status") not in {"done", "skipped"}:
+            return key
+    return None
+
+
+def _error_has_only_quality_warnings(error: str) -> bool:
+    """True when a step's error lists only accept-able quality warning codes.
+
+    Errors are rendered as ``"XDF source validation failed: code: message;
+    code: message"``. An empty error (a step that never ran) counts as no
+    blocking finding.
+    """
+    from study_runner.data_core.host.recording_quality import (
+        BLOCKING_ISSUE_CODES,
+        QUALITY_WARNING_CODES,
+    )
+
+    text = str(error or "").strip()
+    if not text:
+        return True
+    _prefix, _separator, body = text.partition("failed:")
+    codes = [
+        part.strip().split(":", 1)[0].strip()
+        for part in (body or text).split(";")
+        if ":" in part
+    ]
+    known = [code for code in codes if code in QUALITY_WARNING_CODES or code in BLOCKING_ISSUE_CODES]
+    return bool(known) and all(code in QUALITY_WARNING_CODES for code in known) and len(known) == len(codes)

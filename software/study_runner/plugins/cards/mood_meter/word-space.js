@@ -5,7 +5,8 @@
 // through the DOM, the selection is read through `isSelected`.
 import { t } from '/static/scripts/shared/i18n.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
-import { haptic, prefersReducedMotion } from './mood-core.js';
+import { prefersReducedMotion } from '/static/scripts/cards/card-motion.js';
+import { haptic } from './mood-core.js';
 
 // Hex layout constants
 const CELL_W = 130, CELL_H = 96, ROWS = 5, COLS = 5;

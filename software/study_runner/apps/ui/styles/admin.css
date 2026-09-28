@@ -907,7 +907,13 @@ body.admin::before { display: none; }
 .preview-card-wrap .q-card-study {
   margin-bottom: 0;
   transition: border-color var(--t-fast), box-shadow var(--t-fast);
-  pointer-events: none; /* cards are display-only in admin */
+  pointer-events: none; /* live, but only the card being edited can be tried out */
+}
+.preview-card-wrap:not(.selected) {
+  cursor: pointer;
+}
+.preview-card-wrap.selected .q-card-study {
+  pointer-events: auto;
 }
 .preview-card-wrap.selected .q-card-study {
   border-color: var(--accent);
@@ -1011,18 +1017,115 @@ body.admin::before { display: none; }
   gap: var(--s-2);
   margin-bottom: var(--s-3);
 }
-/* Generic plugin-dashboard-card components: a toolbar row (selection +
-   icon actions) and a status row (status left, runtime controls right).
-   Not BrainBit-specific -- any plugin's dashboard extension can use them. */
-.dashboard-toolbar {
+/* Study bar above the sensor tiles: what is missing, and Start. */
+.dashboard-study-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  margin-bottom: var(--s-4);
+  border-radius: var(--r-sm);
+  background: var(--accent-06);
+}
+.dashboard-study-bar-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.dashboard-study-bar-info span {
+  color: var(--ink-70);
+  font-size: .85rem;
+}
+.dashboard-study-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+/* The shared sensor connection panel (sensor-connection-panel.js): the same
+   status line, switch and guided steps on every sensor tile. The steps row
+   is a grid, so the device list takes the free width and the buttons always
+   stay beside it instead of wrapping with the longest device name. */
+.sensor-connection {
+  display: grid;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+  container-type: inline-size;
+}
+.sensor-connection-status {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--s-2);
-  margin-bottom: var(--s-3);
 }
-.dashboard-toolbar-select-group {
-  display: contents;
+.sensor-connection-text {
+  flex: 1 1 10rem;
+  min-width: 0;
+  color: var(--ink-70);
+  font-size: .85rem;
+}
+.sensor-connection-status .dashboard-status-row-actions {
+  margin-left: auto;
+}
+.sensor-connection-steps {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+  align-items: center;
+  gap: var(--s-2);
+}
+.sensor-connection-steps .dashboard-select {
+  width: 100%;
+  min-width: 0;
+}
+.sensor-connection-device {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-70);
+}
+.sensor-connection-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1);
+  height: var(--control-md);
+  white-space: nowrap;
+}
+.sensor-connection-step:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+.sensor-connection-select.is-cta {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-16);
+}
+.sensor-connection-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin: 0;
+  color: var(--warn);
+  font-size: .8rem;
+}
+.status-pill--ready {
+  background: var(--pos-14);
+  color: var(--pos);
+  font-weight: 600;
+}
+/* Narrow tiles: icons only, but still one row. */
+@container (max-width: 420px) {
+  .sensor-connection-step-label {
+    display: none;
+  }
+  .sensor-connection-step {
+    width: var(--control-md);
+    padding-inline: 0;
+  }
 }
 /* Restart interrupts a running acquisition, so it reads as a destructive action. */
 .dashboard-status-row-actions .btn-icon-only.is-danger {
@@ -1037,7 +1140,7 @@ body.admin::before { display: none; }
 }
 .dashboard-select {
   order: 1;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   height: var(--control-md);
   padding: 0 var(--s-6) 0 var(--s-3);
@@ -2535,6 +2638,21 @@ body.admin::before { display: none; }
 
 .finalization-degraded .field {
   margin-top: var(--s-3);
+}
+
+/* Only quality warnings: the data is usable, processing can continue. */
+.finalization-degraded--warnings {
+  background: var(--warn-14, var(--neg-14));
+}
+
+.finalization-issue-list {
+  margin: var(--s-2) 0 var(--s-2) var(--s-4);
+  padding: 0;
+  font-size: .85rem;
+}
+
+.finalization-issue-list li + li {
+  margin-top: var(--s-1);
 }
 
 .finalization-actions {

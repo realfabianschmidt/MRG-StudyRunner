@@ -29,6 +29,7 @@
   },
   "ui": {
     "label": "word-cloud",
+    "description": "Lets participants select words from an interactive word cloud.",
     "order": 100,
     "visibility": {
       "dashboard": false,

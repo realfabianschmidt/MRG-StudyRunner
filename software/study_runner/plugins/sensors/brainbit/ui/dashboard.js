@@ -1,9 +1,4 @@
 /** Optional trusted dashboard renderer for the BrainBit plugin. */
-function connectionLabel(plugin, ui) {
-  const state = plugin.connection_state || 'unknown';
-  return ui.t(`brainbit.connection.${state}`, state.replaceAll('_', ' '));
-}
-
 /**
  * Mental-index series get a hover explanation (Instant vs. Relative isn't
  * self-evident); band-power series (delta/theta/...) don't need one.
@@ -69,6 +64,12 @@ export function renderTrend(kind, plugin, ui, now = Date.now() / 1000) {
     ${last ? ` · ${ui.escapeHtml(ui.t('brainbit.monitor.age', 'Age'))}: ${Math.max(0, now - last.received_at).toFixed(0)} s` : ''}</small></section>`;
 }
 
+/**
+ * Connection, electrode contact, calibration, the switch and the guided
+ * buttons are drawn by the shared connection panel for every sensor
+ * (apps/ui/scripts/admin/sensor-connection-panel.js). This tile adds only
+ * what is specific to BrainBit: notes, the two previews and the details.
+ */
 export function renderDashboard({ plugin: brainbit, manifest }, ui) {
   const latest = brainbit.latest || {};
   const battery = latest.battery || {};
@@ -83,22 +84,15 @@ export function renderDashboard({ plugin: brainbit, manifest }, ui) {
     || latest.contact_quality_state
     || brainbit.health?.contact
     || 'unknown';
+  const notes = formatMessage(brainbit, latest, ui);
 
   return `
-    ${renderDeviceToolbar(brainbit, manifest, ui)}
-    <div class="dashboard-status-row">
-      <div class="dashboard-status-row-info">
-        <span class="status-pill status-pill--${ui.escapeHtml(brainbit.status || 'unknown')}">${ui.escapeHtml(connectionLabel(brainbit, ui))}</span>
-        <strong>${ui.formatEnabled(brainbit.configured_enabled ?? brainbit.enabled)}</strong>
-      </div>
-      ${renderRuntimeToggle(brainbit, ui)}
-    </div>
-    <p role="status">${formatMessage(brainbit, latest, ui)}</p>
+    ${notes ? `<p class="status-muted" role="status">${notes}</p>` : ''}
     ${renderTrend('bands', brainbit, ui)}
     ${renderTrend('mental', brainbit, ui)}
     <details><summary>${ui.escapeHtml(ui.t('brainbit.monitor.details', 'Acquisition details'))}</summary>
     <dl class="status-list">
-      <dt>${ui.fieldLabel('scanWindow', 'Scan window')}</dt><dd>${ui.formatValue(brainbit.scan_timeout_seconds, ' s')} (${ui.escapeHtml(brainbit.scan_mode || 'one-shot')})</dd>
+      <dt>${ui.fieldLabel('scanWindow', 'Scan window')}</dt><dd>${ui.formatValue(brainbit.scan_timeout_seconds, ' s')}</dd>
       <dt>${ui.fieldLabel('lastScan', 'Last scan')}</dt><dd>${ui.escapeHtml(brainbit.last_scan_started_at || '-')}</dd>
       ${renderRetryRow(brainbit, ui)}
       <dt>${ui.fieldLabel('band', 'Band')}</dt><dd>${renderBand(brainbit, ui)}</dd>
@@ -125,111 +119,6 @@ export function renderDashboard({ plugin: brainbit, manifest }, ui) {
   `;
 }
 
-/** Device select, then search / connect / check contact as icon actions, above the fold. */
-function renderDeviceToolbar(brainbit, manifest, ui) {
-  const actions = Object.fromEntries((manifest?.capability_config?.admin_actions?.actions || []).map((action) => [action.key, action]));
-  const selectAction = actions.select_device;
-  const scanAction = actions.scan_devices;
-  const contactAction = actions.check_contact;
-  const latest = brainbit.latest || {};
-  const connected = brainbit.connection_state === 'connected';
-  const current = (connected
-    ? (brainbit.selected_device || latest.selected_device || latest.device)
-    : (brainbit.target_device || latest.target_device)) || {};
-  const currentIdentity = deviceIdentity(currentPayload(current));
-  const instanceConfig = selectAction?.instances || {};
-  const candidates = (instanceConfig.status_paths || [])
-    .map((path) => readPath(brainbit, path))
-    .find((value) => Array.isArray(value)) || [];
-  const options = candidates.map((instance) => {
-    const payload = {};
-    Object.entries(instanceConfig.payload_map || {}).forEach(([target, source]) => {
-      const value = readPath(instance, source);
-      if (value !== undefined && value !== null && value !== '') payload[target] = value;
-    });
-    const label = [...new Set((instanceConfig.label_fields || []).map((path) => readPath(instance, path)).filter(Boolean))].join(' - ');
-    const identity = deviceIdentity(payload);
-    const selected = identity && identity === currentIdentity ? 'selected' : '';
-    return `<option data-option-key="${ui.escapeHtml(identity)}" value="${ui.escapeHtml(JSON.stringify(payload))}" ${identity ? '' : 'disabled'} ${selected}>${ui.escapeHtml(label)}</option>`;
-  }).join('');
-  // Show the connected (or configured) band even when the last scan list is gone,
-  // e.g. right after Connect restarted the adapter.
-  const currentListed = candidates.some((instance) => deviceIdentity({
-    serial_number: readPath(instance, 'serial') || readPath(instance, 'serial_number'),
-    address: readPath(instance, 'address'),
-  }) === currentIdentity);
-  const currentOption = currentIdentity && !currentListed
-    ? `<option data-option-key="${ui.escapeHtml(currentIdentity)}" value="${ui.escapeHtml(JSON.stringify(currentPayload(current)))}" selected>${formatDevice(current, ui)} (${ui.escapeHtml(connected
-      ? ui.t('brainbit.device.connected', 'connected')
-      : ui.t('brainbit.device.target', 'target'))})</option>`
-    : '';
-  const selectId = `plugin-action-${manifest?.plugin_key || 'brainbit'}-select_device`;
-
-  const iconAction = (action, icon, order) => {
-    if (!action || !manifest) return '';
-    const label = ui.t(`plugins.${manifest.plugin_key}.actions.${action.key}`, action.label || action.key);
-    return `<button type="button" class="btn-icon-only" style="order:${order}" data-dashboard-action="plugin_admin_action"
-        data-plugin-key="${ui.escapeHtml(manifest.plugin_key)}" data-plugin-admin-action="${ui.escapeHtml(action.key)}"
-        data-plugin-admin-payload="${ui.escapeHtml(JSON.stringify({}))}"
-        title="${ui.escapeHtml(label)}" aria-label="${ui.escapeHtml(label)}"><i class="${icon}"></i></button>`;
-  };
-
-  return `<div class="dashboard-toolbar" data-plugin-dashboard-controls>
-    <div data-plugin-action-select class="dashboard-toolbar-select-group">
-      <select id="${ui.escapeHtml(selectId)}" data-action-key="select_device" class="dashboard-select" style="order:1"
-          aria-label="${ui.escapeHtml(ui.t('dashboard.selectDevice', 'Select device'))}">
-        <option value="">${ui.escapeHtml(ui.t('dashboard.chooseDevice', 'Choose a device'))}</option>${currentOption}${options}
-      </select>
-      ${iconAction(selectAction, 'iconoir-link', 3)}
-    </div>
-    ${iconAction(scanAction, 'iconoir-search', 2)}
-    ${iconAction(contactAction, 'iconoir-activity', 4)}
-  </div>`;
-}
-
-/** Toggle replaces Start/Stop; the icon button next to it replaces Restart. */
-function renderRuntimeToggle(brainbit, ui) {
-  const running = !!brainbit.can_stop;
-  const toggleDisabled = !(brainbit.can_start || brainbit.can_stop) ? 'disabled' : '';
-  const restartDisabled = brainbit.can_restart ? '' : 'disabled';
-  const toggleLabel = ui.t(running ? 'dashboard.action.stop' : 'dashboard.action.start', running ? 'Stop' : 'Start');
-  const restartLabel = ui.t('dashboard.action.restart', 'Restart');
-  return `<div class="dashboard-status-row-actions">
-    <label class="dashboard-toggle" title="${ui.escapeHtml(toggleLabel)}">
-      <span class="switch">
-        <input type="checkbox" data-runtime-toggle="${ui.escapeHtml(brainbit.key || '')}" ${running ? 'checked' : ''} ${toggleDisabled}
-            aria-label="${ui.escapeHtml(toggleLabel)}">
-        <span class="switch-slider"></span>
-      </span>
-    </label>
-    <button type="button" class="btn-icon-only is-danger" data-dashboard-action="runtime_${ui.escapeHtml(brainbit.key || '')}_restart" ${restartDisabled}
-        title="${ui.escapeHtml(restartLabel)}" aria-label="${ui.escapeHtml(restartLabel)}"><i class="iconoir-refresh"></i></button>
-  </div>`;
-}
-
-/** Same identity rule for scan candidates and the connected band: serial first, then address. */
-function deviceIdentity(payload) {
-  const serial = String(payload?.serial_number || '').trim().toLowerCase();
-  const address = String(payload?.address || '').replace(/[:-]/g, '').trim().toLowerCase();
-  return serial ? `serial:${serial}` : address ? `address:${address}` : '';
-}
-
-function currentPayload(device) {
-  const payload = {};
-  if (!device || typeof device !== 'object') return payload;
-  if (device.name) payload.name = device.name;
-  if (device.address) payload.address = device.address;
-  if (device.serial || device.serial_number) payload.serial_number = device.serial || device.serial_number;
-  return payload;
-}
-
-function readPath(source, path) {
-  return String(path || '').split('.').reduce(
-    (value, key) => (value && typeof value === 'object' ? value[key] : undefined),
-    source,
-  );
-}
-
 /**
  * Shown only while a reconnection is pending.
  *
@@ -245,32 +134,26 @@ function renderRetryRow(brainbit, ui) {
   return `<dt>${ui.fieldLabel('nextAttempt', 'Next attempt')}</dt><dd>${ui.escapeHtml(nextRetryAt)}${suffix}</dd>`;
 }
 
+/** Notes the shared connection panel does not show: battery, artifacts, failures. */
 function formatMessage(brainbit, latest, ui) {
-  if (brainbit.connection_state) {
-    const parts = [connectionLabel(brainbit, ui)];
-    if (brainbit.connection_state === 'connected') {
-      const receiving = ['live', 'receiving'].includes(brainbit.health?.raw_eeg);
-      parts.push(ui.t(`brainbit.monitor.${receiving ? 'eegReceiving' : 'checkEeg'}`, receiving ? 'EEG is arriving' : 'EEG not currently arriving'));
-      if (brainbit.low_battery) parts.push(ui.t('brainbit.monitor.lowBattery', 'low battery'));
-      if (brainbit.contact_quality_state === 'poor') parts.push(ui.t('brainbit.monitor.poorContact', 'poor contact at last measurement'));
-      if (latest.artifact?.both_now || latest.artifact?.sequence) parts.push(ui.t('brainbit.monitor.artifacts', 'Live artifacts'));
-      if (latest.derived_error) parts.push(ui.t('brainbit.monitor.derivedUnavailable', 'Derived metrics unavailable; raw EEG is independent'));
-      if (['START', 'RESET', 'PROGRESS', 'STALLED'].includes(latest.calibration?.event)) {
-        parts.push(ui.t('brainbit.monitor.calibrating', 'Derived metrics are calibrating'));
-      }
-    } else if (brainbit.connection_state === 'failed' && latest.last_message) {
-      parts.push(ui.t(latest.status_detail_key || '', latest.last_message));
-    }
+  const parts = [];
+  if (brainbit.connection_state === 'connected') {
+    if (brainbit.low_battery) parts.push(ui.t('brainbit.monitor.lowBattery', 'low battery'));
+    if (latest.artifact?.both_now || latest.artifact?.sequence) parts.push(ui.t('brainbit.monitor.artifacts', 'Live artifacts'));
+    if (latest.derived_error) parts.push(ui.t('brainbit.monitor.derivedUnavailable', 'Derived metrics unavailable; raw EEG is independent'));
     return parts.map((part) => ui.escapeHtml(part)).join(' · ');
   }
-  const fallback = latest.last_message || brainbit.last_message || '-';
-  const detailKey = latest.status_detail_key || brainbit.status_detail_key;
-  const hintKey = latest.status_detail_hint_key || brainbit.status_detail_hint_key;
-  const message = detailKey ? ui.t(detailKey, fallback) : fallback;
-  const hint = hintKey ? ui.t(hintKey, '') : '';
-  return hint
-    ? `${ui.escapeHtml(message)}<br><span class="status-muted">${ui.escapeHtml(hint)}</span>`
-    : ui.escapeHtml(message);
+  if (brainbit.connection_state === 'failed' || (!brainbit.connection_state && (latest.status_detail_key || brainbit.status_detail_key))) {
+    const fallback = latest.last_message || brainbit.last_message || '';
+    const detailKey = latest.status_detail_key || brainbit.status_detail_key;
+    const hintKey = latest.status_detail_hint_key || brainbit.status_detail_hint_key;
+    const message = detailKey ? ui.t(detailKey, fallback) : fallback;
+    const hint = hintKey ? ui.t(hintKey, '') : '';
+    return hint
+      ? `${ui.escapeHtml(message)}<br><span class="status-muted">${ui.escapeHtml(hint)}</span>`
+      : ui.escapeHtml(message);
+  }
+  return '';
 }
 
 function formatQuality(quality, channelNames, contactState, measuredAt, ui) {

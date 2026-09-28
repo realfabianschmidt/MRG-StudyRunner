@@ -16,6 +16,15 @@ docs/developer-guide.md, "Adding A Recording Sensor".
 
 No data between sessions: if you add `start`, clear any sample buffers or
 cached readings there, so a new run never sees an earlier participant's data.
+
+Connection pattern (the same for every sensor): report *facts* in a
+`connection` block -- phase, device, signal, setup, streaming -- and the core
+decides whether the sensor is ready and which button is the next step in the
+dashboard (study_runner/plugin_framework/sensor_connection.py). Give admin
+actions a `role` (select, scan, measure_signal, initialize) in the manifest
+to have the shared panel draw them. Sensors keep streaming between
+participants; `on_session_end` is where per-person state (e.g. a
+calibration) is reset -- never stop acquisition there.
 """
 from __future__ import annotations
 
@@ -36,7 +45,23 @@ def _status(context: PluginContext) -> dict[str, Any]:
     return {
         "status": "ready" if configured else "disabled",
         "lsl_enabled": configured,
+        # Whether acquisition runs right now (drives the dashboard switch).
+        "running": configured,
+        # Facts only; the core adds `ready` and `next_step`.
+        "connection": {
+            "phase": "connected" if configured else "off",
+            "device": {"id": "example", "label": "Example device"} if configured else None,
+            "signal": {"state": "good" if configured else "unknown"},
+            "setup": {"state": "not_needed"},
+            "streaming": configured,
+        },
     }
+
+
+def _session_end(context: PluginContext, options: dict[str, Any]) -> None:
+    # A participant session closed. Acquisition keeps running for the next
+    # person; reset only what belonged to this one (nothing in this example).
+    del context, options
 
 
 PLUGIN = Plugin(
@@ -48,4 +73,5 @@ PLUGIN = Plugin(
     has_recording=True,
     initialize=_initialize,
     get_status=_status,
+    on_session_end=_session_end,
 )

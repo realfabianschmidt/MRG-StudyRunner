@@ -25,6 +25,7 @@
   "ui": {
     "label": "AM Hub",
     "description": "Presence, position, movement, vitals, valve state and link quality/latency from the Parasite AM Hub.",
+    "help_key": "pluginHelp.amHub.intro",
     "order": 120,
     "visibility": {
       "dashboard": true,
@@ -86,6 +87,11 @@
       ]
     },
     "health": {},
+    "connection": {
+      "device_noun_key": "sensorConnection.noun.hub",
+      "signal_label_key": "sensorConnection.signal.presence",
+      "setup_per_participant": false
+    },
     "machine_settings": {},
     "study_settings": {},
     "interval_summary": {},
@@ -161,7 +167,8 @@
         "default": "",
         "label_key": "pluginSettings.amHub.baseUrl",
         "apply": "restart",
-        "scope": "machine"
+        "scope": "machine",
+        "help_key": "pluginHelp.amHub.baseUrl"
       },
       "data_timeout_seconds": {
         "type": "number",
@@ -172,7 +179,8 @@
         "maximum": 120,
         "label_key": "pluginSettings.amHub.dataTimeout",
         "apply": "restart",
-        "scope": "machine"
+        "scope": "machine",
+        "help_key": "pluginHelp.amHub.dataTimeout"
       },
       "reconnect_delay_seconds": {
         "type": "number",
@@ -183,7 +191,8 @@
         "maximum": 60,
         "label_key": "pluginSettings.amHub.reconnectDelay",
         "apply": "restart",
-        "scope": "machine"
+        "scope": "machine",
+        "help_key": "pluginHelp.amHub.reconnectDelay"
       }
     },
     "study": {},

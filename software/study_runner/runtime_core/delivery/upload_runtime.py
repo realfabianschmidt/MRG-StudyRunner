@@ -31,7 +31,11 @@ def configure_upload_jobs(app) -> UploadJobService:
             .get("upload_destination", {})
         )
         destination = str(capability.get("destination") or plugin.key).strip()
-        service.register_executor(destination, _plugin_executor(app, plugin, destination))
+        service.register_executor(
+            destination,
+            _plugin_executor(app, plugin, destination),
+            retry_policy=_machine_settings_reader(app, plugin),
+        )
 
     migration = service.migrate_legacy_notion_queue()
     if migration.get("migrated"):
@@ -40,6 +44,12 @@ def configure_upload_jobs(app) -> UploadJobService:
         print(f"[UPLOADS] Legacy Notion queue migration needs attention: {migration['error']}")
     app.config["UPLOAD_JOBS_SERVICE"] = service
     return service
+
+
+def _machine_settings_reader(app: Any, plugin: Plugin) -> Callable[[], dict[str, Any]]:
+    """The plugin's own section of this computer's settings, read fresh."""
+    section = str(plugin.config_key or plugin.key)
+    return lambda: dict((app.config.get("HARDWARE_CONFIG") or {}).get(section) or {})
 
 
 def _plugin_executor(

@@ -881,6 +881,63 @@ def _safe_sensor_list(scanner) -> List[Any]:
         return []
 
 
+class _ControlCommands:
+    """Operator commands from the host, one word per line on stdin.
+
+    MEASURE_CONTACT   pause the EEG, measure electrode resistance, resume --
+                      without dropping the Bluetooth connection.
+    CALIBRATE         (re)start the calibration of the derived metrics now,
+                      while the participant wears the band.
+    RESET_CALIBRATION forget the calibration (a new participant); derived
+                      metrics wait for the next CALIBRATE.
+    """
+
+    COMMANDS = ("MEASURE_CONTACT", "CALIBRATE", "RESET_CALIBRATION")
+
+    def __init__(self) -> None:
+        self.measure_contact = threading.Event()
+        self.calibrate = threading.Event()
+        self.reset_calibration = threading.Event()
+
+    def dispatch(self, line: str) -> bool:
+        command = str(line or "").strip().upper()
+        if command == "MEASURE_CONTACT":
+            self.measure_contact.set()
+        elif command == "CALIBRATE":
+            self.reset_calibration.clear()
+            self.calibrate.set()
+        elif command == "RESET_CALIBRATION":
+            self.calibrate.clear()
+            self.reset_calibration.set()
+        else:
+            return False
+        _print_json("COMMAND", {"command": command})
+        return True
+
+    def clear_session_requests(self) -> None:
+        """A new connection measures contact itself; stale requests must not linger."""
+        self.measure_contact.clear()
+        self.calibrate.clear()
+        self.reset_calibration.clear()
+
+    def start_reader(self, stream=None) -> threading.Thread:
+        source = stream if stream is not None else sys.stdin
+
+        def run() -> None:
+            try:
+                for raw_line in source:
+                    self.dispatch(raw_line)
+            except (OSError, ValueError):
+                return
+
+        thread = threading.Thread(target=run, name="brainbit-control", daemon=True)
+        thread.start()
+        return thread
+
+
+_CONTROL = _ControlCommands()
+
+
 # ----------------- main -----------------
 def main(argv: Optional[List[str]] = None):
     ap = argparse.ArgumentParser(description="BrainBit CLI + OSC + Emotions (Bands + Mind) with calibration watchdog")
@@ -890,6 +947,16 @@ def main(argv: Optional[List[str]] = None):
     ap.add_argument("--serial-number", type=str, default="")
     ap.add_argument("--device-name", type=str, default="")
     ap.add_argument("--require-selection", action="store_true")
+    ap.add_argument(
+        "--control-stdin",
+        action="store_true",
+        help="Read operator commands (MEASURE_CONTACT, CALIBRATE, RESET_CALIBRATION) from stdin.",
+    )
+    ap.add_argument(
+        "--manual-calibration",
+        action="store_true",
+        help="Calibrate the derived metrics only on a CALIBRATE command, never automatically.",
+    )
     ap.add_argument(
         "--max-session-attempts",
         type=int,
@@ -943,6 +1010,8 @@ def main(argv: Optional[List[str]] = None):
     osc = None if args.no_osc else SimpleUDPClient(args.osc_host, int(args.osc_port))
 
     stop_event = threading.Event()
+    if args.control_stdin:
+        _CONTROL.start_reader()
 
     def _on_stop_signal(signum, frame):
         _print(f"\n# Stop signal {signum} — stopping streams ...", flush=True)
@@ -1257,6 +1326,12 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
     last_reported_progress: float | None = None
     art_on, art_start = False, 0.0
     last_artifact_state: tuple[int, int] | None = None
+    # With manual calibration the derived metrics wait for the operator's
+    # Initialize, so a calibration is never taken from a band on the table.
+    manual_calibration = bool(getattr(args, "manual_calibration", False))
+    calibration_requested = not manual_calibration
+    waiting_announced = False
+    _CONTROL.clear_session_requests()
 
     q_smooth: Dict[str, float] = {}
 
@@ -1494,6 +1569,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
         nonlocal last_prog_time, last_prog_value, art_on, art_start, calib_stalled
         nonlocal last_reported_progress, last_artifact_state
         nonlocal eeg_queue_overflow_dropped_total, math_lib
+        nonlocal calibration_requested, waiting_announced
         now = source_now()
         monotonic_now = time.monotonic()
         decoded_packets: list[tuple[Any, dict[str, float], str]] = []
@@ -1585,10 +1661,35 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
         _emit_eeg_batch(now=monotonic_now)
         _debug("Signal callback received", len(output_rows), "valid raw frames")
 
+        if _CONTROL.calibrate.is_set() or _CONTROL.reset_calibration.is_set():
+            # The operator pressed Initialize (calibrate now) or a participant
+            # session ended (forget this person's calibration).
+            start_now = _CONTROL.calibrate.is_set()
+            _CONTROL.calibrate.clear()
+            _CONTROL.reset_calibration.clear()
+            calib_started = calib_finished = calib_stalled = False
+            last_reported_progress = last_artifact_state = None
+            spectral_timestamp_estimator.last_timestamp = None
+            mental_timestamp_estimator.last_timestamp = None
+            calibration_requested = start_now
+            waiting_announced = False
+            if derived_enabled:
+                try:
+                    math_lib = create_math()
+                except Exception as error:
+                    math_lib = None
+                    _print_json("EMO_INIT_FAIL", {"error": str(error), "raw_stream_continues": True})
+            _print_json(
+                "CALIB",
+                {"event": "RESET", "reason": "operator_initialize" if start_now else "new_participant", "ts": now},
+            )
+            return
         if math_lib is None:
             return
         if decode_errors or packet_events or overflow_dropped:
             # Do not join an FFT/calibration window across missing or ambiguous samples.
+            calibration_requested = not manual_calibration
+            waiting_announced = False
             calib_started = calib_finished = calib_stalled = False
             last_reported_progress = last_artifact_state = None
             spectral_timestamp_estimator.last_timestamp = None
@@ -1615,6 +1716,14 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
     def process_derived(raw_channels, sample_timestamps, monotonic_now):
         nonlocal calib_started, calib_finished, calib_start_time, calib_stalled
         nonlocal last_prog_time, last_prog_value, last_reported_progress, last_artifact_state, art_on, art_start
+        nonlocal waiting_announced
+        # With manual calibration nothing is derived until the operator's
+        # Initialize: uncalibrated relative metrics would be misleading.
+        if not calib_started and not calibration_requested:
+            if not waiting_announced:
+                waiting_announced = True
+                _print_json("CALIB", {"event": "WAITING_FOR_INITIALIZE"})
+            return
         # Start calibration once (non-blocking)
         if not calib_started:
             _status("Starting emotion calibration.")
@@ -1780,6 +1889,26 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
         _print(f"# {label}: STOP", flush=True)
         _raise_callback_failure()
 
+    def _measure_contact_while_connected() -> None:
+        """Pause the EEG, measure electrode resistance, resume -- same connection."""
+        if args.no_resist or not sensor.is_supported_feature(SensorFeature.Resist):
+            _print_json("STREAM", {"stream": "resist", "event": "UNSUPPORTED"})
+            return
+        sensor.exec_command(SensorCommand.StopSignal)
+        _emit_eeg_batch(force=True)
+        _print_json("STREAM", {"stream": "eeg", "event": "PAUSE", "reason": "measure_contact"})
+        try:
+            _run_stage(
+                SensorCommand.StartResist,
+                SensorCommand.StopResist,
+                max(1, int(args.resist_seconds)),
+                "RESIST",
+            )
+        finally:
+            if not stop_event.is_set():
+                sensor.exec_command(SensorCommand.StartSignal)
+                _print_json("STREAM", {"stream": "eeg", "event": "RESUME", "fs_hz": fs_hz})
+
     failure_exit_code: int | None = None
     try:
         if not args.no_resist and sensor.is_supported_feature(SensorFeature.Resist):
@@ -1800,6 +1929,10 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
                 and not disconnected.is_set()
                 and (t_end is None or time.monotonic() < t_end)
             ):
+                if _CONTROL.measure_contact.is_set():
+                    _CONTROL.measure_contact.clear()
+                    _measure_contact_while_connected()
+                    continue
                 callback_failed.wait(0.05)
             sensor.exec_command(SensorCommand.StopSignal)
             _emit_eeg_batch(force=True)

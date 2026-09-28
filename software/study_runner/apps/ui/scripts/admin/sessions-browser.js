@@ -13,6 +13,7 @@ import { bindTimelineMarkers, renderSessionTimeline, updateStreamPoints } from '
 import { renderSessionProgressRail } from './session-progress-rail.js';
 import {
   confirmDegradedFinalization,
+  continueFinalization,
   openFinalizationFolder,
   retryFinalizationStep,
 } from './finalization-actions.js';
@@ -562,6 +563,7 @@ async function renderProgressRail(session) {
   renderSessionProgressRail(body, session, job, {
     onRetry: (id, stepKey) => retryFinalizationStep(id, stepKey, options),
     onConfirmDegraded: (id, reason) => confirmDegradedFinalization(id, reason, options),
+    onContinue: (id) => continueFinalization(id, options),
     onOpenFolder: (id) => openFinalizationFolder(id, options),
   });
   if (!job) return;

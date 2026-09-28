@@ -591,7 +591,7 @@ class RuntimeRoutesTests(unittest.TestCase):
     def test_nextcloud_test_connection_is_a_declared_admin_action(self) -> None:
         """Testing a connection has no route of its own -- plugins/nextcloud_upload/
         plugin.py declares it as an admin action and this is the one generic
-        dispatch every plugin's actions goes through. API-v4 plugins run in a
+        dispatch every plugin's actions goes through. API-v5 plugins run in a
         child process, so this test observes the process RPC boundary rather
         than patching a module in the server process (which cannot affect the
         isolated driver)."""

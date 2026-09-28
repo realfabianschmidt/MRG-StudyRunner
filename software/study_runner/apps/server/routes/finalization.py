@@ -79,6 +79,22 @@ def confirm_degraded_finalization(job_id: str):
         return jsonify({"ok": False, "error": str(error)}), 409
 
 
+@bp.route("/api/finalization/<job_id>/continue", methods=["POST"])
+def continue_finalization(job_id: str):
+    """Finish a session that an earlier version stopped after "confirm degraded"."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        job = _service().continue_processing(
+            job_id,
+            confirmed_by=str(payload.get("confirmed_by") or "admin"),
+        )
+        return jsonify({"ok": True, "job": job})
+    except FinalizationNotFoundError as error:
+        return jsonify({"ok": False, "error": str(error)}), 404
+    except (InvalidTransitionError, FinalizationError) as error:
+        return jsonify({"ok": False, "error": str(error)}), 409
+
+
 @bp.route("/api/finalization/<job_id>/open-folder", methods=["POST"])
 def open_finalization_folder(job_id: str):
     """Open only the exact session directory referenced by a durable job."""

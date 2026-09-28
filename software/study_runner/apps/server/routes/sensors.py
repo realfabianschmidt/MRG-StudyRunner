@@ -336,11 +336,21 @@ def _run_plugin_action_json(plugin_key: str, action: str):
         if plugin_key in STUDY_SENSOR_KEYS and normalized_action in {"start", "stop", "restart"}:
             _set_session_override(plugin_key, normalized_action != "stop")
             _rebuild_active_study_runtime_config()
+        context = _plugin_context()
+        if (
+            plugin_key in STUDY_SENSOR_KEYS
+            and normalized_action in {"start", "restart"}
+            and not _hardware_disabled()
+        ):
+            # A sensor switched on against the loaded study was set up while
+            # disabled; initialize it with the new configuration first. For an
+            # unchanged configuration this is a no-op (process_host guard).
+            initialize_plugin(plugin_key, context)
         coordinator = current_app.config.get("SENSOR_COORDINATOR")
         if coordinator:
-            result = coordinator.run_action(plugin_key, action, _plugin_context())
+            result = coordinator.run_action(plugin_key, action, context)
         else:
-            result = run_runtime_action(plugin_key, action, _plugin_context())
+            result = run_runtime_action(plugin_key, action, context)
         result["temporary_override"] = plugin_key in STUDY_SENSOR_KEYS
         result["sensor_runtime"] = _sensor_runtime_state()
         return jsonify(result)

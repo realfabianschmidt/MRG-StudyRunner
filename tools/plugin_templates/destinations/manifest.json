@@ -16,14 +16,71 @@
     }
   },
   "capabilities": {
-    "upload_destination": {"destination": "example_destination"},
-    "health": {}
+    "upload_destination": {
+      "destination": "example_destination"
+    },
+    "health": {},
+    "readiness_requirements": {
+      "requires_machine_enabled": true
+    }
   },
   "runtime": {
     "entrypoint": "driver.py",
     "protocol": "study-runner-stdio/v1",
     "interactive_stdin": false,
     "sample_delivery": "none",
-    "actions": []
+    "actions": [],
+    "operation_timeouts_ms": {
+      "publish": 300000,
+      "admin_action": 30000
+    }
+  },
+  "settings": {
+    "machine": {
+      "enabled": {
+        "type": "boolean",
+        "path": "enabled",
+        "default": true,
+        "label_key": "pluginSettings.common.enabled",
+        "help_key": "pluginHelp.destination.enabled",
+        "apply": "immediate",
+        "scope": "machine"
+      },
+      "timeout_seconds": {
+        "type": "number",
+        "unit": "s",
+        "path": "timeout_seconds",
+        "default": 30,
+        "minimum": 1,
+        "maximum": 120,
+        "label_key": "pluginSettings.common.timeoutSeconds",
+        "help_key": "pluginHelp.destination.timeoutSeconds",
+        "apply": "immediate",
+        "scope": "machine"
+      },
+      "auto_retry": {
+        "type": "boolean",
+        "path": "auto_retry",
+        "default": true,
+        "label_key": "pluginSettings.destination.autoRetry",
+        "help_key": "pluginHelp.destination.autoRetry",
+        "apply": "immediate",
+        "scope": "machine"
+      },
+      "retry_hours": {
+        "type": "number",
+        "unit": "h",
+        "path": "retry_hours",
+        "default": 48,
+        "minimum": 1,
+        "maximum": 168,
+        "label_key": "pluginSettings.destination.retryHours",
+        "help_key": "pluginHelp.destination.retryHours",
+        "apply": "immediate",
+        "scope": "machine"
+      }
+    },
+    "study": {},
+    "card_actions": {}
   }
 }

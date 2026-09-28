@@ -5,6 +5,81 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Added
+
+- Every sensor tile has the same connection panel: status line with signal
+  and setup ("Connected – electrode contact good · calibration done"), a
+  Ready badge, the on/off switch, and the next step highlighted. Choosing a
+  device connects at once. The dashboard has a study bar with Start.
+- BrainBit: Search only on request, electrode contact measured again without
+  reconnecting, and calibration only via Initialize while the participant
+  wears the band. After each session the next person needs contact and
+  Initialize again.
+- Finalization can continue after quality warnings: merge, card statistics,
+  CSV and manifest are still built, and the session ends degraded with the
+  reason. Sessions stopped by an earlier version can be processed further.
+
+- The cards next to the study editor are live: animations run, and the card
+  being edited can be tried out right there (nothing is recorded). Every card
+  is mounted the same way on the tablet and in the editor (`card-mount.js`),
+  and animations share one loop that rests out of view (`card-motion.js`).
+- Nextcloud and Notion offer the same settings on this computer, each with its
+  own values: on/off, timeout, retry automatically, and how long to retry. The
+  upload queue follows them per destination, and the plugin template starts
+  with them.
+
+### Changed
+
+- Credentials that belong to a study (Notion key, Nextcloud password) are no
+  longer offered in the settings for this computer; they stay in the study's
+  settings.
+- The loaded study decides which sensors run. Participant sessions no longer
+  re-initialize sensors at start or stop them at the end; sensors stay
+  connected between participants.
+- The study-start marker waits until every sensor stream has data in the
+  file, and the recording closes only after every stream passed the end
+  marker.
+
+### Fixed
+
+- Animated Mood Meter views now also move on the tablet: their loop started
+  before the card was attached to the page and stopped at once.
+- The dashboard's plugin switch showed "on" after every click and always sent
+  Stop; it now shows the real running state and says what happened.
+- A derived BrainBit stream that started a few milliseconds after the start
+  marker failed the whole session although every sample was recorded.
+- A study with capitals or spaces in its name got a second, mostly empty
+  folder for answer snapshots; snapshots, flush and recovery files now live in
+  the study's one folder, and empty helper folders are removed.
+- A failed recording start no longer creates a new session folder on every
+  retry, and a participant ID edited after the start no longer moves the
+  answers away from the recording.
+- The BrainBit toolbar's buttons no longer wrap below the device list
+  depending on the device name's length.
+
+### Added
+
+- Added a complete operator card catalog, localized in-app help for every
+  configurable integration setting, and a sensor-free Card Gallery example
+  containing every registered question type.
+
+### Changed
+
+- Refreshed all shipped study presets through the canonical validator/package
+  writer. The portable Sensors example now lists every current sensor but
+  keeps hardware disabled until the operator enables connected devices.
+- The structure ratchet now measures JavaScript lines, local ES-module edges,
+  cycles, and largest files across separate admin, participant, shared,
+  settings, and card areas. The two large page controllers were split along
+  their runtime responsibilities before recording the expanded baseline.
+- Corrected live plugin framework and driver documentation to API v5.
+
+### Removed
+
+- Removed the unsupported `brainbit_old` fallback plugin. Studies that name it
+  keep an explicit missing-plugin selection and historical recordings keep
+  their original stream identity; neither is silently relabeled as `brainbit`.
+
 ## 1.4.0 - 2026-09-28
 
 ### Added

@@ -24,6 +24,16 @@ through the plugin catalog. This folder only holds what every card shares.
   questions and when a session ends, and reloads itself before the next
   participant.
 
+## Live on the tablet and in the editor
+
+Every card is mounted the same way in two places, by `card-mount.js`
+(`mountCard`): as a participant's question (`mode: 'study'`) and as a live
+preview next to the study editor (`mode: 'preview'`, nothing recorded; only the
+card being edited can be tried out). `bindInteractions(element, index, { mode })`
+must work in both and touch only its own element. Animations go through
+`card-motion.js` (`runAnimation`): the loop rests while the card is out of view,
+ends when the card is replaced, and stops on every session reset.
+
 ## Telling the page an answer changed
 
 A change the DOM does not report as an `input` or `change` event (a tapped

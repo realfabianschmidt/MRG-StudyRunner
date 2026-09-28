@@ -3,7 +3,7 @@
   "questions": [
     {
       "type": "participant-id",
-      "prompt": "Bitte gib deine Daten zur anonymen Identifikation ein.",
+      "prompt": "Enter the requested details to create your anonymous participant code.",
       "fields": {
         "first_name": {
           "enabled": true,
@@ -66,99 +66,77 @@
           "store": false,
           "required": false
         }
-      }
+      },
+      "code_label": "Your anonymous participant code",
+      "info_top": "The identifying name fields are used to generate the code and are not stored.",
+      "info_bottom": "Ask the study operator if you are unsure which details to enter."
+    },
+    {
+      "type": "info",
+      "title": "About this example",
+      "text": "This short study demonstrates common self-report cards without using sensors.",
+      "image_asset": "",
+      "image_alt": "",
+      "layout": "text"
     },
     {
       "type": "mood-meter",
       "prompt": "How do you feel right now?",
+      "variant": "classic",
       "allow_multiple": true,
       "word_lists": null,
       "required": true
     },
     {
-      "type": "word-cloud",
-      "prompt": "Which words describe how you feel right now?",
-      "words": [
-        "Happy!",
-        "Sad",
-        "Excited",
-        "Calm",
-        "Anxious",
-        "Tired",
-        "Focused",
-        "Restless"
-      ],
-      "allow_multiple": true,
-      "required": true
-    },
-    {
-      "type": "multi-slider",
-      "prompt": "Rate how you feel on each dimension:",
-      "dimensions": [
-        {
-          "label": "Valence",
-          "min_label": "Very negative",
-          "max_label": "Very positive"
-        },
-        {
-          "label": "Arousal",
-          "min_label": "Very calm",
-          "max_label": "Very excited"
-        }
+      "type": "single",
+      "prompt": "Which environment feels most comfortable?",
+      "options": [
+        "Quiet room",
+        "Lively room",
+        "Outdoors"
       ],
       "required": true
     },
     {
       "type": "slider",
-      "prompt": "",
-      "label_min": "not at all",
-      "label_max": "very strongly",
-      "required": true
-    },
-    {
-      "type": "multi-slider",
-      "prompt": "Rate how you feel on each dimension:",
-      "dimensions": [
-        {
-          "label": "Valence",
-          "min_label": "Very negative",
-          "max_label": "Very positive"
-        },
-        {
-          "label": "Arousal",
-          "min_label": "Very calm",
-          "max_label": "Very excited"
-        }
-      ],
+      "prompt": "How alert do you feel right now?",
+      "label_min": "Not alert",
+      "label_max": "Very alert",
       "required": true
     },
     {
       "type": "semantic",
-      "prompt": "",
+      "prompt": "How did the previous card feel?",
       "pairs": [
         [
-          "alive",
-          "mechanical"
+          "Difficult",
+          "Easy"
         ],
         [
-          "familiar",
-          "unfamiliar"
+          "Unfamiliar",
+          "Familiar"
         ]
       ],
       "required": true
     },
     {
+      "type": "text",
+      "prompt": "Is there anything else you would like to add?",
+      "required": false
+    },
+    {
       "type": "finish",
-      "title": "Vielen Dank!!!",
-      "prompt": "Deine Antworten wurden gespeichert.\nDu kannst das Gerät jetzt ablegen."
+      "title": "Thank you",
+      "prompt": "Your answers have been saved. You can now return the tablet to the study operator."
     }
   ],
   "study_settings": {
     "sensors_enabled": false,
     "sensors": {
       "brainbit": false,
-      "mini_radar": false,
-      "camera_emotion": false
+      "am_hub": false,
+      "camera_emotion": false,
+      "mini_radar": false
     },
     "plugins": {
       "brainbit": {
@@ -166,7 +144,7 @@
         "required": false,
         "settings": {}
       },
-      "mini_radar": {
+      "am_hub": {
         "enabled": false,
         "required": false,
         "settings": {}
@@ -179,20 +157,34 @@
       "notion": {
         "enabled": false,
         "required": false,
-        "settings": {
-          "data_source_id": "",
-          "database_id": "",
-          "parent_page_id": ""
-        }
+        "settings": {}
       },
       "nextcloud": {
         "enabled": false,
         "required": false,
-        "settings": {
-          "share_link": ""
-        }
+        "settings": {}
+      },
+      "mini_radar": {
+        "enabled": false,
+        "required": false,
+        "settings": {}
+      },
+      "osc": {
+        "enabled": false,
+        "required": false,
+        "settings": {}
       }
     },
-    "progress_bar_enabled": false
+    "progress_bar_enabled": true,
+    "cover_page": {
+      "enabled": true,
+      "title": "Example Basic Study",
+      "text": "A short, sensor-free example that is safe to preview and edit.",
+      "image_asset": "",
+      "image_alt": "",
+      "layout": "text",
+      "button_label": "Begin"
+    },
+    "planned_session_duration_minutes": 8.0
   }
 }

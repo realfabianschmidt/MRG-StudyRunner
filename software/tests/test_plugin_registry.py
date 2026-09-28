@@ -210,7 +210,6 @@ class PluginRegistryContractTests(unittest.TestCase):
             "mini_radar": ("local_hardware", "host_lsl_bridge"),
             "camera_emotion": ("browser_https", "host_lsl_bridge"),
             "am_hub": ("network_adapter", "host_lsl_bridge"),
-            "brainbit_old": ("ble", "host_lsl_bridge"),
         }
         for plugin_key, pair in expected.items():
             with self.subTest(plugin=plugin_key):

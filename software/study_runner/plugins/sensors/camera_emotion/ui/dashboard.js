@@ -7,11 +7,8 @@ export function renderDashboard({ plugin: camera, status }, ui) {
   const liveLatest = preview.latest || {};
   const displayLatest = Object.keys(latest).length ? latest : liveLatest;
   const analysis = latest.analysis || liveLatest.analysis || {};
+  // Status and the switch are drawn by the shared connection panel.
   return `
-    <div class="status-row">
-      <span class="status-pill status-pill--${ui.escapeHtml(camera.status || 'unknown')}">${ui.escapeHtml(ui.statusLabel(camera.status))}</span>
-      <strong>${ui.formatEnabled(camera.configured_enabled)}</strong>
-    </div>
     <dl class="status-list">
       <dt>${ui.fieldLabel('mode', 'Mode')}</dt><dd>${ui.escapeHtml(camera.worker_mode || '-')}</dd>
       <dt>${ui.fieldLabel('interval', 'Interval')}</dt><dd>${ui.formatValue(camera.snapshot_interval_ms, ' ms')}</dd>
@@ -23,7 +20,6 @@ export function renderDashboard({ plugin: camera, status }, ui) {
       <dt>${ui.fieldLabel('message', 'Message')}</dt><dd>${ui.escapeHtml(analysis.error || camera.last_message || '-')}</dd>
     </dl>
     ${renderLiveMonitor(preview, runtimeInfo, sensorRuntime, ui)}
-    ${ui.renderRuntimeButtons(camera)}
   `;
 }
 

@@ -47,6 +47,21 @@ def live_sensor_issues(
             issues.append({"plugin": plugin_key, "label": label, "status": "unknown", "problem": "No status reported yet."})
             continue
         value = str(status.get("status") or "unknown").strip().lower()
+        connection = status.get("connection")
+        if isinstance(connection, Mapping):
+            # The same "ready" the dashboard shows for this sensor.
+            if connection.get("ready"):
+                continue
+            issues.append(
+                {
+                    "plugin": plugin_key,
+                    "label": label,
+                    "status": str(connection.get("phase") or value),
+                    "next_step": connection.get("next_step"),
+                    "problem": _connection_problem(connection, status),
+                }
+            )
+            continue
         if value in LIVE_STATUSES:
             continue
         problem = str(
@@ -58,3 +73,29 @@ def live_sensor_issues(
         ).strip()
         issues.append({"plugin": plugin_key, "label": label, "status": value, "problem": problem})
     return issues
+
+
+_NEXT_STEP_PROBLEMS = {
+    "scan": "No device is connected yet: search for it.",
+    "select": "Several devices were found: choose one.",
+    "measure_signal": "Measure the signal (e.g. electrode contact) before starting.",
+    "initialize": "Initialize the sensor for this participant before starting.",
+}
+
+
+def _connection_problem(connection: Mapping[str, Any], status: Mapping[str, Any]) -> str:
+    step = str(connection.get("next_step") or "")
+    if step in _NEXT_STEP_PROBLEMS:
+        return _NEXT_STEP_PROBLEMS[step]
+    phase = str(connection.get("phase") or "")
+    if phase == "off":
+        return "The sensor is switched off."
+    if phase in {"searching", "connecting", "reconnecting"}:
+        return "The sensor is still connecting."
+    return str(
+        status.get("last_error")
+        or status.get("error")
+        or connection.get("message")
+        or status.get("last_message")
+        or ""
+    ).strip()

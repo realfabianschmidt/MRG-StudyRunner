@@ -95,7 +95,7 @@ _LSL_CHANNEL_FORMATS = {
     "string",
 }
 # Historic capability names are accepted while reading a manifest, but the
-# public API-v4 catalog always exposes one current vocabulary.
+# public API-v5 catalog always exposes one current vocabulary.
 CAPABILITY_ALIASES = {
     "status_poll": "health",
     "lsl_stream": "lsl_stream_provider",
@@ -275,14 +275,14 @@ def validate_admin_action_payload(
 
 
 def _normalize_process_runtime(value: Any, *, api_version: int) -> dict[str, Any]:
-    """Validate the deliberately small API-v4 subprocess contract."""
+    """Validate the deliberately small API-v5 subprocess contract."""
 
     if api_version < 4:
         if value not in (None, {}):
-            raise PluginManifestError("runtime is only supported by plugin API v4")
+            raise PluginManifestError("runtime is only supported by plugin API v5")
         return {}
     if not isinstance(value, dict):
-        raise PluginManifestError("runtime must be a JSON object for plugin API v4")
+        raise PluginManifestError("runtime must be a JSON object for plugin API v5")
     unexpected = sorted(
         set(value)
         - {
@@ -350,6 +350,7 @@ def _normalize_process_runtime(value: Any, *, api_version: int) -> dict[str, Any
         "trial_start",
         "trial_stop",
         "trial_marker",
+        "session_end",
         "interval_summary",
         "interval_export",
         "publish",
@@ -398,9 +399,9 @@ def _normalize_process_runtime(value: Any, *, api_version: int) -> dict[str, Any
     trial_events: list[str] = []
     for item in raw_trial_events:
         event = str(item or "").strip()
-        if event not in {"start", "stop", "marker"} or event in trial_events:
+        if event not in {"start", "stop", "marker", "session_end"} or event in trial_events:
             raise PluginManifestError(
-                "runtime.trial_events supports unique start/stop/marker values"
+                "runtime.trial_events supports unique start/stop/marker/session_end values"
             )
         trial_events.append(event)
     can_toggle = value.get("can_toggle", True)
@@ -495,7 +496,36 @@ def _normalize_capability_config(name: str, config: dict[str, Any]) -> dict[str,
         return _normalize_credentials(config)
     if name == "card_contract":
         return _normalize_card_contract(config)
+    if name == "connection":
+        return _normalize_connection_capability(config)
     return config
+
+
+# Roles an admin action can play in the shared sensor connection panel. The
+# core decides which role is the next step (the call to action) from the
+# plugin's reported connection state, so every sensor guides the same way.
+ADMIN_ACTION_ROLES = ("select", "scan", "measure_signal", "initialize")
+
+
+def _normalize_connection_capability(config: dict[str, Any]) -> dict[str, Any]:
+    """How a sensor names its device and signal in the shared connection panel."""
+
+    allowed = {"device_noun_key", "signal_label_key", "setup_label_key", "setup_per_participant"}
+    unexpected = sorted(set(config) - allowed)
+    if unexpected:
+        raise PluginManifestError(
+            "connection contains unsupported fields: " + ", ".join(unexpected)
+        )
+    normalized: dict[str, Any] = {}
+    for key in ("device_noun_key", "signal_label_key", "setup_label_key"):
+        value = _optional_text(config.get(key))
+        if value:
+            normalized[key] = value
+    per_participant = config.get("setup_per_participant", False)
+    if not isinstance(per_participant, bool):
+        raise PluginManifestError("connection.setup_per_participant must be boolean")
+    normalized["setup_per_participant"] = per_participant
+    return normalized
 
 
 def _normalize_credentials(config: dict[str, Any]) -> dict[str, Any]:
@@ -835,6 +865,7 @@ def _normalize_admin_actions(config: dict[str, Any]) -> dict[str, Any]:
 
     actions: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
+    seen_roles: set[str] = set()
     allowed_fields = {
         "key",
         "label",
@@ -844,6 +875,7 @@ def _normalize_admin_actions(config: dict[str, Any]) -> dict[str, Any]:
         "payload_schema",
         "any_of_required",
         "instances",
+        "role",
     }
     for index, raw_action in enumerate(raw_actions, start=1):
         if not isinstance(raw_action, dict):
@@ -897,6 +929,21 @@ def _normalize_admin_actions(config: dict[str, Any]) -> dict[str, Any]:
         )
         if instances:
             action["instances"] = instances
+        if "role" in raw_action:
+            role = str(raw_action.get("role") or "").strip()
+            if role not in ADMIN_ACTION_ROLES:
+                raise PluginManifestError(
+                    f"admin_actions.actions[{index}].role must be one of "
+                    + ", ".join(ADMIN_ACTION_ROLES)
+                )
+            if role in seen_roles:
+                raise PluginManifestError(f"duplicate admin action role: {role}")
+            if role == "select" and (instances or {}).get("presentation") != "select":
+                raise PluginManifestError(
+                    f"admin_actions.actions[{index}] with role select needs instances.presentation select"
+                )
+            seen_roles.add(role)
+            action["role"] = role
         actions.append(action)
     result: dict[str, Any] = {"actions": actions}
     if rendered_by_dashboard:

@@ -29,6 +29,7 @@
   },
   "ui": {
     "label": "semantic",
+    "description": "Captures ratings between pairs of opposing adjectives.",
     "order": 30,
     "visibility": {
       "dashboard": false,

@@ -29,6 +29,7 @@
   },
   "ui": {
     "label": "likert",
+    "description": "Agreement or frequency ratings on a labeled Likert scale.",
     "order": 20,
     "visibility": {
       "dashboard": false,

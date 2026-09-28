@@ -25,6 +25,7 @@
   "ui": {
     "label": "MR60 Mini-radar",
     "description": "Presence, heart-rate and respiration measurements.",
+    "help_key": "pluginHelp.miniRadar.intro",
     "order": 910,
     "visibility": {
       "dashboard": true,
@@ -88,6 +89,11 @@
       ]
     },
     "health": {},
+    "connection": {
+      "device_noun_key": "sensorConnection.noun.radar",
+      "signal_label_key": "sensorConnection.signal.presence",
+      "setup_per_participant": false
+    },
     "machine_settings": {},
     "study_settings": {},
     "interval_summary": {},
@@ -145,7 +151,8 @@
         "default": "ble",
         "label_key": "pluginSettings.miniRadar.connectionType",
         "apply": "restart",
-        "scope": "machine"
+        "scope": "machine",
+        "help_key": "pluginHelp.miniRadar.connectionType"
       },
       "data_timeout_seconds": {
         "type": "number",
@@ -156,7 +163,8 @@
         "maximum": 120,
         "label_key": "pluginSettings.miniRadar.dataTimeout",
         "apply": "restart",
-        "scope": "machine"
+        "scope": "machine",
+        "help_key": "pluginHelp.miniRadar.dataTimeout"
       },
       "ble.scan_timeout_seconds": {
         "type": "number",
@@ -167,7 +175,8 @@
         "maximum": 120,
         "label_key": "pluginSettings.miniRadar.bleScanTimeout",
         "apply": "restart",
-        "scope": "machine"
+        "scope": "machine",
+        "help_key": "pluginHelp.miniRadar.bleScanTimeout"
       },
       "baudrate": {
         "type": "number",
@@ -177,7 +186,8 @@
         "maximum": 1000000,
         "label_key": "pluginSettings.miniRadar.baudrate",
         "apply": "restart",
-        "scope": "machine"
+        "scope": "machine",
+        "help_key": "pluginHelp.miniRadar.baudrate"
       }
     },
     "study": {},

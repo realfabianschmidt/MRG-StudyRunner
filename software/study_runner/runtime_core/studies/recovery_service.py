@@ -225,7 +225,7 @@ def finalize_recovery_candidate(
 
     saved_output = save_results_payload(data_dir, study_id, result_payload, hardware_config, context=context)
     _apply_flushed_sidecars(data_dir, study_id, session_id, result_payload, saved_output)
-    discard_session_flush_files(data_dir, study_id, session_id)
+    discard_session_flush_files(data_dir, study_id, session_id, study_dir=study_dir)
     _archive_source(source_path, source_path.parent / "finalized")
 
     return {"result_payload": result_payload, "saved_output": saved_output}
@@ -247,7 +247,7 @@ def discard_recovery_candidate(data_dir: Path, recovery_id: str) -> dict[str, An
     except (OSError, ValueError):
         session_id = token
     if kind == "partial":
-        discard_session_flush_files(data_dir, study_id, session_id)
+        discard_session_flush_files(data_dir, study_id, session_id, study_dir=study_dir)
 
     _archive_source(source_path, study_dir / "_recovery" / "discarded")
     return {"ok": True, "session_id": session_id}
@@ -272,7 +272,10 @@ def _partial_candidates(
         if payload is None:
             continue
         session_id = str(payload.get("session_id") or path.stem)
-        if (study_id, session_id) in already_saved:
+        # The folder name is a path component, not necessarily the study id
+        # (it carries a hash suffix for ids with capitals or spaces).
+        payload_study_id = str(payload.get("study_id") or study_id)
+        if (payload_study_id, session_id) in already_saved or (study_id, session_id) in already_saved:
             continue
         if session_id in still_resumable:
             continue
@@ -283,7 +286,7 @@ def _partial_candidates(
             {
                 "recovery_id": f"partial:{sanitize_identifier_for_filename(study_id)}:{sanitize_identifier_for_filename(path.stem)}",
                 "kind": "partial",
-                "study_id": study_id,
+                "study_id": payload_study_id,
                 "session_id": session_id,
                 "participant_hint": str(payload.get("participant_id") or ""),
                 "last_activity": last_activity,
@@ -329,7 +332,8 @@ def _recovery_dump_candidates(
         if payload is None:
             continue
         session_id = str(payload.get("session_id") or path.stem)
-        if (study_id, session_id) in already_saved:
+        payload_study_id = str(payload.get("study_id") or study_id)
+        if (payload_study_id, session_id) in already_saved or (study_id, session_id) in already_saved:
             continue
         answers = payload.get("answers")
         last_activity = payload.get("timestamp_end") or payload.get("timestamp_start") or _mtime_iso(path)
@@ -337,7 +341,7 @@ def _recovery_dump_candidates(
             {
                 "recovery_id": f"recovery_dump:{sanitize_identifier_for_filename(study_id)}:{sanitize_identifier_for_filename(path.stem)}",
                 "kind": "recovery_dump",
-                "study_id": study_id,
+                "study_id": payload_study_id,
                 "session_id": session_id,
                 "participant_hint": str(payload.get("participant_id") or ""),
                 "last_activity": last_activity,

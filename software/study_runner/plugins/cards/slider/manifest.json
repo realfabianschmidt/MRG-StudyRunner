@@ -29,6 +29,7 @@
   },
   "ui": {
     "label": "slider",
+    "description": "Captures one numeric rating on a configurable slider.",
     "order": 60,
     "visibility": {
       "dashboard": false,

@@ -26,6 +26,9 @@ DEFAULT_STATUS_DAYS = 7
 MAX_STATUS_DAYS = 90
 
 Executor = Callable[[dict[str, Any]], dict[str, Any] | None]
+# A destination's own retry settings on this computer: {"auto_retry": bool,
+# "retry_hours": number}. Every upload plugin declares both in its manifest.
+RetryPolicy = Callable[[], dict[str, Any]]
 SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
@@ -63,6 +66,7 @@ class UploadJobService:
         self.journal_path = self.data_dir / "upload_jobs.jsonl"
         self.legacy_notion_queue_path = self.data_dir / "notion_upload_queue.jsonl"
         self._executors = dict(executors or {})
+        self._retry_policies: dict[str, RetryPolicy] = {}
         self._clock = clock
         self._jobs: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
@@ -74,13 +78,32 @@ class UploadJobService:
         self._replay_journal()
         self._recover_interrupted_attempts()
 
-    def register_executor(self, kind: str, executor: Executor) -> None:
+    def register_executor(self, kind: str, executor: Executor, *, retry_policy: RetryPolicy | None = None) -> None:
         normalized = str(kind or "").strip()
         if not normalized or not SAFE_JOB_ID.fullmatch(normalized):
             raise ValueError("Upload executor kind must be a safe non-empty key.")
         if not callable(executor):
             raise ValueError("Upload executor must be callable.")
         self._executors[normalized] = executor
+        if retry_policy is not None:
+            self._retry_policies[normalized] = retry_policy
+
+    def _retry_settings(self, kind: str) -> tuple[bool, float]:
+        """(auto_retry, max age in seconds) for one destination, read on use so
+        a changed setting applies to the next failure."""
+        policy = self._retry_policies.get(kind)
+        settings = {}
+        if policy is not None:
+            try:
+                settings = policy() or {}
+            except Exception as error:  # a broken setting must not stop the queue
+                print(f"[UPLOADS] Could not read retry settings for {kind!r}: {error}")
+        auto_retry = settings.get("auto_retry", True) is not False
+        try:
+            hours = float(settings.get("retry_hours") or MAX_RETRY_AGE_SECONDS / 3600)
+        except (TypeError, ValueError):
+            hours = MAX_RETRY_AGE_SECONDS / 3600
+        return auto_retry, min(168.0, max(1.0, hours)) * 3600
 
     def enqueue(
         self,
@@ -399,8 +422,11 @@ class UploadJobService:
             created_epoch = job.get("created_epoch")
             if not isinstance(created_epoch, (int, float)):
                 created_epoch = now
-            expired = now - float(created_epoch) >= MAX_RETRY_AGE_SECONDS
-            if expired or permanent:
+            auto_retry, max_age = self._retry_settings(str(job.get("kind") or ""))
+            expired = now - float(created_epoch) >= max_age
+            # With automatic retry off, a failed upload waits for the
+            # operator's "Retry" in the session's progress rail.
+            if expired or permanent or not auto_retry:
                 event = {
                     "event": "failed",
                     "job_id": job_id,

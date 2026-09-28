@@ -135,7 +135,7 @@ def check_study_readiness(
         if requirements.get("requires_machine_enabled"):
             config_key = str(manifest.get("config_key") or plugin_key)
             machine_section = hardware_config.get(config_key)
-            if isinstance(machine_section, dict) and not machine_section.get("enabled"):
+            if isinstance(machine_section, dict) and machine_section.get("enabled") is False:
                 # Some destinations refuse to build a client when off
                 # machine-side, so the study's own switch alone is not enough.
                 add(f"{plugin_key}.machine_disabled", panel=plugin_key, destination=plugin_key)

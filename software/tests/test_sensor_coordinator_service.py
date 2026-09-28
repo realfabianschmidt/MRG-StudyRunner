@@ -314,21 +314,67 @@ class SensorCoordinatorTests(unittest.TestCase):
         self.assertTrue(diagnostics["poller_closed"])
         self.assertFalse(diagnostics["poll_in_flight"])
 
-    def test_start_selected_and_stop_plugins_route_lifecycle_through_registry(self) -> None:
+    def test_ensure_running_leaves_running_sensors_and_unselected_sensors_alone(self) -> None:
         context = _context()
-        clock = FakeClock(1.0)
-        coordinator = SensorCoordinator(monotonic_clock=clock)
+        coordinator = SensorCoordinator(monotonic_clock=FakeClock(1.0))
+        statuses = {
+            "brainbit": {"running": True, "actual_streams": [{"key": "eeg"}]},
+            "am_hub": {"running": False},
+            "mini_radar": {"running": True},
+        }
         try:
             with (
                 patch("study_runner.data_core.host.sensor_coordinator_service.initialize_plugin") as initialize,
+                patch(
+                    "study_runner.data_core.host.sensor_coordinator_service.get_plugin_status",
+                    side_effect=lambda key, _context: statuses[key],
+                ),
                 patch(
                     "study_runner.data_core.host.sensor_coordinator_service.run_runtime_action",
                     side_effect=lambda key, action, _context: {"ok": True, "integration": key, "action": action},
                 ) as runtime_action,
             ):
-                started = coordinator.start_selected(
-                    {"brainbit": True, "mini_radar": False},
-                    ["brainbit", "mini_radar"],
+                started = coordinator.ensure_running(
+                    {"brainbit": True, "am_hub": True, "mini_radar": False},
+                    ["brainbit", "am_hub", "mini_radar"],
+                    context,
+                )
+
+            # A prepared, running sensor is recorded as it is: no initialize,
+            # no restart. Only the stopped selected sensor is started, and the
+            # unselected one is not stopped by a participant session.
+            initialize.assert_called_once_with("am_hub", context)
+            runtime_action.assert_called_once_with("am_hub", "start", context)
+            self.assertEqual(started["active_plugins"], ["brainbit", "am_hub"])
+            self.assertTrue(started["runtime"]["brainbit"]["already_running"])
+            self.assertEqual(started["runtime"]["brainbit"]["status"]["actual_streams"], [{"key": "eeg"}])
+            self.assertNotIn("mini_radar", started["runtime"])
+        finally:
+            coordinator.close(wait=True)
+
+    def test_apply_selection_starts_needed_and_stops_other_running_sensors(self) -> None:
+        context = _context()
+        coordinator = SensorCoordinator(monotonic_clock=FakeClock(1.0))
+        statuses = {
+            "brainbit": {"running": False},
+            "am_hub": {"running": True},
+            "mini_radar": {"running": False},
+        }
+        try:
+            with (
+                patch("study_runner.data_core.host.sensor_coordinator_service.initialize_plugin") as initialize,
+                patch(
+                    "study_runner.data_core.host.sensor_coordinator_service.get_plugin_status",
+                    side_effect=lambda key, _context: statuses[key],
+                ),
+                patch(
+                    "study_runner.data_core.host.sensor_coordinator_service.run_runtime_action",
+                    side_effect=lambda key, action, _context: {"ok": True, "integration": key, "action": action},
+                ) as runtime_action,
+            ):
+                applied = coordinator.apply_selection(
+                    {"brainbit": True, "am_hub": False, "mini_radar": False},
+                    ["brainbit", "am_hub", "mini_radar"],
                     context,
                 )
                 stopped = coordinator.stop_plugins(["brainbit"], context)
@@ -337,11 +383,13 @@ class SensorCoordinatorTests(unittest.TestCase):
             runtime_action.assert_has_calls(
                 [
                     call("brainbit", "start", context),
-                    call("mini_radar", "stop", context),
+                    call("am_hub", "stop", context),
                     call("brainbit", "stop", context),
                 ]
             )
-            self.assertEqual(started["active_plugins"], ["brainbit"])
+            self.assertEqual(runtime_action.call_count, 3)
+            self.assertTrue(applied["runtime"]["mini_radar"]["already_stopped"])
+            self.assertEqual(applied["active_plugins"], ["brainbit"])
             self.assertEqual(stopped["stopped_plugins"], ["brainbit"])
             self.assertEqual(stopped["coordinator"]["brainbit"]["last_action"], "stop")
         finally:

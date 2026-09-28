@@ -29,6 +29,7 @@
   },
   "ui": {
     "label": "text",
+    "description": "Collects a short or long free-text answer.",
     "order": 90,
     "visibility": {
       "dashboard": false,

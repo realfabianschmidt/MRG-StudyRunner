@@ -39,7 +39,7 @@ test('an invalid point is skipped and breaks the line', () => {
   assert.equal((d.match(/M/g) || []).length, 2);
 });
 
-test('dashboard renders both trend graphs, status row and details', () => {
+test('dashboard renders the trend graphs and details without its own switch', () => {
   const html = renderDashboard({
     plugin: {
       status: 'connected', enabled: true, can_start: false, can_stop: true, can_restart: true,
@@ -48,7 +48,8 @@ test('dashboard renders both trend graphs, status row and details', () => {
       preview: { movement: [], position: [] },
     },
   }, ui);
-  assert.match(html, /dashboard-status-row/);
+  assert.doesNotMatch(html, /data-runtime-toggle/);
+  assert.match(html, /AM Hub sample received\./);
   assert.match(html, /Movement &amp; presence energy/);
   assert.match(html, /Position \(relative to the sensor\)/);
   assert.match(html, /<details>/);

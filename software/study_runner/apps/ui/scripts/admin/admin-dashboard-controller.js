@@ -3,6 +3,7 @@
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
 import { openPluginConsole } from './plugin-console.js';
+import { renderSensorConnectionPanel, studyBarState } from './sensor-connection-panel.js';
 import {
   getPluginCatalog,
   getPluginUiExtension,
@@ -20,6 +21,9 @@ const STATUS_REQUEST_TIMEOUT_MS = 8000;
 let pollTimer = null;
 let callbacks = {};
 const pendingPluginActions = new Set();
+// Switch position the operator chose while the start/stop request runs.
+const pendingRuntime = new Map();
+let latestStatus = null;
 
 export function initializeAdminDashboard(options = {}) {
   callbacks = options;
@@ -30,6 +34,11 @@ export function initializeAdminDashboard(options = {}) {
   }
 
   elements.dashboardButton.addEventListener('click', () => showDashboard(elements));
+  // The same start as in the hub: preparing the sensors and starting the
+  // participant happen on one screen.
+  elements.startButton?.addEventListener('click', () => {
+    void callbacks.startStudy?.({ buttonId: 'btn-dashboard-start-study' });
+  });
   elements.dashboard.addEventListener('click', (event) => {
     const consoleButton = event.target.closest('[data-plugin-console]');
     if (consoleButton?.dataset.pluginConsole) {
@@ -38,14 +47,23 @@ export function initializeAdminDashboard(options = {}) {
     }
     const runtimeToggle = event.target.closest('[data-runtime-toggle]');
     if (runtimeToggle) {
-      const pluginKey = runtimeToggle.dataset.runtimeToggle;
-      void runDashboardAction(`runtime_${pluginKey}_${runtimeToggle.checked ? 'start' : 'stop'}`, elements, showToast);
+      void switchPluginRuntime(runtimeToggle.dataset.runtimeToggle, runtimeToggle.checked, elements, showToast);
+      return;
+    }
+    const stepButton = event.target.closest('[data-connection-action]');
+    if (stepButton) {
+      void runConnectionStep(stepButton, elements, showToast);
       return;
     }
     const button = event.target.closest('[data-dashboard-action]');
     if (button) {
       void runDashboardAction(button, elements, showToast);
     }
+  });
+  // Choosing a device in the list connects to it right away.
+  elements.dashboard.addEventListener('change', (event) => {
+    const select = event.target.closest('select[data-connection-select]');
+    if (select) void runConnectionSelect(select, elements, showToast);
   });
 
   const refresh = () => {
@@ -71,12 +89,6 @@ async function runDashboardAction(actionSource, elements, showToast) {
     callbacks.openSettingsHub?.();
     return;
   }
-  const toggleMatch = action.match(/^toggle_(.+)_(on|off)$/);
-  if (toggleMatch) {
-    const [, pluginKey, state] = toggleMatch;
-    await updatePluginToggle(pluginKey, state === 'on', elements, showToast);
-    return;
-  }
 
   const runtimeMatch = action.match(/^runtime_(.+)_(start|stop|restart)$/);
   if (!runtimeMatch) {
@@ -84,19 +96,100 @@ async function runDashboardAction(actionSource, elements, showToast) {
   }
 
   const [, pluginKey, runtimeAction] = runtimeMatch;
-  try {
-    const response = await postJson(`/api/admin/plugins/${encodeURIComponent(pluginKey)}/${runtimeAction}`, {});
-    if (response?.study_controlled) {
-      showToast?.(t('dashboard.studyControlledWarning', 'Temporary dashboard overrides can overrule the study settings during this server session.'), 'warning');
-      await refreshAdminStatus(elements, showToast);
-      return;
-    }
-    showToast?.(t('dashboard.actionSent', 'Dashboard action sent'), 'success');
-    await refreshAdminStatus(elements, showToast);
-  } catch (error) {
-    console.error('[admin] Dashboard action failed:', error);
-    showToast?.(t('dashboard.actionFailed', 'Dashboard action failed'), 'error');
+  if (runtimeAction !== 'restart') {
+    await switchPluginRuntime(pluginKey, runtimeAction === 'start', elements, showToast);
+    return;
   }
+  try {
+    await postJson(`/api/admin/plugins/${encodeURIComponent(pluginKey)}/restart`, {});
+    showToast?.(t('sensorConnection.restarted', '{name} restarted').replace('{name}', pluginDisplayName(pluginKey)), 'success');
+  } catch (error) {
+    console.error('[admin] Plugin restart failed:', error);
+    showToast?.(`${t('sensorConnection.restartFailed', 'Could not restart {name}').replace('{name}', pluginDisplayName(pluginKey))}: ${error?.message || error}`, 'error');
+  }
+  statusGeneration += 1;
+  await refreshAdminStatus(elements, showToast);
+}
+
+/**
+ * The switch shows the plugin's real running state. While the request runs
+ * it keeps the chosen position (disabled), and status polls that started
+ * before the request finished are discarded, so it never jumps back.
+ */
+async function switchPluginRuntime(pluginKey, wantRunning, elements, showToast) {
+  if (!pluginKey || pendingRuntime.has(pluginKey)) return;
+  pendingRuntime.set(pluginKey, Boolean(wantRunning));
+  statusGeneration += 1;
+  if (latestStatus) renderSensorTiles(elements.sensorTiles, latestStatus);
+  const name = pluginDisplayName(pluginKey);
+  try {
+    await postJson(`/api/admin/plugins/${encodeURIComponent(pluginKey)}/${wantRunning ? 'start' : 'stop'}`, {});
+    showToast?.(
+      (wantRunning
+        ? t('sensorConnection.switchedOn', '{name} switched on')
+        : t('sensorConnection.switchedOff', '{name} switched off')).replace('{name}', name),
+      'success',
+    );
+  } catch (error) {
+    console.error('[admin] Plugin switch failed:', error);
+    showToast?.(`${t('sensorConnection.switchFailed', 'Could not switch {name}').replace('{name}', name)}: ${error?.message || error}`, 'error');
+  } finally {
+    pendingRuntime.delete(pluginKey);
+    statusGeneration += 1;
+    await refreshAdminStatus(elements, showToast);
+  }
+}
+
+async function runConnectionStep(button, elements, showToast) {
+  const pluginKey = button.dataset.pluginKey || '';
+  const actionKey = button.dataset.pluginAdminAction || '';
+  if (!pluginKey || !actionKey || button.disabled) return;
+  const connection = latestStatus?.plugins?.[pluginKey]?.connection || {};
+  if (button.dataset.connectionAction === 'scan' && connection.phase === 'connected') {
+    const device = connection.device?.label || pluginDisplayName(pluginKey);
+    if (!window.confirm(t('sensorConnection.confirmScan', 'Searching disconnects {device}. Continue?').replace('{device}', device))) return;
+  }
+  await postConnectionAction(pluginKey, actionKey, {}, elements, showToast);
+}
+
+async function runConnectionSelect(select, elements, showToast) {
+  const pluginKey = select.dataset.pluginKey || '';
+  const actionKey = select.dataset.pluginAdminAction || '';
+  if (!select.value || !pluginKey || !actionKey) return;
+  let payload;
+  try {
+    payload = JSON.parse(select.value);
+  } catch {
+    return;
+  }
+  await postConnectionAction(pluginKey, actionKey, payload, elements, showToast);
+}
+
+async function postConnectionAction(pluginKey, actionKey, payload, elements, showToast) {
+  const pendingKey = `${pluginKey}:${actionKey}`;
+  if (pluginActionPending(pluginKey)) return;
+  pendingPluginActions.add(pendingKey);
+  statusGeneration += 1;
+  if (latestStatus) renderSensorTiles(elements.sensorTiles, latestStatus);
+  try {
+    const response = await postJson(
+      `/api/admin/plugins/${encodeURIComponent(pluginKey)}/actions/${encodeURIComponent(actionKey)}`,
+      payload,
+    );
+    const result = response?.result || {};
+    showToast?.(result.last_message || result.message || t('dashboard.pluginActionDone', 'Plugin action completed'), 'success');
+  } catch (error) {
+    console.error('[admin] Connection action failed:', error);
+    showToast?.(error.message || t('dashboard.pluginActionFailed', 'Plugin action failed'), 'error');
+  } finally {
+    pendingPluginActions.delete(pendingKey);
+    statusGeneration += 1;
+    await refreshAdminStatus(elements, showToast);
+  }
+}
+
+function pluginDisplayName(pluginKey) {
+  return pluginByKey(pluginKey)?.ui?.label || formatPluginName(pluginKey);
 }
 
 async function runPluginAdminAction(button, elements, showToast) {
@@ -155,25 +248,16 @@ async function resetSensorOverrides(elements, showToast) {
   }
 }
 
-async function updatePluginToggle(pluginKey, enabled, elements, showToast) {
-  try {
-    const response = await postJson(`/api/admin/plugins/${encodeURIComponent(pluginKey)}/enabled`, { enabled });
-    const messageKey = enabled ? 'dashboard.pluginEnabled' : 'dashboard.pluginDisabled';
-    const fallback = enabled ? '{name} enabled' : '{name} disabled';
-    showToast?.(t(messageKey, fallback).replace('{name}', formatPluginName(pluginKey)), 'success');
-    await refreshAdminStatus(elements, showToast);
-  } catch (error) {
-    console.error('[admin] Plugin toggle failed:', error);
-    showToast?.(t('dashboard.pluginToggleFailed', 'Plugin toggle failed'), 'error');
-  }
-}
-
 function getDashboardElements() {
   return {
     editView: document.getElementById('admin-edit-view'),
     dashboard: document.getElementById('admin-dashboard'),
     dashboardButton: document.getElementById('btn-admin-dashboard'),
     clients: document.getElementById('dashboard-clients'),
+    studyBar: document.getElementById('dashboard-study-bar'),
+    studyName: document.getElementById('dashboard-study-name'),
+    studyStatus: document.getElementById('dashboard-study-status'),
+    startButton: document.getElementById('btn-dashboard-start-study'),
     sensorTiles: document.getElementById('dashboard-sensor-tiles'),
     controls: document.getElementById('dashboard-plugin-controls'),
     xdf: document.getElementById('dashboard-xdf'),
@@ -185,10 +269,18 @@ function getDashboardElements() {
 // problem is visible without a toast every two seconds.
 let statusRefreshInFlight = false;
 let lastStatusFailure = '';
+// Bumped by every operator action: a poll that started before the action
+// finished must not overwrite what the action just changed.
+let statusGeneration = 0;
+let refreshQueued = false;
 
 async function refreshAdminStatus(elements, showToast) {
-  if (statusRefreshInFlight) return;
+  if (statusRefreshInFlight) {
+    refreshQueued = true;
+    return;
+  }
   statusRefreshInFlight = true;
+  const generation = statusGeneration;
   let step = 'status';
   try {
     const [status, runtimeInfo] = await Promise.all([
@@ -196,6 +288,10 @@ async function refreshAdminStatus(elements, showToast) {
       getJson('/api/runtime-info', { timeoutMs: STATUS_REQUEST_TIMEOUT_MS }),
       loadPluginCatalog(),
     ]);
+    if (generation !== statusGeneration) {
+      refreshQueued = true;
+      return;
+    }
     step = 'extensions';
     await loadPluginUiExtensions('dashboard');
     step = 'render';
@@ -211,18 +307,71 @@ async function refreshAdminStatus(elements, showToast) {
     }
   } finally {
     statusRefreshInFlight = false;
+    if (refreshQueued) {
+      refreshQueued = false;
+      void refreshAdminStatus(elements, showToast);
+    }
   }
 }
 
 function renderAdminStatus(elements, status) {
+  latestStatus = status;
   const clients = status.study_clients || {};
   elements.dashboardButton.hidden = false;
 
   renderClients(elements.clients, clients.clients || []);
+  renderStudyBar(elements, status);
   renderSensorTiles(elements.sensorTiles, status);
   renderPluginControls(elements.controls, status.plugins || {}, status);
   renderXdf(elements.xdf, status);
   applyRunScope(status);
+}
+
+function nextStepText(plugin) {
+  const connection = plugin?.connection || {};
+  const step = connection.next_step
+    || (connection.phase === 'off' ? 'switch_on' : 'wait');
+  const fallbacks = {
+    scan: 'search', select: 'choose the device', measure_signal: 'measure the signal',
+    initialize: 'initialize', switch_on: 'switch on', wait: 'wait until connected',
+  };
+  return t(`sensorConnection.nextStep.${step}`, fallbacks[step] || step);
+}
+
+function renderStudyBar(elements, status) {
+  if (!elements.studyBar) return;
+  const state = studyBarState(status);
+  const studyId = state.runState.study_id || '';
+  elements.studyBar.hidden = !studyId;
+  if (!studyId) return;
+  if (elements.studyName) elements.studyName.textContent = studyId;
+  const parts = [];
+  if (state.running) {
+    parts.push(t('dashboard.studyBar.running', 'The study is running.'));
+  } else {
+    if (state.needed.length) {
+      parts.push(t('dashboard.studyBar.sensorsReady', '{ready}/{total} sensors ready')
+        .replace('{ready}', String(state.ready.length))
+        .replace('{total}', String(state.needed.length)));
+      const first = state.missing[0];
+      if (first) {
+        const label = state.plugins[first]?.label || pluginDisplayName(first);
+        parts.push(`${label}: ${nextStepText(state.plugins[first])}`);
+      }
+    } else {
+      parts.push(t('dashboard.studyBar.noSensors', 'This study needs no sensors.'));
+    }
+    parts.push(state.tabletOk
+      ? t('dashboard.studyBar.tabletReady', 'Tablet connected')
+      : t('dashboard.studyBar.tabletMissing', 'Connect the tablet'));
+  }
+  if (elements.studyStatus) elements.studyStatus.textContent = parts.join(' · ');
+  if (elements.startButton) {
+    const allReady = !state.missing.length && state.tabletOk;
+    elements.startButton.disabled = state.running;
+    elements.startButton.classList.toggle('btn-primary', allReady && !state.running);
+    elements.startButton.classList.toggle('btn-secondary', !(allReady && !state.running));
+  }
 }
 
 export function renderSensorTiles(target, status) {
@@ -257,11 +406,20 @@ export function renderSensorTiles(target, status) {
       </article>`);
       tile = target.lastElementChild;
     }
-    tile.dataset.runtimeLocked = String(!!item.runtime_locked);
+    const locked = Boolean(item.runtime_locked || status.active_study_session);
+    tile.dataset.runtimeLocked = String(locked);
     const template = document.createElement('template');
     template.innerHTML = detail;
     const inlineControls = template.content.querySelector('[data-plugin-dashboard-controls]');
-    renderPluginActionControls(tile.querySelector('[data-plugin-inline-controls]'), inlineControls?.outerHTML || '');
+    // Every sensor gets the same connection panel; a plugin's own controls
+    // are only used for plugins without a connection block.
+    const panel = renderSensorConnectionPanel(item, item.manifest, {
+      locked,
+      pending: pluginActionPending(item.key),
+      pendingRunning: pendingRuntime.has(item.key) ? pendingRuntime.get(item.key) : undefined,
+      deviatesFromStudy: Boolean((status.sensor_runtime?.override_active || {})[item.key]),
+    });
+    renderPluginActionControls(tile.querySelector('[data-plugin-inline-controls]'), panel || inlineControls?.outerHTML || '');
     inlineControls?.remove();
     const body = tile.querySelector('[data-plugin-detail]');
     const focusable = 'button, input, select, textarea, summary, [tabindex]';
@@ -288,7 +446,8 @@ function updatePluginActionAvailability(tile, pluginKey) {
   if (!tile) return;
   const blocked = tile.dataset.runtimeLocked === 'true' || pluginActionPending(pluginKey);
   tile.querySelectorAll('[data-plugin-admin-action], select[data-action-key]').forEach((node) => {
-    node.disabled = blocked;
+    // A connection step the panel disabled for a reason stays disabled.
+    node.disabled = blocked || node.hasAttribute('data-blocked');
   });
 }
 
@@ -299,7 +458,8 @@ function optionIdentity(option) {
 function renderPluginActionControls(container, html) {
   const choices = new Map([...container.querySelectorAll('select')]
     .map((node) => [node.id, optionIdentity(node.selectedOptions[0])]));
-  if (container.contains(document.activeElement)) {
+  const focused = container.contains(document.activeElement) ? document.activeElement : null;
+  if (focused?.tagName === 'SELECT') {
     // Keep the native popup alive, but invalidate a target that disappeared.
     const template = document.createElement('template');
     template.innerHTML = html;
@@ -310,8 +470,13 @@ function renderPluginActionControls(container, html) {
     return;
   }
   if (container._rendered === html) return;
+  const focusKey = focused ? controlIdentity(focused) : '';
   container.innerHTML = html;
   container._rendered = html;
+  if (focusKey) {
+    const again = [...container.querySelectorAll('button, input')].find((node) => controlIdentity(node) === focusKey);
+    again?.focus({ preventScroll: true });
+  }
   // Restore only a real earlier choice; otherwise keep the renderer's own
   // `selected` default (for example the band that is connected right now).
   container.querySelectorAll('select').forEach((node) => {
@@ -320,6 +485,15 @@ function renderPluginActionControls(container, html) {
     const selected = [...node.options].find((option) => optionIdentity(option) === previous);
     if (selected) node.value = selected.value;
   });
+}
+
+function controlIdentity(node) {
+  return [
+    node.dataset?.connectionAction,
+    node.dataset?.runtimeToggle,
+    node.dataset?.dashboardAction,
+    node.dataset?.pluginAdminAction,
+  ].filter(Boolean).join(':');
 }
 
 function renderPluginDashboardDetail(item, status) {
@@ -356,7 +530,8 @@ function dashboardUiHelpers() {
 
 function renderPluginAdminActions(manifest, pluginStatus) {
   if (manifest?.capability_config?.admin_actions?.rendered_by_dashboard) return '';
-  const actions = manifest?.capability_config?.admin_actions?.actions || [];
+  // Actions with a connection role are drawn by the connection panel.
+  const actions = (manifest?.capability_config?.admin_actions?.actions || []).filter((action) => !action.role);
   if (!actions.length) return '';
   const buttons = actions.flatMap((action) => renderManifestActionInstances(action, manifest, pluginStatus));
   if (!buttons.length) return '';
@@ -437,6 +612,14 @@ function readObjectPath(source, path) {
 
 /** Fallback tile for any plugin without a bespoke view. */
 function genericSensorDetail(item) {
+  if (item.connection) {
+    return `
+    <dl class="status-list">
+      <dt>${fieldLabel('device', 'Device')}</dt><dd>${escapeHtml(item.device_label || '-')}</dd>
+      <dt>${fieldLabel('lastActive', 'Last active')}</dt><dd>${formatTimestampAge(item.last_activity_at, item.seconds_since_last_activity)}</dd>
+      <dt>${fieldLabel('message', 'Message')}</dt><dd>${escapeHtml(item.last_message || '-')}</dd>
+    </dl>`;
+  }
   return `
     <div class="status-row">
       <span class="status-pill status-pill--${escapeHtml(item.status || 'unknown')}">${escapeHtml(statusLabel(item.status))}</span>

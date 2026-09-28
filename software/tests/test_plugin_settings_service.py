@@ -141,9 +141,9 @@ class ApplyTests(unittest.TestCase):
     def test_boolean_accepts_common_spellings(self) -> None:
         for raw, expected in (("true", True), ("0", False), (True, True), ("off", False)):
             updated, _ = apply_plugin_settings(
-                {}, "notion", {"auto_retry_failed": raw}
+                {}, "notion", {"auto_retry": raw}
             )
-            self.assertIs(updated["notion"]["auto_retry_failed"], expected)
+            self.assertIs(updated["notion"]["auto_retry"], expected)
 
     def test_restart_required_is_reported(self) -> None:
         _, restart = apply_plugin_settings({}, "brainbit", {"scan_seconds": 7})

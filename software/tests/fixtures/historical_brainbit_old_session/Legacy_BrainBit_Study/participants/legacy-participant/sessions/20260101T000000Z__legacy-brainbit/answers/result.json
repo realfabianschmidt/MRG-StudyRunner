@@ -1,0 +1,16 @@
+{
+  "study_id": "Legacy BrainBit Study",
+  "participant_id": "legacy-participant",
+  "session_id": "legacy-brainbit",
+  "timestamp_start": "2026-01-01T00:00:00Z",
+  "timestamp_end": "2026-01-01T00:05:00Z",
+  "answers": {
+    "q1": "complete"
+  },
+  "recorded_plugins": {
+    "brainbit_old": {
+      "stream_source_id": "study_runner.brainbit_old.eeg",
+      "status": "recorded"
+    }
+  }
+}

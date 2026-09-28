@@ -120,6 +120,8 @@ class StudySessionRouteTests(unittest.TestCase):
                 patch("study_runner.apps.server.initialize_plugins"),
                 patch("study_runner.data_core.host.sensor_coordinator_service.initialize_plugin") as initialize_plugin,
                 patch("study_runner.data_core.host.sensor_coordinator_service.run_runtime_action", return_value={"ok": True}) as run_action,
+                # After a restart the sensor process is gone, so it reports not running.
+                patch("study_runner.data_core.host.sensor_coordinator_service.get_plugin_status", return_value={"running": False}),
             ):
                 first_app = _app(temp_dir, disable_hardware=False)
                 first_client = first_app.test_client()

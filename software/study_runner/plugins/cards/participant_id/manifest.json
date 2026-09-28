@@ -31,6 +31,7 @@
   },
   "ui": {
     "label": "participant-id",
+    "description": "Collects or generates the participant identifier used for the session.",
     "order": 0,
     "visibility": {
       "dashboard": false,

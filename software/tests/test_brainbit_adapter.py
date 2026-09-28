@@ -241,5 +241,93 @@ class BrainBitAdapterTests(unittest.TestCase):
         self.assertEqual(status["scan_candidates"][0]["address"], "AA:BB")
 
 
+class _CommandPipe:
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def write(self, text: str) -> None:
+        self.lines.append(text)
+
+    def flush(self) -> None:
+        pass
+
+
+class CommandProcess(FakeProcess):
+    def __init__(self) -> None:
+        self.stdin = _CommandPipe()
+
+
+class GuidedConnectionTests(BrainBitAdapterTests):
+    """Measure contact and initialize without reconnecting; one setup per participant."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        from study_runner.plugins.sensors.brainbit.monitor import BrainBitMonitor
+
+        adapter._monitor = BrainBitMonitor()
+        adapter._process = CommandProcess()
+        adapter._awaiting_scan = False
+        adapter._contact_stale = False
+        adapter._calibration_needs_initialize = False
+
+    def tearDown(self) -> None:
+        super().tearDown()
+        adapter._awaiting_scan = False
+        adapter._contact_stale = False
+        adapter._calibration_needs_initialize = False
+
+    def _stream_eeg(self) -> None:
+        adapter._monitor.observe("CONNECTED", {})
+        adapter._update_state_from_line('EEG {"O1": 1, "O2": 2, "T3": 3, "T4": 4}')
+
+    def test_cli_is_started_with_a_command_channel_and_manual_calibration(self) -> None:
+        adapter._config.update({"script_path": "brainbit_cli.py", "python_executable": "python"})
+        command = adapter._build_cli_command()
+        self.assertIn("--control-stdin", command)
+        self.assertIn("--manual-calibration", command)
+
+    def test_contact_is_measured_on_the_running_connection(self) -> None:
+        self._stream_eeg()
+        self.assertTrue(adapter.measure_contact())
+        self.assertEqual(adapter._process.stdin.lines, ["MEASURE_CONTACT\n"])
+        connection = adapter.get_status()["connection"]
+        self.assertEqual(connection["phase"], "connected")
+        self.assertEqual(connection["signal"]["state"], "measuring")
+
+    def test_initialize_starts_the_calibration_for_this_participant(self) -> None:
+        self._stream_eeg()
+        adapter._update_state_from_line('QUALITY {"O1": 0.5, "O2": 0.5, "T3": 0.5, "T4": 0.5}')
+        self.assertEqual(adapter.get_status()["connection"]["setup"]["state"], "needed")
+        self.assertTrue(adapter.calibrate())
+        self.assertEqual(adapter._process.stdin.lines, ["CALIBRATE\n"])
+        self.assertEqual(adapter.get_status()["connection"]["setup"]["state"], "running")
+        adapter._update_state_from_line('CALIB {"event": "FINISHED"}')
+        connection = adapter.get_status()["connection"]
+        self.assertEqual(connection["setup"]["state"], "done")
+        self.assertEqual(connection["signal"]["state"], "good")
+
+    def test_commands_need_a_streaming_band(self) -> None:
+        self.assertFalse(adapter.measure_contact())
+        self.assertFalse(adapter.calibrate())
+        self.assertEqual(adapter._process.stdin.lines, [])
+
+    def test_session_end_requires_contact_and_calibration_for_the_next_person(self) -> None:
+        self._stream_eeg()
+        adapter._update_state_from_line('QUALITY {"O1": 0.5, "O2": 0.5, "T3": 0.5, "T4": 0.5}')
+        adapter._update_state_from_line('CALIB {"event": "FINISHED"}')
+        adapter.session_end()
+        connection = adapter.get_status()["connection"]
+        self.assertEqual(connection["signal"]["state"], "stale")
+        self.assertEqual(connection["setup"]["state"], "needed")
+        self.assertIn("RESET_CALIBRATION\n", adapter._process.stdin.lines)
+
+    def test_without_a_known_band_nothing_is_scanned_until_search(self) -> None:
+        adapter._process = None
+        adapter.await_scan()
+        status = adapter.get_status()
+        self.assertTrue(status["running"])
+        self.assertEqual(status["connection"]["phase"], "no_device")
+
+
 if __name__ == "__main__":
     unittest.main()

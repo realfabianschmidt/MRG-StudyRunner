@@ -4,8 +4,9 @@
 // the middle (an SVG "goo" filter). A tap grows the blob into the fullscreen
 // word space. Records the chosen words, like the classic view.
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
+import { prefersReducedMotion, runAnimation } from '/static/scripts/cards/card-motion.js';
 import { openWordSpace } from './word-space.js';
-import { QUADRANT_SHAPES, blobPath, prefersReducedMotion, runAnimation } from './mood-core.js';
+import { QUADRANT_SHAPES, blobPath } from './mood-core.js';
 import { reflectSelection } from './view-classic.js';
 
 export const records = 'words';

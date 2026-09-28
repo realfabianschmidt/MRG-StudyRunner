@@ -596,7 +596,54 @@ class RecordingRuntimeTests(unittest.TestCase):
             self.assertIn("web_server_lease_expired", {issue.code for issue in issues})
             self.assertEqual(metrics["recording_lease"]["state"], "expired")
 
-    def test_producer_stop_failure_freezes_worker_then_fails_finalization_step(self) -> None:
+    def test_freeze_waits_for_stream_tail_then_ends_session_without_stopping(self) -> None:
+        calls: list[str] = []
+
+        class Runtime:
+            def wait_for_stream_tail(self, _paths, marker_lsl_timestamp, *, timeout_seconds):
+                calls.append(f"tail:{marker_lsl_timestamp}:{timeout_seconds}")
+                return {"reached": True, "lagging_streams": []}
+
+            def freeze_worker(self, _paths, *, command_id):
+                calls.append("freeze")
+                return {"command_id": command_id}
+
+        def end_marker(_context):
+            calls.append("marker")
+            return {"marker_lsl_timestamp": 8510.52}
+
+        def end_session(_context):
+            calls.append("session_end")
+            return {"runtime": {"brainbit": {"ok": True}}}
+
+        adapter = RuntimeRecordingFinalizationAdapter(
+            Runtime(),
+            write_end_marker=end_marker,
+            end_session_producers=end_session,
+        )
+        context = type(
+            "Context",
+            (),
+            {
+                "recording_expected": True,
+                "paths": object(),
+                "state": {
+                    "job_id": "job-1",
+                    "warnings": [],
+                    "steps": [{"key": "freeze_recording", "attempts": 1}],
+                },
+            },
+        )()
+
+        result = adapter.freeze(context)
+
+        # The file is frozen only after every stream passed the end marker,
+        # and the sensors hear that the session ended only after that.
+        self.assertEqual(calls, ["marker", "tail:8510.52:3.0", "freeze", "session_end"])
+        self.assertEqual(result.status, "done")
+        self.assertTrue(result.details["stream_tail"]["reached"])
+
+    def test_session_end_notice_failure_is_a_warning_not_a_quality_failure(self) -> None:
         class Runtime:
             called = False
 
@@ -607,8 +654,8 @@ class RecordingRuntimeTests(unittest.TestCase):
         runtime = Runtime()
         adapter = RuntimeRecordingFinalizationAdapter(
             runtime,
-            stop_producers=lambda _context: {
-                "runtime": {"brainbit": {"ok": False, "error": "stop timeout"}}
+            end_session_producers=lambda _context: {
+                "runtime": {"brainbit": {"ok": False, "error": "notice timeout"}}
             },
         )
         context = type(
@@ -619,14 +666,20 @@ class RecordingRuntimeTests(unittest.TestCase):
                 "paths": object(),
                 "state": {
                     "job_id": "job-1",
+                    "warnings": [],
                     "steps": [{"key": "freeze_recording", "attempts": 1}],
                 },
             },
         )()
 
-        with self.assertRaisesRegex(FinalizationError, "brainbit: stop timeout"):
-            adapter.freeze(context)
+        result = adapter.freeze(context)
+
         self.assertTrue(runtime.called)
+        self.assertEqual(result.status, "done")
+        self.assertIn(
+            "session_end_notice: runtime.brainbit: notice timeout",
+            context.state["warnings"],
+        )
 
     def test_worker_freeze_quality_failure_fails_finalization_step(self) -> None:
         class Runtime:

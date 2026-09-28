@@ -10,8 +10,8 @@ worktree, and the same folder previously leaked a physical BrainBit MAC
 address and serial (see `test_hardware_settings_service.py`, which guards
 that half).
 
-So this test pins the shipped active study to one of the two tracked example
-presets. Working on a real study is fine -- save it under
+So this test pins the shipped active study to the tracked Basic example.
+Working on a real study is fine -- save it under
 `study_content/studies/`, where `.gitignore` keeps every non-example preset
 out of the repository, and restore the template before committing:
 
@@ -33,7 +33,9 @@ ACTIVE_STUDY = STUDY_CONTENT / "settings" / "study_config.json"
 EXAMPLE_PRESETS = (
     STUDY_CONTENT / "studies" / "Example Basic Study.study-runner",
     STUDY_CONTENT / "studies" / "Example Sensors Study.study-runner",
+    STUDY_CONTENT / "studies" / "Example Card Gallery Study.study-runner",
 )
+BASIC_PRESET, SENSORS_PRESET, CARD_GALLERY_PRESET = EXAMPLE_PRESETS
 
 
 def _load(path: Path) -> dict:
@@ -57,20 +59,74 @@ class ShippedStudyContentTests(unittest.TestCase):
             "in the same commit: " + ", ".join(missing),
         )
 
-    def test_the_shipped_active_study_is_an_example(self) -> None:
+    def test_the_shipped_active_study_is_the_basic_example(self) -> None:
         active = _load(ACTIVE_STUDY)
-        examples = [_load(preset) for preset in EXAMPLE_PRESETS]
+        basic = _load(BASIC_PRESET)
 
         # assertTrue, not assertIn: a failing assertIn prints both operands, which
         # would dump the very study this test exists to keep private into the CI log.
         self.assertTrue(
-            active in examples,
+            active == basic,
             "software/study_content/settings/study_config.json holds a study that is "
             f"not a shipped example (study_id {active.get('study_id')!r}). A real study "
             "must not be committed. Save it under software/study_content/studies/ -- "
             "gitignored -- and run: git checkout -- "
             "software/study_content/settings/study_config.json",
         )
+
+    def test_every_example_is_already_canonical_and_reproducible(self) -> None:
+        from study_runner.plugin_framework.registry import get_plugin_manifests
+        from study_runner.runtime_core.studies.study_package_service import build_package
+        from study_runner.runtime_core.studies.validation import validate_and_normalize_config
+
+        supported_plugins = {
+            key for key, manifest in get_plugin_manifests().items()
+            if manifest.get("category") != "card"
+        }
+        for preset in EXAMPLE_PRESETS:
+            with self.subTest(preset=preset.name):
+                config = _load(preset)
+                self.assertEqual(validate_and_normalize_config(config), config)
+                self.assertEqual(build_package(preset.parent, config), preset.read_bytes())
+                settings = config["study_settings"]
+                self.assertIn("cover_page", settings)
+                self.assertGreater(settings["planned_session_duration_minutes"], 0)
+                self.assertEqual(set(settings["plugins"]), supported_plugins)
+                for question in config["questions"]:
+                    if question["type"] == "mood-meter":
+                        self.assertIn(question["variant"], {"classic", "blobs", "field", "orbit"})
+
+    def test_card_gallery_covers_every_registered_question_type(self) -> None:
+        from study_runner.plugin_framework.registry import get_plugin_manifests
+
+        expected = {
+            question_type
+            for manifest in get_plugin_manifests().values()
+            for question_type in ((manifest.get("capability_config") or {}).get("card_contract") or {}).get("question_types", [])
+        }
+        actual = {question["type"] for question in _load(CARD_GALLERY_PRESET)["questions"]}
+        self.assertEqual(actual, expected)
+        self.assertIn("choice", actual)
+        self.assertIn("single", actual)
+        config = _load(CARD_GALLERY_PRESET)
+        self.assertTrue(all(not entry["enabled"] for entry in config["study_settings"]["plugins"].values()))
+        stimulus = next(question for question in config["questions"] if question["type"] == "stimulus")
+        self.assertFalse(stimulus["plugin_actions"]["brainbit"]["to_touchdesigner"])
+        self.assertFalse(stimulus["plugin_actions"]["osc"]["forward_marker"])
+
+    def test_sensor_example_covers_the_active_sensor_catalog_but_starts_disabled(self) -> None:
+        from study_runner.plugin_framework.registry import get_plugin_manifests
+
+        expected = {
+            key
+            for key, manifest in get_plugin_manifests().items()
+            if "study_sensor" in set(manifest.get("capabilities") or [])
+        }
+        settings = _load(SENSORS_PRESET)["study_settings"]
+        self.assertEqual(set(settings["sensors"]), expected)
+        self.assertTrue(all(enabled is False for enabled in settings["sensors"].values()))
+        self.assertTrue(all(settings["plugins"][key]["enabled"] is False for key in expected))
+        self.assertFalse(settings["sensors_enabled"])
 
 
 if __name__ == "__main__":

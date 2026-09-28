@@ -6,15 +6,14 @@
 // words + position + intensity (distance from the middle).
 import { t } from '/static/scripts/shared/i18n.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
+import { prefersReducedMotion, runAnimation } from '/static/scripts/cards/card-motion.js';
 import {
   QUADRANTS,
   colorAt,
   createSpring,
   haptic,
   orbitPlace,
-  prefersReducedMotion,
   quadrantAt,
-  runAnimation,
   wordCoordinates,
 } from './mood-core.js';
 
@@ -184,5 +183,5 @@ export function bind(cardElement, i, ctx) {
 
 export function refresh(i) {
   // The next frame redraws selection state; make sure one comes.
-  document.getElementById(`mm-orbit-${i}`)?._mmAnimation?.wake();
+  document.getElementById(`mm-orbit-${i}`)?._cardAnimation?.wake();
 }

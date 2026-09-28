@@ -1,4 +1,4 @@
-"""Supervise API-v4 plugin drivers and expose their line-oriented console.
+"""Supervise API-v5 plugin drivers and expose their line-oriented console.
 
 The visible terminal deliberately stays simple: drivers receive UTF-8 lines on
 stdin and may print arbitrary text on stdout/stderr.  Framework RPC uses a
@@ -10,6 +10,7 @@ from __future__ import annotations
 import atexit
 from collections import deque
 from copy import deepcopy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -126,16 +127,37 @@ class PluginProcessRuntime:
         self._last_health_event_at: float | None = None
         self._last_sample_event_at: float | None = None
         self._completed_operations: set[str] = set()
+        self._initialized_signature: str | None = None
+        self._initialized_process: subprocess.Popen[str] | None = None
 
     # -- process lifecycle -------------------------------------------------
 
     def initialize(self, context: PluginContext) -> None:
+        """Initialize the driver once per process and configuration.
+
+        Core guarantee: a second initialize with an unchanged configuration
+        for the same live process is not sent again. Sensors are prepared
+        once and keep streaming across participants; re-running a plugin's
+        stateful initialize hook (which may recreate LSL outlets or reconnect
+        a device) must only happen when something it depends on changed.
+        """
         if self.is_card:
             # Only the host uses this path. No app context enters a card child.
             self._log_path = Path(context.data_dir) / "runtime" / "plugin_logs" / f"{self.key}.log"
             return
-        self._context = context
-        self._desired_running = True
+        signature = _initialize_signature(context)
+        with self._lock:
+            process = self._process
+            already_initialized = (
+                process is not None
+                and process.poll() is None
+                and self._initialized_process is process
+                and self._initialized_signature == signature
+            )
+            self._context = context
+            self._desired_running = True
+        if already_initialized:
+            return
         self._ensure_started()
         initialize_timeout = (
             ((self.manifest.get("runtime") or {}).get("operation_timeouts_ms") or {}).get(
@@ -152,6 +174,9 @@ class PluginProcessRuntime:
                 int(initialize_timeout),
             ),
         )
+        with self._lock:
+            self._initialized_signature = signature
+            self._initialized_process = self._process
 
     def request(
         self,
@@ -806,7 +831,7 @@ _RUNTIMES_LOCK = threading.RLock()
 
 
 def build_process_plugin(manifest: Mapping[str, Any], directory: Path) -> Plugin:
-    """Create the in-core proxy for one validated API-v4 manifest."""
+    """Create the in-core proxy for one validated API-v5 manifest."""
 
     key = str(manifest["plugin_key"])
     with _RUNTIMES_LOCK:
@@ -885,6 +910,8 @@ def build_process_plugin(manifest: Mapping[str, Any], directory: Path) -> Plugin
         if "stop" in trial_events else None,
         on_trial_marker=(lambda context, options: call("trial_marker", context, options))
         if "marker" in trial_events else None,
+        on_session_end=(lambda context, options: call("session_end", context, options))
+        if "session_end" in trial_events else None,
         get_interval_summary=(
             lambda context, start, end: call(
                 "interval_summary", context, {"start_epoch": start, "end_epoch": end}
@@ -960,6 +987,19 @@ def reset_process_plugins() -> None:
     shutdown_process_plugins()
     with _RUNTIMES_LOCK:
         _RUNTIMES.clear()
+
+
+def _initialize_signature(context: PluginContext) -> str:
+    """Stable fingerprint of everything a plugin's initialize hook can read.
+
+    ``runtime_locked`` is left out on purpose: it flips at every participant
+    session start and end, reaches the driver with every request anyway, and
+    must never cause a re-initialization.
+    """
+    serialized = _serialize_context(context)
+    serialized.pop("runtime_locked", None)
+    encoded = json.dumps(serialized, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _serialize_context(context: PluginContext) -> dict[str, Any]:

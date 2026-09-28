@@ -130,6 +130,36 @@ class RecoveryServiceTests(unittest.TestCase):
         self.assertEqual(candidate["answers_count"], 1)
         self.assertEqual(candidate["last_activity"], "2026-01-01T10:05:00Z")
 
+    def test_snapshot_in_the_shared_study_folder_keeps_its_real_study_id(self) -> None:
+        from study_runner.data_core.host.artifacts import study_storage_dir
+
+        study_id = "Example Sensors Study"
+        folder = study_storage_dir(self.data_dir, study_id)
+        self.assertNotEqual(folder.name, "Example_Sensors_Study")
+        atomic_write_json(
+            folder / "_partial" / "session-9.json",
+            {
+                "session_id": "session-9",
+                "study_id": study_id,
+                "participant_id": "hashabc123",
+                "timestamp_start": "2026-09-28T12:25:08Z",
+                "snapshot_at": "2026-09-28T12:25:30Z",
+                "answers": {"q1": "fine"},
+            },
+        )
+        atomic_write_json(
+            folder / "_flush" / "session-9_mr60_signals.json",
+            {"session_id": "session-9", "study_id": study_id, "sensor": "mr60", "samples": []},
+        )
+
+        candidates = list_recovery_candidates(self.data_dir)
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["study_id"], study_id)
+        discard_recovery_candidate(self.data_dir, candidates[0]["recovery_id"])
+        self.assertFalse((folder / "_flush").exists(), "emptied _flush folder must be removed")
+        self.assertEqual(list_recovery_candidates(self.data_dir), [])
+
     def test_partial_snapshot_lists_its_flushed_sensors(self) -> None:
         self._write_partial("session-1")
         self._write_flush("session-1", sensor="mr60")

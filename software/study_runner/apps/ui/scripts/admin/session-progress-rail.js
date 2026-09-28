@@ -72,7 +72,7 @@ export function renderSessionProgressRail(container, session, job, actions = {})
         <div class="finalization-section-title"><i class="iconoir-warning-triangle"></i> ${escapeHtml(t('finalization.qualityWarnings', 'Quality warnings'))}</div>
         <ul>${warnings.map((warning) => `<li>${escapeHtml(String(warning))}</li>`).join('')}</ul>
       </div>` : ''}
-    ${job?.status === 'attention_required' ? renderDegradedConfirmation(reasonDraft) : ''}
+    ${renderOperatorDecision(job, reasonDraft)}
     ${job ? `
       <div class="dashboard-actions finalization-actions">
         <button class="btn-secondary" type="button" data-action="open-session-folder">
@@ -85,6 +85,7 @@ export function renderSessionProgressRail(container, session, job, actions = {})
     bindAsyncAction(button, () => actions.onRetry?.(job.job_id, button.dataset.retryStep));
   });
   bindAsyncAction(container.querySelector('[data-action="open-session-folder"]'), () => actions.onOpenFolder?.(job.job_id));
+  bindAsyncAction(container.querySelector('[data-continue-processing]'), () => actions.onContinue?.(job.job_id));
   const reasonInput = container.querySelector('[data-degraded-reason]');
   const confirmButton = container.querySelector('[data-confirm-degraded]');
   if (reasonInput && confirmButton) {
@@ -144,19 +145,72 @@ function renderProblem(step) {
     </div>`;
 }
 
+/**
+ * What the operator can decide, as the server reports it:
+ * - only quality warnings: accept them and let processing continue;
+ * - a blocking problem: close the session with the raw data as it is;
+ * - a session an earlier version stopped after confirmation: continue it.
+ */
+export function renderOperatorDecision(job, reasonDraft = '') {
+  if (!job) return '';
+  if (job.can_continue_with_warnings) return renderContinueWithWarnings(job, reasonDraft);
+  if (job.status === 'attention_required') return renderDegradedConfirmation(reasonDraft);
+  if (job.can_continue_processing) return renderContinueProcessing(job);
+  return '';
+}
+
+function reasonField(reasonDraft) {
+  return `
+      <div class="field">
+        <label for="finalization-degraded-reason">${escapeHtml(t('finalization.degradedReason', 'Reason'))}</label>
+        <textarea id="finalization-degraded-reason" data-degraded-reason rows="3" maxlength="1000" placeholder="${escapeHtml(t('finalization.degradedPlaceholder', 'Document the accepted data loss or quality limitation.'))}">${escapeHtml(reasonDraft)}</textarea>
+      </div>`;
+}
+
+function renderContinueWithWarnings(job, reasonDraft) {
+  const issues = Array.isArray(job.quality_acceptance?.issues) ? job.quality_acceptance.issues : [];
+  return `
+    <section class="finalization-degraded finalization-degraded--warnings">
+      <div class="finalization-section-title"><i class="iconoir-warning-triangle"></i> ${escapeHtml(t('finalization.continueWarningsTitle', 'The data is usable but incomplete'))}</div>
+      ${issues.length ? `<ul class="finalization-issue-list">${issues.map(renderIssue).join('')}</ul>` : ''}
+      <p class="settings-hint">${escapeHtml(t('finalization.continueWarningsHint', 'Processing continues: the XDF files are merged, card statistics and the CSV are written. The session is marked as degraded, the reason is stored with it, and the source files stay local.'))}</p>
+      ${reasonField(reasonDraft)}
+      <button class="btn-primary" type="button" data-confirm-degraded>
+        <i class="iconoir-play"></i> ${escapeHtml(t('finalization.continueWithWarnings', 'Continue with warning'))}
+      </button>
+    </section>`;
+}
+
 function renderDegradedConfirmation(reasonDraft) {
   return `
     <section class="finalization-degraded">
       <div class="finalization-section-title">${escapeHtml(t('finalization.degradedTitle', 'Confirm degraded completion'))}</div>
-      <p class="settings-hint">${escapeHtml(t('finalization.degradedHint', 'Only confirm after reviewing the failure. Source files remain local and the quality warning is retained.'))}</p>
-      <div class="field">
-        <label for="finalization-degraded-reason">${escapeHtml(t('finalization.degradedReason', 'Reason'))}</label>
-        <textarea id="finalization-degraded-reason" data-degraded-reason rows="3" maxlength="1000" placeholder="${escapeHtml(t('finalization.degradedPlaceholder', 'Document the accepted data loss or quality limitation.'))}">${escapeHtml(reasonDraft)}</textarea>
-      </div>
+      <p class="settings-hint">${escapeHtml(t('finalization.degradedHintBlocking', 'This data cannot be processed further. Confirming closes the session with the raw data as it is: no merged XDF, card statistics or CSV are created. Source files stay local and the quality warning is kept.'))}</p>
+      ${reasonField(reasonDraft)}
       <button class="btn-secondary" type="button" data-confirm-degraded>
         <i class="iconoir-check-circle"></i> ${escapeHtml(t('finalization.confirmDegraded', 'Confirm degraded completion'))}
       </button>
     </section>`;
+}
+
+function renderContinueProcessing(job) {
+  const reason = job.degraded_confirmation?.reason || '';
+  return `
+    <section class="finalization-degraded finalization-degraded--warnings">
+      <div class="finalization-section-title"><i class="iconoir-warning-triangle"></i> ${escapeHtml(t('finalization.continueProcessingTitle', 'Processing was stopped after the confirmation'))}</div>
+      <p class="settings-hint">${escapeHtml(t('finalization.continueProcessingHint', 'An earlier version stopped here. The recorded data is usable: continuing merges the XDF files and writes card statistics and the CSV. The session stays marked as degraded with your reason.'))}</p>
+      ${reason ? `<p class="settings-hint">${escapeHtml(t('finalization.degradedReason', 'Reason'))}: ${escapeHtml(reason)}</p>` : ''}
+      <button class="btn-primary" type="button" data-continue-processing>
+        <i class="iconoir-play"></i> ${escapeHtml(t('finalization.continueProcessing', 'Continue processing'))}
+      </button>
+    </section>`;
+}
+
+function renderIssue(issue) {
+  const code = String(issue?.code || '');
+  const title = t(`finalization.issue.${code}`, code.replace(/_/g, ' '));
+  const source = issue?.source_key ? ` · ${escapeHtml(String(issue.source_key))}` : '';
+  return `<li><strong>${escapeHtml(title)}</strong>${source}<br><span class="settings-hint">${escapeHtml(String(issue?.message || ''))}</span></li>`;
 }
 
 function bindAsyncAction(button, action) {

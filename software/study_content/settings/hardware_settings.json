@@ -94,8 +94,9 @@
     "reconnect_delay": 5
   },
   "notion": {
-    "auto_retry_failed": true,
+    "auto_retry": true,
     "enabled": true,
+    "retry_hours": 48,
     "timeout_seconds": 10
   },
   "osc": {
@@ -106,5 +107,10 @@
     "host": "127.0.0.1",
     "port": 8000
   },
-  "nextcloud": {}
+  "nextcloud": {
+    "auto_retry": true,
+    "enabled": true,
+    "retry_hours": 48,
+    "timeout_seconds": 30
+  }
 }

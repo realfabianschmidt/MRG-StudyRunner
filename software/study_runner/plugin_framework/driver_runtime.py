@@ -1,4 +1,4 @@
-"""Runtime used by the single ``driver.py`` entrypoint in API-v4 plugins."""
+"""Runtime used by the single ``driver.py`` entrypoint in API-v5 plugins."""
 from __future__ import annotations
 
 from copy import deepcopy
@@ -208,11 +208,12 @@ def _dispatch(
             str(payload.get("ingest") or ""),
             _dict(payload.get("payload")),
         ), False
-    if operation in {"trial_start", "trial_stop", "trial_marker"}:
+    if operation in {"trial_start", "trial_stop", "trial_marker", "session_end"}:
         handler = {
             "trial_start": plugin.on_trial_start,
             "trial_stop": plugin.on_trial_stop,
             "trial_marker": plugin.on_trial_marker,
+            "session_end": plugin.on_session_end,
         }[operation]
         if handler is None:
             return None, False
@@ -384,4 +385,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

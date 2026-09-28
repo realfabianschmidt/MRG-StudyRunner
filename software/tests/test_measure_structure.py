@@ -1,4 +1,4 @@
-"""Keep DataCore boundaries visible and verify the committed cycle gate."""
+"""Keep backend and frontend boundaries visible and verify the cycle gate."""
 from __future__ import annotations
 
 import importlib.util
@@ -71,6 +71,42 @@ class StructureMetricsTests(unittest.TestCase):
         self.assertEqual(current["cross_package_import_edges"], 1)
         self.assertEqual(current["cycle_count"], 0)
         self.assertNotIn("version", current["lines_per_package"])
+
+    def test_javascript_areas_lines_edges_and_cycles_are_measured(self) -> None:
+        self.write_module(
+            "apps/ui/scripts/admin/controller.js",
+            "import { render } from '../shared/view.js';\nrender();\n",
+        )
+        self.write_module(
+            "apps/ui/scripts/shared/view.js",
+            "import '../admin/controller.js';\nexport function render() {}\n",
+        )
+        self.write_module(
+            "plugins/cards/example/card.js",
+            "import { render } from '/static/scripts/shared/view.js';\nrender();\n",
+        )
+        current = self.measure()
+        self.assertEqual(current["lines_per_package"]["apps.ui.admin"], 2)
+        self.assertEqual(current["lines_per_package"]["apps.ui.shared"], 2)
+        self.assertEqual(current["lines_per_package"]["apps.ui.cards"], 2)
+        self.assertEqual(current["cross_package_import_edges"], 3)
+        self.assertIn(["apps.ui.admin", "apps.ui.shared"], current["cycle_pairs"])
+        self.assertEqual(
+            current["largest_file_per_package"]["apps.ui.admin"]["path"],
+            "software/study_runner/apps/ui/scripts/admin/controller.js",
+        )
+
+    def test_frontend_file_over_absolute_limit_fails_even_for_a_new_area(self) -> None:
+        self.write_module("apps/ui/scripts/participant/controller.js", "x\n" * 1001)
+        current = self.measure()
+        baseline = {
+            **current,
+            "lines_per_package": {},
+            "largest_file_per_package": {},
+            "largest_file": current["largest_file"],
+        }
+        problems = metrics.check(current, baseline)
+        self.assertTrue(any("frontend file exceeds 1000 lines" in problem for problem in problems))
 
     def test_replacing_an_old_cycle_with_a_new_one_still_fails_the_gate(self) -> None:
         self.write_module("backend/app.py")

@@ -1,4 +1,4 @@
-"""Executable API-v4 process entrypoint for the am_hub plugin."""
+"""Executable API-v5 process entrypoint for the am_hub plugin."""
 from study_runner.plugin_framework.driver_runtime import run_plugin_driver
 
 

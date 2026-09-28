@@ -27,7 +27,6 @@ stop other plugins or the server from loading.
 | --- | --- | --- |
 | `sensors/am_hub/` | `am_hub` | Parasite AM Hub: presence, position, movement, heart/breathing rate, valves, link quality and latency |
 | `sensors/brainbit/` | `brainbit` | BrainBit EEG through the NeuroSDK CLI |
-| `sensors/brainbit_old/` | `brainbit_old` | The earlier BrainBit implementation, kept as a fallback |
 | `sensors/camera_emotion/` | `camera_emotion` | Tablet camera plus local or remote emotion worker |
 | `sensors/mr60_mini_radar/` | `mini_radar` | MR60 radar vitals over ESP32-C6 BLE (or serial) |
 | `destinations/notion_upload/` | `notion` | Session summaries and tables in Notion |
@@ -37,7 +36,8 @@ stop other plugins or the server from loading.
 
 Sensor, destination and output plugins each have a `README.md` in their
 folder; card plugins are described by their manifest and
-`docs/developer-guide.md`.
+`docs/developer-guide.md`. The operator-visible configuration and answer
+contracts for every question type are in [`docs/card-catalog.md`](../../../docs/card-catalog.md).
 
 ## Manifest contract
 
@@ -65,6 +65,10 @@ settings schemas, timing limits, and capabilities. Important capability names ar
 - `machine_settings`, `study_settings`, and `card_actions`: generic UI schemas.
 - `upload_destination`: a background publication target with a required
   `publish_destination(context, payload)` handler.
+- `connection`: every `study_sensor` declares it. It names the device and the
+  signal for the shared connection panel (`device_noun_key`,
+  `signal_label_key`, `setup_label_key`) and whether the setup belongs to one
+  participant (`setup_per_participant`). See "Connection pattern" below.
 - `credentials`: declares the one secret field a plugin needs
   (`config_field`, `env_var`, `per_study`) so `context.secret(plugin_key)`
   resolves it env > per-study > machine > legacy config. The manifest never
@@ -85,7 +89,32 @@ session lanes without adding sensor keys to the renderer.
 Admin actions use a closed `payload_schema`. Dynamic buttons may map cached
 status candidates with `instances.status_paths`, `payload_map`, and
 `label_fields`. The server rejects unknown fields and invalid types before it
-calls `run_admin_action(context, action_key, payload)`.
+calls `run_admin_action(context, action_key, payload)`. An action may take one
+connection `role` (`select`, `scan`, `measure_signal`, `initialize`); the
+shared connection panel then draws it and the generic action list skips it.
+Each role may appear once, and `select` needs `instances.presentation: select`.
+
+## Connection pattern
+
+Every sensor is prepared, shown and recorded the same way:
+
+- **Facts from the plugin.** Its status carries `running` (acquisition runs
+  right now) and a `connection` block: `phase` (`off`, `no_device`,
+  `searching`, `selection_required`, `connecting`, `connected`,
+  `reconnecting`, `failed`), `device`, `candidates`, `signal.state` (`good`,
+  `fair`, `poor`, `measuring`, `stale`, `unknown`), `setup.state` (`needed`,
+  `running`, `done`, `stalled`, `not_needed`) and `streaming`.
+- **Decisions in the core.** `plugin_framework/sensor_connection.py` adds
+  `ready` and `next_step` for every sensor alike. The dashboard panel and the
+  Start check use exactly these. A plugin without a block gets one derived
+  from its plain `status`.
+- **Lifecycle.** Loading a study starts the sensors it needs and stops the
+  rest. A participant session neither re-initializes nor stops a running
+  sensor; the core also never re-sends `initialize` for an unchanged
+  configuration. When a session's recording closes, plugins that list
+  `session_end` in `runtime.trial_events` receive `on_session_end` and reset
+  what belonged to that person (for example a calibration) while acquisition
+  continues.
 
 Browser ingest manifests declare acceptable source timestamp fields and the
 route also requires a sequence number. Upload destinations declare their queue
@@ -114,7 +143,9 @@ work it cannot do.
    clock domains, channel types, labels, and units.
 3. Add `study_sensor`, `lsl_stream_provider`, `recording_source`, and a valid
    `backup_projection` when the sensor participates in recording.
-4. Implement `PLUGIN` with the handlers promised by the manifest.
+4. Implement `PLUGIN` with the handlers promised by the manifest, including
+   `running` and the `connection` block in the status (the template shows
+   both).
 5. Add a fixture test proving discovery, settings, readiness, recording,
    backup projection, and card statistics without a core registry change.
 

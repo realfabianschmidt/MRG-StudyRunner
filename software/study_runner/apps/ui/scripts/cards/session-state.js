@@ -7,6 +7,8 @@
 // session ends, so nothing one participant entered can reach the next one.
 // tests/test_card_session_isolation.py enforces the rule for every card.js.
 
+import { stopAllAnimations } from './card-motion.js';
+
 const stores = new Map();
 const resetHandlers = new Set();
 
@@ -37,5 +39,6 @@ export function resetAllCardState() {
       console.warn('[cards] session reset handler failed:', error);
     }
   }
+  stopAllAnimations();
   stores.clear();
 }

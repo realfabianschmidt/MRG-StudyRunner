@@ -18,8 +18,11 @@ from study_runner.plugin_framework.registry import (
     apply_enabled_runtime,
     build_context,
     get_plugin_manifest,
+    get_plugin_status,
     initialize_plugin,
+    plugin_is_running,
     run_runtime_action,
+    run_session_end,
 )
 from study_runner.runtime_core.settings.hardware_settings_service import (
     HardwareRevisionConflict,
@@ -511,24 +514,26 @@ def _start_study_sensor_runtime(study_settings: dict) -> dict:
     context = _plugin_context(effective_hardware_config)
     coordinator = _sensor_coordinator()
     if coordinator:
-        coordinator_result = coordinator.start_selected(selected_sensors, STUDY_SENSOR_KEYS, context)
+        # Sensors were prepared before the study started (connected, contact
+        # measured, calibrated). A participant session only records them:
+        # running sensors are not re-initialized, and unselected sensors are
+        # left to the loaded study's selection.
+        coordinator_result = coordinator.ensure_running(selected_sensors, STUDY_SENSOR_KEYS, context)
         current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = list(coordinator_result.get("active_plugins") or [])
         results = coordinator_result.get("runtime") or {}
         coordinator_payload = coordinator_result.get("coordinator") or {}
     else:
         results: dict[str, dict] = {}
         for sensor_key in STUDY_SENSOR_KEYS:
-            if selected_sensors.get(sensor_key):
-                try:
+            if not selected_sensors.get(sensor_key):
+                continue
+            try:
+                if plugin_is_running(get_plugin_status(sensor_key, context)):
+                    results[sensor_key] = {"ok": True, "plugin": sensor_key, "action": "none", "already_running": True}
+                else:
                     initialize_plugin(sensor_key, context)
                     results[sensor_key] = run_runtime_action(sensor_key, "start", context)
-                    current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"].append(sensor_key)
-                except Exception as error:
-                    results[sensor_key] = {"ok": False, "error": str(error)}
-                continue
-
-            try:
-                results[sensor_key] = run_runtime_action(sensor_key, "stop", context)
+                current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"].append(sensor_key)
             except Exception as error:
                 results[sensor_key] = {"ok": False, "error": str(error)}
         coordinator_payload = {}
@@ -542,7 +547,68 @@ def _start_study_sensor_runtime(study_settings: dict) -> dict:
     }
 
 
+def _end_study_sensor_session(*, notify: bool = True, options: dict | None = None) -> dict:
+    """Close the participant-session scope without stopping any sensor.
+
+    Sensors keep streaming for the next participant. With ``notify`` every
+    sensor that took part hears ``session_end`` so it can reset what belonged
+    to that person (for example electrode contact and calibration). The
+    session lock (``ACTIVE_STUDY_HARDWARE_CONFIG``) is released either way.
+    """
+    active_hardware_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
+    active_plugins = list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or [])
+    result: dict = {"notified_plugins": [], "runtime": {}}
+    if notify and active_plugins and not _hardware_disabled():
+        context = _plugin_context(active_hardware_config) if active_hardware_config else _plugin_context()
+        try:
+            result = run_session_end(active_plugins, dict(options or {}), context)
+        except Exception as error:
+            result = {"notified_plugins": [], "runtime": {}, "error": str(error)}
+    current_app.config.pop("ACTIVE_STUDY_HARDWARE_CONFIG", None)
+    current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = []
+    _refresh_trial_runtime()
+    return {"session_plugins": active_plugins, **result}
+
+
+def _apply_study_sensor_selection(study_settings: dict | None = None) -> dict:
+    """Run exactly the sensors the loaded study needs (plus dashboard overrides).
+
+    Called when a study is loaded, when the app starts, and when dashboard
+    overrides are reset. Never during a participant session: the session's
+    sensors must not be touched while they are being recorded.
+    """
+    runtime_state = _sensor_runtime_state(study_settings)
+    if _hardware_disabled():
+        return {"sensor_runtime": runtime_state, "runtime": {}, "skipped": "hardware_disabled"}
+    if isinstance(current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"), dict):
+        return {"sensor_runtime": runtime_state, "runtime": {}, "skipped": "session_active"}
+    context = _plugin_context(_effective_hardware_config_for_current_study(study_settings))
+    selected = runtime_state["effective"]
+    coordinator = _sensor_coordinator()
+    if coordinator:
+        applied = coordinator.apply_selection(selected, STUDY_SENSOR_KEYS, context)
+        runtime = applied.get("runtime") or {}
+    else:
+        runtime = {}
+        for sensor_key in STUDY_SENSOR_KEYS:
+            try:
+                running = plugin_is_running(get_plugin_status(sensor_key, context))
+                if selected.get(sensor_key) and not running:
+                    initialize_plugin(sensor_key, context)
+                    runtime[sensor_key] = run_runtime_action(sensor_key, "start", context)
+                elif not selected.get(sensor_key) and running:
+                    runtime[sensor_key] = run_runtime_action(sensor_key, "stop", context)
+            except Exception as error:
+                runtime[sensor_key] = {"ok": False, "error": str(error)}
+    return {"sensor_runtime": runtime_state, "runtime": runtime}
+
+
 def _stop_study_sensor_runtime() -> dict:
+    """Stop every sensor of the current session outright.
+
+    Only for shutting the app down (updates); a finished or aborted session
+    uses ``_end_study_sensor_session`` so prepared sensors keep running.
+    """
     active_hardware_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
     active_plugins = list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or [])
     context = _plugin_context(active_hardware_config) if active_hardware_config else _plugin_context()

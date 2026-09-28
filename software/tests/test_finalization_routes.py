@@ -28,6 +28,14 @@ class FakeFinalizationService:
         assert job_id == self.job["job_id"]
         return dict(self.job)
 
+    def continue_processing(self, job_id, *, confirmed_by="admin"):
+        from study_runner.runtime_core.delivery.finalization_service import InvalidTransitionError
+
+        assert job_id == self.job["job_id"]
+        if self.job.get("status") != "completed_degraded":
+            raise InvalidTransitionError("Only a degraded finalization can be processed further.")
+        return {**self.job, "status": "queued", "continued_by": confirmed_by}
+
 
 class FinalizationRoutesTests(unittest.TestCase):
     def _app(self, root: Path, job: dict) -> Flask:
@@ -91,6 +99,25 @@ class FinalizationRoutesTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         opener.assert_called_once_with(root, session_path)
+
+    def test_continue_route_resumes_a_degraded_job_and_refuses_others(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            degraded = {"job_id": "finalization-1", "status": "completed_degraded"}
+            response = self._app(root, degraded).test_client().post(
+                "/api/finalization/finalization-1/continue",
+                json={"confirmed_by": "operator-1"},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.get_json()["job"]["status"], "queued")
+            self.assertEqual(response.get_json()["job"]["continued_by"], "operator-1")
+
+            completed = {"job_id": "finalization-1", "status": "completed"}
+            refused = self._app(root, completed).test_client().post(
+                "/api/finalization/finalization-1/continue",
+                json={},
+            )
+            self.assertEqual(refused.status_code, 409)
 
 
 if __name__ == "__main__":

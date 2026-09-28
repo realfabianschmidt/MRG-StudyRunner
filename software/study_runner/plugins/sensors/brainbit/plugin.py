@@ -63,7 +63,18 @@ def _is_inside_bundle(context: PluginContext, candidate: str) -> bool:
     return True
 
 
-def _initialize(context: PluginContext) -> None:
+def _has_known_band(config: dict[str, Any]) -> bool:
+    """A band was chosen or connected before, so it can be reconnected automatically."""
+    last_connected = config.get("last_connected_device") or {}
+    return bool(
+        config.get("serial_number")
+        or config.get("device_address")
+        or config.get("device_name")
+        or (isinstance(last_connected, dict) and (last_connected.get("serial_number") or last_connected.get("address")))
+    )
+
+
+def _initialize(context: PluginContext, *, scan_requested: bool = False) -> None:
     config = config_section(context, "brainbit")
     if not config.get("enabled"):
         return
@@ -105,6 +116,9 @@ def _initialize(context: PluginContext) -> None:
         log_dir=_runtime_dir(context, config.get("log_dir"), DEFAULT_BRAINBIT["log_dir"], "logs"),
         log_max_bytes=config.get("log_max_bytes", 10 * 1024 * 1024),
         log_backup_count=config.get("log_backup_count", 3),
+        # Search only when asked: a known band reconnects on its own, an
+        # unknown one waits for the operator's Search.
+        start_process=scan_requested or _has_known_band(config),
     )
     adapter.wait_for_stream_contract()
 
@@ -252,8 +266,12 @@ def _start(context: PluginContext) -> Any:
     # over. Without this, a plugin that had used up its retries earlier stayed
     # unrecoverable until the whole application was restarted.
     adapter.reset_retry_budget()
-    if not adapter.is_configured() and config_section(context, "brainbit").get("enabled"):
+    config = config_section(context, "brainbit")
+    if not adapter.is_configured() and config.get("enabled"):
         _initialize(context)
+    elif not _has_known_band(config):
+        # Switching on never scans by itself; the Search button does.
+        adapter.await_scan()
     else:
         adapter.start()
     return adapter.wait_for_stream_contract()
@@ -266,7 +284,7 @@ def _stop(context: PluginContext) -> Any:
     return adapter.get_status()
 
 
-def _restart(context: PluginContext) -> Any:
+def _restart(context: PluginContext, *, scan_requested: bool = False) -> Any:
     from . import adapter
 
     config = config_section(context, "brainbit")
@@ -276,8 +294,15 @@ def _restart(context: PluginContext) -> Any:
         return adapter.get_status()
     # Re-read every machine setting from the refreshed v5 context. A plain
     # adapter.restart() would retain the old serial/path/timeout configuration.
-    _initialize(context)
+    _initialize(context, scan_requested=scan_requested)
     return adapter.wait_for_stream_contract()
+
+
+def _session_end(context: PluginContext, options: dict[str, Any]) -> None:
+    """A participant finished: keep streaming, but require contact and calibration anew."""
+    from . import adapter
+
+    adapter.session_end()
 
 
 def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
@@ -316,26 +341,37 @@ def _run_admin_action(
     action_key: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    if action_key not in {"select_device", "scan_devices", "check_contact"}:
+    if action_key not in {"select_device", "scan_devices", "check_contact", "calibrate"}:
         raise ValueError(f"Unknown BrainBit admin action: {action_key}")
     if context.runtime_locked:
         return {
             "study_controlled": True,
-            "last_message": "BrainBit band selection is locked while a study is running.",
+            "last_message": "BrainBit is locked while a participant session is recording.",
         }
+    from . import adapter
+
+    if action_key == "calibrate":
+        if not adapter.calibrate():
+            raise ValueError("BrainBit must be connected and streaming EEG before it can be initialized.")
+        return {"last_message": "Initializing BrainBit: the participant sits still with eyes open (about 6 s)."}
+    if action_key == "check_contact":
+        # Measured between EEG windows on the same connection; only when that
+        # is impossible (not connected yet) does a reconnect measure it.
+        if adapter.measure_contact():
+            return {"last_message": "Measuring electrode contact (about 6 s)."}
+        return _restart(context)
     if context.persist_hardware_config is None:
         raise RuntimeError("BrainBit device selection requires a machine-settings context.")
-    if action_key == "check_contact":
-        return _restart(context)
     if action_key == "scan_devices":
         # A temporary discovery restart must not erase the saved preferred band.
         config = json.loads(json.dumps(context.hardware_config))
         section = config.setdefault("brainbit", {})
         for key in ("serial_number", "device_address", "device_name", "last_connected_device"):
             section.pop(key, None)
-        # Require a choice even if only one band appears during an explicit scan.
-        section["require_selection"] = True
-        return _restart(replace(context, hardware_config=config))
+        # Exactly one band found: it is taken automatically and remembered.
+        # Several: the operator chooses one from the list.
+        section["require_selection"] = False
+        return _restart(replace(context, hardware_config=config), scan_requested=True)
 
     serial_number = str(payload.get("serial_number") or "").strip()
     device_address = str(payload.get("address") or "").strip()
@@ -410,6 +446,7 @@ PLUGIN = Plugin(
     run_admin_action=_run_admin_action,
     on_trial_start=_trial_start,
     on_trial_stop=_trial_stop,
+    on_session_end=_session_end,
     get_interval_summary=_interval,
     export_interval_samples=_export,
     handle_console_line=_handle_console_line,

@@ -12,6 +12,7 @@ from study_runner.plugin_framework.registry import (
     get_sample_metadata_model,
     initialize_plugin,
     iter_plugins,
+    plugin_is_running,
     run_runtime_action,
 )
 
@@ -97,37 +98,84 @@ class SensorCoordinator:
     def __exit__(self, _exc_type: Any, _exc: Any, _traceback: Any) -> None:
         self.close()
 
-    def start_selected(
+    def ensure_running(
         self,
         selected_sensors: dict[str, bool],
         sensor_keys: Iterable[str],
         context: PluginContext,
     ) -> dict[str, Any]:
+        """Participant session start: make sure the selected sensors run.
+
+        A sensor that is already running is left untouched -- no initialize,
+        no restart -- so a prepared device (connected, contact measured,
+        calibrated) is simply recorded. Only a stopped selected sensor is
+        started. Sensors the study does not select are not touched here;
+        loading the study decides about them (``apply_selection``).
+        """
+
         active_plugins: list[str] = []
         runtime: dict[str, dict[str, Any]] = {}
-
         for sensor_key in sensor_keys:
-            if selected_sensors.get(sensor_key):
-                try:
+            if not selected_sensors.get(sensor_key):
+                continue
+            try:
+                status = get_plugin_status(sensor_key, context)
+                if plugin_is_running(status):
+                    result = {
+                        "ok": True,
+                        "plugin": sensor_key,
+                        "action": "none",
+                        "already_running": True,
+                        "status": status,
+                    }
+                else:
                     initialize_plugin(sensor_key, context)
                     result = self.run_action(sensor_key, "start", context)
-                    runtime[sensor_key] = result
-                    if result.get("ok"):
-                        active_plugins.append(sensor_key)
-                except Exception as error:
-                    runtime[sensor_key] = {"ok": False, "error": str(error)}
-                continue
-
-            try:
-                runtime[sensor_key] = self.run_action(sensor_key, "stop", context)
+                runtime[sensor_key] = result
+                if result.get("ok"):
+                    active_plugins.append(sensor_key)
             except Exception as error:
                 runtime[sensor_key] = {"ok": False, "error": str(error)}
-
         return {
             "active_plugins": active_plugins,
             "runtime": runtime,
             "coordinator": self.lifecycle_summary(),
         }
+
+    def apply_selection(
+        self,
+        selected_sensors: dict[str, bool],
+        sensor_keys: Iterable[str],
+        context: PluginContext,
+    ) -> dict[str, Any]:
+        """Study load / app start: run exactly the sensors the study needs.
+
+        Selected sensors are started when they are not running yet; every
+        other sensor is stopped when it is running. A study without sensors
+        therefore leaves no sensor active.
+        """
+
+        keys = list(sensor_keys)
+        result = self.ensure_running(selected_sensors, keys, context)
+        runtime = result["runtime"]
+        for sensor_key in keys:
+            if selected_sensors.get(sensor_key):
+                continue
+            try:
+                status = get_plugin_status(sensor_key, context)
+                if plugin_is_running(status):
+                    runtime[sensor_key] = self.run_action(sensor_key, "stop", context)
+                else:
+                    runtime[sensor_key] = {
+                        "ok": True,
+                        "plugin": sensor_key,
+                        "action": "none",
+                        "already_stopped": True,
+                    }
+            except Exception as error:
+                runtime[sensor_key] = {"ok": False, "error": str(error)}
+        result["coordinator"] = self.lifecycle_summary()
+        return result
 
     def stop_plugins(self, plugin_keys: Iterable[str], context: PluginContext) -> dict[str, Any]:
         stopped_plugins = list(plugin_keys)

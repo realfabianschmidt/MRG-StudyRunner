@@ -15,17 +15,31 @@ from study_runner.contracts.plugin_api import PluginContext, Plugin
 def _status(context: PluginContext) -> dict[str, Any]:
     section = context.hardware_config.get("nextcloud")
     configured = section if isinstance(section, dict) else {}
+    enabled = configured.get("enabled", True) is not False
     return {
-        "status": "available",
-        "runtime_enabled": True,
-        "configured_enabled": bool(configured.get("enabled", True)),
+        "status": "available" if enabled else "disabled",
+        "runtime_enabled": enabled,
+        "configured_enabled": enabled,
         "device_label": "Nextcloud upload",
-        "last_message": "Nextcloud is available as a per-study upload destination.",
+        "last_message": (
+            "Nextcloud is available as a per-study upload destination."
+            if enabled
+            else "Nextcloud upload is switched off on this computer."
+        ),
     }
 
 
 def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
     from .webdav_client import NextcloudError, NextcloudPublicShareClient
+
+    machine = context.hardware_config.get("nextcloud")
+    if isinstance(machine, dict) and machine.get("enabled") is False:
+        return {
+            "ok": False,
+            "permanent": True,
+            "error": "Nextcloud upload is switched off on this computer. "
+            "Turn it on under Settings > This computer > Nextcloud.",
+        }
 
     config_data = payload.get("config_data") or {}
     study_settings = config_data.get("study_settings") or {}

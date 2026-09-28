@@ -148,21 +148,6 @@ XDF file alone does not prove EEG was acquired: inspect its streams and sample
 counts. Detailed incident evidence and hardware acceptance steps are in
 [the implementation report](../../../../../docs/20260915_brainbit.md).
 
-## Falling back to "BrainBit (old)"
-
-The folder next door, `brainbit_old/`, is a frozen copy of this plugin as it was
-before the connection work. It exists as a safety net and is switched **off** by
-default.
-
-Turn it on only if this plugin fails in a way that stops a study, and then:
-
-- switch **this** plugin off first — the band can only ever be owned by one
-  process, so two enabled BrainBit plugins will fight over it and neither will
-  work;
-- expect its recordings to be labelled `brainbit_old`, so they are not directly
-  comparable with existing ones;
-- treat it as temporary, and say what happened, so it can be fixed here.
-
 ## Tests
 
 - `software/tests/test_brainbit_contract.py` — packet decoding, channel

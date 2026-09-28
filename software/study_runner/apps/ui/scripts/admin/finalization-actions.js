@@ -22,11 +22,28 @@ export async function confirmDegradedFinalization(jobId, reason, { showToast, on
   const explanation = String(reason || '').trim();
   if (!explanation) return;
   try {
-    await postJson(jobUrl(jobId, 'confirm-degraded'), { reason: explanation, confirmed_by: 'admin' });
-    showToast?.(t('finalization.degradedConfirmed', 'Degraded completion confirmed'), 'success');
+    const response = await postJson(jobUrl(jobId, 'confirm-degraded'), { reason: explanation, confirmed_by: 'admin' });
+    const continued = response?.job?.degraded_confirmation?.continued_processing;
+    showToast?.(
+      continued
+        ? t('finalization.continueStarted', 'Processing continues')
+        : t('finalization.degradedConfirmed', 'Degraded completion confirmed'),
+      'success',
+    );
   } catch (error) {
     console.error('[finalization] Degraded confirmation failed:', error);
     showToast?.(t('finalization.degradedFailed', 'Degraded completion could not be confirmed'), 'error');
+  }
+  await onDone?.();
+}
+
+export async function continueFinalization(jobId, { showToast, onDone } = {}) {
+  try {
+    await postJson(jobUrl(jobId, 'continue'), { confirmed_by: 'admin' });
+    showToast?.(t('finalization.continueStarted', 'Processing continues'), 'success');
+  } catch (error) {
+    console.error('[finalization] Continue processing failed:', error);
+    showToast?.(error?.message || t('finalization.continueFailed', 'Processing could not be continued'), 'error');
   }
   await onDone?.();
 }

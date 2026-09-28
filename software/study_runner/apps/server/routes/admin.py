@@ -6,7 +6,7 @@ import threading
 
 from flask import Blueprint, current_app, jsonify, request
 
-from study_runner.plugin_framework.registry import get_plugin_manifests, initialize_plugin, run_runtime_action
+from study_runner.plugin_framework.registry import get_plugin_manifests, initialize_plugin
 from study_runner.runtime_core.studies.live_sensor_readiness import live_sensor_issues, selected_study_sensors
 from study_runner.runtime_core.studies.study_run_abort import StudyRunAbortError, abort_study_run
 from study_runner.runtime_core.settings.admin_status_service import build_admin_status
@@ -38,7 +38,8 @@ from .helpers import (
     _start_study_run,
     _stop_study_run,
     _study_run_state,
-    _stop_study_sensor_runtime,
+    _apply_study_sensor_selection,
+    _end_study_sensor_session,
 )
 
 bp = Blueprint("admin", __name__)
@@ -383,6 +384,10 @@ def admin_load_study_run():
         save_config(current_app.config["CONFIG_FILE"], validated_config)
         run_state = _load_study_run(validated_config["study_id"])
         client_status = get_client_status(active_study_id=str(run_state.get("study_id") or ""))
+        # The loaded study decides which sensors run. Dashboard overrides were
+        # made for the previous study and end here.
+        _clear_session_overrides()
+        sensor_result = _apply_study_sensor_selection(validated_config.get("study_settings"))
         print(f"[STUDY-RUN] Loaded study: {study_id}")
         return jsonify(
             {
@@ -390,6 +395,7 @@ def admin_load_study_run():
                 "config": validated_config,
                 "run_state": run_state,
                 "tablet_gate": client_status.get("single_tablet", {}),
+                "sensor_runtime": sensor_result.get("sensor_runtime"),
             }
         )
     except Exception as error:
@@ -481,7 +487,8 @@ def admin_study_run_live_check():
 @bp.route("/api/admin/study-run/stop", methods=["POST"])
 def admin_stop_study_run():
     run_state = _stop_study_run()
-    sensor_result = _stop_study_sensor_runtime()
+    # Stopping the run keeps the study loaded, so its sensors keep running.
+    sensor_result = _end_study_sensor_session(notify=True, options={"reason": "run_stopped"})
     print(f"[STUDY-RUN] Stopped study: {run_state.get('study_id')}")
     return jsonify({"ok": True, "run_state": run_state, **sensor_result})
 
@@ -507,7 +514,7 @@ def admin_abort_study_run():
     except StudyRunAbortError as error:
         return jsonify({"ok": False, "error": str(error)}), error.status_code
 
-    sensor_result = _stop_study_sensor_runtime()
+    sensor_result = _end_study_sensor_session(notify=True, options={"reason": "run_aborted"})
     run_state = result.run_state
     print(f"[STUDY-RUN] Aborted study ({result.outcome}): {run_state.get('study_id')} -- {run_state.get('aborted_reason')}")
     return jsonify(
@@ -525,18 +532,8 @@ def admin_abort_study_run():
 @bp.route("/api/admin/session-overrides/reset", methods=["POST"])
 def reset_session_overrides():
     _clear_session_overrides()
-    active_config = _rebuild_active_study_runtime_config()
-    context = _plugin_context(active_config) if isinstance(active_config, dict) else _plugin_context()
-    for sensor_key in STUDY_SENSOR_KEYS:
-        effective = _sensor_runtime_state()["effective"].get(sensor_key, False)
-        try:
-            if effective:
-                initialize_plugin(sensor_key, context)
-                run_runtime_action(sensor_key, "start", context)
-            else:
-                run_runtime_action(sensor_key, "stop", context)
-        except Exception:
-            pass
+    _rebuild_active_study_runtime_config()
+    _apply_study_sensor_selection()
     return jsonify({"ok": True, "sensor_runtime": _sensor_runtime_state()})
 
 

@@ -145,6 +145,10 @@ class Plugin:
     on_trial_start: TrialHandler | None = None
     on_trial_stop: TrialHandler | None = None
     on_trial_marker: MarkerHandler | None = None
+    # Called once when a participant session's recording closes. Sensors keep
+    # streaming across participants; this is where a plugin resets state that
+    # belongs to one person (e.g. electrode contact and calibration).
+    on_session_end: TrialHandler | None = None
     get_interval_summary: IntervalSummaryHandler | None = None
     export_interval_samples: IntervalExportHandler | None = None
     publish_destination: UploadDestinationHandler | None = None

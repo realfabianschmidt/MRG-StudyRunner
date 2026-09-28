@@ -29,6 +29,7 @@
   },
   "ui": {
     "label": "multi-slider",
+    "description": "Captures several related numeric ratings in one card.",
     "order": 70,
     "visibility": {
       "dashboard": false,

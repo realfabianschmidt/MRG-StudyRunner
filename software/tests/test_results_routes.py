@@ -121,6 +121,41 @@ class ResultsRoutesTests(unittest.TestCase):
             self.assertTrue(response.get_json()["ok"])
             self.assertFalse(snapshot_path.exists(), "partial snapshot should be removed after final save")
 
+    def test_study_with_capitals_and_spaces_gets_exactly_one_folder(self) -> None:
+        # The test session of 2026-09-28 left "Example_Sensors_Study/_partial"
+        # (empty) next to "Example_Sensors_Study--4c0f6e4eac/participants/...".
+        study_id = "Example Sensors Study"
+        with tempfile.TemporaryDirectory() as data_dir:
+            app = self._make_app(data_dir)
+            client = app.test_client()
+            partial = {
+                "session_id": "sess-3",
+                "study_id": study_id,
+                "participant_id": "p01",
+                "answers": {"q0": 1},
+            }
+            self.assertEqual(client.post("/api/results/partial", json=partial).status_code, 200)
+            results = {**VALIDATED_RESULTS, "study_id": study_id}
+            config = {**CONFIG_DATA, "study_id": study_id}
+            with (
+                patch("study_runner.apps.server.routes.results.load_config", return_value={}),
+                patch("study_runner.apps.server.routes.results.validate_and_normalize_config", return_value=config),
+                patch("study_runner.apps.server.routes.results.validate_and_normalize_results", return_value=results),
+                patch("study_runner.apps.server.routes.results.build_answer_details", return_value=[]),
+            ):
+                response = client.post(
+                    "/api/results",
+                    json={**partial, "timestamp_start": "2026-07-10T10:00:00Z", "timestamp_end": "2026-07-10T10:05:00Z"},
+                )
+            self.assertEqual(response.status_code, 202)
+
+            saved_results = Path(app.config["DATA_DIR"])
+            study_folders = sorted(path.name for path in saved_results.iterdir() if path.name.startswith("Example"))
+            self.assertEqual(len(study_folders), 1, study_folders)
+            study_folder = saved_results / study_folders[0]
+            self.assertTrue((study_folder / "participants").is_dir())
+            self.assertFalse((study_folder / "_partial").exists(), "empty _partial folder must be removed")
+
     def test_successful_save_marks_study_session_completed(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             app = self._make_app(data_dir)
@@ -158,6 +193,45 @@ class ResultsRoutesTests(unittest.TestCase):
             self.assertEqual(payload["study_run_state"]["status"], "completed")
             self.assertEqual(app.config["SESSION_STORE"].get(session_id)["status"], "completed")
             self.assertIsNone(app.config["SESSION_STORE"].find_active("teststudy", "p01", "tablet-1"))
+
+    def test_results_stay_with_the_participant_folder_the_session_started_with(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            app = self._make_app(data_dir)
+            client = app.test_client()
+            _load_plain_study(client, "teststudy")
+            start = client.post(
+                "/api/study/session/start",
+                json={
+                    "study_id": "teststudy",
+                    "participant_id": "p01",
+                    "client_id": "tablet-1",
+                    "current_index": 0,
+                    "current_type": "participant-id",
+                },
+            )
+            self.assertEqual(start.status_code, 200)
+            session_id = start.get_json()["session"]["session_id"]
+
+            edited = {**VALIDATED_RESULTS, "participant_id": "p02"}
+            with (
+                patch("study_runner.apps.server.routes.results.load_config", return_value={}),
+                patch("study_runner.apps.server.routes.results.validate_and_normalize_config", return_value=dict(CONFIG_DATA)),
+                patch("study_runner.apps.server.routes.results.validate_and_normalize_results", return_value=edited),
+                patch("study_runner.apps.server.routes.results.build_answer_details", return_value=[]),
+            ):
+                response = client.post(
+                    "/api/results",
+                    json={"session_id": session_id, "study_id": "teststudy", "participant_id": "p02"},
+                )
+
+            self.assertEqual(response.status_code, 202)
+            job = response.get_json()["finalization_job"]
+            self.assertIn("/participants/p01/", job["session_path"].replace("\\", "/"))
+            submission = json.loads(
+                (Path(app.config["DATA_DIR"]) / job["session_path"] / "answers" / "submission.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(submission["participant_id"], "p01")
+            self.assertEqual(submission["participant_id_submitted"], "p02")
 
     def test_post_commit_bookkeeping_failure_does_not_revoke_accepted_submission(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:

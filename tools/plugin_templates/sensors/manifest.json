@@ -22,13 +22,19 @@
       ]
     },
     "health": {},
+    "connection": {
+      "device_noun_key": "sensorConnection.noun.device",
+      "signal_label_key": "sensorConnection.signal.signal",
+      "setup_per_participant": false
+    },
     "machine_settings": {},
     "study_settings": {}
   },
   "runtime": {
     "entrypoint": "driver.py",
     "protocol": "study-runner-stdio/v1",
-    "sample_delivery": "declared_transport"
+    "sample_delivery": "declared_transport",
+    "trial_events": ["session_end"]
   },
   "streams": [
     {

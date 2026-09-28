@@ -40,6 +40,71 @@ def validation_details(
     }
 
 
+# Two kinds of validation findings.
+#
+# Blocking: the source files themselves cannot be trusted or merged, so no
+# derived artifact may be built from them.
+BLOCKING_ISSUE_CODES = frozenset(
+    {
+        "unreadable_source",
+        "empty_source",
+        "source_footer_missing",
+        "source_footer_sample_count_missing",
+        "source_footer_sample_count_mismatch",
+        "non_monotonic_timestamps",
+        "nominal_rate_mismatch",
+        "missing_required_source",
+        "duplicate_origin",
+        "duplicate_origin_across_sources",
+        "duplicate_source_origin",
+        "recording_contract_invalid",
+        # Merge parity (validate_merge) findings.
+        "unreadable_merge",
+        "missing_merged_stream",
+        "missing_merged_stream_id",
+        "unexpected_merged_stream",
+        "duplicate_merged_origin",
+        "duplicate_merged_stream_id",
+    }
+)
+# Quality warnings: the files are readable and mergeable, but the data is
+# incomplete or its completeness cannot be vouched for. An operator may accept
+# them with a reason; processing then continues and the session is degraded.
+QUALITY_WARNING_CODES = frozenset(
+    {
+        "insufficient_time_coverage",
+        "severe_sample_loss",
+        "empty_declared_stream",
+        "missing_declared_stream",
+        "web_server_lease_expired",
+        "recording_lease_unreadable",
+        "recording_worker_attention_unreadable",
+        "missing_backup_stream",
+        "backup_forward_fill_detected",
+        "backup_plugins_missing",
+        "backup_projection_channels_missing",
+        "backup_quality_channels_missing",
+        "backup_rate_mismatch",
+        "backup_role_missing",
+        "backup_strategy_mismatch",
+    }
+)
+
+
+def issue_is_blocking(code: str) -> bool:
+    """Unknown codes block: a new check must be classified before it can be accepted."""
+    return str(code or "") not in QUALITY_WARNING_CODES
+
+
+def split_validation_issues(issues: Iterable[Any]) -> tuple[list[Any], list[Any]]:
+    """Return ``(blocking, warnings)`` for a report's issues."""
+    blocking: list[Any] = []
+    warnings: list[Any] = []
+    for issue in issues:
+        (blocking if issue_is_blocking(getattr(issue, "code", "")) else warnings).append(issue)
+    return blocking, warnings
+
+
 def validation_error(label: str, report: Any) -> str:
     rendered = "; ".join(f"{issue.code}: {issue.message}" for issue in report.issues[:8])
     return f"XDF {label} failed: {rendered or 'unknown validation error'}"
@@ -344,8 +409,12 @@ def scientific_source_checks(
                 issues.append(
                     ValidationIssue(
                         code="insufficient_time_coverage",
-                        message=(
-                            f"stream {source_id!r} does not cover the marker-defined session window"
+                        message=_coverage_message(
+                            source_id,
+                            actual["first_timestamp"],
+                            actual["last_timestamp"],
+                            marker_start,
+                            marker_end,
                         ),
                         source_key=plugin_key,
                     )
@@ -356,6 +425,30 @@ def scientific_source_checks(
         "declared_streams": metrics,
         "derived_backup": backup_metrics,
     }
+
+
+def _coverage_message(
+    source_id: str,
+    first_timestamp: float | None,
+    last_timestamp: float | None,
+    marker_start: float,
+    marker_end: float,
+) -> str:
+    """Say by how much a stream misses the session window, not only that it does."""
+    parts: list[str] = []
+    if first_timestamp is None or last_timestamp is None:
+        parts.append("has no samples inside the session window")
+    else:
+        late_ms = (float(first_timestamp) - float(marker_start)) * 1000.0
+        early_ms = (float(marker_end) - float(last_timestamp)) * 1000.0
+        if late_ms > 0:
+            parts.append(f"starts {late_ms:.0f} ms after the session start marker")
+        if early_ms > 0:
+            parts.append(f"ends {early_ms:.0f} ms before the session end marker")
+    if not parts:
+        return f"stream {source_id!r} does not cover the marker-defined session window"
+    detail = " and ".join(parts)
+    return f"stream {source_id!r} {detail}, so it does not cover the marker-defined session window"
 
 
 def backup_source_checks(

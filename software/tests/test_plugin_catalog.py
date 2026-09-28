@@ -874,7 +874,7 @@ class PublicCatalogTests(unittest.TestCase):
         self.assertEqual(wrong_media_type.status_code, 415)
 
     def test_brainbit_selection_uses_generic_route_and_machine_context(self) -> None:
-        """BrainBit is an API-v4 plugin: its admin actions run inside the
+        """BrainBit is an API-v5 plugin: its admin actions run inside the
         driver.py child process, not the server process. Patching
         study_runner.plugins.sensors.brainbit.plugin._restart here would be a no-op --
         that module only runs inside the isolated driver. This test instead

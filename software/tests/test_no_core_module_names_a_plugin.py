@@ -52,7 +52,7 @@ if str(PROJECT_ROOT) not in sys.path:
 # lsl_markers and clock_diagnostics are deliberately absent: they are core
 # recording code now, not plugins (test_plugin_removability.py).
 REAL_PLUGIN_KEYS = (
-    "am_hub", "brainbit", "brainbit_old", "camera_emotion", "mini_radar", "notion", "nextcloud", "osc",
+    "am_hub", "brainbit", "camera_emotion", "mini_radar", "notion", "nextcloud", "osc",
 )
 
 

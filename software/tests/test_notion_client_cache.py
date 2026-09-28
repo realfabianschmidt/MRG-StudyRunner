@@ -50,7 +50,6 @@ class NotionClientCacheTests(unittest.TestCase):
         arguments = {
             "enabled": True,
             "api_key": "machine-key",
-            "auto_retry_failed": True,
             "timeout_seconds": 10,
             "data_dir": Path("."),
         }

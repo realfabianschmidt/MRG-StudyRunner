@@ -12,9 +12,8 @@ def _initialize(context: PluginContext) -> None:
     from . import adapter
 
     adapter.initialize(
-        enabled=bool(config.get("enabled")),
+        enabled=config.get("enabled", True) is not False,
         api_key=context.secret("notion"),
-        auto_retry_failed=config.get("auto_retry_failed", True),
         timeout_seconds=config.get("timeout_seconds", 10),
         data_dir=context.data_dir,
     )
@@ -26,7 +25,7 @@ def _status(context: PluginContext) -> dict[str, Any]:
 
     status = adapter.get_status()
     has_key = bool(context.secret("notion"))
-    enabled = bool(config.get("enabled", False))
+    enabled = config.get("enabled", True) is not False
     if not enabled:
         status_value = "disabled"
     elif status.get("connected"):
@@ -41,7 +40,6 @@ def _status(context: PluginContext) -> dict[str, Any]:
         "status": status_value,
         "runtime_enabled": bool(status.get("connected")),
         "api_key_configured": has_key,
-        "auto_retry_failed": bool(config.get("auto_retry_failed", True)),
         "device_label": "Notion upload",
         "last_message": _message(enabled, has_key, bool(status.get("connected"))),
     }

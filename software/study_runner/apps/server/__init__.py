@@ -100,10 +100,24 @@ def _offer_remembered_data_folder(app: Flask) -> None:
 
 
 def _plugin_context(app: Flask):
+    """Context for starting the plugins: the loaded study decides the sensors.
+
+    Each study sensor's ``enabled`` comes from the loaded study, so a study
+    without sensorics starts no sensor. If the study config cannot be read,
+    the machine settings are used as before.
+    """
     from dataclasses import replace
-    from .routes.helpers import _plugin_context as route_plugin_context
+    from .routes.helpers import (
+        _effective_hardware_config_for_current_study,
+        _plugin_context as route_plugin_context,
+    )
     with app.app_context():
-        return replace(route_plugin_context(app.config.get("HARDWARE_CONFIG", {})),
+        try:
+            hardware_config = _effective_hardware_config_for_current_study()
+        except Exception as error:
+            print(f"[STUDY-RUN] Could not apply the loaded study's sensors at start: {error}")
+            hardware_config = app.config.get("HARDWARE_CONFIG", {})
+        return replace(route_plugin_context(hardware_config),
                        secret_resolver=resolve_plugin_secret)
 
 
@@ -182,7 +196,7 @@ def create_app() -> Flask:
     app.config["FINALIZATION_RECORDING_ADAPTER"] = RuntimeRecordingFinalizationAdapter(
         recording_runtime,
         write_end_marker=lambda context: _write_finalization_end_marker(app, context),
-        stop_producers=lambda context: _stop_finalization_producers(app, context),
+        end_session_producers=lambda context: _end_finalization_producers(app, context),
     )
     configure_finalization(app)
     app.config["WITHDRAWAL_SERVICE"] = WithdrawalService(
@@ -255,13 +269,25 @@ def _write_finalization_end_marker(app: Flask, context) -> dict:
         )
 
 
-def _stop_finalization_producers(app: Flask, _context) -> dict:
-    """Stop app-owned producers while retaining XDF inlets until worker freeze."""
+def _end_finalization_producers(app: Flask, context) -> dict:
+    """End the participant session for the sensors without stopping them.
+
+    Runs after the recording is frozen. Sensors keep streaming for the next
+    participant and only reset their per-person state (``session_end``).
+    """
 
     with app.app_context():
-        from .routes.helpers import _stop_study_sensor_runtime
+        from .routes.helpers import _end_study_sensor_session
 
-        return _stop_study_sensor_runtime()
+        return _end_study_sensor_session(
+            notify=True,
+            options={
+                "reason": "session_finalized",
+                "session_id": context.state.get("session_id"),
+                "participant_id": context.state.get("participant_id"),
+                "study_id": context.state.get("study_id"),
+            },
+        )
 
 
 def _stop_recording_for_withdrawal(app: Flask, session_id: str) -> dict:

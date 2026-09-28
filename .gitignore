@@ -33,6 +33,7 @@ software/study_content/studies/*.study-runner
 software/study_content/studies/_assets/
 !software/study_content/studies/Example Basic Study.study-runner
 !software/study_content/studies/Example Sensors Study.study-runner
+!software/study_content/studies/Example Card Gallery Study.study-runner
 software/study_runner/plugins/brainbit_assets_to_copy/
 # Certificates and private keys: no rule above should ever need to be
 # overridden for one of these, so keep this last as a hard backstop.

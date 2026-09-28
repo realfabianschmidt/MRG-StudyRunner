@@ -167,6 +167,13 @@ _routing_state = {
 }
 _auto_restart_count = 0
 _last_auto_restart_at = 0.0
+# Enabled, but no band is known yet: nothing is scanned until the operator
+# presses Search. The plugin counts as switched on while it waits.
+_awaiting_scan = False
+# Electrode contact and calibration belong to one participant. After a
+# session ends they are marked stale until they are measured again.
+_contact_stale = False
+_calibration_needs_initialize = False
 # Set by start()/stop() so the watchdog knows whether an exited process should
 # be revived or was stopped on purpose.
 _desired_running = False
@@ -253,6 +260,9 @@ def _build_cli_command() -> list[str] | None:
         command.extend(["--device-name", str(_config["device_name"])])
     if _config.get("require_selection"):
         command.append("--require-selection")
+    # Operator commands (measure contact, initialize) arrive on stdin, and the
+    # derived metrics are calibrated only on the operator's Initialize.
+    command.extend(["--control-stdin", "--manual-calibration"])
     if _config.get("pretty"):
         command.append("--pretty")
     if _config.get("debug"):
@@ -291,9 +301,14 @@ def initialize(
     log_dir: str | None = None,
     log_max_bytes: int = 10 * 1024 * 1024,
     log_backup_count: int = 3,
+    start_process: bool = True,
 ) -> None:
-    """Store BrainBit settings, prepare optional LSL mirrors, and start the external CLI."""
-    global _registered_shutdown, _config
+    """Store BrainBit settings, prepare optional LSL mirrors, and start the external CLI.
+
+    With ``start_process=False`` (no band known yet) the adapter is configured
+    but does not scan: it reports ``no_device`` until the operator searches.
+    """
+    global _registered_shutdown, _config, _awaiting_scan
 
     script_file = Path(script_path).expanduser()
     if not script_file.exists() and script_file.name == "brainbit_realtime_cli_OSC_15.py":
@@ -406,6 +421,16 @@ def initialize(
         atexit.register(stop)
         _registered_shutdown = True
 
+    if not start_process:
+        _awaiting_scan = True
+        _set_state(
+            {
+                "status": "no_device",
+                "last_message": "No BrainBit headband is known yet. Search for headbands.",
+            },
+            force=True,
+        )
+        return
     start()
 
 
@@ -417,10 +442,14 @@ def start() -> None:
     global _connected_at
     global _log_write_error, _last_log_flush_at
     global _eeg_lsl_channels, _lsl_stream_health
+    global _awaiting_scan, _contact_stale, _calibration_needs_initialize
 
     if not _config:
         print("[BrainBit] Adapter not configured.")
         return
+    _awaiting_scan = False
+    _contact_stale = False
+    _calibration_needs_initialize = False
 
     with _lock:
         if _process is not None and _process.poll() is None:
@@ -460,6 +489,9 @@ def start() -> None:
             _process = subprocess.Popen(
                 command,
                 cwd=_config["working_dir"],
+                # Its own pipe: operator commands go here, and the CLI must
+                # never inherit the plugin driver's protocol stdin.
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -517,6 +549,7 @@ def start() -> None:
                 "last_data_warning_epoch": None,
                 "supported_channels": None,
                 "actual_streams": None,
+                "contact_measuring": False,
                 "target_device": _target_device_from_config(),
                 "last_message": f"Scanning for BrainBit for {_config.get('scan_seconds', 5)} seconds.",
             },
@@ -554,9 +587,10 @@ def start() -> None:
 
 def stop() -> None:
     """Stop the repo-local BrainBit process if it is running."""
-    global _process, _reader_thread, _desired_running
+    global _process, _reader_thread, _desired_running, _awaiting_scan
 
     _desired_running = False
+    _awaiting_scan = False
     _publish_diagnostic("ACQUISITION_END", _monitor.snapshot())
     _monitor.observe("STOPPED", {})
     _publish_diagnostic("STOPPED", {})
@@ -640,6 +674,24 @@ def is_configured() -> bool:
     return bool(_config)
 
 
+def is_awaiting_scan() -> bool:
+    """True while switched on without a known band, waiting for a Search."""
+    return _awaiting_scan
+
+
+def await_scan() -> None:
+    """Switch on without scanning: report ``no_device`` until the operator searches."""
+    global _awaiting_scan
+    _awaiting_scan = True
+    _set_state(
+        {
+            "status": "no_device",
+            "last_message": "No BrainBit headband is known yet. Search for headbands.",
+        },
+        force=True,
+    )
+
+
 # ============================================================
 #  2. STATUS - what the dashboard shows
 # ============================================================
@@ -698,7 +750,185 @@ def get_status() -> dict[str, Any]:
         "target_device": latest.get("target_device") or _target_device_from_config(),
         "health": health,
         "last_message": latest.get("last_message", "BrainBit adapter is not configured."),
+        # Switched on: acquiring, or waiting for the operator to search.
+        "running": bool(running or _awaiting_scan),
+        "connection": _connection_block(latest, running, monitoring, contact_state, contact_channels, health),
     }
+
+
+# The monitor's connection states mapped onto the shared connection phases.
+_PHASES = {
+    "searching": "searching",
+    "device_found": "connecting",
+    "connecting": "connecting",
+    "selection_required": "selection_required",
+    "connected": "connected",
+    "reconnecting": "reconnecting",
+    "failed": "failed",
+    "stopped": "off",
+}
+_SIGNAL_STATES = {"usable": "good", "mixed": "fair", "poor": "poor", "unknown": "unknown"}
+
+
+def _connection_block(
+    latest: dict[str, Any],
+    running: bool,
+    monitoring: dict[str, Any],
+    contact_state: str,
+    contact_channels: dict[str, str],
+    health: dict[str, str],
+) -> dict[str, Any]:
+    """Facts for the shared connection panel; the core decides ready/next step."""
+    if _awaiting_scan and not running:
+        phase = "no_device"
+    else:
+        phase = _PHASES.get(str(monitoring.get("connection_state") or ""), "connecting")
+        if phase == "failed" and not _target_device_from_config():
+            phase = "no_device"
+    device = latest.get("selected_device") or latest.get("device") or latest.get("target_device") or _target_device_from_config()
+    device_label = _device_label(device)
+
+    if latest.get("contact_measuring"):
+        signal_state = "measuring"
+    elif _contact_stale:
+        signal_state = "stale"
+    else:
+        signal_state = _SIGNAL_STATES.get(contact_state, "unknown")
+    signal: dict[str, Any] = {"state": signal_state}
+    weak = sorted(channel for channel, state in (contact_channels or {}).items() if state != "usable")
+    if weak and signal_state in {"poor", "fair"}:
+        signal["channels"] = weak
+    if latest.get("contact_quality_as_of"):
+        signal["measured_at"] = latest["contact_quality_as_of"]
+
+    calibration = latest.get("calibration") if isinstance(latest.get("calibration"), dict) else {}
+    event = str(calibration.get("event") or "")
+    if latest.get("derived_enabled") is False:
+        setup = {"state": "not_needed"}
+    elif _calibration_needs_initialize or event in {"WAITING_FOR_INITIALIZE", "RESET", ""}:
+        setup = {"state": "needed"}
+        if event == "RESET" and calibration.get("reason") == "operator_initialize":
+            setup = {"state": "running", "progress_percent": 0}
+    elif event == "STALLED":
+        setup = {"state": "stalled"}
+    elif event in {"FINISHED", "FORCED_FINISH"}:
+        setup = {"state": "done"}
+    else:
+        progress = calibration.get("progress_percent")
+        setup = {"state": "running"}
+        if isinstance(progress, (int, float)) and not isinstance(progress, bool):
+            setup["progress_percent"] = progress
+
+    candidates = []
+    for candidate in latest.get("scan_candidates") or []:
+        if not isinstance(candidate, dict):
+            continue
+        payload = {
+            key: value
+            for key, value in {
+                "index": candidate.get("index"),
+                "name": candidate.get("name"),
+                "address": candidate.get("address"),
+                "serial_number": candidate.get("serial") or candidate.get("serial_number"),
+            }.items()
+            if value not in (None, "")
+        }
+        identity = _device_identity(payload)
+        if identity:
+            candidates.append({"id": identity, "label": _device_label(candidate), "payload": payload})
+    return {
+        "phase": phase,
+        "device": {"id": _device_identity(device), "label": device_label} if device_label else None,
+        "candidates": candidates,
+        "signal": signal,
+        "setup": setup,
+        "streaming": health.get("raw_eeg") == "receiving",
+        "message": str(latest.get("last_message") or ""),
+    }
+
+
+def _device_identity(device: Any) -> str:
+    if not isinstance(device, dict):
+        return ""
+    serial = str(device.get("serial_number") or device.get("serial") or "").strip().lower()
+    address = str(device.get("address") or "").replace(":", "").replace("-", "").strip().lower()
+    return f"serial:{serial}" if serial else (f"address:{address}" if address else "")
+
+
+def _device_label(device: Any) -> str:
+    if not isinstance(device, dict) or not device:
+        return ""
+    name = str(device.get("name") or "BrainBit").strip()
+    serial = str(device.get("serial_number") or device.get("serial") or "").strip()
+    return f"{name} {serial}".strip() if serial else (name if device.get("address") or name != "BrainBit" else "")
+
+
+# ============================================================
+#  2b. OPERATOR COMMANDS - measure contact / initialize while connected
+# ============================================================
+def send_cli_command(command: str) -> bool:
+    """Write one operator command line to the running CLI. False when not possible."""
+    with _lock:
+        process = _process
+    if process is None or process.poll() is not None or process.stdin is None:
+        return False
+    try:
+        process.stdin.write(f"{command}\n")
+        process.stdin.flush()
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _is_streaming() -> bool:
+    with _state_lock:
+        latest = dict(_latest_state)
+    return _monitor.snapshot()["connection_state"] == "connected" and _has_recent_eeg(latest)
+
+
+def measure_contact() -> bool:
+    """Measure electrode contact again without dropping the connection."""
+    global _contact_stale
+    if not _is_streaming() or not send_cli_command("MEASURE_CONTACT"):
+        return False
+    _contact_stale = False
+    _set_state(
+        {"contact_measuring": True, "last_message": "Measuring electrode contact (about 6 s)."},
+        force=True,
+    )
+    return True
+
+
+def calibrate() -> bool:
+    """Start the calibration of the derived metrics for the current participant."""
+    global _calibration_needs_initialize
+    if not _is_streaming() or not send_cli_command("CALIBRATE"):
+        return False
+    _calibration_needs_initialize = False
+    _set_state(
+        {
+            "calibration": {"event": "RESET", "reason": "operator_initialize"},
+            "last_message": "Initializing: the participant sits still with eyes open (about 6 s).",
+        },
+        force=True,
+    )
+    return True
+
+
+def session_end() -> None:
+    """A participant session ended: the next person needs contact and calibration anew.
+
+    Acquisition keeps running. The calibration is dropped in the CLI too, so
+    no relative metric of the next person is computed against this one's.
+    """
+    global _contact_stale, _calibration_needs_initialize
+    _contact_stale = True
+    _calibration_needs_initialize = True
+    send_cli_command("RESET_CALIBRATION")
+    _set_state(
+        {"last_message": "Session ended. Measure contact and initialize for the next participant."},
+        force=True,
+    )
 
 
 def reset_retry_budget() -> None:
@@ -728,6 +958,8 @@ def wait_for_stream_contract(timeout_seconds: float | None = None) -> dict[str, 
         + 20.0
     )
     status = get_status()
+    if _awaiting_scan:
+        return status
     if status.get("connection_state") == "selection_required":
         return status
     if status.get("actual_streams"):
@@ -1398,6 +1630,10 @@ def _update_state_from_line(line: str) -> bool:
                     state_update["status"] = "warming_up"
                 elif stream_name == "eeg" and event == "STOP":
                     state_update["signal_stopped_at"] = now_text
+                elif stream_name == "resist" and event == "START":
+                    state_update["contact_measuring"] = True
+                elif stream_name == "resist" and event in {"STOP", "UNSUPPORTED"}:
+                    state_update["contact_measuring"] = False
             elif tag in {"CALLBACK_ERROR", "STREAM_ERROR", "CONFIG_ERROR", "SESSION_ERROR"}:
                 key = "callback_error" if tag == "CALLBACK_ERROR" else "stream_error"
                 state_update[key] = payload

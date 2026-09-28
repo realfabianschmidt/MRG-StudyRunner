@@ -29,7 +29,6 @@ import { CARDS, CARD_TYPES, defaultFor, loadCards, assertCardsAvailable } from '
 import {
   collectInfo,
   renderEditorToggles,
-  renderInfoBottom,
   renderInstructionField,
   renderNoteField,
   renderPromptField,
@@ -38,6 +37,10 @@ import { initI18n, setLanguage, getLanguage, t } from '../shared/i18n.js';
 import { createQrSvg } from '../shared/qr-code.js';
 import { byId, escapeHtml, setHidden, setText } from '../shared/dom-utils.js';
 import { loadPluginCatalog, pluginByKey } from '../shared/plugin-catalog.js';
+import { createAdminRunControl } from './admin-run-control.js';
+import { createAdminUpdateHandling } from './admin-update-handling.js';
+import { createAdminStudyEditor } from './admin-study-editor.js';
+import { dispatchCardHook } from '../cards/card-mount.js';
 
 const STUDY_RUN_POLL_INTERVAL_MS = 1500;
 
@@ -204,7 +207,11 @@ async function init() {
   setupLangDropdown();
   initHeaderSync();
   bindEvents();
-  initializeAdminDashboard({ showToast, openSettingsHub });
+  initializeAdminDashboard({
+    showToast,
+    openSettingsHub,
+    startStudy: (...args) => startLoadedStudyRun(...args),
+  });
   // `state` goes over by reference: the settings hub's status fetch is the same
   // one the dashboard reads, and copying it would give the two views separate
   // - and quickly diverging - pictures of the machine.
@@ -307,502 +314,41 @@ function applyLoadedConfig(config) {
   state.loaded = true;
 }
 
-async function loadStudyRunState(options = {}) {
-  try {
-    const response = await getJson('/api/admin/study-run');
-    state.studyRunState = response?.run_state || null;
-    state.tabletGate = response?.tablet_gate || null;
-    renderStudyRunState();
-    return state.studyRunState;
-  } catch (error) {
-    if (!options.silent) {
-      console.error('[admin] Could not load study run state:', error);
-    }
-    renderStudyRunState();
-    return null;
-  }
-}
+const {
+  applyHubBranding,
+  confirmAndStartFromEditor,
+  currentReadinessBlockers,
+  loadStudyReadiness,
+  loadStudyRunState,
+  openAbortStudyModal,
+  openReadinessSettings,
+  renderStudyRunState,
+  startLoadedStudyRun,
+  startStudyRunPolling,
+} = createAdminRunControl({
+  state,
+  getJson,
+  postJson,
+  $,
+  t,
+  setText,
+  setHidden,
+  escapeHtml,
+  pluginByKey,
+  openStudySettingsPanel,
+  byId,
+  createModal,
+  applyFonts,
+  renderGroupLogo,
+  loadBranding,
+  getCurrentStudyName: (...args) => getCurrentStudyName(...args),
+  confirmWithModal,
+  saveConfig: (...args) => saveConfig(...args),
+  showToast: (...args) => showToast(...args),
+  switchView: (...args) => switchView(...args),
+  constants: { studyRunPollIntervalMs: STUDY_RUN_POLL_INTERVAL_MS },
+});
 
-function startStudyRunPolling() {
-  if (state.studyRunPollTimer !== null) {
-    window.clearInterval(state.studyRunPollTimer);
-  }
-  state.studyRunPollTimer = window.setInterval(() => {
-    if (!document.hidden) {
-      void loadStudyRunState({ silent: true });
-    }
-  }, STUDY_RUN_POLL_INTERVAL_MS);
-}
-
-/**
- * Load the pre-run check for the loaded study.
- *
- * Without it a study imported from another computer runs happily and only
- * fails to upload afterwards, into the retry queue, long after the participant
- * has left. Cheap and purely config-based, so it can run after every save.
- */
-async function loadStudyReadiness() {
-  try {
-    state.readiness = await getJson('/api/admin/study-readiness', { timeoutMs: 2000 });
-  } catch (error) {
-    // Never let a failed check block the operator; just show no warning.
-    console.debug('[admin] Could not load study readiness:', error);
-    state.readiness = null;
-  }
-  renderStudyRunState();
-}
-
-/**
- * Keep pre-run failures visible until the operator fixes them. The marker is
- * still useful as a compact cue, while the panel carries the full explanation.
- */
-function currentReadinessBlockers() {
-  return state.readiness?.ready === false ? (state.readiness.blockers || []) : [];
-}
-
-function renderReadinessCta() {
-  const blockers = currentReadinessBlockers();
-  const blocking = blockers.some((blocker) => blocker.blocking === true);
-  const marker = $('hub-readiness-marker');
-  if (marker) {
-    marker.hidden = blockers.length === 0;
-    marker.title = blockers.length ? readinessSummary(blockers, { includeDetails: true }) : '';
-  }
-
-  const panel = $('hub-study-readiness');
-  if (panel) {
-    panel.hidden = blockers.length === 0;
-    panel.classList.toggle('is-blocking', blocking);
-  }
-  setText(
-    'hub-study-readiness-title',
-    blocking
-      ? t('readiness.blockedTitle', 'Study cannot start')
-      : t('readiness.warningTitle', 'Study needs attention'),
-  );
-  const list = $('hub-study-readiness-list');
-  if (list) list.innerHTML = readinessListMarkup(blockers);
-
-  // Edit is the way to every fix, so it carries the call to action on the hub.
-  $('btn-hub-editor')?.classList.toggle('is-cta', blockers.length > 0);
-  // Inside the editor, the study settings button is the next step.
-  $('btn-study-settings')?.classList.toggle('is-cta', blockers.length > 0);
-}
-
-function readinessDetails(blocker) {
-  const message = readinessMessage(blocker);
-  return (Array.isArray(blocker?.details) ? blocker.details : [])
-    .map((detail) => String(detail || '').trim())
-    .filter((detail) => detail && detail !== message);
-}
-
-function readinessListMarkup(blockers, className = 'study-readiness-list-item') {
-  return blockers.map((blocker) => {
-    const details = readinessDetails(blocker);
-    const detailMarkup = details.length
-      ? `<ul class="study-readiness-details">${details.map((detail) => `<li>${escapeHtml(detail)}</li>`).join('')}</ul>`
-      : '';
-    return `<li class="${className}"><strong>${escapeHtml(readinessMessage(blocker))}</strong>${detailMarkup}</li>`;
-  }).join('');
-}
-
-function readinessSummary(blockers, { includeDetails = false } = {}) {
-  return blockers.map((blocker) => {
-    const lines = [readinessMessage(blocker)];
-    if (includeDetails) lines.push(...readinessDetails(blocker));
-    return lines.join('\n');
-  }).join('\n\n');
-}
-
-function readinessMessage(blocker) {
-  const pluginKey = blocker.plugin || blocker.sensor || blocker.destination || '';
-  const pluginLabel = pluginByKey(pluginKey)?.ui?.label || pluginKey;
-  const sensorLabel = blocker.sensor ? pluginLabel : '';
-  const supportedModes = Array.isArray(blocker.supported_modes) ? blocker.supported_modes.join(', ') : '';
-  const messages = {
-    plugin_unavailable: t('readiness.pluginUnavailable', '{plugin} is referenced by this study but is not installed.')
-      .replace('{plugin}', pluginLabel),
-    sensor_machine_disabled: t('readiness.sensorMachineDisabled', '{sensor} is used by this study but switched off on this computer.').replace('{sensor}', sensorLabel),
-    browser_source_requires_https: t('readiness.browserSourceRequiresHttps', 'A selected browser sensor needs a secure HTTPS connection, which is currently off.'),
-    plugin_mode_unsupported: t(
-      'readiness.pluginModeUnsupported',
-      '{sensor} mode {mode} is unavailable on {platform}. Supported: {supported}.',
-    )
-      .replace('{sensor}', sensorLabel || blocker.plugin || '')
-      .replace('{mode}', blocker.mode || '')
-      .replace('{platform}', blocker.platform || '')
-      .replace('{supported}', supportedModes),
-    recording_capacity_insufficient: t(
-      'readiness.recordingCapacityInsufficient',
-      'Recording storage cannot be confirmed. Set a planned session duration and check the target disk.',
-    ),
-    recording_clock_implausible: t(
-      'readiness.recordingClockImplausible',
-      'The system clock or local time service is not ready for recording.',
-    ),
-    recording_worker_unavailable: t(
-      'readiness.recordingWorkerUnavailable',
-      'The recording module is not installed or unavailable.',
-    ),
-  };
-  if (String(blocker.code || '').endsWith('.credential_missing')) {
-    return t('readiness.pluginCredentialMissing', '{plugin} is enabled, but no credential is available for this study.')
-      .replace('{plugin}', pluginLabel);
-  }
-  if (String(blocker.code || '').endsWith('.setting_missing')) {
-    return t('readiness.pluginSettingMissing', '{plugin} is enabled, but a required destination setting is missing.')
-      .replace('{plugin}', pluginLabel);
-  }
-  if (String(blocker.code || '').endsWith('.machine_disabled')) {
-    return t('readiness.pluginMachineDisabled', '{plugin} is enabled for this study, but switched off on this computer.')
-      .replace('{plugin}', pluginLabel);
-  }
-  return messages[blocker.code] || blocker.code;
-}
-
-function readinessSettingsPanel(blockers) {
-  const blocker = blockers.find((entry) => entry.blocking === true) || blockers[0] || {};
-  if (blocker.destination) return 'destinations';
-  return ['sensors', 'participant', 'destinations', 'export'].includes(blocker.panel)
-    ? blocker.panel
-    : 'sensors';
-}
-
-async function openReadinessSettings(blockers = currentReadinessBlockers()) {
-  if (!blockers.length) return;
-  await openStudySettingsPanel(readinessSettingsPanel(blockers));
-  if (blockers.some((blocker) => blocker.code === 'recording_capacity_insufficient')) {
-    byId('study-planned-duration')?.focus();
-  }
-}
-
-function showBlockingReadinessDialog(blockers) {
-  return new Promise((resolve) => {
-    let settled = false;
-    let modal;
-    const finish = (action) => {
-      if (settled) return;
-      settled = true;
-      modal.destroy();
-      resolve(action);
-    };
-    modal = createModal({
-      title: t('readiness.blockedTitle', 'Study cannot start'),
-      closeLabel: t('readiness.close', 'Close'),
-      onClose: () => finish('close'),
-    });
-    modal.body.innerHTML = `
-      <p class="settings-hint">${escapeHtml(t('readiness.blockedBody', 'Start is blocked until every required plugin and the recording infrastructure are ready.'))}</p>
-      <ul class="readiness-dialog-list">${readinessListMarkup(blockers, 'readiness-dialog-list-item')}</ul>
-      <div class="dashboard-actions confirm-modal-actions">
-        <button type="button" class="btn-secondary" data-readiness-close>${escapeHtml(t('readiness.close', 'Close'))}</button>
-        <button type="button" class="btn-primary" data-readiness-settings>${escapeHtml(t('readiness.openSettings', 'Open study settings'))}</button>
-      </div>`;
-    modal.body.querySelector('[data-readiness-close]')?.addEventListener('click', () => finish('close'));
-    modal.body.querySelector('[data-readiness-settings]')?.addEventListener('click', () => finish('settings'));
-    modal.open();
-    modal.body.querySelector('[data-readiness-settings]')?.focus();
-  }).then(async (action) => {
-    if (action === 'settings') await openReadinessSettings(blockers);
-  });
-}
-
-async function applyHubBranding() {
-  void applyFonts();
-  renderGroupLogo($('hub-brand-logo'), await loadBranding());
-}
-
-function renderStudyRunState() {
-  const runState = state.studyRunState || {};
-  const tabletGate = state.tabletGate || {};
-  const status = runState.status || 'loaded';
-  const label = $('hub-active-label');
-  const hint = $('hub-active-run-hint');
-  const startButton = $('btn-hub-start-study');
-  const startLabel = $('btn-hub-start-study-label');
-  const abortButton = $('btn-hub-abort-study');
-  const dashboardButton = $('btn-admin-dashboard');
-
-  if (label) {
-    label.removeAttribute('data-i18n');
-    label.textContent = runStatusLabel(status);
-  }
-  if (hint) {
-    hint.removeAttribute('data-i18n');
-    hint.textContent = runStatusHint(status, runState);
-  }
-  if (startButton) {
-    const running = status === 'running';
-    const gateBlocksStart = status !== 'running' && tabletGate.can_start !== true;
-    // Keep Play visible so a click can explain the blocker. The backend is the
-    // authoritative gate for required plugins and recording infrastructure.
-    const notReady = status !== 'running' && state.readiness?.ready === false;
-    startButton.disabled = running || !getCurrentStudyName() || gateBlocksStart;
-    startButton.classList.toggle('is-running', running);
-    startButton.classList.toggle('is-blocked', gateBlocksStart || notReady);
-  }
-  // Only while a study is actually running is there a live recording to end
-  // -- offering it any earlier would have nothing to target.
-  if (abortButton) {
-    abortButton.hidden = status !== 'running';
-  }
-  renderReadinessCta();
-  if (startLabel) {
-    startLabel.textContent = status === 'running'
-      ? t('hub.runRunning', 'Running')
-      : t('hub.startStudy', 'Start study');
-  }
-  // The dashboard is reachable at any time on purpose: sensors can be started
-  // and tested from it before pressing Play, which is where setup problems are
-  // actually fixed. Only the run-specific readouts idle until a study runs.
-  if (dashboardButton) {
-    dashboardButton.hidden = false;
-  }
-}
-
-function runStatusLabel(status) {
-  if (status === 'running') return t('hub.runStatus.running', 'RUNNING');
-  if (status === 'completed') return t('hub.runStatus.completed', 'COMPLETED');
-  if (status === 'aborted') return t('hub.runStatus.aborted', 'ABORTED');
-  if (status === 'stopped') return t('hub.runStatus.stopped', 'STOPPED');
-  return t('hub.runStatus.loaded', 'LOADED');
-}
-
-function runStatusHint(status, runState) {
-  const gateHint = tabletGateHint(state.tabletGate);
-  if (status === 'running') {
-    const startError = runState?.last_start_error?.message || '';
-    if (startError) {
-      return t('hub.runHint.startFailed', 'The tablet could not start the study: {reason}').replace('{reason}', startError);
-    }
-    return gateHint || t('hub.runHint.running', 'The participant tablet can enter the study now.');
-  }
-  if (status === 'completed') {
-    return gateHint || t('hub.runHint.completed', 'The last run was saved. Start again when the tablet should continue.');
-  }
-  if (status === 'aborted') {
-    const reason = runState?.aborted_reason || '';
-    return reason
-      ? t('hub.runHint.aborted', 'Aborted: {reason}').replace('{reason}', reason)
-      : t('hub.runHint.abortedNoReason', 'Aborted. The tablet waits for the next start.');
-  }
-  if (status === 'stopped') {
-    return gateHint || t('hub.runHint.stopped', 'The run was stopped. The tablet waits for the next start.');
-  }
-  if (runState?.study_id) {
-    return gateHint || t('hub.runHint.loaded', 'Loaded on the tablet as a waiting room until you press Play.');
-  }
-  return t('hub.runHint.empty', 'Load a study, then press Play when the tablet is ready.');
-}
-
-function tabletGateHint(tabletGate) {
-  const status = tabletGate?.status || '';
-  if (status === 'ready') {
-    return t('hub.tabletGate.ready', 'One tablet is waiting. Press Play to start it.');
-  }
-  if (status === 'waiting_for_tablet') {
-    return t('hub.tabletGate.waiting', 'Open the participant page on one tablet before pressing Play.');
-  }
-  if (status === 'conflict') {
-    return t('hub.tabletGate.conflict', 'More than one tablet is connected. Keep only the tablet that should run this study.');
-  }
-  if (status === 'assigned_missing') {
-    return t('hub.tabletGate.assignedMissing', 'The assigned tablet is no longer visible. Stop or reload before starting again.');
-  }
-  return '';
-}
-
-/**
- * Play, from the editor.
- *
- * Starting a run from the editor is a different act than starting it from the
- * hub: the operator is mid-edit and the tablet is about to be handed over, so
- * it asks first, saves whatever is unsaved, and then leaves the editor for the
- * dashboard - which is where a running study is actually watched.
- */
-async function confirmAndStartFromEditor() {
-  const proceed = await confirmWithModal({
-    title: getCurrentStudyName(),
-    message: t('workspace.startConfirm', 'The tablet can join as soon as the study is running. Unsaved changes are saved first.'),
-    confirmLabel: t('workspace.startConfirmAction', 'Start study'),
-    cancelLabel: t('common.cancel', 'Cancel'),
-  });
-  if (!proceed) return;
-  await startLoadedStudyRun({ buttonId: 'btn-workspace-start', goToDashboard: true });
-}
-
-/**
- * Start the loaded study.
- *
- * `buttonId` because two controls do this now - the hub's start button and the
- * editor's play button - and the spinner belongs on whichever one was pressed.
- * `then` decides where the operator lands afterwards.
- */
-async function startLoadedStudyRun({ buttonId = 'btn-hub-start-study', goToDashboard = false } = {}) {
-  if (state.readiness?.start_blocked === true) {
-    const blockers = state.readiness.blockers || [];
-    await showBlockingReadinessDialog(blockers);
-    return;
-  }
-
-  // Destination warnings are overridable because the local scientific commit
-  // remains possible and publishing can be retried after the session.
-  if (state.readiness?.ready === false) {
-    const blockers = state.readiness.blockers || [];
-    const message = `${t('readiness.confirmTitle', 'This study is not fully set up:')}\n\n`
-      + `${readinessSummary(blockers)}\n\n`
-      + t('readiness.confirmBody', 'Measurements are saved locally either way, but the uploads listed above will fail. Start anyway?');
-    const proceed = await confirmWithModal({
-      title: t('readiness.confirmTitle', 'This study is not fully set up:'),
-      message,
-      confirmLabel: t('readiness.confirmStart', 'Start anyway'),
-      cancelLabel: t('common.cancel', 'Cancel'),
-    });
-    if (!proceed) return;
-  }
-
-  const button = $(buttonId);
-  const previousHtml = button?.innerHTML || '';
-  if (button) {
-    button.disabled = true;
-    button.innerHTML = `<i class="iconoir-refresh"></i><span>${escapeHtml(t('hub.startingStudy', 'Starting...'))}</span>`;
-  }
-
-  try {
-    if ($('btn-save-config')?.classList.contains('btn-primary--dirty')) {
-      const saved = await saveConfig({ skipToast: true });
-      if (saved === false) return;
-    }
-    const response = await postStartStudyRun();
-    if (!response) return;
-    state.studyRunState = response?.run_state || null;
-    state.tabletGate = response?.tablet_gate || state.tabletGate;
-    renderStudyRunState();
-    showToast(t('toast.studyStarted', 'Study started'), 'success');
-    if (goToDashboard) await switchView('view-dashboard');
-  } catch (error) {
-    console.error('[admin] Could not start study run:', error);
-    if (error.status === 409 && error.payload?.readiness) {
-      state.readiness = error.payload.readiness;
-      renderStudyRunState();
-      if (state.readiness.start_blocked === true) {
-        await showBlockingReadinessDialog(state.readiness.blockers || []);
-        return;
-      }
-    }
-    showToast(error.message || t('toast.studyStartFailed', 'Could not start the study'), 'error');
-  } finally {
-    if (button) {
-      button.innerHTML = previousHtml;
-      renderStudyRunState();
-    }
-  }
-}
-
-// Play asks the server first; when a sensor the study needs is not live the
-// server answers 409 with the list, and the admin decides whether to start
-// anyway (runtime_core/studies/live_sensor_readiness.py). Returns null when
-// the admin cancels.
-async function postStartStudyRun() {
-  try {
-    return await postJson('/api/admin/study-run/start', {}, { timeoutMs: 4000 });
-  } catch (error) {
-    const issues = error.status === 409 ? error.payload?.live_issues : null;
-    if (!Array.isArray(issues) || !issues.length) throw error;
-    const lines = issues.map((issue) => {
-      const status = t(`dashboard.status.${issue.status}`, String(issue.status || '').replace(/_/g, ' '));
-      return `• ${issue.label}: ${status}${issue.problem ? ` – ${issue.problem}` : ''}`;
-    });
-    const proceed = await confirmWithModal({
-      title: t('liveCheck.title', 'Sensors are not connected'),
-      message: [
-        ...lines,
-        '',
-        t('liveCheck.body', 'Start and check these sensors on the dashboard first. Without them the session cannot record their data.'),
-      ].join('\n'),
-      confirmLabel: t('liveCheck.startAnyway', 'Start anyway'),
-      cancelLabel: t('common.cancel', 'Cancel'),
-    });
-    if (!proceed) return null;
-    return postJson('/api/admin/study-run/start', { override_live_check: true }, { timeoutMs: 4000 });
-  }
-}
-
-// Ends the currently recording session on the admin's word: freezes the
-// recording (nothing captured is deleted, unlike Withdraw consent on a
-// completed session), then marks the run aborted with the operator's
-// reason. Built with createModal() directly, like sessions-browser.js's
-// withdrawal modal, because a plain yes/no confirm cannot gate a button on
-// typed input -- an abort with no stated reason is exactly the kind of
-// silent "something happened" this project avoids elsewhere.
-async function openAbortStudyModal() {
-  const modal = createModal({
-    title: t('hub.abort.title', 'Abort study'),
-    closeLabel: t('common.cancel', 'Cancel'),
-  });
-
-  modal.body.innerHTML = `
-    <p class="settings-hint">${escapeHtml(
-      t(
-        'hub.abort.warning',
-        'This ends the current recording right away. Everything captured so far is kept, but the session stops here.',
-      ),
-    )}</p>
-    <div class="field">
-      <label for="abort-reason-input">${escapeHtml(t('hub.abort.reasonLabel', 'Reason'))}</label>
-      <textarea id="abort-reason-input" rows="3"></textarea>
-    </div>
-    <p class="settings-hint" id="abort-error" hidden></p>
-    <div class="dashboard-actions confirm-modal-actions">
-      <button type="button" class="btn-secondary" data-abort-cancel>${escapeHtml(t('common.cancel', 'Cancel'))}</button>
-      <button type="button" class="btn-primary btn-primary--danger" data-abort-confirm disabled>
-        ${escapeHtml(t('hub.abort.confirmButton', 'Abort study'))}
-      </button>
-    </div>
-  `;
-
-  const input = modal.body.querySelector('#abort-reason-input');
-  const confirmButton = modal.body.querySelector('[data-abort-confirm]');
-  const errorText = modal.body.querySelector('#abort-error');
-
-  input.addEventListener('input', () => {
-    confirmButton.disabled = input.value.trim() === '';
-  });
-  modal.body.querySelector('[data-abort-cancel]').addEventListener('click', () => modal.destroy());
-
-  confirmButton.addEventListener('click', async () => {
-    confirmButton.disabled = true;
-    setHidden('abort-error', true);
-    try {
-      const response = await postJson('/api/admin/study-run/abort', { reason: input.value.trim() });
-      modal.destroy();
-      state.studyRunState = response?.run_state || null;
-      renderStudyRunState();
-      showToast(t('hub.abort.done', 'Study aborted.'), 'success');
-    } catch (error) {
-      console.error('[admin] Abort failed:', error);
-      errorText.textContent = error.message || t('hub.abort.failed', 'Could not abort the study.');
-      setHidden('abort-error', false);
-      confirmButton.disabled = input.value.trim() === '';
-    }
-  });
-
-  modal.open();
-  input.focus();
-}
-
-/**
- * The single funnel for every admin view change.
- *
- * Everything that opens a view goes through here - hub buttons, the settings
- * controllers, the session browser - so wrapping it in the sweep is what gives
- * every one of them the same transition. `onCovered` runs while the screen is
- * opaque, which is where a view's first data load belongs.
- *
- * `animate: false` is for programmatic switches that are not a user navigation
- * (a poll-driven correction, for example) - sweeping those would flash the
- * screen white for no reason.
- */
 function switchView(viewId, { animate = true, onCovered } = {}) {
   const apply = async () => {
     document.querySelectorAll('.admin-view').forEach(el => {
@@ -889,11 +435,23 @@ function bindEvents() {
   questionList.addEventListener('drop', handleListDrop);
   questionList.addEventListener('dragend', handleListDragEnd);
 
-  $('study-preview').addEventListener('click', (event) => {
+  // The preview column is live: the card being edited reacts like on the
+  // tablet (its hooks, via cards/card-mount.js); a click on any other card
+  // selects that card for editing.
+  const preview = $('study-preview');
+  preview.addEventListener('click', (event) => {
     const button = event.target.closest('[data-role="select-card"]');
+    const wrap = event.target.closest('.preview-card-wrap');
     if (button) {
       selectQuestion(Number(button.dataset.index));
+    } else if (wrap?.classList.contains('selected')) {
+      dispatchCardHook('onClick', event);
+    } else if (wrap) {
+      selectQuestion(Number(wrap.id.replace('pc-', '')));
     }
+  });
+  preview.addEventListener('input', (event) => {
+    if (event.target.closest('.preview-card-wrap.selected')) dispatchCardHook('onInput', event);
   });
 
   $('sidebar-overlay').addEventListener('input', () => {
@@ -1072,989 +630,69 @@ function copyTextWithFallback(value) {
   input.remove();
 }
 
-async function loadUpdateStatus({ silent = false } = {}) {
-  try {
-    const status = await getJson('/api/admin/update/status');
-    state.updateStatus = status;
-    renderUpdateStatus(status);
-  } catch (error) {
-    console.error('[admin] Could not load update status:', error);
-    renderUpdateStatusError(error);
-    if (!silent) {
-      showToast(t('update.statusFailed', 'Update status failed'), 'error');
-    }
-  }
-}
-
-async function checkForPythonUpdate() {
-  setUpdateBusy(true);
-  try {
-    const status = await postJson('/api/admin/update/check', {});
-    state.updateStatus = status;
-    renderUpdateStatus(status);
-    const available = Boolean(status.update?.available);
-    showToast(available ? t('update.availableToast', 'Update available') : t('update.currentToast', 'Study Runner is current'), available ? 'info' : 'success');
-  } catch (error) {
-    console.error('[admin] Update check failed:', error);
-    showToast(error.message || t('update.checkFailed', 'Update check failed'), 'error');
-    await loadUpdateStatus({ silent: true });
-  } finally {
-    setUpdateBusy(false);
-  }
-}
-
-/**
- * One flow for source installs (release archive or git clone): confirm what
- * will be ended, download and verify, then restart into the new version.
- * The server ends the study run and aborts a recording session itself
- * ("Software update"); finalizations and uploads continue after the restart.
- */
-async function runSourceUpdate() {
-  const version = state.updateStatus?.update?.version || '';
-  let activity = {};
-  try {
-    activity = (await getJson('/api/admin/update/status'))?.activity || {};
-  } catch {
-    activity = {};
-  }
-  const consequences = [
-    activity.active_session
-      ? t('update.endsSession', '- The running session ({participant}) is aborted with the reason "Software update". Data recorded so far is kept.')
-        .replace('{participant}', activity.participant_id || '?')
-      : '',
-    activity.study_run_status === 'running'
-      ? t('update.endsRun', '- The running study run is ended.')
-      : '',
-    activity.pending_finalizations
-      ? t('update.finalizationsContinue', '- {count} finalization(s) or upload(s) continue after the restart.')
-        .replace('{count}', String(activity.pending_finalizations))
-      : '',
-    t('update.restartsWindow', '- Study Runner restarts in a new window; this page reloads by itself.'),
-  ].filter(Boolean);
-  const proceed = await confirmWithModal({
-    title: t('update.updateNowTitle', 'Update Study Runner'),
-    message: `${t('update.updateNowQuestion', 'Update Study Runner to {version} now?').replace('{version}', version)}\n\n${consequences.join('\n')}`,
-    confirmLabel: t('update.updateSourceAction', 'Update now'),
-    cancelLabel: t('common.cancel', 'Cancel'),
-  });
-  if (!proceed) return;
-  if (activity.active_session) {
-    const reallyAbort = await confirmWithModal({
-      title: t('update.abortSessionTitle', 'Abort the running session?'),
-      message: t('update.abortSessionMessage', 'Participant {participant} is in a session right now. The update aborts it immediately.')
-        .replace('{participant}', activity.participant_id || '?'),
-      confirmLabel: t('update.abortSessionConfirm', 'Abort session and update'),
-      cancelLabel: t('common.cancel', 'Cancel'),
-      variant: 'danger',
-    });
-    if (!reallyAbort) return;
-  }
-
-  setUpdateBusy(true);
-  startUpdatePolling();
-  try {
-    let status = await postJson('/api/admin/update/download', {});
-    state.updateStatus = status;
-    renderUpdateStatus(status);
-    status = await postJson('/api/admin/update/install', {});
-    state.updateStatus = status;
-    renderUpdateStatus(status);
-    showToast(t('update.restartingToast', 'Restarting into update ...'), 'info');
-    stopUpdatePolling();
-    await waitForRestartAndReload();
-  } catch (error) {
-    console.error('[admin] Update failed:', error);
-    showToast(error.message || t('update.updateSourceFailed', 'Update failed'), 'error');
-    await loadUpdateStatus({ silent: true });
-    stopUpdatePolling();
-    setUpdateBusy(false);
-  }
-}
-
-/** Wait for the old server to go away and the new one to answer, then reload. */
-async function waitForRestartAndReload() {
-  const started = Date.now();
-  let serverWentAway = false;
-  while (Date.now() - started < 15 * 60 * 1000) {
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    try {
-      await getJson('/api/admin/update/status', { timeoutMs: 1500 });
-      if (serverWentAway || Date.now() - started > 60 * 1000) {
-        window.location.reload();
-        return;
-      }
-    } catch {
-      serverWentAway = true;
-    }
-  }
-  showToast(t('update.restartTimeout', 'Study Runner did not come back. Start it again with tools/start-macos.sh or tools\\start-windows.cmd.'), 'error');
-}
-
-async function downloadPythonUpdate() {
-  const version = state.updateStatus?.update?.version || '';
-  const sourceMode = Boolean(state.updateStatus?.source_mode);
-  if (sourceMode) {
-    await runSourceUpdate();
-    return;
-  }
-  const message = sourceMode
-    ? t('update.updateSourceConfirm', 'Update this checkout to {version} now? This runs git pull and the install script.').replace('{version}', version)
-    : t('update.downloadConfirm', 'Download and verify update {version}?').replace('{version}', version);
-  const proceed = await confirmWithModal({
-    title: sourceMode ? t('update.updateSourceTitle', 'Update checkout') : t('update.downloadTitle', 'Download update'),
-    message,
-    confirmLabel: sourceMode ? t('update.updateSourceAction', 'Update now') : t('update.download', 'Download'),
-    cancelLabel: t('common.cancel', 'Cancel'),
-  });
-  if (!proceed) {
-    return;
-  }
-
-  setUpdateBusy(true);
-  startUpdatePolling();
-  try {
-    const status = await postJson('/api/admin/update/download', {});
-    state.updateStatus = status;
-    renderUpdateStatus(status);
-    showToast(
-      sourceMode ? t('update.updatedSourceToast', 'Checkout updated') : t('update.downloadedToast', 'Update downloaded and verified'),
-      'success',
-    );
-  } catch (error) {
-    console.error('[admin] Update download failed:', error);
-    showToast(error.message || (sourceMode ? t('update.updateSourceFailed', 'Update failed') : t('update.downloadFailed', 'Update download failed')), 'error');
-    await loadUpdateStatus({ silent: true });
-  } finally {
-    stopUpdatePolling();
-    setUpdateBusy(false);
-  }
-}
-
-async function installPythonUpdate() {
-  const message = t('update.restartConfirm', 'Restart Study Runner into the staged update now?');
-  const proceed = await confirmWithModal({
-    title: t('update.installTitle', 'Restart and install'),
-    message,
-    confirmLabel: t('update.install', 'Restart now'),
-    cancelLabel: t('common.cancel', 'Cancel'),
-  });
-  if (!proceed) {
-    return;
-  }
-
-  setUpdateBusy(true);
-  try {
-    const status = await postJson('/api/admin/update/install', {});
-    state.updateStatus = status;
-    renderUpdateStatus(status);
-    showToast(t('update.restartingToast', 'Restarting into update ...'), 'info');
-  } catch (error) {
-    console.error('[admin] Update install failed:', error);
-    showToast(error.message || t('update.installFailed', 'Update restart failed'), 'error');
-    await loadUpdateStatus({ silent: true });
-    setUpdateBusy(false);
-  }
-}
-
-function startUpdatePolling() {
-  stopUpdatePolling();
-  state.updatePollTimer = window.setInterval(() => {
-    void loadUpdateStatus({ silent: true });
-  }, 900);
-}
-
-function stopUpdatePolling() {
-  if (state.updatePollTimer) {
-    window.clearInterval(state.updatePollTimer);
-    state.updatePollTimer = null;
-  }
-}
-
-function setUpdateBusy(isBusy) {
-  ['btn-update-check', 'btn-update-download', 'btn-update-install'].forEach((id) => {
-    const button = $(id);
-    if (button) {
-      button.disabled = Boolean(isBusy);
-    }
-  });
-}
-
-function renderUpdateStatusError(error) {
-  const pill = $('update-status-pill');
-  const versionLine = $('update-version-line');
-  const detail = $('update-detail');
-  if (pill) {
-    pill.className = 'status-pill status-pill--error';
-    pill.textContent = t('update.error', 'Error');
-  }
-  if (versionLine) {
-    versionLine.textContent = t('update.unavailable', 'Unavailable');
-  }
-  if (detail) {
-    detail.textContent = error?.message || t('update.statusFailed', 'Update status failed');
-  }
-  setUpdateActions({});
-  setUpdateProgress(null);
-}
-
-function renderUpdateStatus(status) {
-  const pill = $('update-status-pill');
-  const versionLine = $('update-version-line');
-  const detail = $('update-detail');
-  if (!pill || !versionLine || !detail) {
-    return;
-  }
-
-  const stateName = status.state || 'idle';
-  const available = Boolean(status.update?.available);
-  const version = status.update?.version || status.current_version || '';
-  const staged = Boolean(status.staged?.version);
-
-  let pillState = 'waiting';
-  let pillText = t('update.idle', 'Idle');
-  let line = t('update.versionLine', 'Installed {version}').replace('{version}', status.current_version || '-');
-  let message = t('update.idleDetail', 'Check GitHub Releases for Python-only updates.');
-
-  if (!status.configured) {
-    // Source mode is always "configured" (git needs no signing key), so
-    // this branch is packaged-mode-only: no trusted updater key is set up.
-    pillState = 'disabled';
-    pillText = t('update.disabled', 'Disabled');
-    message = status.configuration_error || t('update.notConfiguredDetail', 'No Python updater public key is configured for this build.');
-  } else if (stateName === 'error' || stateName === 'install_failed') {
-    pillState = 'error';
-    pillText = t('update.error', 'Error');
-    message = status.error || t('update.statusFailed', 'Update status failed');
-  } else if (stateName === 'downloading') {
-    pillState = 'starting';
-    pillText = t('update.downloading', 'Downloading');
-    message = status.source_mode
-      ? t('update.updatingSourceDetail', 'Running git pull and the install script -- this can take a few minutes.')
-      : formatUpdateDownload(status.download);
-  } else if (stateName === 'verifying') {
-    pillState = 'starting';
-    pillText = t('update.verifying', 'Verifying');
-    message = t('update.verifyingDetail', 'Checking hash and signature.');
-  } else if (stateName === 'staged' || staged) {
-    pillState = 'ready';
-    pillText = t('update.ready', 'Ready');
-    line = t('update.readyLine', 'Version {version} staged').replace('{version}', status.staged?.version || version);
-    if (!status.install_supported) {
-      message = t('update.manualRestartDetail', 'The update is staged. Automatic restart is only available in Python packaged builds.');
-    } else if (status.source_mode) {
-      message = t('update.readySourceDetail', 'The checkout was updated and dependencies refreshed; ready to restart.');
-    } else {
-      message = t('update.readyDetail', 'The update is verified and ready for restart.');
-    }
-  } else if (stateName === 'installing') {
-    pillState = 'starting';
-    pillText = t('update.restarting', 'Restarting');
-    message = t('update.restartingDetail', 'Study Runner is handing off to the staged update.');
-  } else if (available) {
-    pillState = 'ready';
-    pillText = t('update.available', 'Available');
-    line = t('update.availableLine', 'Version {version} available').replace('{version}', version);
-    message = status.source_mode
-      ? t('update.availableSourceDetail', 'Updating runs git pull and the install script only after confirmation.')
-      : t('update.availableDetail', 'Download starts only after confirmation.');
-  } else if (stateName === 'current') {
-    pillState = 'running';
-    pillText = t('update.current', 'Current');
-    message = t('update.currentDetail', 'The installed Python app version is current.');
-  }
-
-  pill.className = `status-pill status-pill--${pillState}`;
-  pill.textContent = pillText;
-  versionLine.textContent = line;
-  detail.textContent = message;
-  setUpdateActions(status);
-  setUpdateProgress(status.download);
-}
-
-function setUpdateActions(status) {
-  const checkButton = $('btn-update-check');
-  const downloadButton = $('btn-update-download');
-  const installButton = $('btn-update-install');
-  const notesLink = $('update-release-notes');
-  const stateName = status.state || 'idle';
-  const busy = ['downloading', 'verifying', 'installing'].includes(stateName);
-  const hasUpdate = Boolean(status.update?.available);
-  const hasStaged = Boolean(status.staged?.version);
-
-  if (checkButton) {
-    checkButton.disabled = busy || status.configured === false;
-  }
-  if (downloadButton) {
-    downloadButton.hidden = !status.configured || !hasUpdate || hasStaged || busy;
-    downloadButton.disabled = busy;
-    const label = downloadButton.querySelector('span');
-    if (label) {
-      label.textContent = status.source_mode ? t('update.updateSourceAction', 'Update now') : t('update.download', 'Download');
-    }
-  }
-  if (installButton) {
-    installButton.hidden = !hasStaged;
-    installButton.disabled = busy || !status.install_supported;
-  }
-  if (notesLink) {
-    const notesUrl = status.update?.notes_url || '';
-    notesLink.hidden = !notesUrl;
-    if (notesUrl) {
-      notesLink.href = notesUrl;
-    }
-  }
-}
-
-function setUpdateProgress(download) {
-  const wrap = $('update-progress');
-  const fill = $('update-progress-fill');
-  if (!wrap || !fill) {
-    return;
-  }
-  const stateName = download?.state || '';
-  const total = Number(download?.total_bytes || 0);
-  const done = Number(download?.bytes_downloaded || 0);
-  const visible = ['downloading', 'verifying', 'staged'].includes(stateName) || (total > 0 && done > 0);
-  wrap.hidden = !visible;
-  const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((done / total) * 100))) : 0;
-  fill.style.width = `${percent}%`;
-}
-
-function formatUpdateDownload(download) {
-  const total = Number(download?.total_bytes || 0);
-  const done = Number(download?.bytes_downloaded || 0);
-  if (!total) {
-    return t('update.downloadingDetailUnknown', 'Downloading update ...');
-  }
-  return t('update.downloadingDetail', 'Downloading {done} of {total}.')
-    .replace('{done}', formatBytes(done))
-    .replace('{total}', formatBytes(total));
-}
-
-function formatBytes(value) {
-  const bytes = Number(value || 0);
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
-function handleListClick(event) {
-  if (state.suppressListClick) {
-    return;
-  }
-
-  const removeButton = event.target.closest('[data-role="remove-question"]');
-  const item = event.target.closest('.admin-q-item');
-
-  if (removeButton) {
-    const index = Number(removeButton.dataset.index);
-    const qType = state.config.questions[index]?.type;
-    if (qType === 'participant-id' || qType === 'finish') {
-      showToast(t('toast.bookendsLocked'), 'error');
-      return;
-    }
-    void removeQuestion(index);
-    return;
-  }
-  if (item && !event.target.closest('.admin-q-actions')) {
-    selectQuestion(Number(item.dataset.index));
-  }
-}
-
-function handleListDragStart(event) {
-  const handle = event.target.closest('[data-role="drag-question"]');
-  if (!handle || handle.disabled) {
-    event.preventDefault();
-    return;
-  }
-
-  const item = handle.closest('.admin-q-item');
-  if (!item) {
-    event.preventDefault();
-    return;
-  }
-
-  state.draggedElement = item;
-  $('admin-q-list').classList.add('admin-q-list--dragging');
-
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.dropEffect = 'move';
-    event.dataTransfer.setData('text/plain', item.dataset.index || '');
-  }
-
-  window.requestAnimationFrame(() => {
-    item.classList.add('admin-q-item--dragging');
-  });
-}
-
-function handleListDragOver(event) {
-  if (!state.draggedElement) {
-    return;
-  }
-
-  event.preventDefault();
-
-  const list = $('admin-q-list');
-  const placement = getDragPlacement(list, event.clientY);
-  clearDragIndicators();
-
-  // Boundary checks to keep items between the first and last card
-  const questions = state.config.questions || [];
-  const firstItem = list.querySelector('.admin-q-item[data-index="0"]');
-  const lastItem = list.querySelector(`.admin-q-item[data-index="${questions.length - 1}"]`);
-
-  // Block dropping before the first item
-  if (placement.targetItem === firstItem && !placement.insertAfter) {
-    return;
-  }
-  // Block dropping after the last item
-  if ((placement.targetItem === lastItem && placement.insertAfter) || !placement.targetItem) {
-    return;
-  }
-
-  if (placement.targetItem !== state.draggedElement) {
-    placement.targetItem.classList.add(
-      placement.insertAfter ? 'admin-q-item--drop-after' : 'admin-q-item--drop-before',
-    );
-  }
-  const referenceNode = placement.insertAfter
-    ? placement.targetItem.nextElementSibling
-    : placement.targetItem;
-
-  if (referenceNode !== state.draggedElement) {
-    list.insertBefore(state.draggedElement, referenceNode);
-  }
-}
-
-function handleListDrop(event) {
-  if (!state.draggedElement) {
-    return;
-  }
-  event.preventDefault();
-}
-
-function handleListDragEnd() {
-  finishListDrag();
-}
-
-function getDragPlacement(list, clientY) {
-  const items = [...list.querySelectorAll('.admin-q-item:not(.admin-q-item--dragging)')];
-
-  for (const item of items) {
-    const rect = item.getBoundingClientRect();
-    const midpoint = rect.top + (rect.height / 2);
-
-    if (clientY < midpoint) {
-      return { targetItem: item, insertAfter: false };
-    }
-    if (clientY < rect.bottom) {
-      return { targetItem: item, insertAfter: true };
-    }
-  }
-
-  return { targetItem: null, insertAfter: false };
-}
-
-function finishListDrag() {
-  const list = $('admin-q-list');
-  const draggedElement = state.draggedElement;
-  if (!draggedElement) {
-    return;
-  }
-
-  const previousSelection = state.selectedIndex;
-  const shouldKeepOverlayOpen = $('admin-sidebar').classList.contains('has-overlay');
-  const previousQuestions = [...(state.config.questions || [])];
-  const orderedIndexes = [...list.querySelectorAll('.admin-q-item')].map((item) => Number(item.dataset.index));
-  const orderChanged = orderedIndexes.some((originalIndex, newIndex) => originalIndex !== newIndex);
-
-  clearDragIndicators();
-  list.classList.remove('admin-q-list--dragging');
-  draggedElement.classList.remove('admin-q-item--dragging');
-  state.draggedElement = null;
-  suppressListClickOnce();
-
-  if (!orderChanged) {
-    return;
-  }
-
-  state.config.questions = orderedIndexes.map((index) => previousQuestions[index]);
-  state.selectedIndex = previousSelection === null ? null : orderedIndexes.indexOf(previousSelection);
-
-  rebuildAll();
-
-  if (shouldKeepOverlayOpen && state.selectedIndex !== null) {
-    openOverlay(state.selectedIndex);
-    $(`pc-${state.selectedIndex}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-
-  markUnsaved();
-}
-
-function clearDragIndicators() {
-  document.querySelectorAll('.admin-q-item--drop-before, .admin-q-item--drop-after').forEach((element) => {
-    element.classList.remove('admin-q-item--drop-before', 'admin-q-item--drop-after');
-  });
-}
-
-function suppressListClickOnce() {
-  state.suppressListClick = true;
-  window.setTimeout(() => {
-    state.suppressListClick = false;
-  }, 0);
-}
-
-function rebuildAll() {
-  rebuildList();
-  rebuildPreview();
-  syncEmptyState();
-}
-
-function rebuildList() {
-  const list = $('admin-q-list');
-  list.replaceChildren();
-  const questions = state.config.questions || [];
-
-  questions.forEach((question, questionIndex) => {
-    const meta = getMeta(question.type);
-    const item = document.createElement('div');
-    item.className = `admin-q-item${questionIndex === state.selectedIndex ? ' selected' : ''}`;
-    item.dataset.index = questionIndex;
-    item.innerHTML = renderListItemMarkup(question, questionIndex, meta);
-    list.appendChild(item);
-  });
-
-  $('q-count').textContent = questions.length ? `(${questions.length})` : '';
-}
-
-function renderListItemMarkup(question, questionIndex, meta) {
-  const isFixed = question.type === 'participant-id' || question.type === 'finish';
-  return `
-    <span class="admin-q-num">${questionIndex + 1}</span>
-    <i class="iconoir-${meta.icon} admin-q-type-icon"></i>
-    <span class="admin-q-label">${renderCardLabel(question)}</span>
-    <div class="admin-q-actions">
-      <button type="button" class="admin-q-drag" data-role="drag-question" draggable="${!isFixed}" ${isFixed ? 'disabled' : ''} title="${escapeHtml(t('question.dragToReorder', 'Drag to reorder'))}" aria-label="${escapeHtml(t('question.dragToReorder', 'Drag to reorder'))}">
-        <i class="iconoir-menu-scale"></i>
-      </button>
-      <button type="button" class="del" data-role="remove-question" data-index="${questionIndex}" title="${escapeHtml(t('question.remove', 'Remove'))}" ${isFixed ? 'disabled' : ''}>
-        <i class="iconoir-trash"></i>
-      </button>
-    </div>`;
-}
-
-function rebuildPreview() {
-  const preview = $('study-preview');
-  preview.replaceChildren();
-  const questions = state.config.questions || [];
-
-  questions.forEach((question, questionIndex) => {
-    const cardModule = CARDS[question.type];
-    if (!cardModule) {
-      return;
-    }
-
-    const wrap = document.createElement('div');
-    wrap.className = `preview-card-wrap${questionIndex === state.selectedIndex ? ' selected' : ''}`;
-    wrap.id = `pc-${questionIndex}`;
-    wrap.innerHTML = `
-      <div class="q-card-study">${cardModule.renderStudy(question, questionIndex)}${renderInfoBottom(question)}</div>
-      <div class="preview-card-overlay">
-        <button type="button" data-role="select-card" data-index="${questionIndex}">
-          <i class="iconoir-edit-pencil"></i> ${escapeHtml(t('question.edit', 'Edit'))}
-        </button>
-      </div>`;
-    preview.appendChild(wrap);
-  });
-}
-
-function syncEmptyState() {
-  $('preview-empty').hidden = (state.config.questions || []).length > 0;
-}
-
-function selectQuestion(index) {
-  state.selectedIndex = index;
-
-  document.querySelectorAll('.admin-q-item').forEach((element, elementIndex) => {
-    element.classList.toggle('selected', elementIndex === index);
-  });
-  document.querySelectorAll('.preview-card-wrap').forEach((element, elementIndex) => {
-    element.classList.toggle('selected', elementIndex === index);
-  });
-
-  openOverlay(index);
-  $(`pc-${index}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function openOverlay(index) {
-  const question = state.config.questions[index];
-  const cardModule = CARDS[question.type];
-  if (!cardModule) {
-    return;
-  }
-
-  const meta = getMeta(question.type);
-  $('overlay-type-tag').innerHTML =
-    `<i class="iconoir-${meta.icon}"></i> ${meta.label} <span class="editor-index">#${index + 1}</span>`;
-
-  const editorEl = $('editor-fields');
-  // The order an author actually writes a question in: what is being asked,
-  // how to answer it, the card's own settings, an optional note, then the
-  // switches. Cards used to supply their own prompt field and the shared
-  // block was appended after, which put "Required" above the question text.
-  editorEl.innerHTML = [
-    renderPromptField(question, cardModule.promptPlaceholder),
-    renderInstructionField(question),
-    cardModule.renderEditor(question, index),
-    renderNoteField(question),
-    renderEditorToggles(question, cardModule.renderEditorToggles?.(question) || ''),
-  ].join('');
-  if (typeof cardModule.bindEditorEvents === 'function') {
-    cardModule.bindEditorEvents(editorEl);
-  }
-  $('admin-sidebar').classList.add('has-overlay');
-}
-
-function closeOverlay() {
-  $('admin-sidebar').classList.remove('has-overlay');
-}
-
-function liveUpdate(index) {
-  const question = state.config.questions[index];
-  const cardModule = CARDS[question.type];
-  if (!cardModule) {
-    return;
-  }
-
-  const updated = cardModule.collectConfig($('editor-fields'));
-  if (!updated) {
-    return;
-  }
-
-  Object.assign(updated, collectInfo($('editor-fields')));
-
-  state.config.questions[index] = updated;
-
-  const previewWrap = $(`pc-${index}`);
-  if (previewWrap) {
-    previewWrap.querySelector('.q-card-study').innerHTML = cardModule.renderStudy(updated, index) + renderInfoBottom(updated);
-  }
-
-  const label = $('admin-q-list').querySelector(`.admin-q-item[data-index="${index}"] .admin-q-label`);
-  if (label) {
-    label.innerHTML = renderCardLabel(updated);
-  }
-}
-
-function addQuestion(type) {
-  state.config.questions = state.config.questions || [];
-  const questions = state.config.questions;
-  const finishCardIndex = questions.findIndex(q => q.type === 'finish');
-  const insertIndex = finishCardIndex !== -1 ? finishCardIndex : questions.length;
-
-  questions.splice(insertIndex, 0, defaultFor(type));
-  rebuildAll();
-  selectQuestion(insertIndex);
-  requestAnimationFrame(() => $(`pc-${insertIndex}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
-  markUnsaved();
-}
-
-async function removeQuestion(index) {
-  const message = t('question.removeConfirm', 'Remove question {number}?').replace('{number}', String(index + 1));
-  const proceed = await confirmWithModal({
-    title: getCardLabel(state.config.questions[index]) || String(index + 1),
-    message,
-    confirmLabel: t('question.remove', 'Remove'),
-    cancelLabel: t('common.cancel', 'Cancel'),
-  });
-  if (!proceed) {
-    return;
-  }
-
-  state.config.questions.splice(index, 1);
-
-  if (state.selectedIndex === index) {
-    state.selectedIndex = null;
-    closeOverlay();
-  } else if (state.selectedIndex > index) {
-    state.selectedIndex -= 1;
-  }
-
-  rebuildAll();
-  if (state.selectedIndex !== null) {
-    selectQuestion(state.selectedIndex);
-  }
-  markUnsaved();
-}
-
-function handleTriggerTypePill(pillElement) {
-  const triggerType = pillElement.dataset.triggerType;
-  const editorFields = $('editor-fields');
-
-  editorFields.querySelectorAll('.trigger-pill').forEach((pill) => {
-    pill.classList.toggle('active', pill.dataset.triggerType === triggerType);
-  });
-
-  const hiddenInput = editorFields.querySelector('.se-trigger-type');
-  if (hiddenInput) {
-    hiddenInput.value = triggerType;
-  }
-
-  const contentField = editorFields.querySelector('.se-trigger-content-field');
-  if (contentField) {
-    contentField.hidden = triggerType === 'timer';
-
-    const isCode = triggerType === 'html' || triggerType === 'js';
-    const currentInput = contentField.querySelector('.se-trigger-content');
-    const currentIsCode = currentInput?.tagName === 'TEXTAREA';
-
-    if (currentInput && isCode !== currentIsCode) {
-      const savedValue = currentInput.value;
-      const label = contentField.querySelector('label');
-      if (label) {
-        label.textContent = isCode ? t('stimulus.codeLabel', 'Code') : t('stimulus.urlLabel', 'URL');
-      }
-
-      let replacement;
-      if (isCode) {
-        replacement = document.createElement('textarea');
-        replacement.className = 'se-trigger-content se-trigger-content--code';
-        replacement.rows = 6;
-        replacement.placeholder = t('stimulus.codePlaceholder', 'Paste {type} code here...').replace('{type}', triggerType);
-        replacement.value = savedValue;
-      } else {
-        replacement = document.createElement('input');
-        replacement.type = 'url';
-        replacement.className = 'se-trigger-content';
-        replacement.placeholder = t('stimulus.urlPlaceholder', 'https://...');
-        replacement.value = savedValue;
-      }
-      currentInput.replaceWith(replacement);
-    }
-  }
-
-  editorFields.dispatchEvent(new Event('input', { bubbles: true }));
-}
-
-function ensureBookends(questions) {
-  if (!Array.isArray(questions)) return;
-  const pidIndex = questions.findIndex(q => q.type === 'participant-id');
-  const pidCard = pidIndex !== -1 ? questions.splice(pidIndex, 1)[0] : defaultFor('participant-id');
-  const finIndex = questions.findIndex(q => q.type === 'finish');
-  const finCard = finIndex !== -1 ? questions.splice(finIndex, 1)[0] : defaultFor('finish');
-  questions.unshift(pidCard);
-  questions.push(finCard);
-}
-
-async function saveConfig(options = {}) {
-  const { successMessage = t('toast.studySaved', 'Study saved'), skipToast = false } = options;
-  let questions = state.config.questions || [];
-  ensureBookends(questions);
-
-  const fullConfig = {
-    study_id: $('cfg-id').value.trim(),
-    questions: questions,
-    study_settings: normalizeStudySettings(state.config.study_settings),
-  };
-
-  try {
-    const response = await postJson('/api/config', fullConfig);
-    state.config = response?.config || fullConfig;
-
-    $('btn-save-config').classList.remove('btn-primary--dirty');
-    await loadRecentStudies();
-    // Settings just changed - re-check what would block a run.
-    void loadStudyReadiness();
-    await loadStudyRunState();
-    rebuildAll();
-    if (!skipToast) {
-      showToast(successMessage, 'success');
-    }
-    return true;
-  } catch (error) {
-    console.error('[admin] Could not save configuration:', error);
-    showToast(t('toast.saveFailed'), 'error');
-    return false;
-  }
-}
-
-function markUnsaved() {
-  if (!state.loaded) return;
-  $('btn-save-config').classList.add('btn-primary--dirty');
-}
-
-let _toastTimer = null;
-function showToast(message, type = 'info') {
-  const icons = { success: 'iconoir-check', error: 'iconoir-xmark-circle', info: 'iconoir-info-circle', warning: 'iconoir-warning-triangle' };
-  $('toast-icon').className = icons[type] || icons.info;
-  $('toast-msg').textContent = message;
-  const toast = $('toast');
-  toast.className = `toast toast--${type} show`;
-  toast.onclick = () => toast.classList.remove('show');
-  clearTimeout(_toastTimer);
-  // Problems need time to be read; a click closes any message early.
-  const visibleMs = type === 'error' || type === 'warning' ? 8000 : 3000;
-  _toastTimer = setTimeout(() => toast.classList.remove('show'), visibleMs);
-}
-
-function loadFromFile() {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.study-runner,.json,application/json,application/zip';
-  input.onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      // The server unpacks a study package (study + images) or a plain JSON
-      // study and stores the images; saving the study itself stays below.
-      const body = new FormData();
-      body.append('file', file);
-      const response = await fetch('/api/admin/studies/import', { method: 'POST', body });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.config) {
-        showToast(payload.error || t('toast.invalidJson'), 'error');
-        return;
-      }
-      const config = payload.config;
-      state.studyRunState = { status: 'loaded', study_id: config.study_id || '' };
-      applyLoadedConfig(config);
-      // Import has to persist. Loading the file into the editor and marking it
-      // unsaved left the study invisible in the hub, because the operator who
-      // imported from the hub never sees the editor's Save button.
-      await saveConfig({
-        successMessage: t('toast.importedFile', 'Imported: {name}').replace('{name}', file.name),
-      });
-      switchView('view-workspace');
-    } catch {
-      showToast(t('toast.invalidJson'), 'error');
-    }
-  };
-  input.click();
-}
-
-async function _activateStudyFromHub(id, options = {}) {
-  try {
-    const response = await postJson('/api/admin/study-run/load', { id });
-    applyLoadedConfig(response.config || {});
-    state.studyRunState = response.run_state || { status: 'loaded', study_id: state.config.study_id || id };
-    state.tabletGate = response.tablet_gate || null;
-    renderStudyRunState();
-    showToast(t('toast.studyLoadedWaiting', 'Study loaded - tablet is waiting'), 'success');
-    if (options.openEditor) {
-      switchView('view-workspace');
-    }
-  } catch (e) {
-    showToast(t('toast.loadFailed'), 'error');
-  }
-}
-
-async function downloadStudy(id) {
-  try {
-    // A package bundles the study with every image it shows.
-    const response = await fetch(`/api/admin/studies/${encodeURIComponent(id)}/package`);
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.error || `HTTP ${response.status}`);
-    }
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${id}.study-runner`;
-    a.click();
-    URL.revokeObjectURL(url);
-  } catch(e) {
-    showToast(t('toast.downloadFailed'), 'error');
-  }
-}
-
-async function deleteStudy(id) {
-  const message = t('hub.recent.deleteConfirm', 'Delete study "{id}" permanently?').replace('{id}', id);
-  const proceed = await confirmWithModal({
-    title: id,
-    message,
-    confirmLabel: t('hub.recent.delete', 'Delete'),
-    cancelLabel: t('common.cancel', 'Cancel'),
-  });
-  if (!proceed) return;
-  try {
-    const response = await fetch(`/api/admin/studies/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.ok === false) {
-      throw new Error(payload.error || t('toast.deleteFailed', 'Delete failed'));
-    }
-    showToast(t('toast.studyDeleted'), 'success');
-    await loadRecentStudies();
-  } catch(e) {
-    showToast(t('toast.deleteFailed'), 'error');
-  }
-}
-
-async function loadRecentStudies() {
-  try {
-    const studies = await getJson('/api/admin/studies');
-    const listEl = $('hub-recent-list');
-    if (!studies || studies.length === 0) {
-      listEl.innerHTML = `
-        <div class="hub-recent-item empty">
-          <i class="iconoir-clock"></i>
-          <div>${escapeHtml(t('hub.recent.empty', 'No saved studies yet.'))}</div>
-        </div>`;
-      return;
-    }
-
-    listEl.innerHTML = studies.map(s => `
-      <div class="hub-recent-item" data-study-id="${escapeHtml(s.id)}">
-        <div class="hub-recent-item-main">
-          <i class="iconoir-journal-page"></i>
-          <div>
-            <div class="hub-recent-item-title">${escapeHtml(s.id)}</div>
-            <div class="hub-recent-item-meta">${escapeHtml(t('hub.recent.modified', 'Last edited'))}: ${new Date(s.modified * 1000).toLocaleString(getLanguage())}</div>
-          </div>
-        </div>
-        <div class="hub-recent-actions">
-          <button class="btn-icon-only" data-action="load" title="${escapeHtml(t('hub.recent.load', 'Load'))}"><i class="iconoir-import"></i></button>
-          <button class="btn-icon-only" data-action="edit" title="${escapeHtml(t('hub.recent.edit', 'Edit'))}"><i class="iconoir-edit-pencil"></i></button>
-          <button class="btn-icon-only" data-action="download" title="${escapeHtml(t('hub.recent.download', 'Download'))}"><i class="iconoir-download"></i></button>
-          <button class="btn-icon-only is-danger" data-action="delete" title="${escapeHtml(t('hub.recent.delete', 'Delete'))}"><i class="iconoir-trash"></i></button>
-        </div>
-      </div>
-    `).join('');
-
-    listEl.querySelectorAll('.hub-recent-item:not(.empty)').forEach(item => {
-      const id = item.dataset.studyId;
-      item.querySelector('.hub-recent-item-main').addEventListener('click', () => _activateStudyFromHub(id));
-      item.querySelector('[data-action="load"]').addEventListener('click', () => _activateStudyFromHub(id));
-      item.querySelector('[data-action="edit"]').addEventListener('click', () => _activateStudyFromHub(id, { openEditor: true }));
-      item.querySelector('[data-action="download"]').addEventListener('click', () => downloadStudy(id));
-      item.querySelector('[data-action="delete"]').addEventListener('click', () => deleteStudy(id));
-    });
-  } catch (error) {
-    console.error('[admin] Could not load recent studies:', error);
-  }
-}
-
-function renderCardLabel(question) {
-  const label = getCardLabel(question);
-  return label ? escapeHtml(label) : `<em>${escapeHtml(t('question.noText', 'no text'))}</em>`;
-}
-
-function getCardLabel(question) {
-  if (question.type === 'stimulus') {
-    return (question.title || '').trim();
-  }
-  return (question.prompt || '').trim();
-}
-
-function getMeta(type) {
-  const entry = CARD_TYPES.find((cardType) => cardType.type === type);
-  return entry
-    ? (entry.overrideMeta || entry.module.meta)
-    : { icon: 'question-mark', label: type };
-}
-
+const {
+  checkForPythonUpdate,
+  downloadPythonUpdate,
+  installPythonUpdate,
+  loadUpdateStatus,
+  runSourceUpdate,
+  waitForRestartAndReload,
+} = createAdminUpdateHandling({
+  state,
+  getJson,
+  postJson,
+  showToast: (...args) => showToast(...args),
+  t,
+  confirmWithModal,
+  $,
+});
+const {
+  addQuestion,
+  closeOverlay,
+  downloadStudy,
+  ensureBookends,
+  getCardLabel,
+  getMeta,
+  handleListClick,
+  handleListDragEnd,
+  handleListDragOver,
+  handleListDragStart,
+  handleListDrop,
+  handleTriggerTypePill,
+  liveUpdate,
+  loadFromFile,
+  loadRecentStudies,
+  markUnsaved,
+  rebuildAll,
+  removeQuestion,
+  renderCardLabel,
+  saveConfig,
+  selectQuestion,
+  showToast,
+} = createAdminStudyEditor({
+  state,
+  $,
+  CARDS,
+  CARD_TYPES,
+  defaultFor,
+  renderPromptField,
+  renderInstructionField,
+  renderNoteField,
+  renderEditorToggles,
+  collectInfo,
+  escapeHtml,
+  t,
+  confirmWithModal,
+  normalizeStudySettings,
+  postJson,
+  getJson,
+  loadStudyReadiness: (...args) => loadStudyReadiness(...args),
+  loadStudyRunState: (...args) => loadStudyRunState(...args),
+  applyLoadedConfig: (...args) => applyLoadedConfig(...args),
+  renderStudyRunState: (...args) => renderStudyRunState(...args),
+  switchView: (...args) => switchView(...args),
+  getLanguage,
+});
 async function createDesktopShortcut(buttonId = 'btn-create-shortcut', resultId = '') {
   const button = $(buttonId);
   const previous = button?.innerHTML || '';
@@ -2081,6 +719,3 @@ async function createDesktopShortcut(buttonId = 'btn-create-shortcut', resultId 
 }
 
 void init();
-
-
-

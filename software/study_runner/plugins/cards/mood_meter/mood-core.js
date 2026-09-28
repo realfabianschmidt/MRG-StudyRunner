@@ -190,54 +190,10 @@ export function createSpring(value, { stiffness = 170 } = {}) {
   return spring;
 }
 
-export function prefersReducedMotion() {
-  return typeof window !== 'undefined'
-    && typeof window.matchMedia === 'function'
-    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
-
 export function haptic(ms = 8) {
   try {
     if (typeof navigator !== 'undefined') navigator.vibrate?.(ms);
   } catch {
     // Haptics are a nicety; many tablets have none.
   }
-}
-
-/**
- * Run tick(time, dt) every frame while `element` is in the document. The
- * stop function is kept on the element itself, so a session reset can end
- * every loop by looking at the DOM. tick returns false to pause the loop
- * until wake() is called.
- */
-export function runAnimation(element, tick) {
-  let frame = null;
-  let last = null;
-  const loop = (now) => {
-    frame = null;
-    if (!element.isConnected) return;
-    const dt = last === null ? 1 / 60 : Math.min(0.05, (now - last) / 1000);
-    last = now;
-    if (tick(now / 1000, dt) !== false) frame = requestAnimationFrame(loop);
-  };
-  const controls = {
-    wake() {
-      if (frame === null && element.isConnected) {
-        last = null;
-        frame = requestAnimationFrame(loop);
-      }
-    },
-    stop() {
-      if (frame !== null) cancelAnimationFrame(frame);
-      frame = null;
-    },
-  };
-  element._mmAnimation = controls;
-  element.dataset.mmAnimated = 'true';
-  controls.wake();
-  return controls;
-}
-
-export function stopAllAnimations(root = typeof document !== 'undefined' ? document : null) {
-  root?.querySelectorAll?.('[data-mm-animated]').forEach((element) => element._mmAnimation?.stop());
 }

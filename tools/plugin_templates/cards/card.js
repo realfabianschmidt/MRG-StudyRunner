@@ -46,6 +46,13 @@ export function collectAnswer(i) {
   return document.getElementById(`q${i}`)?.value.trim() || '';
 }
 
+// Optional. Called once the card is rendered, on the participant page
+// (mode 'study') and in the live preview next to the study editor (mode
+// 'preview', nothing is recorded). Work only inside `element`; run any
+// animation through runAnimation() from '/static/scripts/cards/card-motion.js'
+// so it rests out of view and stops on every session reset.
+// export function bindInteractions(element, index, { mode }) {}
+
 export function isAnswered(_question, _questionIndex, { touchedFieldCount }) {
   return touchedFieldCount >= 1;
 }

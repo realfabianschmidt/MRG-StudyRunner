@@ -24,6 +24,7 @@ from study_runner.runtime_core.delivery.finalization_service import (
     FinalizationError,
     FinalizationService,
     InvalidTransitionError,
+    QualityAttentionError,
     StepResult,
     SubmissionConflictError,
 )
@@ -98,6 +99,43 @@ class SuccessfulRecordingAdapter:
 class FailingRecordingAdapter(SuccessfulRecordingAdapter):
     def validate_sources(self, _context):
         raise FinalizationError("required source fixture is unreadable")
+
+
+COVERAGE_ERROR = (
+    "XDF source validation failed: insufficient_time_coverage: stream "
+    "'study_runner.brainbit.bands' starts 52 ms after the session start marker, so "
+    "it does not cover the marker-defined session window"
+)
+
+
+class QualityWarningRecordingAdapter(SuccessfulRecordingAdapter):
+    """Readable data that starts 52 ms late: only a quality warning."""
+
+    def __init__(self):
+        self.validate_calls = 0
+
+    def validate_sources(self, context):
+        self.validate_calls += 1
+        super().validate_sources(context)
+        raise QualityAttentionError(
+            COVERAGE_ERROR,
+            issues=[
+                {
+                    "code": "insufficient_time_coverage",
+                    "message": "stream 'study_runner.brainbit.bands' starts 52 ms after the session start marker",
+                    "source_key": "brainbit",
+                    "origin_id": None,
+                }
+            ],
+            details={"checked_streams": 6},
+        )
+
+
+class LegacyCoverageFailureAdapter(SuccessfulRecordingAdapter):
+    """How earlier versions reported the same warning: as a plain failure."""
+
+    def validate_sources(self, _context):
+        raise FinalizationError(COVERAGE_ERROR)
 
 
 class RecordingDestinationHandler:
@@ -373,6 +411,110 @@ class FinalizationServiceTests(unittest.TestCase):
             service.process_due_jobs_once()
             self.assertIn("notion", destination.calls)
             self.assertTrue((session_root / "COMPLETE.json").is_file())
+
+    def test_accepted_quality_warning_continues_every_remaining_step(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = RecordingDestinationHandler()
+            adapter = QualityWarningRecordingAdapter()
+            service = self._service(
+                Path(temp_dir),
+                recording_adapter=adapter,
+                destination_handler=destination,
+            )
+            job = service.commit_submission(
+                SUBMISSION,
+                config_data={"study_settings": {"notion_enabled": True, "nextcloud_enabled": True}},
+                recording_expected=True,
+            )
+            service.process_due_jobs_once()
+            attention = service.get(job["job_id"])
+            self.assertEqual(attention["status"], "attention_required")
+            self.assertTrue(attention["can_continue_with_warnings"])
+            self.assertEqual(
+                attention["quality_acceptance"]["issues"][0]["code"],
+                "insufficient_time_coverage",
+            )
+            session_root = Path(temp_dir) / attention["session_path"]
+            # The attention backup may already have been uploaded.
+            service.process_due_jobs_once()
+            self.assertEqual(destination.calls, ["nextcloud"])
+
+            continued = service.confirm_degraded(
+                job["job_id"],
+                reason="Test study was very short",
+                confirmed_by="operator-1",
+            )
+            self.assertEqual(continued["status"], "queued")
+            self.assertTrue(continued["degraded_confirmation"]["continued_processing"])
+
+            service.process_due_jobs_once()
+            done = service.get(job["job_id"])
+            self.assertEqual(done["status"], "completed_degraded")
+            self.assertEqual(done["quality_status"], "degraded")
+            steps = {step["key"]: step for step in done["steps"]}
+            for key in ("merge_xdf", "validate_merge", "build_card_summary", "write_result_manifest"):
+                self.assertEqual(steps[key]["status"], "done", key)
+            # The CSV is a projection of the backup grid, which this fixture
+            # does not write; it must be settled, never left pending.
+            self.assertIn(steps["export_csv"]["status"], {"done", "skipped"})
+            accepted = steps["validate_sources"]["details"]["accepted_with_warnings"]
+            self.assertEqual(accepted["reason"], "Test study was very short")
+            self.assertEqual(accepted["issues"][0]["code"], "insufficient_time_coverage")
+            self.assertEqual(steps["purge_local_sources"]["status"], "skipped")
+            self.assertEqual(adapter.validate_calls, 2)
+            # The real derived artifacts exist, not the old empty stub.
+            self.assertTrue((session_root / "derived" / "session.xdf").is_file())
+            summary = json.loads((session_root / "answers" / "card-summary.json").read_text(encoding="utf-8"))
+            self.assertGreater(summary["card_count"], 0)
+            result = json.loads((session_root / "answers" / "result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["server_finalization"]["quality_status"], "degraded")
+            self.assertEqual(result["server_finalization"]["quality_warning"], "Test study was very short")
+            marker = json.loads((session_root / "COMPLETE.json").read_text(encoding="utf-8"))
+            self.assertEqual(marker["status"], "completed_degraded")
+            self.assertFalse((session_root / "ATTENTION_REQUIRED.json").exists())
+            # Both destinations publish the finished session.
+            self.assertIn("notion", destination.calls)
+            self.assertEqual(destination.calls.count("nextcloud"), 2)
+            self.assertFalse(done["can_continue_with_warnings"])
+            self.assertFalse(done["can_continue_processing"])
+
+    def test_blocking_failure_cannot_continue_with_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = self._service(Path(temp_dir), recording_adapter=FailingRecordingAdapter())
+            job = service.commit_submission(SUBMISSION, config_data={}, recording_expected=True)
+            service.process_due_jobs_once()
+            failed = service.get(job["job_id"])
+            self.assertFalse(failed["can_continue_with_warnings"])
+            degraded = service.confirm_degraded(job["job_id"], reason="Cable removed")
+            self.assertEqual(degraded["status"], "completed_degraded")
+            self.assertFalse(degraded["can_continue_processing"])
+            with self.assertRaises(InvalidTransitionError):
+                service.continue_processing(job["job_id"])
+
+    def test_continue_processing_finishes_a_session_stopped_by_an_earlier_version(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            legacy = self._service(root, recording_adapter=LegacyCoverageFailureAdapter())
+            job = legacy.commit_submission(SUBMISSION, config_data={}, recording_expected=True)
+            legacy.process_due_jobs_once()
+            stopped = legacy.confirm_degraded(job["job_id"], reason="to short?")
+            self.assertEqual(stopped["status"], "completed_degraded")
+            steps = {step["key"]: step["status"] for step in stopped["steps"]}
+            self.assertEqual(steps["merge_xdf"], "pending")
+            self.assertTrue(stopped["can_continue_processing"])
+
+            upgraded = self._service(root, recording_adapter=QualityWarningRecordingAdapter())
+            continued = upgraded.continue_processing(job["job_id"])
+            self.assertEqual(continued["status"], "queued")
+            upgraded.process_due_jobs_once()
+            done = upgraded.get(job["job_id"])
+            self.assertEqual(done["status"], "completed_degraded")
+            self.assertEqual(done["degraded_confirmation"]["reason"], "to short?")
+            session_root = root / done["session_path"]
+            self.assertTrue((session_root / "derived" / "session.xdf").is_file())
+            remaining = {step["key"]: step["status"] for step in done["steps"]}
+            for key in ("merge_xdf", "validate_merge", "build_card_summary", "export_csv", "write_result_manifest"):
+                self.assertIn(remaining[key], {"done", "skipped"}, key)
 
     def test_acknowledging_attention_quiets_the_job_but_keeps_its_status(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

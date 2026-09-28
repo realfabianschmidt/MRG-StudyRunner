@@ -1,11 +1,8 @@
 /** Optional trusted dashboard renderer for the MR60 mini-radar plugin. */
 export function renderDashboard({ plugin: radar }, ui) {
   const latest = radar.latest || {};
+  // Status, presence and the switch are drawn by the shared connection panel.
   return `
-    <div class="status-row">
-      <span class="status-pill status-pill--${ui.escapeHtml(radar.status || 'unknown')}">${ui.escapeHtml(ui.statusLabel(radar.status))}</span>
-      <strong>${ui.formatEnabled(radar.configured_enabled)}</strong>
-    </div>
     <dl class="status-list">
       <dt>${ui.fieldLabel('connection', 'Connection')}</dt><dd>${ui.escapeHtml(radar.connection_type || '-')}</dd>
       <dt>${ui.fieldLabel('device', 'Device')}</dt><dd>${ui.escapeHtml(radar.device_label || radar.ble_device_name || radar.port || '-')}</dd>
@@ -25,7 +22,6 @@ export function renderDashboard({ plugin: radar }, ui) {
       <dt>${ui.fieldLabel('lastUpdateAge', 'Last update age')}</dt><dd>${ui.formatValue(radar.seconds_since_last_activity, ' s')}</dd>
       <dt>${ui.fieldLabel('message', 'Message')}</dt><dd>${ui.escapeHtml(radar.last_message || '-')}</dd>
     </dl>
-    ${ui.renderRuntimeButtons(radar)}
   `;
 }
 

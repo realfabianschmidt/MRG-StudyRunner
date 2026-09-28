@@ -24,7 +24,8 @@ Edit-safety legend:
 | `tools/study_runner_manager.py` | Standalone Install & Repair Wizard (downloads, verifies, installs releases) | no |
 | `tools/setup_recording_worker.py` | Native XDF core helper: installs and locally tests a downloaded prebuilt core, or builds the current platform (CTest plus Python/PyXDF smoke) and packs it as a release asset | no |
 | `tools/make_timeline_fixture.py` | Writes a synthetic completed session with a real multi-stream XDF, so the timeline can be seen without recording hardware | no |
-| `tools/measure_structure.py` | 1.0 rebuild structure ratchet: cross-package import edges, import cycles, lines per package, largest file, checked against `tools/structure_baseline.json` | careful |
+| `tools/measure_structure.py` | Python/JavaScript structure ratchet: cross-area import edges, cycles, lines and largest files (including distinct frontend areas), checked against `tools/structure_baseline.json` | careful |
+| `tools/refresh_example_presets.py` | Rebuilds all shipped example study packages through the canonical validator/writer and makes the Basic example active | careful |
 | `tools/plugin_sdk.py` | Plugin SDK: scaffold (`new`), validate, and boot-test (`check-runtime`) a new plugin outside `plugins/`, plus a generated manifest reference (`schema`) — see `tools/plugin_templates/` | careful |
 | `tools/synthetic_lsl_source.py` | Pushes fake-but-plausible LSL samples for a sensor plugin's own declared stream, so it can be tested without real hardware | careful |
 | `tools/install-windows.cmd` / `tools/start-windows.cmd` | Primary Windows entry points; quote their adjacent scripts, use a process-local PowerShell execution-policy bypass, forward arguments, and preserve exit codes | careful |
@@ -214,6 +215,7 @@ browser module a manifest declares under `ui.extensions`.
 | `plugin_secrets.py` | Per-study credential storage and env/study/machine/legacy resolution used by the host and each plugin subprocess | careful |
 | `adapter_utils.py` | Shared timestamps, locked state updates, config-section lookup, and `plugin_runtime_dir`/`runtime_path_setting` (plugin logs and state live next to the results, never in the program files) | careful |
 | `registry.py` | The façade almost everything else calls: manifest-driven plugin lookup, generic actions, interval summaries, sidecar exports | careful |
+| `sensor_connection.py` | The one connection pattern for every sensor: normalizes the reported phase/signal/setup and decides `ready` and the next step (the dashboard's call to action) | careful |
 | `plugin_catalog.py` | Discovers trusted plugin folders and validates API-v5 manifests before dispatch | no |
 | `plugin_layout.py` | Defines trusted plugin category roots shared by discovery, drivers, UI assets, and self-check | no |
 | `card_session_isolation.py` | Refuses a card whose `card.js` keeps mutable module-level state, so no answer can reach the next participant | careful |
@@ -237,7 +239,6 @@ decide; tests derive the mapping from the manifests):
 |---|---|---|
 | `am_hub` | `am_hub` | `am_hub` |
 | `brainbit` | `brainbit` | `brainbit` |
-| `brainbit_old` | `brainbit_old` | `brainbit_old` |
 | `mr60_mini_radar` | `mini_radar` | `mini_radar` |
 | `camera_emotion` | `camera_emotion` | `camera_emotion` |
 | `osc_touchdesigner` | `osc` | `osc` |
@@ -266,9 +267,6 @@ recording code now, not plugins: `data_core/host/markers.py` and
 | `am_hub/adapter.py` | Parasite AM Hub SSE client (API v2, v1 fallback): presence, position, movement, vitals, valves, per-board link quality and latency; converts firmware units and 0-for-no-value | careful |
 | `am_hub/plugin.py` | Plugin wrapper for the AM Hub adapter | careful |
 | `am_hub/driver.py` | API-v5 process entry point (`run_plugin_driver("am_hub")`) | no |
-| `brainbit_old/adapter.py` + `plugin.py` | The earlier BrainBit implementation, kept as a selectable fallback plugin | careful |
-| `brainbit_old/brainbit_realtime_cli.py` | The earlier BrainBit CLI the fallback plugin runs | careful |
-| `brainbit_old/driver.py` | API-v5 process entry point (`run_plugin_driver("brainbit_old")`) | no |
 | `camera_emotion/adapter.py` | Accepts tablet camera frames and publishes stable LSL streams | careful |
 | `camera_emotion/plugin.py` | Single public camera/emotion plugin and generic admin actions | careful |
 | `camera_emotion/driver.py` | API-v5 process entry point (`run_plugin_driver("camera_emotion")`) | no |
@@ -316,9 +314,16 @@ one, unlike the plugin table above).
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `participant/study-controller.js` | The participant flow engine: cards, navigation, snapshots, submit, preview mode | careful |
-| `admin/admin-controller.js` | Study editor, save/load, QR codes, updates | careful |
+| `participant/study-controller.js` | Participant page initialization, card rendering, and page orchestration | careful |
+| `participant/participant-session-recovery.js` | Clock sync, partial snapshots, lifecycle events, cover page, and reload recovery | careful |
+| `participant/participant-stimulus-execution.js` | Prepared-trial timing and stimulus content lifecycle | careful |
+| `participant/participant-result-submission.js` | Answer/card metrics, sensor and plugin session state, navigation readiness, and submission | careful |
+| `admin/admin-controller.js` | Admin initialization, header, QR/access information, and view navigation | careful |
+| `admin/admin-run-control.js` | Readiness gates and active study-run controls | careful |
+| `admin/admin-update-handling.js` | Update status, download/install confirmation, progress, and restart handling | careful |
+| `admin/admin-study-editor.js` | Card editor/list, study persistence, packages, and recent-study behavior | careful |
 | `admin/admin-dashboard-controller.js` | Live sensor dashboard with plain-language statuses | careful |
+| `admin/sensor-connection-panel.js` | The connection panel on every sensor tile: status line, Ready badge, switch, device list and guided steps; also the study bar's state | careful |
 | `settings/machine/machine-settings-panel.js` | Machine settings shell: nav, generated sensor forms, tablet links | careful |
 | `settings/machine/certificate-settings-controller.js` | Certificate status, setup, export, and import, inside the machine settings shell | no |
 | `settings/machine/branding-settings-controller.js` | Upload and remove the group and funder logos, inside the machine settings shell | no |
@@ -355,7 +360,6 @@ one, unlike the plugin table above).
 | `plugins/sensors/camera_emotion/ui/participant.js` | Camera/emotion participant lifecycle extension for preview, stimuli, submit, and heartbeat status | careful |
 | `plugins/sensors/camera_emotion/ui/camera-capture.js` | Plugin-owned tablet camera capture and frame upload adapter | careful |
 | `plugins/sensors/am_hub/ui/dashboard.js` | AM Hub dashboard: movement/breathing/heart-rate tiles, 60 s trend graphs, per-board link details | careful |
-| `plugins/sensors/brainbit_old/ui/dashboard.js` | Dashboard renderer of the fallback BrainBit plugin | careful |
 | `plugins/sensors/brainbit/ui/dashboard.js` | Optional BrainBit rich-status renderer loaded through the manifest extension hook | careful |
 | `plugins/sensors/mr60_mini_radar/ui/dashboard.js` | Optional MR60 rich-status renderer loaded through the manifest extension hook | careful |
 | `plugins/sensors/camera_emotion/ui/dashboard.js` | Optional camera/emotion rich-status renderer loaded through the manifest extension hook | careful |
@@ -363,6 +367,8 @@ one, unlike the plugin table above).
 | `shared/qr-code.js` | QR code rendering for the access card | no |
 | `cards/index.js` | Package 5g.B5: `loadCards()` fetches each installed card's `card.js` (`/api/plugins/<key>/assets/card.js`) and Python-authoritative defaults (`/api/plugins/<key>/card-defaults`) instead of a static import list; the 13 card modules themselves now live in `plugins/cards/<name>/card.js` | careful |
 | `cards/card-info.js` | The shared editor frame every card composes into: question text, instruction, note, toggle group | careful |
+| `cards/card-mount.js` | `mountCard()` renders and binds a card the same way on the participant page and in the editor's live preview; `dispatchCardHook()` routes delegated clicks/inputs | careful |
+| `cards/card-motion.js` | `runAnimation()` for any card: rests out of view, ends when the card is replaced, stops on every session reset | careful |
 | `cards/session-state.js` | `cardState()` / `onSessionReset()`: the only place a card keeps non-DOM state; cleared at every session boundary | careful |
 
 Locales (`apps/ui/locales/en.json`, `de.json`) hold every UI string; both

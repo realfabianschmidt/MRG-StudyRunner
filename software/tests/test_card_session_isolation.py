@@ -75,5 +75,17 @@ class CardSessionIsolationJavaScriptTests(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(shutil.which("node"), "Node.js is only required for the card preview JS test")
+class CardPreviewContractJavaScriptTests(unittest.TestCase):
+    def test_every_card_mounts_as_a_live_preview(self) -> None:
+        subprocess.run(
+            [shutil.which("node"), str(PROJECT_ROOT / "tests" / "js" / "card-preview-contract.test.mjs")],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

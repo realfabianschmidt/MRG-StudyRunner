@@ -1,7 +1,7 @@
 import { getJson, postJson as postJsonToServer } from '../shared/api-client.js';
 import { CARDS, isAnswerless, loadCards } from '../cards/index.js';
 import { resetAllCardState } from '../cards/session-state.js';
-import { renderInfoBottom, renderOptionalTag } from '../cards/card-info.js';
+import { dispatchCardHook as dispatchSharedCardHook, mountCard } from '../cards/card-mount.js';
 import { escapeHtml } from '../shared/dom-utils.js';
 import { renderMediaLayout } from '../shared/rich-text.js';
 import { getStudyClientId, startStudyClientHeartbeat } from './study-client-heartbeat.js';
@@ -23,17 +23,11 @@ import { createParticipantPluginExtensionManager } from '../shared/participant-p
 import { startAmbientBubbles, stopAmbientBubbles } from '../shared/ambient-bubbles.js';
 import { applyFonts, loadBranding, renderFunderLogos, renderGroupLogo } from '../shared/branding.js';
 import { createModal } from '../shared/modal.js';
+import { createParticipantSessionRecovery } from './participant-session-recovery.js';
+import { createParticipantResultSubmission } from './participant-result-submission.js';
+import { createParticipantStimulusExecution } from './participant-stimulus-execution.js';
 
-/**
- * Preview mode: look at the study without being a participant.
- *
- * Opened from the editor as `/?preview=1`. It renders the real cards from the
- * real config, and that is all it does - no heartbeat, so it never occupies
- * the single-tablet slot and can never block the admin's Play button, and
- * every write to the server is dropped here rather than at fifteen call sites.
- * A preview that quietly recorded a session, or that made the operator's own
- * tablet look "taken", would be worse than no preview at all.
- */
+// Preview renders real cards but suppresses participant claims and writes.
 const IS_PREVIEW = new URLSearchParams(window.location.search).get('preview') === '1';
 
 const PREVIEW_ALLOWED_POSTS = new Set(['/api/sync-clock']);
@@ -99,7 +93,6 @@ const TRIAL_PREPARE_TIMEOUT_MS = 3000;
 const TRIAL_STOP_TIMEOUT_MS = 1500;
 const STUDY_SESSION_STOP_TIMEOUT_MS = 1500;
 
-let participantExtensionSync = Promise.resolve();
 const participantExtensions = createParticipantPluginExtensionManager({
   getPlugins: () => getPluginCatalog().plugins,
   isEnabled: (plugin) => isParticipantPluginEnabled(plugin),
@@ -358,391 +351,62 @@ function handleStudyRunState(runState) {
  * Runs 3 ping-pong rounds and uses the median offset.
  * Algorithm: server_minus_perf = ((srv_recv - cli_send) + (srv_send - cli_recv)) / 2
  */
-async function syncClock() {
-  const ROUNDS = 3;
-  const offsets = [];
-  const rtts = [];
-
-  for (let i = 0; i < ROUNDS; i++) {
-    const clientSendMs = performance.now();
-    try {
-      const resp = await postJson('/api/sync-clock', {
-        client_id: getStudyClientId(),
-        client_send_ms: clientSendMs,
-      }, { timeoutMs: CLOCK_SYNC_TIMEOUT_MS });
-      const clientRecvMs = performance.now();
-      const srvRecv = resp.server_receive_ms;
-      const srvSend = resp.server_send_ms;
-      const offset = ((srvRecv - clientSendMs) + (srvSend - clientRecvMs)) / 2;
-      offsets.push(offset);
-      rtts.push(Math.max(0, clientRecvMs - clientSendMs));
-    } catch {
-      // Server unreachable; skip this round.
-    }
-    // Small delay between rounds to avoid burst
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-
-  if (offsets.length > 0) {
-    offsets.sort((a, b) => a - b);
-    state.clockOffsetMs = offsets[Math.floor(offsets.length / 2)];
-    rtts.sort((a, b) => a - b);
-    const medianRtt = rtts[Math.floor(rtts.length / 2)];
-    state.clockRttMs = Number.isFinite(medianRtt) ? medianRtt : null;
-    console.debug('[study] Clock offset estimated:', state.clockOffsetMs.toFixed(2), 'ms');
-  }
-}
-
-function estimateServerEpochMs(clientPerfMs = performance.now()) {
-  if (Number.isFinite(state.clockOffsetMs)) {
-    return clientPerfMs + state.clockOffsetMs;
-  }
-  return Date.now();
-}
-
-let _studyNoticeTimer = null;
-function showStudyNotice(message, type = 'error', durationMs = 6000, options = {}) {
-  // In-page notice instead of a blocking browser popup on the tablet.
-  if (options.reportToAdmin !== false) {
-    reportNoticeToAdmin(message, type);
-  }
-  let toast = document.getElementById('study-toast');
-  if (!toast) {
-    toast = document.createElement('div');
-    toast.id = 'study-toast';
-    document.body.appendChild(toast);
-  }
-  toast.textContent = message;
-  toast.className = `toast toast--${type} show`;
-  clearTimeout(_studyNoticeTimer);
-  _studyNoticeTimer = setTimeout(() => toast.classList.remove('show'), durationMs);
-}
-
-// Every error or warning shown to the participant also reaches the admin
-// dashboard (runtime_core/studies/operator_notices.py). Best-effort: the
-// reliable event queue is for recording data, not for this.
-function reportNoticeToAdmin(message, type) {
-  if (type !== 'error' && type !== 'warning') {
-    return;
-  }
-  void postJson('/api/study/session/client-event', {
-    event: 'participant_notice',
-    severity: type,
-    message: String(message || ''),
-    ...getSessionPayload(),
-  }, { timeoutMs: 1500 }).catch(() => {});
-}
-
-function getClientClockOffsetMs() {
-  // Difference between the server clock and this tablet's wall clock
-  // (server_epoch = client_epoch + offset). Null when clock sync failed.
-  if (!Number.isFinite(state.clockOffsetMs)) {
-    return null;
-  }
-  return Math.round(estimateServerEpochMs() - Date.now());
-}
-
-function handleHeartbeatResponse(response) {
-  if (response?.sensor_runtime) {
-    updateSensorRuntime(response.sensor_runtime);
-  }
-  if (response?.study_run_state) {
-    handleStudyRunState(response.study_run_state);
-  }
-}
-
-function updateSensorRuntime(sensorRuntime) {
-  state.sensorRuntime = sensorRuntime && typeof sensorRuntime === 'object' ? sensorRuntime : {};
-  void queueParticipantExtensionSync('runtime_change');
-}
-
-function startRuntimePolling() {
-  if (state.runtimePollTimer !== null) {
-    window.clearInterval(state.runtimePollTimer);
-  }
-  const poll = async () => {
-    try {
-      const runtime = await getJson(`/api/study/runtime?client_id=${encodeURIComponent(getStudyClientId())}`, { timeoutMs: RUNTIME_POLL_TIMEOUT_MS });
-      updateSensorRuntime(runtime?.sensor_runtime || {});
-      handleStudyRunState(runtime?.study_run_state);
-    } catch (error) {
-      console.debug('[study] Runtime poll failed:', error);
-    }
-  };
-  void poll();
-  state.runtimePollTimer = window.setInterval(poll, RUNTIME_POLL_INTERVAL_MS);
-}
-
-function bindPageLifecycleEvents() {
-  const sendLeaveEvent = () => {
-    saveSessionSnapshot();
-    sendPartialResults({ useBeacon: true });
-    const payload = {
-      event: 'client_reload_or_leave',
-      ...getSessionPayload(),
-      current_index: state.currentIndex,
-      current_type: (state.config.questions || [])[state.currentIndex]?.type || null,
-      is_stimulus_active: Boolean(state.activeStimulus),
-    };
-    try {
-      const body = JSON.stringify(payload);
-      if (navigator.sendBeacon) {
-        sendStudyBeacon('/api/study/session/client-event', new Blob([body], { type: 'application/json' }));
-        return;
-      }
-    } catch {
-      // Fall through to fetch.
-    }
-    void postJson('/api/study/session/client-event', payload).catch(() => {});
-  };
-  window.addEventListener('pagehide', sendLeaveEvent);
-  window.addEventListener('beforeunload', sendLeaveEvent);
-  window.addEventListener('online', () => void flushReliableStudyEvents());
-  document.addEventListener('visibilitychange', handleStudyVisibilityChange);
-  void flushReliableStudyEvents();
-}
-
-function handleStudyVisibilityChange() {
-  const stimulusRun = state.activeStimulus;
-  if (!stimulusRun) return;
-  const observedAtMs = performance.now();
-  const metrics = state.questionMetrics[stimulusRun.index] || {};
-
-  if (document.hidden) {
-    if (!stimulusRun.hiddenStartedAtMs) {
-      stimulusRun.hiddenStartedAtMs = observedAtMs;
-      state.questionMetrics[stimulusRun.index] = {
-        ...metrics,
-        visibility_interrupted: true,
-        visibility_interruption_count: Number(metrics.visibility_interruption_count || 0) + 1,
-      };
-    }
-    return;
-  }
-
-  closeVisibilityInterruption(stimulusRun, observedAtMs);
-  // A throttled timeout may not have run yet. Force one monotonic observation so
-  // an overdue phase completes as soon as the page becomes visible again.
-  stimulusRun.timer?.tick?.();
-}
-
-function closeVisibilityInterruption(stimulusRun, observedAtMs = performance.now()) {
-  if (!stimulusRun?.hiddenStartedAtMs) return;
-  const metrics = state.questionMetrics[stimulusRun.index] || {};
-  const hiddenDuration = Math.max(0, observedAtMs - stimulusRun.hiddenStartedAtMs);
-  state.questionMetrics[stimulusRun.index] = {
-    ...metrics,
-    visibility_interrupted: true,
-    visibility_hidden_duration_ms: Math.round(
-      Number(metrics.visibility_hidden_duration_ms || 0) + hiddenDuration,
-    ),
-  };
-  stimulusRun.hiddenStartedAtMs = null;
-}
-
-function getSessionPayload() {
-  return {
-    session_id: state.sessionId,
-    client_id: getStudyClientId(),
-    study_id: state.config.study_id || '',
-    participant_id: resolveParticipantId(),
-  };
-}
-
-function saveSessionSnapshot() {
-  if (!state.startTime || !state.sessionId) {
-    return;
-  }
-  try {
-    window.sessionStorage.setItem(STUDY_SESSION_STATE_KEY, JSON.stringify({
-      session_id: state.sessionId,
-      client_id: getStudyClientId(),
-      study_id: state.config.study_id || '',
-      participant_id: resolveParticipantId(),
-      participant_metadata: collectParticipantMetadata(),
-      current_index: state.currentIndex,
-      current_type: (state.config.questions || [])[state.currentIndex]?.type || '',
-      study_started_at: new Date(state.startTime).toISOString(),
-      sensor_session_started: state.sensorSessionStarted,
-    }));
-  } catch {
-    // Session recovery is best-effort.
-  }
-}
-
-function buildPartialResultsPayload() {
-  return {
-    ...getSessionPayload(),
-    client_clock_offset_ms: getClientClockOffsetMs(),
-    timestamp_start: state.startTime ? new Date(state.startTime).toISOString() : null,
-    snapshot_at: new Date().toISOString(),
-    current_index: state.currentIndex,
-    answers: collectAnswers(),
-    participant_metadata: collectParticipantMetadata(),
-    answer_events: collectAnswerEvents(),
-    card_events: collectCardEvents(),
-  };
-}
-
-function sendPartialResults({ useBeacon = false } = {}) {
-  // Server-side safety copy of everything answered so far. Without it,
-  // closing the tab (sessionStorage is per-tab) loses the whole session.
-  if (!state.startTime || !state.sessionId) {
-    return;
-  }
-  try {
-    const payload = buildPartialResultsPayload();
-    if (useBeacon && navigator.sendBeacon) {
-      sendStudyBeacon('/api/results/partial', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
-      return;
-    }
-    void postJson('/api/results/partial', payload, { timeoutMs: 1500 }).catch(() => {});
-  } catch {
-    // Partial saves are best-effort; the final submit is authoritative.
-  }
-}
-
-function loadSessionSnapshot() {
-  try {
-    const raw = window.sessionStorage.getItem(STUDY_SESSION_STATE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function clearSessionSnapshot() {
-  try {
-    window.sessionStorage.removeItem(STUDY_SESSION_STATE_KEY);
-  } catch {
-    // Ignore storage failures.
-  }
-}
-
-function matchingSessionSnapshot() {
-  const snapshot = loadSessionSnapshot();
-  if (!snapshot || snapshot.study_id !== (state.config.study_id || '') || snapshot.client_id !== getStudyClientId()) {
-    return null;
-  }
-  return snapshot;
-}
-
-function currentRunKey() {
-  return state.studyRunState?.run_id || 'local';
-}
-
-function coverPageSettings() {
-  const cover = state.config?.study_settings?.cover_page;
-  return cover?.enabled ? cover : null;
-}
-
-/**
- * The cover page sits between the admin's release and the Participant ID card.
- * No participant, session, sensor recording or marker exists yet, so it never
- * enters card timing or the recording window; "Start" continues the normal flow.
- */
-function showCoverPage(cover) {
-  const content = getElement('cover-content');
-  if (content) content.innerHTML = renderMediaLayout(cover);
-  const label = getElement('btn-cover-start-label');
-  if (label) label.textContent = cover.button_label || t('study.cover.start', 'Start');
-  state.coverVisibleRunId = currentRunKey();
-  showScreen('cover');
-  updateProgressBar(0, 0);
-}
-
-function dismissCoverPage() {
-  if (!state.coverVisibleRunId) return;
-  state.coverDismissedRunId = state.coverVisibleRunId;
-  state.coverVisibleRunId = '';
-  void activateStudyUiAfterAdminStart();
-}
-
-function renderRecoveryBlockIfNeeded() {
-  const snapshot = matchingSessionSnapshot();
-  if (!snapshot) {
-    return false;
-  }
-
-  const container = getElement('q-container');
-  if (!container) {
-    return false;
-  }
-  container.innerHTML = `
-    <div class="q-card-study active">
-      <div class="q-type-tag"><i class="iconoir-refresh"></i> ${escapeHtml(t('study.recoveryTag', 'Session recovery'))}</div>
-      <p class="q-prompt">${escapeHtml(t('study.recoveryTitle', 'Study page was reloaded'))}</p>
-      <p class="screen-sub">${escapeHtml(t('study.recoveryBody', 'A running study session was found for this tablet. Continue only if this was an accidental reload. Active stimulus timing is marked as interrupted.'))}</p>
-      <div class="dashboard-actions">
-        <button class="btn-secondary" type="button" id="btn-recover-session">${escapeHtml(t('study.recoveryContinue', 'Continue study'))}</button>
-        <button class="btn-secondary" type="button" id="btn-recover-discard">${escapeHtml(t('study.recoveryRestart', 'Start over'))}</button>
-      </div>
-    </div>`;
-  getElement('btn-prev').disabled = true;
-  getElement('btn-next').disabled = true;
-  getElement('btn-next-label').textContent = t('study.next', 'Next');
-  getElement('btn-next-icon').className = 'iconoir-lock';
-  getElement('btn-recover-session')?.addEventListener('click', () => void resumeAfterReload(snapshot));
-  getElement('btn-recover-discard')?.addEventListener('click', () => {
-    clearSessionSnapshot();
-    buildQuestions({ markInitialShown: false, startFirstStimulus: false });
-  });
-  return true;
-}
-
-async function resumeAfterReload(snapshot) {
-  try {
-    const response = await postJson('/api/study/session/resume', {
-      event: 'study_resume_after_reload',
-      session_id: snapshot.session_id,
-      client_id: getStudyClientId(),
-      study_id: snapshot.study_id,
-      participant_id: snapshot.participant_id,
-      current_index: snapshot.current_index,
-      current_type: snapshot.current_type,
-    });
-    state.sessionId = response.session?.session_id || snapshot.session_id || '';
-    state.participantIdOverride = snapshot.participant_id || '';
-    state.participantMetadataOverride = snapshot.participant_metadata || {};
-    state.startTime = Date.parse(snapshot.study_started_at) || Date.now();
-    state.sensorSessionStarted = Boolean(snapshot.sensor_session_started);
-    updateSensorRuntime(response.sensor_runtime || state.sensorRuntime);
-    buildQuestions({ markInitialShown: false, startFirstStimulus: false });
-    const targetIndex = Number.isInteger(Number(snapshot.current_index)) ? Number(snapshot.current_index) : 0;
-    const safeIndex = Math.max(0, Math.min(targetIndex, (state.config.questions || []).length - 1));
-    if (safeIndex === 0) {
-      markQuestionShown(0);
-      updateNavigation();
-    } else {
-      showRecoveredCard(safeIndex);
-    }
-    saveSessionSnapshot();
-    startParticipantExtensionMonitors('session_recovered');
-  } catch (error) {
-    console.error('[study] Could not resume study session:', error);
-    showStudyNotice(t('study.recoveryFailed', 'Could not resume the study session.'));
-  }
-}
-
-function showRecoveredCard(targetIndex) {
-  const currentCard = getElement(`card-q-${state.currentIndex}`);
-  const targetCard = getElement(`card-q-${targetIndex}`);
-  if (!targetCard) {
-    return;
-  }
-  if (currentCard && currentCard !== targetCard) {
-    currentCard.classList.remove('active');
-  }
-  playCardEntrance(targetCard, 'card-enter-initial');
-  state.currentIndex = targetIndex;
-  markQuestionShown(targetIndex);
-  const targetQuestion = (state.config.questions || [])[targetIndex];
-  if (targetQuestion?.type === 'stimulus') {
-    prepareStimulusCard(targetIndex, targetQuestion);
-  }
-  updateNavigation();
-}
-
+const {
+  bindPageLifecycleEvents,
+  clearSessionSnapshot,
+  closeVisibilityInterruption,
+  coverPageSettings,
+  currentRunKey,
+  dismissCoverPage,
+  estimateServerEpochMs,
+  getClientClockOffsetMs,
+  getSessionPayload,
+  handleHeartbeatResponse,
+  matchingSessionSnapshot,
+  renderRecoveryBlockIfNeeded,
+  reportNoticeToAdmin,
+  saveSessionSnapshot,
+  sendPartialResults,
+  showCoverPage,
+  showStudyNotice,
+  startRuntimePolling,
+  syncClock,
+} = createParticipantSessionRecovery({
+  state,
+  getElement,
+  getJson,
+  postJson,
+  sendStudyBeacon,
+  flushReliableStudyEvents,
+  getStudyClientId,
+  resolveParticipantId: (...args) => resolveParticipantId(...args),
+  collectParticipantMetadata: (...args) => collectParticipantMetadata(...args),
+  collectAnswers: (...args) => collectAnswers(...args),
+  collectAnswerEvents: (...args) => collectAnswerEvents(...args),
+  collectCardEvents: (...args) => collectCardEvents(...args),
+  updateSensorRuntime: (...args) => updateSensorRuntime(...args),
+  handleStudyRunState: (...args) => handleStudyRunState(...args),
+  queueParticipantExtensionSync: (...args) => queueParticipantExtensionSync(...args),
+  isStudyRunRunning: (...args) => isStudyRunRunning(...args),
+  activateStudyUiAfterAdminStart: (...args) => activateStudyUiAfterAdminStart(...args),
+  showScreen: (...args) => showScreen(...args),
+  updateProgressBar: (...args) => updateProgressBar(...args),
+  buildQuestions: (...args) => buildQuestions(...args),
+  markQuestionShown: (...args) => markQuestionShown(...args),
+  updateNavigation: (...args) => updateNavigation(...args),
+  playCardEntrance: (...args) => playCardEntrance(...args),
+  prepareStimulusCard: (...args) => prepareStimulusCard(...args),
+  startParticipantExtensionMonitors: (...args) => startParticipantExtensionMonitors(...args),
+  renderMediaLayout,
+  escapeHtml,
+  t,
+  constants: {
+    sessionStateKey: STUDY_SESSION_STATE_KEY,
+    runtimePollIntervalMs: RUNTIME_POLL_INTERVAL_MS,
+    clockSyncTimeoutMs: CLOCK_SYNC_TIMEOUT_MS,
+    runtimePollTimeoutMs: RUNTIME_POLL_TIMEOUT_MS,
+  },
+});
 function bindEvents() {
   getElement('btn-prev').addEventListener('click', () => void goTo(state.currentIndex - 1));
   getElement('btn-next').addEventListener('click', () => void handleNext());
@@ -866,11 +530,8 @@ async function toggleStudyFullscreen() {
 // which guards against re-entering on the very "participantid:changed"
 // event its hash computation dispatches.
 function dispatchCardHook(hookName, event) {
-  const participantIdModule = CARDS['participant-id'];
-  for (const cardModule of new Set(Object.values(CARDS))) {
-    if (cardModule === participantIdModule) continue;
-    cardModule[hookName]?.(event);
-  }
+  // The participant-ID card's input is routed below with its own guard.
+  dispatchSharedCardHook(hookName, event, { skip: [CARDS['participant-id']].filter(Boolean) });
 }
 
 function handleQuestionInput(event) {
@@ -911,6 +572,11 @@ function handleQuestionChange(event) {
 }
 
 function resolveParticipantId() {
+  // Once the session started, its data folder is bound to this ID. A later
+  // edit on the ID card must not move the results to another participant.
+  if (state.sensorSessionStarted && state.participantIdOverride) {
+    return state.participantIdOverride;
+  }
   const questions = state.config.questions || [];
   const pidIdx = questions.findIndex(q => q.type === 'participant-id');
   if (pidIdx >= 0) {
@@ -1138,10 +804,9 @@ function buildQuestions(options = {}) {
     const cardElement = document.createElement('div');
     cardElement.className = 'q-card-study';
     cardElement.id = `card-q-${questionIndex}`;
-    cardElement.innerHTML = renderOptionalTag(question) + cardModule.renderStudy(question, questionIndex) + renderInfoBottom(question);
+    mountCard(cardElement, question, questionIndex, { mode: IS_PREVIEW ? 'preview' : 'study' });
     container.appendChild(cardElement);
 
-    cardModule.bindInteractions?.(cardElement, questionIndex);
   });
 
   const firstCard = getElement('card-q-0');
@@ -1242,1206 +907,93 @@ async function goTo(targetIndex, options = {}) {
   }
 }
 
-async function startStimulusCard(questionIndex, question) {
-  const stimulusRun = {
-    index: questionIndex,
-    question,
-    timer: null,
-    signalStarted: false,
-    activeStarted: false,
-    cleanup: null,
-    extensionCleanup: null,
-    hiddenStartedAtMs: null,
-    stimulusId: createEventId(`stimulus-${questionIndex}`),
-    startEventId: createEventId(`stimulus-${questionIndex}-start`),
-    stopEventId: createEventId(`stimulus-${questionIndex}-stop`),
-    plannedStartPerfMs: null,
-    plannedDeadlinePerfMs: null,
-  };
-
-  state.activeStimulus = stimulusRun;
-  prepareStimulusCard(questionIndex, question);
-
-  assignStimulusSchedule(stimulusRun);
-  if (shouldActivateHardware(question)) {
-    const prepared = await prepareStimulusRouting(stimulusRun);
-    if (!prepared || state.activeStimulus !== stimulusRun) return;
-  }
-
-  if (state.activeStimulus !== stimulusRun) return;
-
-  if (getWarmupSeconds(question) > 0) {
-    startWarmupPhase(stimulusRun);
-    return;
-  }
-
-  await startActiveStimulusPhase(stimulusRun);
-}
-
-function assignStimulusSchedule(stimulusRun, { replaceIds = false } = {}) {
-  if (replaceIds) {
-    stimulusRun.stimulusId = createEventId(`stimulus-${stimulusRun.index}`);
-    stimulusRun.startEventId = createEventId(`stimulus-${stimulusRun.index}-start`);
-    stimulusRun.stopEventId = createEventId(`stimulus-${stimulusRun.index}-stop`);
-  }
-  // Fix the monotonic schedule before network I/O. The acknowledged values are
-  // later compared with the actual browser onset instead of silently moving it.
-  const scheduleStartMs = performance.now();
-  stimulusRun.scheduleStartPerfMs = scheduleStartMs;
-  stimulusRun.plannedStartPerfMs = scheduleStartMs + getWarmupSeconds(stimulusRun.question) * 1000;
-  stimulusRun.plannedDeadlinePerfMs = stimulusRun.plannedStartPerfMs
-    + getActiveSeconds(stimulusRun.question) * 1000;
-}
-
-function stimulusPreparePayload(stimulusRun) {
-  return {
-    ...buildEventPayload(
-      stimulusRun.index,
-      stimulusRun.question,
-      'stimulus_prepare',
-      stimulusRun.scheduleStartPerfMs,
-    ),
-    event_id: stimulusRun.startEventId,
-    stop_event_id: stimulusRun.stopEventId,
-    stimulus_id: stimulusRun.stimulusId,
-    planned_start_epoch_ms: estimateServerEpochMs(stimulusRun.plannedStartPerfMs),
-    planned_deadline_epoch_ms: estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs),
-  };
-}
-
-async function prepareStimulusRouting(stimulusRun) {
-  while (state.activeStimulus === stimulusRun) {
-    try {
-      const response = await postJson(
-        '/api/trial/prepare',
-        stimulusPreparePayload(stimulusRun),
-        { timeoutMs: TRIAL_PREPARE_TIMEOUT_MS },
-      );
-      const metrics = state.questionMetrics[stimulusRun.index] || {};
-      state.questionMetrics[stimulusRun.index] = {
-        ...metrics,
-        prepare_failed: false,
-        prepare_overridden: response?.overridden === true,
-        prepare_server_epoch_ms: response?.server_epoch_ms || null,
-      };
-      return true;
-    } catch (error) {
-      console.error('[study] Could not prepare stimulus routing:', error);
-      const metrics = state.questionMetrics[stimulusRun.index] || {};
-      state.questionMetrics[stimulusRun.index] = {
-        ...metrics,
-        prepare_failed: true,
-        prepare_error: error?.message || String(error),
-      };
-      const choice = await showPrepareFailureDialog(error);
-      if (choice === 'retry') {
-        // A long operator pause can make the original immutable schedule
-        // unusable. Cancel it first, then retry with fresh identifiers.
-        if (estimateServerEpochMs() >= estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs) - 500) {
-          const cancelled = await cancelStimulusPreparation(stimulusRun, 'expired_before_retry');
-          if (!cancelled) continue;
-          assignStimulusSchedule(stimulusRun, { replaceIds: true });
-        }
-        continue;
-      }
-
-      const reason = choice === 'skip' ? 'tablet_skip' : 'tablet_abort';
-      const cancelled = await cancelStimulusPreparation(stimulusRun, reason);
-      if (!cancelled) continue;
-      state.activeStimulus = null;
-      state.questionMetrics[stimulusRun.index] = {
-        ...state.questionMetrics[stimulusRun.index],
-        prepare_resolution: choice,
-        completed_at: new Date().toISOString(),
-      };
-      updateNavigation();
-      if (choice === 'skip') {
-        await handleNext();
-      } else {
-        await abortStudyAfterPrepareFailure();
-      }
-      return false;
-    }
-  }
-  return false;
-}
-
-async function cancelStimulusPreparation(stimulusRun, reason) {
-  try {
-    await postJson('/api/trial/prepare/cancel', {
-      event_id: stimulusRun.startEventId,
-      stimulus_id: stimulusRun.stimulusId,
-      reason,
-    }, { timeoutMs: TRIAL_STOP_TIMEOUT_MS });
-    return true;
-  } catch (error) {
-    showStudyNotice(
-      t('study.prepareCancelFailed', 'The prepared card could not be cancelled safely. Please retry or tell the study supervisor.'),
-      'error',
-      10000,
-    );
-    return false;
-  }
-}
-
-async function abortStudyAfterPrepareFailure() {
-  try {
-    await postJson('/api/admin/study-run/stop', {});
-  } catch (error) {
-    console.error('[study] Could not stop study run after prepare failure:', error);
-  }
-  await stopStudySensorSession();
-  state.startTime = null;
-  resetParticipantSessionState();
-  showWaitingForAdminStart({
-    title: t('study.prepareAbortedTitle', 'Study stopped'),
-    body: t('study.prepareAbortedBody', 'The card was not shown. Please tell the study supervisor.'),
-  });
-}
-
-function showPrepareFailureDialog(error) {
-  reportNoticeToAdmin(`${t('study.prepareFailedTitle', 'Card could not be prepared')}: ${error?.message || String(error)}`, 'error');
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (choice) => {
-      if (settled) return;
-      settled = true;
-      modal.destroy();
-      resolve(choice);
-    };
-    const modal = createModal({
-      title: t('study.prepareFailedTitle', 'Card could not be prepared'),
-      closeLabel: t('study.prepareAbort', 'Stop study'),
-      onClose: () => finish('abort'),
-    });
-    modal.body.innerHTML = `
-      <p class="settings-hint">${escapeHtml(t('study.prepareFailedBody', 'The stimulus remains hidden so no unrecorded onset can occur.'))}</p>
-      <p class="status-warning">${escapeHtml(error?.message || String(error))}</p>
-      <div class="dashboard-actions">
-        <button type="button" class="btn-secondary" data-prepare-abort>${escapeHtml(t('study.prepareAbort', 'Stop study'))}</button>
-        <button type="button" class="btn-secondary" data-prepare-skip>${escapeHtml(t('study.prepareSkip', 'Skip card'))}</button>
-        <button type="button" class="btn-primary" data-prepare-retry>${escapeHtml(t('study.prepareRetry', 'Retry'))}</button>
-      </div>`;
-    modal.body.querySelector('[data-prepare-abort]')?.addEventListener('click', () => finish('abort'));
-    modal.body.querySelector('[data-prepare-skip]')?.addEventListener('click', () => finish('skip'));
-    modal.body.querySelector('[data-prepare-retry]')?.addEventListener('click', () => finish('retry'));
-    modal.open();
-  });
-}
-
-function startWarmupPhase(stimulusRun) {
-  const { index, question } = stimulusRun;
-  const numberLabel = getElement(`warmup-num-${index}`);
-
-  setStimulusPhase(index, 'warmup');
-  updateNavigation();
-
-  if (numberLabel) {
-    numberLabel.textContent = String(getWarmupSeconds(question));
-  }
-
-  stimulusRun.timer = startDeadlineTimer({
-    startedAtMs: performance.now(),
-    deadlineMs: stimulusRun.plannedStartPerfMs,
-    onTick: ({ remainingMs }) => {
-      if (state.activeStimulus === stimulusRun && numberLabel) {
-        numberLabel.textContent = String(remainingWholeSeconds(remainingMs));
-      }
-    },
-    onDeadline: ({ callbackDelayMs }) => {
-      if (state.activeStimulus !== stimulusRun) return;
-      stimulusRun.timer = null;
-      const metrics = state.questionMetrics[index] || {};
-      state.questionMetrics[index] = {
-        ...metrics,
-        warmup_callback_delay_ms: Math.round(callbackDelayMs),
-      };
-      void startActiveStimulusPhase(stimulusRun);
-    },
-  });
-}
-
-async function startActiveStimulusPhase(stimulusRun) {
-  if (state.activeStimulus !== stimulusRun || stimulusRun.activeStarted) {
-    return;
-  }
-  stimulusRun.activeStarted = true;
-
-  const { index, question } = stimulusRun;
-  const ring = getElement(`ring-prog-${index}`);
-  const numberLabel = getElement(`cd-num-${index}`);
-  const renderRequestedMs = performance.now();
-  const plannedStartPerfMs = Number.isFinite(stimulusRun.plannedStartPerfMs)
-    ? stimulusRun.plannedStartPerfMs
-    : renderRequestedMs;
-  const plannedDeadlinePerfMs = Number.isFinite(stimulusRun.plannedDeadlinePerfMs)
-    ? stimulusRun.plannedDeadlinePerfMs
-    : renderRequestedMs + getActiveSeconds(question) * 1000;
-  const plannedStartEpochMs = estimateServerEpochMs(plannedStartPerfMs);
-  const plannedDeadlineEpochMs = estimateServerEpochMs(plannedDeadlinePerfMs);
-
-  setStimulusPhase(index, 'active');
-
-  const currentMetrics = state.questionMetrics[index] || {};
-  state.questionMetrics[index] = {
-    ...currentMetrics,
-    active_started_at: new Date().toISOString(),
-    render_requested_epoch_ms: estimateServerEpochMs(renderRequestedMs),
-    planned_start_epoch_ms: plannedStartEpochMs,
-    planned_deadline_epoch_ms: plannedDeadlineEpochMs,
-    stimulus_id: stimulusRun.stimulusId,
-    start_event_id: stimulusRun.startEventId,
-    stop_event_id: stimulusRun.stopEventId,
-  };
-
-  // The visual onset is tied to the monotonic timestamp above. It does not wait
-  // for a network round-trip; the command was durably prepared beforehand and is
-  // queued with its original source time if the network is temporarily down.
-  const contentCleanup = applyStimulusContent(index, question);
-  stimulusRun.extensionCleanup = participantExtensions.startStimulus({
-    stimulus: stimulusRun,
-    session: getParticipantSessionContext(),
-  });
-  stimulusRun.cleanup = () => {
-    stimulusRun.extensionCleanup?.();
-    if (typeof contentCleanup === 'function') contentCleanup();
-  };
-  updateNavigation();
-
-  // requestAnimationFrame's timestamp identifies the browser frame in which
-  // the already-mutated stimulus DOM becomes visible. This is the scientific
-  // onset sent to the server/LSL mapping; the earlier callback time remains a
-  // separate scheduling diagnostic.
-  const visualOnsetPerfMs = await nextVisualFrameTimestamp();
-  if (state.activeStimulus !== stimulusRun) return;
-  const visualOnsetEpochMs = estimateServerEpochMs(visualOnsetPerfMs);
-  state.questionMetrics[index] = {
-    ...state.questionMetrics[index],
-    visual_onset_epoch_ms: visualOnsetEpochMs,
-    visual_onset_perf_ms: visualOnsetPerfMs,
-    onset_callback_delay_ms: Math.round(Math.max(0, visualOnsetPerfMs - plannedStartPerfMs)),
-    onset_uncertainty_ms: Number.isFinite(state.clockRttMs) ? state.clockRttMs / 2 : null,
-  };
-
-  if (shouldActivateHardware(question)) {
-    stimulusRun.signalStarted = true;
-    void sendReliableStudyEvent('/api/start', {
-        ...buildEventPayload(index, question, 'stimulus_active_start', visualOnsetPerfMs),
-        event_id: stimulusRun.startEventId,
-        stop_event_id: stimulusRun.stopEventId,
-        stimulus_id: stimulusRun.stimulusId,
-        planned_start_epoch_ms: plannedStartEpochMs,
-        planned_deadline_epoch_ms: plannedDeadlineEpochMs,
-        visual_onset_epoch_ms: visualOnsetEpochMs,
-        onset_uncertainty_ms: Number.isFinite(state.clockRttMs) ? state.clockRttMs / 2 : null,
-        marker_event: 'stimulus_active_start',
-      }, { timeoutMs: TRIAL_START_TIMEOUT_MS })
-      .then((response) => {
-      state.questionMetrics[index] = {
-        ...state.questionMetrics[index],
-        server_start_received_at: response.server_received_at || null,
-        server_start_received_epoch_ms: response.server_received_epoch_ms || null,
-        start_marker: response.marker_value || null,
-      };
-      })
-      .catch((error) => console.error('[study] Could not send /api/start; event remains queued:', error));
-  }
-
-  if (numberLabel) {
-    numberLabel.textContent = String(remainingWholeSeconds(plannedDeadlinePerfMs - performance.now()));
-  }
-  if (ring) {
-    ring.style.strokeDashoffset = '0';
-  }
-
-  stimulusRun.timer = startDeadlineTimer({
-    startedAtMs: plannedStartPerfMs,
-    deadlineMs: plannedDeadlinePerfMs,
-    onTick: ({ remainingMs, progress }) => {
-      if (state.activeStimulus !== stimulusRun) return;
-      if (numberLabel) numberLabel.textContent = String(remainingWholeSeconds(remainingMs));
-      if (ring) ring.style.strokeDashoffset = String(314 * progress);
-    },
-    onDeadline: ({ callbackDelayMs }) => {
-      if (state.activeStimulus !== stimulusRun) return;
-      stimulusRun.timer = null;
-      const metrics = state.questionMetrics[index] || {};
-      state.questionMetrics[index] = {
-        ...metrics,
-        deadline_callback_delay_ms: Math.round(callbackDelayMs),
-      };
-      void finishStimulusCard(stimulusRun);
-    },
-  });
-}
-
-function nextVisualFrameTimestamp() {
-  return new Promise((resolve) => {
-    if (typeof window.requestAnimationFrame === 'function') {
-      window.requestAnimationFrame((timestamp) => resolve(timestamp));
-      return;
-    }
-    resolve(performance.now());
-  });
-}
-
-async function finishStimulusCard(stimulusRun) {
-  if (state.activeStimulus !== stimulusRun) {
-    return;
-  }
-
-  await stopActiveStimulus({ shouldSendStop: stimulusRun.signalStarted });
-  await handleNext();
-}
-
-async function stopActiveStimulus({ shouldSendStop }) {
-  const stimulusRun = state.activeStimulus;
-  if (!stimulusRun) {
-    return;
-  }
-
-  stimulusRun.timer?.cancel?.();
-  stimulusRun.timer = null;
-  closeVisibilityInterruption(stimulusRun);
-
-  if (typeof stimulusRun.cleanup === 'function') {
-    try {
-      stimulusRun.cleanup();
-    } catch (error) {
-      console.error('[stimulus] Cleanup callback failed:', error);
-    }
-  }
-
-  clearStimulusContent(stimulusRun.index);
-
-  if (shouldSendStop && stimulusRun.signalStarted && shouldActivateHardware(stimulusRun.question)) {
-    const clientTriggerMs = performance.now();
-    const currentMetrics = state.questionMetrics[stimulusRun.index] || {};
-    state.questionMetrics[stimulusRun.index] = {
-      ...currentMetrics,
-      active_ended_at: new Date().toISOString(),
-      completed_at: new Date().toISOString(),
-      client_stop_trigger_epoch_ms: estimateServerEpochMs(clientTriggerMs),
-    };
-    // Queueing is synchronous and durable. Navigation does not wait for the
-    // network; the serialized event queue preserves start-before-stop order.
-    void sendReliableStudyEvent('/api/stop', {
-      ...buildEventPayload(stimulusRun.index, stimulusRun.question, 'stimulus_active_stop', clientTriggerMs),
-      event_id: stimulusRun.stopEventId,
-      stimulus_id: stimulusRun.stimulusId,
-      planned_deadline_epoch_ms: state.questionMetrics[stimulusRun.index]?.planned_deadline_epoch_ms,
-      marker_event: 'stimulus_active_stop',
-    }, { timeoutMs: TRIAL_STOP_TIMEOUT_MS })
-      .then((response) => {
-      state.questionMetrics[stimulusRun.index] = {
-        ...state.questionMetrics[stimulusRun.index],
-        server_stop_received_at: response.server_received_at || null,
-        server_stop_received_epoch_ms: response.server_received_epoch_ms || null,
-        stop_marker: response.marker_value || null,
-      };
-      })
-      .catch((error) => console.error('[study] Could not send /api/stop; event remains queued:', error));
-  } else if (stimulusRun.question?.type === 'stimulus') {
-    const currentMetrics = state.questionMetrics[stimulusRun.index] || {};
-    state.questionMetrics[stimulusRun.index] = {
-      ...currentMetrics,
-      completed_at: currentMetrics.completed_at || new Date().toISOString(),
-    };
-  }
-
-  prepareStimulusCard(stimulusRun.index, stimulusRun.question);
-  state.activeStimulus = null;
-  updateNavigation();
-}
-
-function prepareStimulusCard(questionIndex, question) {
-  const shell = getElement(`stimulus-shell-${questionIndex}`);
-  const warmupLabel = getElement(`warmup-num-${questionIndex}`);
-  const activeLabel = getElement(`cd-num-${questionIndex}`);
-  const ring = getElement(`ring-prog-${questionIndex}`);
-
-  if (shell) {
-    shell.classList.remove('stimulus-body--warmup', 'stimulus-body--active');
-    shell.classList.add(getWarmupSeconds(question) > 0 ? 'stimulus-body--warmup' : 'stimulus-body--active');
-  }
-
-  if (warmupLabel) {
-    warmupLabel.textContent = String(getWarmupSeconds(question));
-  }
-  if (activeLabel) {
-    activeLabel.textContent = String(getActiveSeconds(question));
-  }
-  if (ring) {
-    ring.style.strokeDashoffset = '0';
-  }
-
-  clearStimulusContent(questionIndex);
-  setStimulusPhase(questionIndex, getWarmupSeconds(question) > 0 ? 'warmup' : 'active');
-}
-
-function setStimulusPhase(questionIndex, phase) {
-  const shell = getElement(`stimulus-shell-${questionIndex}`);
-  const warmupStage = getElement(`stimulus-warmup-${questionIndex}`);
-  const activeStage = getElement(`stimulus-active-${questionIndex}`);
-
-  if (shell) {
-    shell.dataset.phase = phase;
-    shell.classList.toggle('stimulus-body--warmup', phase === 'warmup');
-    shell.classList.toggle('stimulus-body--active', phase === 'active');
-  }
-  if (warmupStage) {
-    warmupStage.hidden = phase !== 'warmup';
-  }
-  if (activeStage) {
-    activeStage.hidden = phase !== 'active';
-  }
-}
-
-function clearStimulusContent(questionIndex) {
-  const contentElement = getElement(`stimulus-content-${questionIndex}`);
-  if (!contentElement) {
-    return;
-  }
-
-  contentElement.querySelectorAll('video, audio').forEach((mediaElement) => {
-    try {
-      mediaElement.pause();
-      mediaElement.removeAttribute('src');
-      if (typeof mediaElement.load === 'function') {
-        mediaElement.load();
-      }
-    } catch (error) {
-      console.error('[stimulus] Could not stop media element:', error);
-    }
-  });
-
-  contentElement.replaceChildren();
-  contentElement.hidden = true;
-}
-
-function isUnsafeStimulusCodeAllowed() {
-  return state.config?._capabilities?.unsafe_stimulus_code === true;
-}
-
-function showUnsafeStimulusWarning(contentElement, triggerType) {
-  const warningBox = document.createElement('div');
-  warningBox.className = 'stimulus-unsafe-warning';
-
-  const title = document.createElement('strong');
-  title.textContent = `${String(triggerType).toUpperCase()} stimulus blocked`;
-
-  const message = document.createElement('p');
-  message.textContent = 'This study uses executable stimulus content, but the server has not enabled unsafe stimulus code. Set STUDY_RUNNER_ALLOW_UNSAFE_STIMULUS_CODE=1 on the server to allow it intentionally.';
-
-  warningBox.appendChild(title);
-  warningBox.appendChild(message);
-  contentElement.appendChild(warningBox);
-  contentElement.hidden = false;
-}
-
-function applyStimulusContent(questionIndex, question) {
-  const contentElement = getElement(`stimulus-content-${questionIndex}`);
-  if (!contentElement) {
-    return null;
-  }
-
-  clearStimulusContent(questionIndex);
-
-  const cleanupCallbacks = [];
-  const triggerType = question.trigger_type || 'timer';
-  const triggerContent = question.trigger_content || '';
-
-  if (triggerType === 'image' && triggerContent) {
-    const image = document.createElement('img');
-    image.src = triggerContent;
-    image.className = 'stimulus-image';
-    image.alt = '';
-    contentElement.appendChild(image);
-    contentElement.hidden = false;
-  } else if (triggerType === 'video' && triggerContent) {
-    const video = document.createElement('video');
-    video.src = triggerContent;
-    video.className = 'stimulus-video';
-    video.autoplay = true;
-    video.loop = true;
-    video.muted = true;
-    video.playsInline = true;
-    contentElement.appendChild(video);
-    contentElement.hidden = false;
-  } else if (triggerType === 'audio' && triggerContent) {
-    const audio = document.createElement('audio');
-    audio.src = triggerContent;
-    audio.autoplay = true;
-    audio.loop = true;
-    contentElement.appendChild(audio);
-  } else if (triggerType === 'html' && triggerContent) {
-    if (!isUnsafeStimulusCodeAllowed()) {
-      showUnsafeStimulusWarning(contentElement, triggerType);
-    } else {
-      contentElement.innerHTML = triggerContent;
-      contentElement.hidden = false;
-    }
-  } else if (triggerType === 'js' && triggerContent) {
-    if (!isUnsafeStimulusCodeAllowed()) {
-      showUnsafeStimulusWarning(contentElement, triggerType);
-      return null;
-    }
-
-    const studyHelper = {
-      call: (path, data = {}) => postJson(path, data),
-      onCleanup: (callback) => {
-        if (typeof callback === 'function') {
-          cleanupCallbacks.push(callback);
-        }
-      },
-    };
-
-    try {
-      const returnedCleanup = (new Function('study', triggerContent))(studyHelper);
-      if (typeof returnedCleanup === 'function') {
-        cleanupCallbacks.push(returnedCleanup);
-      }
-    } catch (error) {
-      console.error('[stimulus] Custom JavaScript error:', error);
-    }
-  }
-
-  return () => {
-    cleanupCallbacks.forEach((callback) => {
-      try {
-        callback();
-      } catch (error) {
-        console.error('[stimulus] Custom cleanup failed:', error);
-      }
-    });
-  };
-}
-
-function getWarmupSeconds(question) {
-  return Math.max(0, Math.round((question.warmup_duration_ms || 0) / 1000));
-}
-
-function getActiveSeconds(question) {
-  return Math.max(1, Math.round((question.duration_ms || 30000) / 1000));
-}
-
-function getStudyClientHeartbeatPayload() {
-  const questions = state.config.questions || [];
-  const currentQuestion = questions[state.currentIndex] || null;
-
-  return {
-    participant_id: resolveParticipantId(),
-    study_id: state.config.study_id || '',
-    session_id: state.sessionId,
-    current_index: Number.isInteger(state.currentIndex) ? state.currentIndex : null,
-    current_type: currentQuestion?.type || null,
-    is_stimulus_active: Boolean(state.activeStimulus),
-    signal_started: Boolean(state.activeStimulus?.signalStarted),
-    plugin_status: participantExtensions.heartbeatStatus(),
-    study_started: Boolean(state.startTime),
-    study_run_status: state.studyRunState?.status || 'loaded',
-    waiting_for_admin_start: Boolean(state.waitingForAdminStart),
-    clock_offset_ms: getClientClockOffsetMs(),
-    clock_sync_rtt_ms: Number.isFinite(state.clockRttMs) ? Math.round(state.clockRttMs) : null,
-  };
-}
-
-function getQuestionIndexFromElement(element) {
-  const cardElement = element?.closest?.('.q-card-study');
-  if (!cardElement?.id?.startsWith('card-q-')) {
-    return null;
-  }
-
-  const index = Number.parseInt(cardElement.id.replace('card-q-', ''), 10);
-  return Number.isInteger(index) ? index : null;
-}
-
-function markQuestionField(questionIndex, fieldKey) {
-  const normalizedKey = fieldKey || '__question__';
-  if (!state.touchedFields[questionIndex]) {
-    state.touchedFields[questionIndex] = new Set();
-  }
-  state.touchedFields[questionIndex].add(normalizedKey);
-}
-
-function markQuestionShown(questionIndex) {
-  const questions = state.config.questions || [];
-  const question = questions[questionIndex];
-  const nowIso = new Date().toISOString();
-  const current = state.questionMetrics[questionIndex] || {};
-  state.questionMetrics[questionIndex] = {
-    ...current,
-    shown_at: current.shown_at || nowIso,
-    // Server-clock estimate so biosignal slicing is immune to tablet clock skew.
-    shown_at_server_epoch_ms: current.shown_at_server_epoch_ms || estimateServerEpochMs(),
-  };
-  if (!state.startTime || question?.type === 'participant-id') {
-    return;
-  }
-  if (question?.type !== 'finish' && !current.shown_marker_sent) {
-    const shownEventId = createEventId('marker-question-shown');
-    state.questionMetrics[questionIndex].shown_marker_sent = true;
-    state.questionMetrics[questionIndex].shown_event_id = shownEventId;
-    void sendMarker(
-      question?.type === 'stimulus' ? 'stimulus_shown' : 'question_shown',
-      questionIndex,
-      question,
-      'shown',
-      { eventId: shownEventId },
-    );
-  }
-}
-
-function recordQuestionCompletion(questionIndex) {
-  const questions = state.config.questions || [];
-  const question = questions[questionIndex];
-  if (!question || question.type === 'stimulus' || question.type === 'finish') {
-    return Promise.resolve();
-  }
-
-  const current = state.questionMetrics[questionIndex] || {};
-  if (current.answered_at) {
-    return Promise.resolve();
-  }
-  state.questionMetrics[questionIndex] = {
-    ...current,
-    answered_at: new Date().toISOString(),
-    answered_at_server_epoch_ms: estimateServerEpochMs(),
-    answered_event_id: createEventId('marker-question-answered'),
-  };
-  if (!state.startTime || question.type === 'participant-id') {
-    return Promise.resolve();
-  }
-  return sendMarker(
-    'question_answered',
-    questionIndex,
-    question,
-    'answered',
-    { eventId: state.questionMetrics[questionIndex].answered_event_id },
-  );
-}
-
-function getTouchedFieldCount(questionIndex) {
-  return state.touchedFields[questionIndex]?.size || 0;
-}
-
-function shouldActivateHardware(question) {
-  const sensorsEnabled = state.config.study_settings?.sensors_enabled !== false
-    && hasAnyStudySensorEnabled();
-  // Card actions belong to their plugin, not to biodata recording. OSC or any
-  // future output plugin must still receive a prepared trial when the study
-  // deliberately records no sensor streams.
-  const hasPluginAction = Object.values(getActivePluginActions(question)).some((actions) => (
-    Object.values(actions).some((value) => value !== false && value !== null && value !== '')
-  ));
-  return sensorsEnabled || hasPluginAction;
-}
-
-function getStudySensorSettings() {
-  const effective = state.sensorRuntime?.effective;
-  if (effective && typeof effective === 'object') {
-    return Object.fromEntries(Object.entries(effective).map(([key, enabled]) => [key, enabled === true]));
-  }
-  const settings = state.config.study_settings || {};
-  if (settings.sensors_enabled === false) {
-    return Object.fromEntries(pluginsWithCapability('study_sensor').map((plugin) => [plugin.plugin_key, false]));
-  }
-  if (settings.plugins && typeof settings.plugins === 'object') {
-    return Object.fromEntries(pluginsWithCapability('study_sensor').map((plugin) => [
-      plugin.plugin_key,
-      settings.plugins[plugin.plugin_key]?.enabled === true,
-    ]));
-  }
-  const sensors = settings.sensors && typeof settings.sensors === 'object' ? settings.sensors : {};
-  return Object.fromEntries(Object.entries(sensors).map(([key, enabled]) => [key, enabled === true]));
-}
-
-function isStudySensorEnabled(sensorKey) {
-  return Boolean(getStudySensorSettings()[sensorKey]);
-}
-
-function hasAnyStudySensorEnabled() {
-  return Object.values(getStudySensorSettings()).some(Boolean);
-}
-
-function getActivePluginActions(question) {
-  const configured = question?.plugin_actions && typeof question.plugin_actions === 'object'
-    ? question.plugin_actions
-    : {};
-  return Object.fromEntries(
-    Object.entries(configured)
-      .filter(([, actions]) => actions && typeof actions === 'object' && !Array.isArray(actions))
-      .map(([pluginKey, actions]) => [pluginKey, { ...actions }]),
-  );
-}
-
-function isParticipantPluginEnabled(plugin) {
-  const pluginKey = String(plugin?.plugin_key || '').trim();
-  if (!pluginKey) return false;
-  if ((plugin.capabilities || []).includes('study_sensor')) {
-    return isStudySensorEnabled(pluginKey);
-  }
-  const configured = state.config.study_settings?.plugins?.[pluginKey];
-  return configured?.enabled === true;
-}
-
-function getParticipantSessionContext() {
-  return {
-    participantId: resolveParticipantId(),
-    studyId: state.config.study_id || '',
-    sessionId: state.sessionId,
-    currentIndex: state.currentIndex,
-    studyStarted: Boolean(state.startTime),
-    questionsBuilt: Boolean(state.questionsBuilt),
-  };
-}
-
-function createParticipantExtensionContext(plugin) {
-  const pluginKey = String(plugin?.plugin_key || '');
-  const encodedPluginKey = encodeURIComponent(pluginKey);
-  return {
-    isEnabled: () => isParticipantPluginEnabled(plugin),
-    getConfig: () => state.config,
-    getActiveStimulus: () => state.activeStimulus,
-    getSession: getParticipantSessionContext,
-    getPluginActions: (question) => getActivePluginActions(question)[pluginKey] || {},
-    postJson,
-    runParticipantAction: (actionKey, payload = {}, options = {}) => postJson(
-      `/api/plugins/${encodedPluginKey}/participant/actions/${encodeURIComponent(String(actionKey || ''))}`,
-      payload,
-      options,
-    ),
-    ingestParticipant: (ingestKey, payload, options = {}) => postJson(
-      `/api/plugins/${encodedPluginKey}/participant/ingest/${encodeURIComponent(String(ingestKey || ''))}`,
-      payload,
-      options,
-    ),
-    estimateServerEpochMs,
-    getClientClockOffsetMs,
-  };
-}
-
-function participantExtensionsMayMonitor() {
-  return Boolean(state.startTime) || (isStudyRunRunning() && state.questionsBuilt);
-}
-
-function startParticipantExtensionMonitors(reason) {
-  if (!participantExtensionsMayMonitor()) return;
-  participantExtensions.startPrestudyMonitors({
-    reason,
-    session: getParticipantSessionContext(),
-  });
-}
-
-function queueParticipantExtensionSync(reason) {
-  participantExtensionSync = participantExtensionSync
-    .catch(() => {})
-    .then(async () => {
-      await participantExtensions.sync({
-        reason,
-        sensorRuntime: state.sensorRuntime,
-        session: getParticipantSessionContext(),
-      });
-      startParticipantExtensionMonitors(reason);
-    })
-    .catch((error) => {
-      participantExtensions.reportStatus('participant_extensions', {
-        state: 'warning',
-        last_error: error?.message || String(error),
-        failed_hook: 'sync',
-      });
-      console.warn('[study] Optional participant extensions could not be synchronized:', error);
-    });
-  return participantExtensionSync;
-}
-
-async function startStudySensorSession() {
-  try {
-    const response = await postJson('/api/study/session/start', {
-      session_id: state.sessionId,
-      client_id: getStudyClientId(),
-      study_id: state.config.study_id || '',
-      participant_id: resolveParticipantId(),
-      current_index: state.currentIndex,
-      current_type: (state.config.questions || [])[state.currentIndex]?.type || null,
-      require_admin_start: true,
-      study_run_id: state.studyRunState?.run_id || '',
-    });
-    state.sessionId = response.session?.session_id || state.sessionId;
-    state.sensorSessionStarted = true;
-    return true;
-  } catch (error) {
-    state.sensorSessionStarted = false;
-    console.error('[study] Could not start study sensor session:', error);
-    // A refusal the server answered was already reported to the admin with
-    // its reason; only an unanswered request must be reported from here.
-    showStudyNotice(t('study.startFailed', 'Could not start the study session.'), 'error', 6000, {
-      reportToAdmin: !error?.status,
-    });
-    return false;
-  }
-}
-
-async function stopStudySensorSession(options = {}) {
-  const sessionId = options.sessionId || state.sessionId;
-  if (!state.sensorSessionStarted && !sessionId) {
-    return;
-  }
-  const clearSnapshot = options.clearSnapshot !== false;
-  try {
-    await postJson('/api/study/session/stop', {
-      session_id: sessionId,
-      client_id: getStudyClientId(),
-      study_id: options.studyId || state.config.study_id || '',
-      participant_id: options.participantId || resolveParticipantId(),
-    }, { timeoutMs: STUDY_SESSION_STOP_TIMEOUT_MS });
-  } catch (error) {
-    console.error('[study] Could not stop study sensor session:', error);
-  } finally {
-    state.sensorSessionStarted = false;
-    if (clearSnapshot) {
-      clearSessionSnapshot();
-    }
-  }
-}
-
-// Package 5g.B2: every branch here used to be a type check against one
-// card's own answer logic. Each card module now exports its own optional
-// isAnswered(question, questionIndex, context) - a type with nothing to
-// check (stimulus, finish) simply has no such export, and "no hook" means
-// "always answered" below. Adding a new interactive card type no longer
-// means editing this function at all.
-function isAnswered(questionIndex) {
-  const question = (state.config.questions || [])[questionIndex];
-  if (!question) {
-    return true;
-  }
-  const cardModule = CARDS[question.type];
-  if (!cardModule?.isAnswered) {
-    return true;
-  }
-  const cardElement = getElement(`card-q-${questionIndex}`);
-  if (!cardElement) {
-    return true;
-  }
-  return cardModule.isAnswered(question, questionIndex, {
-    cardElement,
-    touchedFieldCount: getTouchedFieldCount(questionIndex),
-  });
-}
-
-function updateNavigation() {
-  const questions = state.config.questions || [];
-  const total = questions.length;
-  if (!total) {
-    getElement('btn-prev').disabled = true;
-    getElement('btn-next').disabled = true;
-    renderCounter(0, 0);
-    updateProgressBar(0, 0);
-    getElement('btn-next-label').textContent = t('study.finish', 'Finish');
-    getElement('btn-next-icon').className = 'iconoir-check';
-    return;
-  }
-
-  const currentIndex = state.currentIndex;
-  const currentQuestion = questions[currentIndex];
-  const totalNormal = questions.filter(q => q.type !== 'finish').length;
-
-  const nav = document.querySelector('.q-nav');
-  if (currentQuestion && currentQuestion.type === 'finish') {
-    if (nav) nav.style.display = 'none';
-    renderCounter(totalNormal, totalNormal);
-    updateProgressBar(totalNormal, totalNormal);
-    return;
-  } else {
-    if (nav) nav.style.display = 'flex';
-  }
-
-  const isFirst = currentIndex === 0;
-  const isStimulusBusy = Boolean(state.activeStimulus);
-  const isUiBusy = state.navigationBusy || state.submitInFlight;
-  const isOptional = currentQuestion?.required === false;
-  const answered = (isOptional || isAnswered(currentIndex)) && !isStimulusBusy;
-
-  const isLastNormalCard = (currentIndex === total - 1) || (questions[currentIndex + 1]?.type === 'finish');
-  const isPreStudyStart = !state.startTime && currentQuestion?.type === 'participant-id';
-
-  getElement('btn-prev').disabled = isFirst || isStimulusBusy || isUiBusy;
-  getElement('btn-next').disabled = !answered || isUiBusy;
-
-  renderCounter(Math.min(currentIndex + 1, totalNormal), totalNormal);
-  updateProgressBar(Math.min(currentIndex + 1, totalNormal), totalNormal);
-  getElement('btn-next-label').textContent = state.submitInFlight
-    ? t('study.saving', 'Saving...')
-    : (state.navigationBusy
-      ? (isPreStudyStart ? t('study.starting', 'Starting...') : t('study.pleaseWait', 'Please wait...'))
-      : (isPreStudyStart ? t('study.start', 'Start') : (isLastNormalCard ? t('study.submit', 'Submit') : t('study.next', 'Next'))));
-  getElement('btn-next-icon').className = isLastNormalCard ? 'iconoir-check' : 'iconoir-nav-arrow-right';
-}
-
-function renderCounter(current, total) {
-  const pad = (value) => String(value).padStart(2, '0');
-  getElement('q-counter').innerHTML = `
-    <span class="q-counter-current">${pad(current)}</span>
-    <span class="q-counter-divider">/</span>
-    <span class="q-counter-total">${pad(total)}</span>`;
-}
-
-function updateProgressBar(current, total) {
-  const progressBar = getElement('study-progress-bar');
-  const progressFill = getElement('study-progress-fill');
-  if (!progressBar || !progressFill) {
-    return;
-  }
-
-  const enabled = state.config.study_settings?.progress_bar_enabled === true;
-  if (!enabled || total <= 0) {
-    progressBar.hidden = true;
-    progressFill.style.width = '0%';
-    return;
-  }
-
-  const percent = Math.max(0, Math.min(100, (current / total) * 100));
-  progressBar.hidden = false;
-  progressFill.style.width = `${percent}%`;
-}
-
-async function handleNext() {
-  if (state.navigationBusy || state.submitInFlight) {
-    return;
-  }
-  const total = (state.config.questions || []).length;
-  const nextQuestion = state.config.questions[state.currentIndex + 1];
-
-  const willSubmit = (nextQuestion && nextQuestion.type === 'finish') || state.currentIndex === total - 1;
-  if (state.startTime && willSubmit) {
-    await submitResults();
-    return;
-  }
-
-  state.navigationBusy = true;
-  updateNavigation();
-  if (!state.startTime) {
-    try {
-      await startTrial({ rebuild: false });
-      if (!state.startTime) {
-        return;
-      }
-      if (willSubmit) {
-        state.navigationBusy = false;
-        updateNavigation();
-        await submitResults();
-        return;
-      }
-      await goTo(state.currentIndex + 1, { lockNavigation: false, force: true });
-    } finally {
-      if (!state.submitInFlight) {
-        state.navigationBusy = false;
-        updateNavigation();
-      }
-    }
-    return;
-  }
-
-  try {
-    await goTo(state.currentIndex + 1, { lockNavigation: false, force: true });
-  } finally {
-    state.navigationBusy = false;
-    updateNavigation();
-  }
-}
-
-function collectAnswers() {
-  const answers = {};
-
-  (state.config.questions || []).forEach((question, questionIndex) => {
-    if (isAnswerless(question.type)) {
-      return;
-    }
-    // An optional, untouched question is omitted entirely so the server can
-    // tell "shown but skipped" apart from "answered" - never send a default.
-    if (question.required === false && !isAnswered(questionIndex)) {
-      return;
-    }
-
-    const cardModule = CARDS[question.type];
-    if (cardModule) {
-      answers[`q${questionIndex}`] = cardModule.collectAnswer(questionIndex, question);
-    }
-  });
-
-  return answers;
-}
-
-function collectAnswerEvents() {
-  const events = [];
-  const questions = state.config.questions || [];
-
-  questions.forEach((question, questionIndex) => {
-    if (!question || question.type === 'stimulus' || question.type === 'finish') {
-      return;
-    }
-
-    const metrics = state.questionMetrics[questionIndex] || {};
-    if (!metrics.answered_at) {
-      return;
-    }
-    const answerKey = question.type === 'participant-id' ? null : `q${questionIndex}`;
-    events.push({
-      question_index: questionIndex,
-      question_type: question.type,
-      answer_key: answerKey,
-      shown_at: metrics.shown_at || metrics.answered_at,
-      answered_at: metrics.answered_at,
-    });
-  });
-
-  return events;
-}
-
-function collectCardEvents() {
-  const events = [];
-  const questions = state.config.questions || [];
-
-  questions.forEach((question, questionIndex) => {
-    if (!question || question.type === 'finish') {
-      return;
-    }
-
-    const metrics = state.questionMetrics[questionIndex] || {};
-    if (!metrics.shown_at) {
-      return;
-    }
-    const event = {
-      question_index: questionIndex,
-      question_type: question.type,
-      shown_at: metrics.shown_at,
-      shown_at_server_epoch_ms: metrics.shown_at_server_epoch_ms || null,
-    };
-
-    if (question.type === 'stimulus') {
-      event.active_started_at = metrics.active_started_at || null;
-      event.active_ended_at = metrics.active_ended_at || metrics.completed_at || null;
-      event.completed_at = metrics.completed_at || metrics.active_ended_at || null;
-      event.server_start_received_at = metrics.server_start_received_at || null;
-      event.server_stop_received_at = metrics.server_stop_received_at || null;
-      event.server_start_received_epoch_ms = metrics.server_start_received_epoch_ms || null;
-      event.server_stop_received_epoch_ms = metrics.server_stop_received_epoch_ms || null;
-      event.client_start_trigger_epoch_ms = metrics.client_start_trigger_epoch_ms || null;
-      event.client_stop_trigger_epoch_ms = metrics.client_stop_trigger_epoch_ms || null;
-      event.planned_start_epoch_ms = metrics.planned_start_epoch_ms || null;
-      event.planned_deadline_epoch_ms = metrics.planned_deadline_epoch_ms || null;
-      event.stimulus_id = metrics.stimulus_id || '';
-      event.start_event_id = metrics.start_event_id || '';
-      event.stop_event_id = metrics.stop_event_id || '';
-      event.prepare_failed = metrics.prepare_failed === true;
-      event.visibility_interrupted = metrics.visibility_interrupted === true;
-      event.visibility_interruption_count = Number(metrics.visibility_interruption_count || 0);
-      event.visibility_hidden_duration_ms = Number(metrics.visibility_hidden_duration_ms || 0);
-      event.warmup_callback_delay_ms = Number(metrics.warmup_callback_delay_ms || 0);
-      event.onset_callback_delay_ms = Number(metrics.onset_callback_delay_ms || 0);
-      event.deadline_callback_delay_ms = Number(metrics.deadline_callback_delay_ms || 0);
-      event.start_marker = metrics.start_marker || '';
-      event.stop_marker = metrics.stop_marker || '';
-    } else {
-      event.answered_at = metrics.answered_at || null;
-      event.answered_at_server_epoch_ms = metrics.answered_at_server_epoch_ms || null;
-      event.completed_at = metrics.answered_at || null;
-      event.shown_event_id = metrics.shown_event_id || '';
-      event.answered_event_id = metrics.answered_event_id || '';
-    }
-
-    events.push(event);
-  });
-
-  return events;
-}
-
-async function submitResults() {
-  if (state.submitInFlight) {
-    return;
-  }
-  state.submitInFlight = true;
-  state.navigationBusy = false;
-  const btn = getElement('btn-next');
-  if (btn) {
-    btn.disabled = true;
-    getElement('btn-next-label').textContent = t('study.saving', 'Saving...');
-  }
-  updateNavigation();
-
-  try {
-    await recordQuestionCompletion(state.currentIndex);
-    const sessionId = state.sessionId;
-    const participantId = resolveParticipantId();
-    const studyId = state.config.study_id;
-    let submission = loadPendingSubmission(sessionId);
-    if (!submission) {
-      const endMonotonicMs = performance.now();
-      submission = {
-        submission_id: `submission-${sessionId}`,
-        session_id: sessionId,
-        participant_id: participantId,
-        study_id: studyId,
-        client_clock_offset_ms: getClientClockOffsetMs(),
-        timestamp_start: new Date(state.startTime).toISOString(),
-        timestamp_end: new Date().toISOString(),
-        study_end_event: {
-          event_id: createEventId('study-end'),
-          source_monotonic_ms: endMonotonicMs,
-          source_epoch_ms: estimateServerEpochMs(endMonotonicMs),
-          sequence_number: null,
-        },
-        answers: collectAnswers(),
-        participant_metadata: collectParticipantMetadata(),
-        answer_events: collectAnswerEvents(),
-        card_events: collectCardEvents(),
-      };
-      persistPendingSubmission(submission);
-    }
-    participantExtensions.beforeSubmit({
-      submission,
-      session: getParticipantSessionContext(),
-    });
-    const response = await postJson('/api/results', submission);
-    state.studyRunState = response?.study_run_state || state.studyRunState;
-    state.completedLocally = true;
-    state.completedRunId = state.studyRunState?.run_id || '';
-    clearPendingSubmission();
-    clearSessionSnapshot();
-    state.startTime = null;
-    state.sessionId = '';
-    // Finalization now owns end-marker, producer stop, worker drain, and XDF
-    // footer ordering. Calling /session/stop here would recreate the old race.
-    state.sensorSessionStarted = false;
-    // The submission is on the server; nothing of it stays in this page.
-    resetParticipantSessionState();
-    void participantExtensions.dispose('submission_committed');
-
-    const finishIndex = (state.config.questions || []).findIndex(q => q.type === 'finish');
-    if (finishIndex !== -1) {
-      await goTo(finishIndex, { force: true, lockNavigation: false });
-    } else {
-      showScreen('done'); // Fallback when the finish card is missing
-    }
-    state.submitInFlight = false;
-    updateNavigation();
-  } catch (error) {
-    console.error('[study] Could not save results:', error);
-    showStudyNotice(t('study.saveFailedBody', 'Your answers could not be saved. Please tell the study supervisor - your answers are still on this screen.'), 'error', 10000);
-    state.submitInFlight = false;
-    state.navigationBusy = false;
-    participantExtensions.onSubmitFailed({
-      error,
-      submission: state.pendingSubmission,
-      session: getParticipantSessionContext(),
-    });
-    if (btn) {
-      btn.disabled = false;
-      getElement('btn-next-label').textContent = t('study.submit', 'Submit');
-    }
-    updateNavigation();
-  }
-}
-
+const {
+  getActiveSeconds,
+  getWarmupSeconds,
+  prepareStimulusCard,
+  startStimulusCard,
+  stopActiveStimulus,
+} = createParticipantStimulusExecution({
+  state,
+  getElement,
+  createEventId,
+  shouldActivateHardware: (...args) => shouldActivateHardware(...args),
+  postJson,
+  buildEventPayload: (...args) => buildEventPayload(...args),
+  estimateServerEpochMs: (...args) => estimateServerEpochMs(...args),
+  updateNavigation: (...args) => updateNavigation(...args),
+  handleNext: (...args) => handleNext(...args),
+  stopStudySensorSession: (...args) => stopStudySensorSession(...args),
+  resetParticipantSessionState: (...args) => resetParticipantSessionState(...args),
+  showWaitingForAdminStart: (...args) => showWaitingForAdminStart(...args),
+  t,
+  showStudyNotice: (...args) => showStudyNotice(...args),
+  reportNoticeToAdmin: (...args) => reportNoticeToAdmin(...args),
+  createModal,
+  escapeHtml,
+  startDeadlineTimer,
+  remainingWholeSeconds,
+  participantExtensions,
+  getParticipantSessionContext: (...args) => getParticipantSessionContext(...args),
+  sendReliableStudyEvent,
+  closeVisibilityInterruption: (...args) => closeVisibilityInterruption(...args),
+  constants: {
+    trialPrepareTimeoutMs: TRIAL_PREPARE_TIMEOUT_MS,
+    trialStopTimeoutMs: TRIAL_STOP_TIMEOUT_MS,
+    trialStartTimeoutMs: TRIAL_START_TIMEOUT_MS,
+  },
+});
+const {
+  collectAnswerEvents,
+  collectAnswers,
+  collectCardEvents,
+  createParticipantExtensionContext,
+  getActivePluginActions,
+  getParticipantSessionContext,
+  getQuestionIndexFromElement,
+  getStudyClientHeartbeatPayload,
+  handleNext,
+  isAnswered,
+  isParticipantPluginEnabled,
+  markQuestionField,
+  markQuestionShown,
+  queueParticipantExtensionSync,
+  recordQuestionCompletion,
+  renderCounter,
+  shouldActivateHardware,
+  startParticipantExtensionMonitors,
+  startStudySensorSession,
+  stopStudySensorSession,
+  submitResults,
+  updateNavigation,
+  updateProgressBar,
+} = createParticipantResultSubmission({
+  state,
+  getElement,
+  t,
+  resolveParticipantId: (...args) => resolveParticipantId(...args),
+  collectParticipantMetadata: (...args) => collectParticipantMetadata(...args),
+  participantExtensions,
+  getClientClockOffsetMs: (...args) => getClientClockOffsetMs(...args),
+  estimateServerEpochMs: (...args) => estimateServerEpochMs(...args),
+  createEventId,
+  sendMarker: (...args) => sendMarker(...args),
+  pluginsWithCapability,
+  postJson,
+  getStudyClientId,
+  clearSessionSnapshot: (...args) => clearSessionSnapshot(...args),
+  CARDS,
+  isAnswerless,
+  startTrial: (...args) => startTrial(...args),
+  goTo: (...args) => goTo(...args),
+  showScreen: (...args) => showScreen(...args),
+  showStudyNotice: (...args) => showStudyNotice(...args),
+  resetParticipantSessionState: (...args) => resetParticipantSessionState(...args),
+  loadPendingSubmission: (...args) => loadPendingSubmission(...args),
+  persistPendingSubmission: (...args) => persistPendingSubmission(...args),
+  clearPendingSubmission: (...args) => clearPendingSubmission(...args),
+  constants: {
+    studySessionStopTimeoutMs: STUDY_SESSION_STOP_TIMEOUT_MS,
+  },
+});
 void init();

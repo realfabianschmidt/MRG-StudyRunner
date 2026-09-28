@@ -8,15 +8,23 @@
     "entrypoint": "driver.py",
     "protocol": "study-runner-stdio/v1",
     "interactive_stdin": true,
-    "modes": ["runtime", "diagnostics"],
+    "modes": [
+      "runtime",
+      "diagnostics"
+    ],
     "sample_delivery": "none",
     "actions": [],
     "trial_events": [],
     "can_toggle": true,
-    "operation_timeouts_ms": {"publish": 300000, "admin_action": 30000},
+    "operation_timeouts_ms": {
+      "publish": 300000,
+      "admin_action": 30000
+    },
     "sidecar": {}
   },
-  "lifecycle": {"reinitialize_on_disable": true},
+  "lifecycle": {
+    "reinitialize_on_disable": true
+  },
   "ui": {
     "label": "Notion upload",
     "description": "Publishes finalized result and card-summary JSON to Notion.",
@@ -37,7 +45,11 @@
       "publish_on_attention": false,
       "republish_on_degraded": false,
       "purge_verified_sources": false,
-      "discovered_settings": ["database_id", "data_source_id", "sessions_database_id"],
+      "discovered_settings": [
+        "database_id",
+        "data_source_id",
+        "sessions_database_id"
+      ],
       "legacy": {
         "enabled_field": "notion_enabled",
         "settings": {
@@ -49,7 +61,10 @@
     },
     "readiness_requirements": {
       "requires_secret": true,
-      "requires_settings": ["parent_page_id", "database_id"],
+      "requires_settings": [
+        "parent_page_id",
+        "database_id"
+      ],
       "requires_machine_enabled": true
     },
     "health": {},
@@ -69,11 +84,32 @@
           "key": "test_connection",
           "label": "Test connection",
           "payload_schema": {
-            "api_key": {"type": "string", "required": false, "max_length": 256},
-            "parent_page_id": {"type": "string", "required": false, "max_length": 256},
-            "database_id": {"type": "string", "required": false, "max_length": 256},
-            "study_id": {"type": "string", "required": false, "max_length": 256},
-            "timeout_seconds": {"type": "integer", "required": false, "minimum": 1, "maximum": 120}
+            "api_key": {
+              "type": "string",
+              "required": false,
+              "max_length": 256
+            },
+            "parent_page_id": {
+              "type": "string",
+              "required": false,
+              "max_length": 256
+            },
+            "database_id": {
+              "type": "string",
+              "required": false,
+              "max_length": 256
+            },
+            "study_id": {
+              "type": "string",
+              "required": false,
+              "max_length": 256
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "required": false,
+              "minimum": 1,
+              "maximum": 120
+            }
           }
         }
       ]
@@ -83,40 +119,75 @@
   "settings": {
     "machine": {
       "enabled": {
-        "type": "boolean", "path": "enabled", "default": true,
-        "label_key": "pluginSettings.common.enabled", "apply": "immediate", "scope": "machine"
-      },
-      "auto_retry_failed": {
-        "type": "boolean", "path": "auto_retry_failed", "default": true,
-        "label_key": "pluginSettings.notion.autoRetry", "apply": "immediate", "scope": "machine"
+        "type": "boolean",
+        "path": "enabled",
+        "default": true,
+        "label_key": "pluginSettings.common.enabled",
+        "help_key": "pluginHelp.destination.enabled",
+        "apply": "immediate",
+        "scope": "machine"
       },
       "timeout_seconds": {
-        "type": "number", "unit": "s", "path": "timeout_seconds", "default": 10,
-        "minimum": 1, "maximum": 120, "label_key": "pluginSettings.common.timeoutSeconds",
-        "apply": "immediate", "scope": "machine"
+        "type": "number",
+        "unit": "s",
+        "path": "timeout_seconds",
+        "default": 10,
+        "minimum": 1,
+        "maximum": 120,
+        "label_key": "pluginSettings.common.timeoutSeconds",
+        "help_key": "pluginHelp.destination.timeoutSeconds",
+        "apply": "immediate",
+        "scope": "machine"
+      },
+      "auto_retry": {
+        "type": "boolean",
+        "path": "auto_retry",
+        "default": true,
+        "label_key": "pluginSettings.destination.autoRetry",
+        "help_key": "pluginHelp.destination.autoRetry",
+        "apply": "immediate",
+        "scope": "machine"
+      },
+      "retry_hours": {
+        "type": "number",
+        "unit": "h",
+        "path": "retry_hours",
+        "default": 48,
+        "minimum": 1,
+        "maximum": 168,
+        "label_key": "pluginSettings.destination.retryHours",
+        "help_key": "pluginHelp.destination.retryHours",
+        "apply": "immediate",
+        "scope": "machine"
       }
     },
     "study": {
       "parent_page_id": {
-        "type": "string", "default": "",
+        "type": "string",
+        "default": "",
         "label_key": "pluginSettings.notion.parentPageId.label",
         "placeholder_key": "pluginSettings.notion.parentPageId.placeholder",
         "help_key": "pluginHelp.notion.parentPageId"
       },
       "database_id": {
-        "type": "string", "default": "",
+        "type": "string",
+        "default": "",
         "label_key": "pluginSettings.notion.databaseId.label",
         "placeholder_key": "pluginSettings.notion.databaseId.placeholder",
         "help_key": "pluginHelp.notion.databaseId"
       },
       "data_source_id": {
-        "type": "string", "default": "", "read_only": true,
+        "type": "string",
+        "default": "",
+        "read_only": true,
         "label_key": "pluginSettings.notion.dataSourceId.label",
         "placeholder_key": "pluginSettings.notion.dataSourceId.placeholder",
         "help_key": "pluginHelp.notion.dataSourceId"
       },
       "sessions_database_id": {
-        "type": "string", "default": "", "read_only": true,
+        "type": "string",
+        "default": "",
+        "read_only": true,
         "label_key": "pluginSettings.notion.sessionsDatabaseId.label",
         "placeholder_key": "pluginSettings.notion.dataSourceId.placeholder",
         "help_key": "pluginHelp.notion.sessionsDatabaseId"
@@ -128,5 +199,8 @@
   "request_timeout_ms": 1000,
   "clock_domain": "server",
   "expected_data_rate": {},
-  "backpressure": {"max_in_flight": 1, "drop_policy": "upload_job_queue"}
+  "backpressure": {
+    "max_in_flight": 1,
+    "drop_policy": "upload_job_queue"
+  }
 }

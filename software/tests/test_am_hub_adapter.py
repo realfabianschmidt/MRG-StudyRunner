@@ -455,5 +455,31 @@ class LslPublishTests(unittest.TestCase):
         self.assertTrue(all(math.isnan(value) for value in outlet.pushed[1:]))
 
 
+class LiveRunningStateTests(unittest.TestCase):
+    """The dashboard switch shows whether the hub runs now, not how it was configured."""
+
+    def setUp(self) -> None:
+        _reset_adapter_state()
+        adapter._config = {"enabled": True, "base_url": "http://hub", "lsl_enabled": False}
+
+    def tearDown(self) -> None:
+        _reset_adapter_state()
+
+    def test_a_stopped_hub_reports_not_running_and_off(self) -> None:
+        adapter._running = False
+        adapter._latest_state["status"] = "stopped"
+        status = adapter.get_status()
+        self.assertFalse(status["running"])
+        self.assertEqual(status["connection"]["phase"], "off")
+
+    def test_presence_is_shown_but_never_blocks(self) -> None:
+        adapter._running = True
+        adapter._latest_state["status"] = "no_presence"
+        connection = adapter.get_status()["connection"]
+        self.assertEqual(connection["phase"], "connected")
+        self.assertEqual(connection["signal"]["detail"], "no_presence")
+        self.assertEqual(connection["setup"]["state"], "not_needed")
+
+
 if __name__ == "__main__":
     unittest.main()

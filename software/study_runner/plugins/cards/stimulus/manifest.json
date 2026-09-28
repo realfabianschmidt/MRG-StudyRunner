@@ -33,6 +33,7 @@
   },
   "ui": {
     "label": "stimulus",
+    "description": "Runs a timed stimulus with optional media and plugin actions.",
     "order": 10,
     "visibility": {
       "dashboard": false,

@@ -4,13 +4,21 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 
+from dataclasses import asdict
+
 from study_runner.data_core.host.recording_quality import (
     producer_stop_failures,
+    split_validation_issues,
     validation_details,
     validation_error,
 )
 
-from .finalization_service import FinalizationContext, FinalizationError, StepResult
+from .finalization_service import (
+    FinalizationContext,
+    FinalizationError,
+    QualityAttentionError,
+    StepResult,
+)
 
 
 class RuntimeRecordingFinalizationAdapter:
@@ -21,29 +29,46 @@ class RuntimeRecordingFinalizationAdapter:
         runtime: Any,
         *,
         write_end_marker: Callable[[FinalizationContext], Mapping[str, Any] | None] | None = None,
-        stop_producers: Callable[[FinalizationContext], Mapping[str, Any] | None] | None = None,
+        end_session_producers: Callable[[FinalizationContext], Mapping[str, Any] | None] | None = None,
+        tail_timeout_seconds: float = 3.0,
     ) -> None:
         self.runtime = runtime
         self.write_end_marker = write_end_marker
-        self.stop_producers = stop_producers
+        self.end_session_producers = end_session_producers
+        self.tail_timeout_seconds = tail_timeout_seconds
 
     def freeze(self, context: FinalizationContext) -> StepResult:
+        """End marker, wait for every stream to pass it, freeze, tell the sensors.
+
+        Sensors are no longer stopped here. They keep streaming for the next
+        participant; the recording waits until each regular stream has data
+        after the end marker, so the file covers the whole session window.
+        The session-end notice only resets per-participant setup state and
+        cannot affect the recorded data, so its failures are reported but are
+        not quality failures.
+        """
+
         if not context.recording_expected:
             return StepResult("skipped", {"reason": "no_recording_source_selected"})
         details: dict[str, Any] = {}
         callback_failures: list[str] = []
+        end_marker: dict[str, Any] = {}
         if self.write_end_marker is not None:
             try:
-                details["end_marker"] = dict(self.write_end_marker(context) or {})
+                end_marker = dict(self.write_end_marker(context) or {})
+                details["end_marker"] = end_marker
             except Exception as error:
                 callback_failures.append(f"end marker: {type(error).__name__}: {error}")
-        if self.stop_producers is not None:
-            try:
-                producer_details = dict(self.stop_producers(context) or {})
-                details["producers"] = producer_details
-                callback_failures.extend(producer_stop_failures(producer_details))
-            except Exception as error:
-                callback_failures.append(f"producer stop: {type(error).__name__}: {error}")
+        wait_for_tail = getattr(self.runtime, "wait_for_stream_tail", None)
+        if callable(wait_for_tail):
+            details["stream_tail"] = dict(
+                wait_for_tail(
+                    context.paths,
+                    _marker_lsl_timestamp(end_marker),
+                    timeout_seconds=self.tail_timeout_seconds,
+                )
+                or {}
+            )
         details["worker"] = self.runtime.freeze_worker(
             context.paths,
             command_id=(
@@ -58,6 +83,19 @@ class RuntimeRecordingFinalizationAdapter:
                 for failure in worker_quality_failures
                 if str(failure).strip()
             )
+        if self.end_session_producers is not None:
+            try:
+                producer_details = dict(self.end_session_producers(context) or {})
+            except Exception as error:
+                producer_details = {"ok": False, "error": f"{type(error).__name__}: {error}"}
+            details["producers"] = producer_details
+            notice_failures = producer_stop_failures(producer_details)
+            if notice_failures:
+                warnings = context.state.setdefault("warnings", [])
+                for failure in notice_failures:
+                    message = f"session_end_notice: {failure}"
+                    if message not in warnings:
+                        warnings.append(message)
         if callback_failures:
             raise FinalizationError(
                 "recording freeze completed with quality failures: "
@@ -71,6 +109,15 @@ class RuntimeRecordingFinalizationAdapter:
         inspections, report = self.runtime.inspect_sources(context.paths)
         details = validation_details(report, inspections=inspections)
         if not report.ok:
+            blocking, warnings = split_validation_issues(report.issues)
+            if warnings and not blocking:
+                # Readable, mergeable data with gaps: an operator may accept
+                # it with a reason, and processing then continues degraded.
+                raise QualityAttentionError(
+                    validation_error("source validation", report),
+                    issues=[asdict(issue) for issue in warnings],
+                    details=details,
+                )
             raise FinalizationError(validation_error("source validation", report))
         return StepResult("done", details)
 
@@ -100,6 +147,14 @@ class RuntimeRecordingFinalizationAdapter:
             if warning not in context.state["warnings"]:
                 context.state["warnings"].append(warning)
         return StepResult("done", details)
+
+
+def _marker_lsl_timestamp(end_marker: Mapping[str, Any]) -> float | None:
+    value = end_marker.get("marker_lsl_timestamp")
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def step_attempt(context: FinalizationContext, step_key: str) -> int:

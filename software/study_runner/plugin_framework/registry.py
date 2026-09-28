@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapter_utils import config_section
+from .sensor_connection import action_roles, standardize_connection
 from .plugin_catalog import (
     PluginCatalog,
     discover_plugin_catalog,
@@ -216,6 +217,34 @@ def run_trial_marker(
     return _run_trial_callbacks("marker", "on_trial_marker", options, context, prior_outcomes)
 
 
+def run_session_end(
+    plugin_keys: list[str] | tuple[str, ...],
+    options: dict[str, Any],
+    context: PluginContext,
+) -> dict[str, Any]:
+    """Tell the named plugins that one participant session has closed.
+
+    Replaces stopping sensors at the end of every session: acquisition keeps
+    running for the next participant, and each plugin only resets the state
+    that belonged to the person who just finished. Every outcome is reported;
+    nothing here can fail the recording.
+    """
+
+    runtime: dict[str, dict[str, Any]] = {}
+    for key in plugin_keys:
+        plugin = get_plugin(key)
+        if plugin is None or plugin.on_session_end is None:
+            continue
+        try:
+            plugin.on_session_end(context, dict(options))
+        except Exception as error:
+            runtime[plugin.key] = {"ok": False, "error": str(error)}
+            print(f"[INTEGRATION] {plugin.key} session end failed: {error}")
+        else:
+            runtime[plugin.key] = {"ok": True}
+    return {"notified_plugins": list(runtime), "runtime": runtime}
+
+
 def _run_trial_callbacks(
     event_label: str,
     handler_name: str,
@@ -307,6 +336,26 @@ def export_interval_sidecars(
     return exports
 
 
+# Statuses that mean the plugin's acquisition is not running, used only when a
+# plugin does not report ``running`` itself.
+NOT_RUNNING_STATUSES = frozenset({"stopped", "disabled", "failed", "exited", "unavailable"})
+
+
+def plugin_is_running(status: dict[str, Any] | None) -> bool:
+    """The live running state the dashboard switch and the lifecycle use.
+
+    ``can_start``/``can_stop`` only say which actions a plugin supports; they
+    never describe whether it runs right now.
+    """
+    if not isinstance(status, dict):
+        return False
+    running = status.get("running")
+    if isinstance(running, bool):
+        return running
+    value = str(status.get("status") or "").strip().lower()
+    return bool(status.get("runtime_enabled")) and value not in NOT_RUNNING_STATUSES
+
+
 def _standardize_status(
     plugin: Plugin,
     context: PluginContext,
@@ -318,8 +367,12 @@ def _standardize_status(
     status_value = str(raw_status.get("status") or ("enabled" if runtime_enabled else "disabled"))
 
     payload = dict(raw_status)
+    running = raw_status.get("running")
+    if not isinstance(running, bool):
+        running = runtime_enabled and status_value not in NOT_RUNNING_STATUSES
     payload.update(
         {
+            "running": running,
             "key": plugin.key,
             "label": plugin.label,
             "category": plugin.category,
@@ -342,6 +395,15 @@ def _standardize_status(
 
     if plugin.has_lsl and "lsl_enabled" not in payload:
         payload["lsl_enabled"] = bool((config_section(context, plugin.config_key).get("lsl") or {}).get("enabled", False))
+    manifest = _PLUGIN_CATALOG.manifests.get(plugin.key) or {}
+    if "study_sensor" in set(manifest.get("capabilities") or []):
+        # Every sensor gets the same connection block, ready flag and next
+        # step, decided here in the core -- never by the plugin itself.
+        payload["connection"] = standardize_connection(
+            raw_status,
+            running=running,
+            roles=action_roles(manifest),
+        )
     return payload
 
 

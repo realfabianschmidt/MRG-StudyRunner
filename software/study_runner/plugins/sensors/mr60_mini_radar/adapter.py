@@ -22,6 +22,7 @@ from study_runner.plugin_framework.adapter_utils import set_state, timestamp
 from study_runner.shared.dependency_utils import ensure_requirements
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 from study_runner.contracts.stream_contract import apply_stream_contract_desc, load_own_stream_contracts
+from study_runner.plugin_framework.sensor_connection import presence_sensor_connection
 
 
 BLE_SERVICE_UUID = "9d6f0001-7d2a-4c6b-9f4e-5c2b1f4a6e10"
@@ -280,6 +281,14 @@ def get_status() -> dict[str, Any]:
             status["status"] = "stale"
             status["last_message"] = f"No mini-radar data for {age:.1f}s."
 
+    # The live running state (not the configured one) and the shared
+    # connection facts every sensor reports; the core derives ready/next step.
+    status["running"] = bool(_running)
+    status["connection"] = presence_sensor_connection(
+        str(status.get("status") or ""),
+        running=bool(_running),
+        message=str(status.get("last_message") or ""),
+    )
     return status
 
 

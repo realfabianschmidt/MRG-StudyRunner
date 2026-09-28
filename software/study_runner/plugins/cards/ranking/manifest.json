@@ -29,6 +29,7 @@
   },
   "ui": {
     "label": "ranking",
+    "description": "Asks participants to arrange options in a meaningful order.",
     "order": 80,
     "visibility": {
       "dashboard": false,

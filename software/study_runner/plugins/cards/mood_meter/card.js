@@ -11,7 +11,7 @@ import { notifyCardChanged, renderEditorToggle, renderStudyHeader } from '/stati
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
 import { cardState, onSessionReset } from '/static/scripts/cards/session-state.js';
 import { openHelpModal } from '/static/scripts/shared/plugin-help.js';
-import { QUADRANTS, QUADRANT_SHAPES, blobPath, colorAt, shapeAt, stopAllAnimations, wordLists } from './mood-core.js';
+import { QUADRANTS, QUADRANT_SHAPES, blobPath, colorAt, shapeAt, wordLists } from './mood-core.js';
 import { closeWordSpace } from './word-space.js';
 import * as classic from './view-classic.js';
 import * as blobs from './view-blobs.js';
@@ -51,10 +51,8 @@ const CTX = Object.freeze({
   setPosition,
 });
 
-onSessionReset(() => {
-  closeWordSpace(false);
-  stopAllAnimations();
-});
+// Animations stop by themselves on every reset (cards/card-motion.js).
+onSessionReset(() => closeWordSpace(false));
 
 function toggleWord(i, word) {
   const state = getState(i);

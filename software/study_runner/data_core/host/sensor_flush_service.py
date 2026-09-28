@@ -20,6 +20,7 @@ from study_runner.plugin_framework.registry import build_context, export_interva
 
 from study_runner.shared.atomic_io import atomic_write_json
 from study_runner.shared.filename_sanitizer import sanitize_identifier_for_filename
+from study_runner.data_core.host.artifacts import study_storage_dir
 
 DEFAULT_INTERVAL_SECONDS = 60
 
@@ -113,9 +114,8 @@ class SensorFlushService:
         if not exports:
             return 0
 
-        safe_study_id = sanitize_identifier_for_filename(study_id)
         safe_session_id = sanitize_identifier_for_filename(session_id)
-        flush_dir = Path(self.app.config["DATA_DIR"]) / safe_study_id / "_flush"
+        flush_dir = study_storage_dir(self.app.config["DATA_DIR"], study_id) / "_flush"
 
         for export in exports:
             suffix = str(export.get("filename_suffix") or export.get("plugin_key"))
@@ -138,17 +138,39 @@ class SensorFlushService:
         return len(exports)
 
 
-def discard_session_flush_files(data_dir: Path, study_id: str, session_id: str) -> None:
-    """Remove flush files once a session's results are safely saved (or discarded)."""
-    if not study_id or not session_id:
+def discard_session_flush_files(
+    data_dir: Path,
+    study_id: str,
+    session_id: str,
+    *,
+    study_dir: Path | None = None,
+) -> None:
+    """Remove flush files once a session's results are safely saved (or discarded).
+
+    ``study_dir`` names the study folder directly (recovery already knows it);
+    otherwise both the current folder and the pre-1.5 folder are cleaned. An
+    emptied ``_flush`` folder is removed as well.
+    """
+    if not session_id or not (study_id or study_dir):
         return
-    safe_study_id = sanitize_identifier_for_filename(study_id)
     safe_session_id = sanitize_identifier_for_filename(session_id)
-    flush_dir = Path(data_dir) / safe_study_id / "_flush"
-    if not flush_dir.is_dir():
-        return
-    for path in flush_dir.glob(f"{safe_session_id}_*.json"):
+    if study_dir is not None:
+        candidates = [Path(study_dir) / "_flush"]
+    else:
+        candidates = [
+            study_storage_dir(data_dir, study_id) / "_flush",
+            Path(data_dir) / sanitize_identifier_for_filename(study_id) / "_flush",
+        ]
+    for flush_dir in dict.fromkeys(candidates):
+        if not flush_dir.is_dir():
+            continue
+        for path in flush_dir.glob(f"{safe_session_id}_*.json"):
+            try:
+                path.unlink()
+            except OSError as error:
+                print(f"[SENSOR-FLUSH] Could not remove flush file {path.name}: {error}")
         try:
-            path.unlink()
-        except OSError as error:
-            print(f"[SENSOR-FLUSH] Could not remove flush file {path.name}: {error}")
+            if not any(flush_dir.iterdir()):
+                flush_dir.rmdir()
+        except OSError:
+            pass

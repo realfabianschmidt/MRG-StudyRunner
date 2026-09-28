@@ -156,6 +156,29 @@ class PluginProcessRuntimeTests(unittest.TestCase):
                 self.runtime.request("shutdown", _start_if_needed=False)
         ensure_started.assert_not_called()
 
+    def test_initialize_is_sent_once_per_process_and_configuration(self) -> None:
+        from dataclasses import replace
+
+        with patch.object(self.runtime, "request", wraps=self.runtime.request) as request:
+            # Same live process, same configuration: a participant session
+            # start must not re-run the plugin's stateful initialize hook.
+            self.runtime.initialize(self.context)
+            # The session lock flips at every session start/end and reaches
+            # the driver with each request; it alone never re-initializes.
+            self.runtime.initialize(replace(self.context, runtime_locked=True))
+            # A real configuration change does re-initialize.
+            self.runtime.initialize(
+                replace(self.context, hardware_config={"fixture": {"enabled": True, "port": 2}})
+            )
+            # A new process always needs initialize again.
+            self.runtime.shutdown()
+            self.runtime.initialize(
+                replace(self.context, hardware_config={"fixture": {"enabled": True, "port": 2}})
+            )
+
+        operations = [call.args[0] for call in request.call_args_list]
+        self.assertEqual(operations.count("initialize"), 2)
+
     def test_log_rotates_to_three_bounded_generations(self) -> None:
         log_path = self.data_dir / "runtime" / "plugin_logs" / "fixture.log"
         with patch("study_runner.plugin_framework.process_host.LOG_ROTATE_BYTES", 80):

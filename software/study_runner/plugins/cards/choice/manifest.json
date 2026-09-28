@@ -30,6 +30,7 @@
   },
   "ui": {
     "label": "choice",
+    "description": "Single- or multiple-choice questions with configurable options.",
     "order": 40,
     "visibility": {
       "dashboard": false,

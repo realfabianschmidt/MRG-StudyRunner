@@ -18,6 +18,7 @@
   "ui": {
     "label": "OSC / TouchDesigner",
     "description": "Forwards study events to TouchDesigner over OSC.",
+    "help_key": "pluginHelp.osc.intro",
     "order": 400,
     "visibility": {
       "dashboard": true,
@@ -37,16 +38,22 @@
     "machine": {
       "host": {
         "type": "string", "path": "host", "default": "127.0.0.1",
-        "label_key": "pluginSettings.osc.host", "apply": "immediate", "scope": "machine"
+        "label_key": "pluginSettings.osc.host", "apply": "immediate", "scope": "machine",
+        "help_key": "pluginHelp.osc.host"
       },
       "port": {
         "type": "number", "path": "port", "default": 8000, "minimum": 1, "maximum": 65535,
-        "label_key": "pluginSettings.osc.port", "apply": "immediate", "scope": "machine"
+        "label_key": "pluginSettings.osc.port", "apply": "immediate", "scope": "machine",
+        "help_key": "pluginHelp.osc.port"
       }
     },
     "study": {},
     "card_actions": {
-      "forward_marker": {"type": "boolean", "default": true}
+      "forward_marker": {
+        "type": "boolean",
+        "default": true,
+        "help_key": "pluginHelp.osc.forwardMarker"
+      }
     }
   },
   "poll_interval_ms": 2000,

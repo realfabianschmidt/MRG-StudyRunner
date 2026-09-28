@@ -8,12 +8,18 @@
     "entrypoint": "driver.py",
     "protocol": "study-runner-stdio/v1",
     "interactive_stdin": true,
-    "modes": ["runtime", "diagnostics"],
+    "modes": [
+      "runtime",
+      "diagnostics"
+    ],
     "sample_delivery": "none",
     "actions": [],
     "trial_events": [],
     "can_toggle": false,
-    "operation_timeouts_ms": {"publish": 1800000, "admin_action": 30000},
+    "operation_timeouts_ms": {
+      "publish": 1800000,
+      "admin_action": 30000
+    },
     "sidecar": {}
   },
   "ui": {
@@ -38,11 +44,16 @@
       "purge_verified_sources": false,
       "legacy": {
         "enabled_field": "nextcloud_enabled",
-        "settings": {"share_link": "nextcloud_share_link"}
+        "settings": {
+          "share_link": "nextcloud_share_link"
+        }
       }
     },
     "readiness_requirements": {
-      "requires_settings": ["share_link"]
+      "requires_settings": [
+        "share_link"
+      ],
+      "requires_machine_enabled": true
     },
     "health": {},
     "study_settings": {},
@@ -60,10 +71,27 @@
           "key": "test_connection",
           "label": "Test connection",
           "payload_schema": {
-            "share_link": {"type": "string", "required": true, "max_length": 2048},
-            "password": {"type": "string", "required": false, "max_length": 256},
-            "study_id": {"type": "string", "required": false, "max_length": 256},
-            "timeout_seconds": {"type": "integer", "required": false, "minimum": 1, "maximum": 120}
+            "share_link": {
+              "type": "string",
+              "required": true,
+              "max_length": 2048
+            },
+            "password": {
+              "type": "string",
+              "required": false,
+              "max_length": 256
+            },
+            "study_id": {
+              "type": "string",
+              "required": false,
+              "max_length": 256
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "required": false,
+              "minimum": 1,
+              "maximum": 120
+            }
           }
         }
       ]
@@ -71,10 +99,55 @@
   },
   "streams": [],
   "settings": {
-    "machine": {},
+    "machine": {
+      "enabled": {
+        "type": "boolean",
+        "path": "enabled",
+        "default": true,
+        "label_key": "pluginSettings.common.enabled",
+        "help_key": "pluginHelp.destination.enabled",
+        "apply": "immediate",
+        "scope": "machine"
+      },
+      "timeout_seconds": {
+        "type": "number",
+        "unit": "s",
+        "path": "timeout_seconds",
+        "default": 30,
+        "minimum": 1,
+        "maximum": 120,
+        "label_key": "pluginSettings.common.timeoutSeconds",
+        "help_key": "pluginHelp.destination.timeoutSeconds",
+        "apply": "immediate",
+        "scope": "machine"
+      },
+      "auto_retry": {
+        "type": "boolean",
+        "path": "auto_retry",
+        "default": true,
+        "label_key": "pluginSettings.destination.autoRetry",
+        "help_key": "pluginHelp.destination.autoRetry",
+        "apply": "immediate",
+        "scope": "machine"
+      },
+      "retry_hours": {
+        "type": "number",
+        "unit": "h",
+        "path": "retry_hours",
+        "default": 48,
+        "minimum": 1,
+        "maximum": 168,
+        "label_key": "pluginSettings.destination.retryHours",
+        "help_key": "pluginHelp.destination.retryHours",
+        "apply": "immediate",
+        "scope": "machine"
+      }
+    },
     "study": {
       "share_link": {
-        "type": "url", "format": "nextcloud_public_share", "default": "",
+        "type": "url",
+        "format": "nextcloud_public_share",
+        "default": "",
         "label_key": "pluginSettings.nextcloud.shareLink.label",
         "placeholder_key": "pluginSettings.nextcloud.shareLink.placeholder",
         "help_key": "pluginHelp.nextcloud.shareLink"
@@ -86,5 +159,8 @@
   "request_timeout_ms": 1000,
   "clock_domain": "server",
   "expected_data_rate": {},
-  "backpressure": {"max_in_flight": 1, "drop_policy": "upload_job_queue"}
+  "backpressure": {
+    "max_in_flight": 1,
+    "drop_policy": "upload_job_queue"
+  }
 }
