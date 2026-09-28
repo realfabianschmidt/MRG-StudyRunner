@@ -271,6 +271,78 @@ class SourceUpdateTests(unittest.TestCase):
                 update_service.request_update_install(app_config)
 
 
+class ArchiveUpdateServiceTests(unittest.TestCase):
+    """The release-archive path of the in-app updater (no git, no packaged build)."""
+
+    METADATA = {
+        "version": "9.9.9", "repository": "owner/repo", "tag": "app-v9.9.9",
+        "artifacts": {
+            "study-runner-source.zip": {"sha256": "a" * 64, "size": 10},
+            "study-runner-source.tar.gz": {"sha256": "b" * 64, "size": 20},
+        },
+    }
+
+    def test_the_archive_comes_from_the_github_release_by_default(self) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("STUDY_RUNNER_SOURCE_RELEASE_URL", None)
+            asset = update_service.source_archive_asset(self.METADATA, "9.9.9")
+        self.assertEqual(asset["url"], f"https://github.com/owner/repo/releases/download/app-v9.9.9/{asset['name']}")
+        self.assertEqual(len(asset["sha256"]), 64)
+
+    def test_an_overridden_release_url_serves_the_archive_next_to_its_metadata(self) -> None:
+        with patch.dict(os.environ, {"STUDY_RUNNER_SOURCE_RELEASE_URL": "http://127.0.0.1:8765/release.json"}):
+            asset = update_service.source_archive_asset(self.METADATA, "9.9.9")
+        self.assertEqual(asset["url"], f"http://127.0.0.1:8765/{asset['name']}")
+
+    def test_metadata_without_a_checksum_is_refused(self) -> None:
+        with self.assertRaisesRegex(update_service.UpdateError, "no checksum"):
+            update_service.source_archive_asset({"version": "9.9.9", "artifacts": {}}, "9.9.9")
+
+    def test_an_interrupted_download_does_not_keep_the_panel_busy(self) -> None:
+        for interrupted in ("downloading", "verifying"):
+            with tempfile.TemporaryDirectory() as temp:
+                app_config = {"STORAGE_ROOT": temp}
+                state_file = update_service.resolve_update_paths(app_config).state_file
+                update_service._write_state(state_file, {"state": interrupted})
+                update_service.recover_interrupted_update(app_config)
+                state = update_service._read_state(state_file)
+                self.assertEqual(state["state"], "error")
+                self.assertIn("interrupted", state["error"])
+
+    def test_other_states_are_left_alone_at_start(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            app_config = {"STORAGE_ROOT": temp}
+            state_file = update_service.resolve_update_paths(app_config).state_file
+            staged = {"state": "staged", "staged": {"mode": "archive", "version": "9.9.9"}}
+            update_service._write_state(state_file, staged)
+            update_service.recover_interrupted_update(app_config)
+            self.assertEqual(update_service._read_state(state_file), staged)
+
+    def test_a_file_system_error_while_unpacking_becomes_a_clear_error_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "install" / "software").mkdir(parents=True)
+            (root / "install" / "study-runner-release.json").write_text('{"version": "1.0.0"}', encoding="utf-8")
+            app_config = {"BASE_DIR": root / "install" / "software", "STORAGE_ROOT": str(root / "storage")}
+            state_file = update_service.resolve_update_paths(app_config).state_file
+            update_service._write_state(state_file, {"state": "available", "update": {"available": True}})
+
+            def fake_download(asset, destination, *_args):
+                destination.write_bytes(b"zip")
+                return ""
+
+            with patch.object(sys, "frozen", False, create=True), \
+                    patch.object(update_service, "fetch_source_release_metadata", return_value=self.METADATA), \
+                    patch.object(update_service, "_download_asset", side_effect=fake_download), \
+                    patch.object(update_service.archive_update, "stage_archive",
+                                 side_effect=OSError("path too long")):
+                with self.assertRaisesRegex(update_service.UpdateError, "could not be unpacked"):
+                    update_service.download_and_stage_update(app_config)
+            state = update_service._read_state(state_file)
+            self.assertEqual(state["state"], "error")
+            self.assertIn("path too long", state["error"])
+
+
 def _make_keypair() -> tuple[Ed25519PrivateKey, str]:
     private_key = Ed25519PrivateKey.generate()
     public_key = private_key.public_key()

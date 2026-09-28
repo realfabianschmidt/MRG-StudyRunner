@@ -350,6 +350,36 @@ jobs:
           cd "${{ steps.source-root.outputs.path }}/software"
           "../${{ matrix.venv_python }}" -m unittest -v tests.test_shortcut_service
 
+      # The installed release updates itself to a synthetic next version served
+      # locally: real terminal updater, SHA-256 check, staging, swap, install
+      # script. Windows runs it with long paths off, as on a stock lab PC.
+      - name: Update to a synthetic next version
+        shell: bash
+        env:
+          STUDY_RUNNER_CORE_ASSET_DIR: ${{ github.workspace }}/release-assets
+        run: |
+          flags=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then flags="--disable-windows-long-paths"; fi
+          # A copy: the update replaces the release_tools folder it comes from.
+          cp "${{ steps.source-root.outputs.path }}/release_tools/update_acceptance.py" "$RUNNER_TEMP/"
+          python "$RUNNER_TEMP/update_acceptance.py" \
+            --install-root "${{ steps.source-root.outputs.path }}" \
+            --archive "release-assets/${{ matrix.archive }}" $flags
+
+      - name: Run the daily-start self-check after the update
+        working-directory: ${{ steps.source-root.outputs.path }}
+        shell: bash
+        env:
+          STUDY_RUNNER_DATA_DIR: ${{ runner.temp }}/study-runner-self-check-updated
+          STUDY_RUNNER_DISABLE_HARDWARE: "1"
+          STUDY_RUNNER_DISABLE_BACKGROUND: "1"
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cmd //c "tools\\start-windows.cmd -SelfCheck"
+          else
+            bash tools/start-macos.sh --self-check
+          fi
+
   publish:
     name: Publish source release
     runs-on: ubuntu-24.04

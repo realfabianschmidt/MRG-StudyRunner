@@ -1,4 +1,4 @@
-"""Update an installation that was extracted from a release archive (no git).
+r"""Update an installation that was extracted from a release archive (no git).
 
 The steps are shared by the in-app updater (``update_service`` + the detached
 ``installer`` helper) and the terminal updater (``tools/update_study_runner.py``):
@@ -10,6 +10,10 @@ The steps are shared by the in-app updater (``update_service`` + the detached
    renames on the same drive: fast, and fully reversible via ``rollback``.
 3. ``merge_new_content``: add shipped example content that does not exist yet;
    never overwrite anything the operator has.
+
+Windows: file operations on staged or backed-up trees go through ``fs_path``
+(the ``\\?\`` extended-length form), so deep release paths work without the
+``LongPathsEnabled`` policy -- a stock lab PC does not have it.
 
 User data is never moved: ``software/study_content`` (studies, settings,
 credentials, logos, fonts, certificates), ``software/saved_results``, the
@@ -53,6 +57,22 @@ def archive_name_for_platform() -> str:
     return "study-runner-source.zip" if os.name == "nt" else "study-runner-source.tar.gz"
 
 
+def fs_path(path: Path) -> Path:
+    r"""``path`` in a form the file system accepts beyond 260 characters.
+
+    On Windows that is the absolute extended-length form (``\\?\C:\...`` or
+    ``\\?\UNC\server\share\...``); elsewhere the path is returned unchanged.
+    """
+    if os.name != "nt":
+        return Path(path)
+    text = os.path.abspath(str(path))
+    if text.startswith("\\\\?\\"):
+        return Path(text)
+    if text.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + text[2:])
+    return Path("\\\\?\\" + text)
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
@@ -73,7 +93,7 @@ def stage_archive(archive_path: Path, expected_sha256: str, staging_parent: Path
     temporary = staging_parent / f".{version}.extracting"
     for leftover in (target, temporary):
         if leftover.exists():
-            shutil.rmtree(leftover)
+            shutil.rmtree(fs_path(leftover))
     temporary.mkdir(parents=True)
     try:
         _safe_extract(Path(archive_path), temporary)
@@ -90,7 +110,7 @@ def stage_archive(archive_path: Path, expected_sha256: str, staging_parent: Path
             )
         temporary.replace(target)
     except Exception:
-        shutil.rmtree(temporary, ignore_errors=True)
+        shutil.rmtree(fs_path(temporary), ignore_errors=True)
         raise
     return target / release_root.name
 
@@ -115,7 +135,10 @@ def swap_program_files(install_root: Path, release_root: Path, backup_root: Path
             os.replace(incoming, current)
             journal.append({"action": "installed", "path": relative})
     except OSError as error:
-        rollback(install_root, backup_root, journal)
+        try:
+            rollback(install_root, backup_root, journal)
+        except ArchiveUpdateError as rollback_error:
+            raise ArchiveUpdateError(f"Could not replace the program files ({error}). {rollback_error}") from error
         raise ArchiveUpdateError(
             f"Could not replace the program files ({error}). Nothing was changed; "
             "close programs that use the Study Runner folder and try again."
@@ -124,18 +147,31 @@ def swap_program_files(install_root: Path, release_root: Path, backup_root: Path
 
 
 def rollback(install_root: Path, backup_root: Path, journal: list[dict[str, str]]) -> None:
-    """Undo ``swap_program_files`` step by step, newest first."""
+    """Undo ``swap_program_files`` step by step, newest first.
+
+    A step that fails does not stop the others: everything that can be
+    restored is restored, and what could not be is named at the end.
+    """
+    failed: list[str] = []
     for entry in reversed(journal):
         current = Path(install_root) / entry["path"]
-        if entry["action"] == "installed" and (current.exists() or current.is_symlink()):
-            if current.is_dir() and not current.is_symlink():
-                shutil.rmtree(current)
-            else:
-                current.unlink()
-        elif entry["action"] == "backed_up":
-            backup = Path(backup_root) / entry["path"]
-            if backup.exists() or backup.is_symlink():
-                os.replace(backup, current)
+        try:
+            if entry["action"] == "installed" and (current.exists() or current.is_symlink()):
+                if current.is_dir() and not current.is_symlink():
+                    shutil.rmtree(fs_path(current))
+                else:
+                    current.unlink()
+            elif entry["action"] == "backed_up":
+                backup = Path(backup_root) / entry["path"]
+                if backup.exists() or backup.is_symlink():
+                    os.replace(backup, current)
+        except OSError as error:
+            failed.append(f"{entry['path']} ({error})")
+    if failed:
+        raise ArchiveUpdateError(
+            f"The old version could not be fully restored: {'; '.join(failed)}. "
+            f"Its files are kept in {backup_root}; copy them back by hand."
+        )
 
 
 def program_entries(release_root: Path) -> list[str]:
@@ -169,13 +205,13 @@ def merge_new_content(release_root: Path, install_root: Path) -> list[str]:
             target = content_target / source.relative_to(content_source)
             if target.exists():
                 continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            fs_path(target.parent).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(fs_path(source), fs_path(target))
             added.append(f"software/study_content/{source.relative_to(content_source).as_posix()}")
     demo_source = Path(release_root) / "software" / "saved_results" / "Demo_Completed_Study"
     demo_target = Path(install_root) / "software" / "saved_results" / "Demo_Completed_Study"
     if demo_source.is_dir() and not demo_target.exists():
-        shutil.copytree(demo_source, demo_target)
+        shutil.copytree(fs_path(demo_source), fs_path(demo_target))
         added.append("software/saved_results/Demo_Completed_Study")
     return added
 
@@ -195,7 +231,7 @@ def _safe_extract(archive_path: Path, destination: Path) -> None:
                 _check_member_name(member.filename, destination)
                 if ((member.external_attr >> 16) & 0o170000) == 0o120000:
                     raise ArchiveUpdateError("The update archive contains a link, which is not allowed.")
-            archive.extractall(destination)
+            archive.extractall(fs_path(destination))
         return
     with tarfile.open(archive_path, "r:gz") as archive:
         members = archive.getmembers()
@@ -204,7 +240,7 @@ def _safe_extract(archive_path: Path, destination: Path) -> None:
             _check_member_name(member.name, destination)
             if not (member.isfile() or member.isdir()):
                 raise ArchiveUpdateError("The update archive contains a link or special file.")
-        archive.extractall(destination, filter="data")
+        archive.extractall(fs_path(destination), filter="data")
 
 
 def _check_member_count(count: int) -> None:

@@ -99,6 +99,11 @@ class InstallerArchiveUpdateTests(unittest.TestCase):
             backups = list((install_root / ".tools" / "update-backup").iterdir())
             self.assertEqual(len(backups), 1)
             self.assertEqual((backups[0] / "software" / "server.py").read_text(encoding="utf-8"), "# old\n")
+            # Installed: the panel must not offer "Restart now" or "version available" again.
+            saved = json.loads(state_file.read_text(encoding="utf-8"))
+            self.assertEqual(saved["state"], "applied")
+            self.assertNotIn("staged", saved)
+            self.assertNotIn("update", saved)
 
     def test_failed_install_rolls_back_and_restarts_the_old_version(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -115,6 +120,84 @@ class InstallerArchiveUpdateTests(unittest.TestCase):
             saved = json.loads(state_file.read_text(encoding="utf-8"))
             self.assertEqual(saved["state"], "install_failed")
             self.assertIn("undone", saved["error"])
+            self.assertNotIn("staged", saved)
+
+    def test_a_locked_file_during_the_swap_restarts_the_old_version(self) -> None:
+        real_replace = archive_update.os.replace
+        calls = {"n": 0}
+
+        def replace_failing_on_third_move(source, target):
+            calls["n"] += 1
+            if calls["n"] == 3:
+                raise PermissionError("file in use")
+            return real_replace(source, target)
+
+        with tempfile.TemporaryDirectory() as temp:
+            install_root, state_file = self._prepare(temp)
+            with patch.object(installer, "_start_visible") as start, \
+                    patch.object(installer, "_run_install_script") as install, \
+                    patch.object(archive_update.os, "replace", side_effect=replace_failing_on_third_move), \
+                    patch.object(installer.time, "sleep"):
+                exit_code = installer.main([str(state_file)])
+
+            self.assertEqual(exit_code, 1)
+            install.assert_not_called()
+            start.assert_called_once()  # the operator gets a server back
+            self.assertEqual((install_root / "README.md").read_text(encoding="utf-8"), "old\n")
+            self.assertEqual((install_root / "software" / "server.py").read_text(encoding="utf-8"), "# old\n")
+            self.assertEqual(json.loads(state_file.read_text(encoding="utf-8"))["state"], "install_failed")
+
+
+class RollbackTests(unittest.TestCase):
+    def test_one_failing_step_does_not_stop_the_others_and_is_named(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            install_root = base / "install"
+            backup_root = base / "backup"
+            for name in ("a", "b"):
+                (backup_root / name).mkdir(parents=True)
+                (backup_root / name / "old.txt").write_text("old", encoding="utf-8")
+            install_root.mkdir()
+            journal = [{"action": "backed_up", "path": "a"}, {"action": "backed_up", "path": "b"}]
+            real_replace = archive_update.os.replace
+
+            def fail_for_b(source, target):
+                if Path(source).name == "b":
+                    raise PermissionError("locked")
+                return real_replace(source, target)
+
+            with patch.object(archive_update.os, "replace", side_effect=fail_for_b):
+                with self.assertRaisesRegex(archive_update.ArchiveUpdateError, "could not be fully restored: b"):
+                    archive_update.rollback(install_root, backup_root, journal)
+            self.assertTrue((install_root / "a" / "old.txt").is_file())
+
+
+class LongPathTests(unittest.TestCase):
+    def test_fs_path_uses_the_extended_length_form_on_windows_only(self) -> None:
+        with patch.object(archive_update.os, "name", "nt"), \
+                patch.object(archive_update.os.path, "abspath", side_effect=lambda text: text):
+            self.assertEqual(str(archive_update.fs_path(r"C:\x\y")), r"\\?\C:\x\y")
+            self.assertEqual(str(archive_update.fs_path(r"\\srv\share\y")), r"\\?\UNC\srv\share\y")
+            self.assertEqual(str(archive_update.fs_path(r"\\?\C:\z")), r"\\?\C:\z")
+
+    @unittest.skipUnless(sys.platform == "win32", "extended-length paths are a Windows feature")
+    def test_staging_works_beyond_260_characters(self) -> None:
+        import zipfile
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            deep_name = "d" * 120
+            tree = _release_tree(base / "src" / "MRG-StudyRunner-1.1.0", "1.1.0", "new")
+            archive = base / "study-runner-source.zip"
+            with zipfile.ZipFile(archive, "w") as handle:
+                for path in tree.rglob("*"):
+                    if path.is_file():
+                        handle.write(path, path.relative_to(base / "src").as_posix())
+                handle.writestr(f"MRG-StudyRunner-1.1.0/software/saved_results/{deep_name}/{deep_name}/r.json", "{}")
+            staging = base / ("s" * 40) / "update-staging"
+            root = archive_update.stage_archive(archive, archive_update.sha256_file(archive), staging, "1.1.0")
+            deep = archive_update.fs_path(root / "software" / "saved_results" / deep_name / deep_name / "r.json")
+            self.assertGreater(len(str(deep)), 300)
+            self.assertTrue(deep.is_file())
 
 
 class ArchiveStagingTests(unittest.TestCase):

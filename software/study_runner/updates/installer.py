@@ -39,6 +39,10 @@ def main(argv: list[str] | None = None) -> int:
 
         state["state"] = "applied"
         state["applied_at"] = _utc_now()
+        # Installed: nothing left to "restart into", and the earlier check
+        # ("version X available") describes the version now running.
+        state.pop("staged", None)
+        state.pop("update", None)
         _write_json(state_file, state)
         return 0
     except Exception as error:
@@ -48,6 +52,9 @@ def main(argv: list[str] | None = None) -> int:
             if isinstance(state, dict):
                 state["state"] = "install_failed"
                 state["error"] = str(error)
+                # The staged files were used up or rolled back; a new attempt
+                # starts with "Check for updates", never with a stale restart.
+                state.pop("staged", None)
                 _write_json(state_file, state)
         except Exception:
             pass
@@ -97,7 +104,14 @@ def _apply_archive_update(state: dict[str, Any], staged: dict[str, Any], log_fil
 
     previous = archive_update.read_installed_version(install_root) or "previous"
     backup_root = install_root / ".tools" / "update-backup" / f"{previous}-{archive_update.timestamp()}"
-    journal = archive_update.swap_program_files(install_root, release_root, backup_root)
+    try:
+        journal = archive_update.swap_program_files(install_root, release_root, backup_root)
+    except archive_update.ArchiveUpdateError as error:
+        # swap_program_files already put the old files back; the old version
+        # must come up again, the operator is waiting for a server.
+        _append_log(log_file, f"Could not replace the program files, starting {previous} again: {error}")
+        _start_visible(install_root, log_file)
+        raise
     _append_log(log_file, f"Replaced program files; old version kept in {backup_root}")
     try:
         added = archive_update.merge_new_content(release_root, install_root)
@@ -106,7 +120,11 @@ def _apply_archive_update(state: dict[str, Any], staged: dict[str, Any], log_fil
         _run_install_script(install_root, log_file)
     except Exception as error:
         _append_log(log_file, f"Install of the new version failed, restoring {previous}: {error}")
-        archive_update.rollback(install_root, backup_root, journal)
+        try:
+            archive_update.rollback(install_root, backup_root, journal)
+        except archive_update.ArchiveUpdateError as rollback_error:
+            _append_log(log_file, str(rollback_error))
+            raise RuntimeError(f"The update failed and could not be fully undone: {rollback_error}") from error
         _start_visible(install_root, log_file)
         raise RuntimeError(f"The update could not be installed and was undone: {error}") from error
     _start_visible(install_root, log_file)
@@ -155,9 +173,20 @@ def _start_visible(install_root: Path, log_file: Path) -> None:
             creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
         )
     elif sys.platform == "darwin":
-        script = f"cd {shlex.quote(str(install_root))} && bash tools/start-macos.sh"
+        # Terminal opens a fresh login shell: carry over the STUDY_RUNNER_*
+        # settings the old server was started with (port, HTTPS, data folder).
+        exports = "".join(
+            f"export {key}={shlex.quote(value)}; " for key, value in sorted(env.items()) if key.startswith("STUDY_RUNNER_")
+        )
+        script = f"{exports}cd {shlex.quote(str(install_root))} && bash tools/start-macos.sh"
         apple_script = 'tell application "Terminal" to do script ' + json.dumps(script)
-        subprocess.Popen(["osascript", "-e", apple_script, "-e", 'tell application "Terminal" to activate'], env=env)
+        result = subprocess.run(
+            ["osascript", "-e", apple_script, "-e", 'tell application "Terminal" to activate'],
+            env=env, capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            _append_log(log_file, f"Could not open Terminal ({result.stderr.strip()}); start Study Runner by hand.")
+            return
     else:
         _spawn_detached([sys.executable, str(install_root / "software" / "server.py")], install_root / "software", env)
     _append_log(log_file, f"Started Study Runner again from {install_root}")

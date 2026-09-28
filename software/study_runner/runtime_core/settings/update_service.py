@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 import zipfile
 
 import requests
@@ -358,18 +358,9 @@ def _stage_archive_update(app_config: dict[str, Any]) -> dict[str, Any]:
     version = str(metadata.get("version") or "").strip()
     if not _is_semver(version) or compare_versions(version, __version__) <= 0:
         raise UpdateError("The published release is not newer than this installation.")
-    archive_name = archive_update.archive_name_for_platform()
-    artifacts = metadata.get("artifacts") if isinstance(metadata.get("artifacts"), dict) else {}
-    artifact = artifacts.get(archive_name) if isinstance(artifacts.get(archive_name), dict) else {}
-    expected_sha256 = str(artifact.get("sha256") or "").strip().lower()
-    if len(expected_sha256) != 64:
-        raise UpdateError(f"The release metadata has no checksum for {archive_name}.")
-    repository = str(metadata.get("repository") or "realfabianschmidt/MRG-StudyRunner")
-    tag = str(metadata.get("tag") or f"app-v{version}")
-    asset = {
-        "url": f"https://github.com/{repository}/releases/download/{tag}/{archive_name}",
-        "size": int(artifact.get("size") or 0),
-    }
+    asset = source_archive_asset(metadata, version)
+    archive_name = asset["name"]
+    expected_sha256 = asset["sha256"]
 
     staging_parent = install_root / ".tools" / "update-staging"
     staging_parent.mkdir(parents=True, exist_ok=True)
@@ -388,6 +379,10 @@ def _stage_archive_update(app_config: dict[str, Any]) -> dict[str, Any]:
     except archive_update.ArchiveUpdateError as error:
         _set_error(paths.state_file, state, str(error))
         raise UpdateError(str(error)) from error
+    except OSError as error:
+        message = f"The update could not be unpacked ({error}). Nothing was changed; try again."
+        _set_error(paths.state_file, state, message)
+        raise UpdateError(message) from error
     finally:
         download_path.unlink(missing_ok=True)
 
@@ -434,6 +429,44 @@ def _request_source_restart(app_config: dict[str, Any]) -> dict[str, Any]:
     _write_state(paths.state_file, state)
     _spawn_installer(paths.state_file, app_config)
     return build_update_status(app_config)
+
+
+def source_archive_asset(metadata: dict[str, Any], version: str) -> dict[str, Any]:
+    """Name, URL, SHA-256 and size of this platform's release archive.
+
+    The archive of the published GitHub release, unless the release metadata
+    URL was pointed elsewhere (a mirror, or a local server in the release
+    acceptance test): then the archive sits next to that metadata file.
+    """
+    name = archive_update.archive_name_for_platform()
+    artifacts = metadata.get("artifacts") if isinstance(metadata.get("artifacts"), dict) else {}
+    artifact = artifacts.get(name) if isinstance(artifacts.get(name), dict) else {}
+    sha256 = str(artifact.get("sha256") or "").strip().lower()
+    if len(sha256) != 64:
+        raise UpdateError(f"The release metadata has no checksum for {name}.")
+    release_url = get_source_release_url()
+    if release_url != DEFAULT_SOURCE_RELEASE_URL:
+        url = urljoin(release_url, name)
+    else:
+        repository = str(metadata.get("repository") or "realfabianschmidt/MRG-StudyRunner")
+        tag = str(metadata.get("tag") or f"app-v{version}")
+        url = f"https://github.com/{repository}/releases/download/{tag}/{name}"
+    return {"name": name, "url": url, "sha256": sha256, "size": int(artifact.get("size") or 0)}
+
+
+def recover_interrupted_update(app_config: dict[str, Any]) -> None:
+    """At server start: a download or check the previous server process was
+    still running cannot be running now, so it must not keep the Update panel
+    busy forever. The installed update (``staged``) is not touched."""
+    paths = resolve_update_paths(app_config)
+    state = _read_state(paths.state_file)
+    if state.get("state") in {"downloading", "verifying"}:
+        state["state"] = "error"
+        state["error"] = "The last update download was interrupted. Check for updates to try again."
+        try:
+            _write_state(paths.state_file, state)
+        except OSError as error:
+            print(f"[UPDATE] Could not reset the interrupted update state: {error}")
 
 
 def get_source_release_url() -> str:
@@ -724,7 +757,7 @@ def _download_asset(asset: dict[str, Any], destination: Path, state_file: Path, 
                         },
                     )
                     last_state_update = now
-    except requests.RequestException as error:
+    except (requests.RequestException, OSError) as error:  # OSError: e.g. the disk is full
         _set_error(state_file, state, f"Could not download update: {error}")
         raise UpdateError(f"Could not download update: {error}") from error
     finally:

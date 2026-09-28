@@ -28,6 +28,7 @@ from study_runner.data_core.host.recording_runtime import RecordingRuntimeServic
 from study_runner.runtime_core.delivery.recording_finalization_adapter import RuntimeRecordingFinalizationAdapter
 from study_runner.runtime_core.delivery.withdrawal_service import WithdrawalService
 from study_runner.runtime_core.settings.secrets_service import load_local_secrets
+from study_runner.runtime_core.settings.update_service import recover_interrupted_update
 from study_runner.plugin_framework.plugin_secrets import resolve_plugin_secret
 from study_runner.data_core.host.sensor_coordinator_service import SensorCoordinator
 from study_runner.data_core.host.sensor_flush_service import SensorFlushService
@@ -113,6 +114,7 @@ def create_app() -> Flask:
         os.getenv("STUDY_RUNNER_ALLOW_UNSAFE_STIMULUS_CODE", "").strip().lower()
         in {"1", "true", "yes", "on"}
     )
+    recover_interrupted_update(app.config)
 
     hardware_config = _load_hardware_config(app.config["HARDWARE_CONFIG_FILE"])
     local_secrets = load_local_secrets(app.config["LOCAL_SECRETS_FILE"])

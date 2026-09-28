@@ -72,14 +72,8 @@ def run(*, check_only: bool, port: int) -> int:
 def _update_archive_install(metadata: dict, version: str) -> None:
     import requests
 
-    name = archive_update.archive_name_for_platform()
-    artifact = (metadata.get("artifacts") or {}).get(name) or {}
-    expected = str(artifact.get("sha256") or "")
-    if len(expected) != 64:
-        raise RuntimeError(f"The release metadata has no checksum for {name}.")
-    repository = str(metadata.get("repository") or "realfabianschmidt/MRG-StudyRunner")
-    tag = str(metadata.get("tag") or f"app-v{version}")
-    url = f"https://github.com/{repository}/releases/download/{tag}/{name}"
+    asset = update_service.source_archive_asset(metadata, version)
+    name, url, expected = asset["name"], asset["url"], asset["sha256"]
     staging = INSTALL_ROOT / ".tools" / "update-staging"
     staging.mkdir(parents=True, exist_ok=True)
     download = staging / name
@@ -102,7 +96,7 @@ def _update_archive_install(metadata: dict, version: str) -> None:
     try:
         archive_update.merge_new_content(release_root, INSTALL_ROOT)
         _run_install_script()
-    except Exception:
+    except BaseException:  # also Ctrl+C: never leave a half-installed version behind
         print(f"Installing the new version failed; restoring {previous} ...", file=sys.stderr)
         archive_update.rollback(INSTALL_ROOT, backup, journal)
         raise

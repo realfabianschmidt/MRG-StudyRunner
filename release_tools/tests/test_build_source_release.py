@@ -221,6 +221,17 @@ class SourceReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(release.ReleaseError, "symbolic link"):
                 release.validate_archive(path, version=VERSION)
 
+    def test_archive_rejects_paths_too_long_for_windows_updates(self) -> None:
+        with temporary_directory() as temporary:
+            path = Path(temporary) / release.ARCHIVES[0]
+            fits = f"{ROOT}/docs/" + "a" * (release.MAX_ARCHIVE_MEMBER_CHARS - len("docs/"))
+            write_zip(path, (*members(), fits))
+            release.validate_archive(path, version=VERSION)
+
+            write_zip(path, (*members(), fits + "b"))
+            with self.assertRaisesRegex(release.ReleaseError, "longer than"):
+                release.validate_archive(path, version=VERSION)
+
     def test_archive_rejects_windows_reserved_paths(self) -> None:
         with temporary_directory() as temporary:
             path = Path(temporary) / release.ARCHIVES[0]

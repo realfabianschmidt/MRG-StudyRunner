@@ -131,6 +131,12 @@ WINDOWS_RESERVED_NAMES = {
     *(f"COM{index}" for index in range(1, 10)),
     *(f"LPT{index}" for index in range(1, 10)),
 }
+# Longest allowed path below the archive's root folder. Windows without the
+# LongPathsEnabled policy stops at 259 characters, and updaters up to 1.3.1
+# extract into <install>\.tools\update-staging\.<version>.extracting\<root>\
+# without the extended-length form. 167 is the frozen 0.7.0 demo session; a
+# longer path would make those updaters fail in even more install folders.
+MAX_ARCHIVE_MEMBER_CHARS = 167
 
 
 class ReleaseError(RuntimeError):
@@ -190,6 +196,11 @@ def validate_archive(path: Path, *, version: str | None = None) -> None:
             or "\x00" in slash_name
         ):
             raise ReleaseError(f"unsafe path in {path.name}: {raw_name}")
+        if len(slash_name.rstrip("/").split("/", 1)[-1]) > MAX_ARCHIVE_MEMBER_CHARS:
+            raise ReleaseError(
+                f"path longer than {MAX_ARCHIVE_MEMBER_CHARS} characters below the root in {path.name} "
+                f"(breaks updates on Windows without long paths): {raw_name}"
+            )
         for part in parts:
             if re.search(r"[<>:\"|?*]", part) or part.rstrip(" .") != part:
                 raise ReleaseError(f"Windows-incompatible path in {path.name}: {raw_name}")
