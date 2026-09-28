@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from study_runner.runtime_core.studies.sessions_index_service import list_sessions, load_session
 
 
-FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures" / "historical_brainbit_old_session"
+FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures" / "bb_old"
 
 
 class BrainBitOldSessionCompatibilityTests(unittest.TestCase):
@@ -22,12 +22,12 @@ class BrainBitOldSessionCompatibilityTests(unittest.TestCase):
         self.assertEqual(len(sessions), 1)
         summary = sessions[0]
         self.assertEqual(summary["study_id"], "Legacy BrainBit Study")
-        self.assertEqual(summary["participant_id"], "legacy-participant")
+        self.assertEqual(summary["participant_id"], "p1")
 
         detail = load_session(
             FIXTURE_ROOT,
             "Legacy BrainBit Study",
-            "legacy-participant",
+            "p1",
             session_folder=summary["session_folder"],
         )
         recorded = detail["result"]["recorded_plugins"]["brainbit_old"]
