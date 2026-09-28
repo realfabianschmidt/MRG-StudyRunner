@@ -12,8 +12,16 @@ from study_runner.contracts.card_validation_primitives import (
 )
 from study_runner.contracts.plugin_api import Plugin
 
+# How the card is shown. "classic" and "blobs" record the chosen words;
+# "field" (Affect Grid) and "orbit" (circumplex / Geneva Emotion Wheel) also
+# record where on the energy x pleasantness plane the participant placed
+# themselves. See README.md for the models behind each view.
+VARIANTS = ("classic", "blobs", "field", "orbit")
+POSITION_VARIANTS = frozenset({"field", "orbit"})
+
 DEFAULTS = {'mood-meter': {'type': 'mood-meter',
                 'prompt': 'How do you feel right now?',
+                'variant': 'classic',
                 'allow_multiple': True,
                 'word_lists': {'red': ['Enraged',
                                        'Panicked',
@@ -121,24 +129,53 @@ def _normalize_mood_meter_question(question_data: dict[str, Any], question_index
     word_lists = question_data.get("word_lists")
     if word_lists is not None and not isinstance(word_lists, dict):
         word_lists = None
+    variant = str(question_data.get("variant") or "classic").strip().lower()
     return {
         "type": "mood-meter",
         "prompt": normalize_text(question_data.get("prompt")),
+        "variant": variant if variant in VARIANTS else "classic",
         "allow_multiple": normalize_boolean(question_data.get("allow_multiple", True)),
         "word_lists": word_lists,
     }
 
 
-def _validate_mood_meter_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
-    if not isinstance(answer, list):
+def _validate_words(*, question: dict[str, Any], words: Any, question_number: int) -> list[str]:
+    if not isinstance(words, list):
         raise CardValidationError(f"Question {question_number} answer must be a list.")
-    normalized = [require_text(item, f"Question {question_number} word") for item in answer]
+    normalized = [require_text(item, f"Question {question_number} word") for item in words]
     if not normalized:
         raise CardValidationError(f"Question {question_number} needs at least one selected word.")
     if len(set(normalized)) != len(normalized):
         raise CardValidationError(f"Question {question_number} contains duplicate words.")
     if question.get("allow_multiple") is False and len(normalized) != 1:
         raise CardValidationError(f"Question {question_number} allows exactly one selected word.")
+    return normalized
+
+
+def _unit_value(value: Any, name: str, question_number: int) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise CardValidationError(f"Question {question_number} {name} must be a number.")
+    number = float(value)
+    if not 0.0 <= number <= 1.0:
+        raise CardValidationError(f"Question {question_number} {name} must be between 0 and 1.")
+    return round(number, 3)
+
+
+def _validate_mood_meter_answer(*, question: dict[str, Any], answer: Any, question_number: int) -> Any:
+    variant = question.get("variant") or "classic"
+    if variant not in POSITION_VARIANTS:
+        return _validate_words(question=question, words=answer, question_number=question_number)
+    if not isinstance(answer, dict):
+        raise CardValidationError(
+            f"Question {question_number} answer must contain the chosen words and the position."
+        )
+    normalized: dict[str, Any] = {
+        "words": _validate_words(question=question, words=answer.get("words"), question_number=question_number),
+        "pleasantness": _unit_value(answer.get("pleasantness"), "pleasantness", question_number),
+        "energy": _unit_value(answer.get("energy"), "energy", question_number),
+    }
+    if variant == "orbit":
+        normalized["intensity"] = _unit_value(answer.get("intensity"), "intensity", question_number)
     return normalized
 
 

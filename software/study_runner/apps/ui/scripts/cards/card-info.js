@@ -138,3 +138,13 @@ export function collectInfo(el) {
   if (requiredInput) result.required = requiredInput.checked;
   return result;
 }
+
+/**
+ * Tell the participant page that a card's answer changed in a way the DOM
+ * does not show as an input event (a tapped word, a dragged item). One event
+ * for every card, so the page never has to know card names; `field` names
+ * what was touched, for the touched-field count.
+ */
+export function notifyCardChanged(element, field = 'selection') {
+  element?.dispatchEvent(new CustomEvent('card:changed', { bubbles: true, detail: { field } }));
+}

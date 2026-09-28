@@ -1051,7 +1051,11 @@ def _canonical_card_summary_error(
 
 def _format_answer_value(value: Any) -> str:
     if isinstance(value, dict):
-        return ", ".join(f"{key}={val}" for key, val in value.items()) or "n/a"
+        # e.g. {"words": [...], "pleasantness": 0.72}: "words: a, b · pleasantness: 0.72"
+        return " · ".join(
+            f"{key}: {', '.join(str(item) for item in val) if isinstance(val, list) else val}"
+            for key, val in value.items()
+        ) or "n/a"
     if isinstance(value, list):
         return ", ".join(str(item) for item in value) or "n/a"
     if value in (None, ""):

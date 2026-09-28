@@ -1,6 +1,6 @@
 import { t } from '/static/scripts/shared/i18n.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
-import { renderStudyHeader } from '/static/scripts/cards/card-info.js';
+import { notifyCardChanged, renderStudyHeader } from '/static/scripts/cards/card-info.js';
 
 export const meta = { type:'ranking', icon:'sort', label:'Ranking', pill:'pill-ranking' };
 
@@ -116,7 +116,7 @@ export function bindDrag(list) {
     dragEl.classList.remove('rank-item--dragging');
     dragEl = null;
     renumberItems(list);
-    list.dispatchEvent(new CustomEvent('ranking:changed', { bubbles: true }));
+    notifyCardChanged(list, 'ranking');
   };
 
   list.addEventListener('pointerup',     finish);

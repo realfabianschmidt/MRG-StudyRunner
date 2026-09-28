@@ -14,6 +14,21 @@ All notable Study Runner changes are documented here. Release tags use
   linked as it is, and after a reinstall the last used folder is offered for
   relinking. A data folder that is not reachable stops the start with a clear
   message instead of creating an empty one.
+- **Mood Meter views:** the Mood Meter card offers four views in its settings.
+  Classic (as before), Blobs (breathing quadrant shapes that grow into the
+  word space), Field (an Affect Grid with a shape-shifting orb) and Orbit (a
+  feelings wheel with a fisheye). Field and Orbit also record the position
+  (`pleasantness`, `energy`, orbit also `intensity`, each 0-1). A "?" in the
+  card settings explains each view and links the papers it is based on.
+  Existing studies keep the classic view.
+
+### Changed
+
+- Cards report non-input changes through one generic `card:changed` event, and
+  a card may split its browser code into several declared modules; every one
+  of them is checked for state that could leak between participants.
+- Answers made of several values read as `words: calm, content · energy: 0.3`
+  in the session view and in Notion.
 
 ## 1.3.2 - 2026-09-28
 

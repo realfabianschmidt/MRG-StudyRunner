@@ -41,6 +41,12 @@
     },
     "assets": [
       "card.js",
+      "mood-core.js",
+      "word-space.js",
+      "view-classic.js",
+      "view-blobs.js",
+      "view-field.js",
+      "view-orbit.js",
       "card.css"
     ]
   }

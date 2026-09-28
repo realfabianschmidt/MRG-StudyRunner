@@ -276,9 +276,15 @@ def _validate_declared_ui_assets(directory: Path, manifest: dict[str, Any]) -> N
             raise PluginManifestError(f"declared UI asset does not exist: {relative_path}")
     card_module = (ui.get("extensions") or {}).get("card")
     if card_module:
-        violations = card_module_violations(plugin_root / PurePosixPath(card_module))
-        if violations:
-            raise PluginManifestError(violation_message(card_module, violations))
+        # Every browser module of a card lives as long as the participant
+        # page, not just its entry file, so each one is held to the rule.
+        modules = dict.fromkeys(
+            [card_module, *(path for path in declared_assets if str(path).endswith(".js"))]
+        )
+        for module in modules:
+            violations = card_module_violations(plugin_root / PurePosixPath(module))
+            if violations:
+                raise PluginManifestError(violation_message(module, violations))
 
 
 def _invalid_entry(candidate: _Candidate) -> PluginCatalogEntry:

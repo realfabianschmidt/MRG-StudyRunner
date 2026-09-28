@@ -24,6 +24,20 @@ through the plugin catalog. This folder only holds what every card shares.
   questions and when a session ends, and reloads itself before the next
   participant.
 
+## Telling the page an answer changed
+
+A change the DOM does not report as an `input` or `change` event (a tapped
+word, a dragged item) is announced with `notifyCardChanged(element, field)`
+from `card-info.js`. It dispatches one generic `card:changed` event, so the
+participant page never needs to know a card's name.
+
+## Cards made of several modules
+
+A card may split its browser code into several modules (the Mood Meter has
+one per view). List every file in the manifest's `ui.assets`; the entry module
+imports the others relatively (`./view-field.js`). Every declared module is
+held to the no-state rule below.
+
 ## No data between sessions
 
 A card never keeps participant data in a module-level variable. It reads its
@@ -48,7 +62,7 @@ beside the card module.
 | Slider | VAS slider |
 | Ranking | Ordered, draggable choices |
 | Stimulus | Centered content, trigger controls, and stimulus phases |
-| Mood Meter | Quadrant overview, fullscreen bubbles, and editor controls |
+| Mood Meter | Four views (classic tiles, breathing blobs, affect field with morphing orb, feelings wheel), fullscreen bubbles, and the view picker in the editor |
 | Multi-Slider | Per-dimension sliders and editor rows |
 | Word Cloud | Draggable words and the drop tray |
 | Participant-ID | Identity fields and their editor controls |

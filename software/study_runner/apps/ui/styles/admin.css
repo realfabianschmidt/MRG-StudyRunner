@@ -2789,6 +2789,21 @@ body.admin::before { display: none; }
 .plugin-help-text ul {
   padding-left: 1.3em;
 }
+.plugin-help-references {
+  margin-top: var(--s-3);
+  font-size: .85rem;
+}
+.plugin-help-references span {
+  opacity: .7;
+}
+.plugin-help-references ul {
+  margin: var(--s-1) 0 0;
+  padding-left: 1.3em;
+}
+.plugin-help-references a {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
 
 /* Result of "Test connection": one line per check, failures in red. */
 .plugin-action-check {

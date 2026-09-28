@@ -7,7 +7,8 @@ reads its answer back from the rendered DOM or keeps it through
 ``/static/scripts/cards/session-state.js`` (``cardState``), which the
 participant page clears at every session boundary.
 
-This check enforces the rule when a card plugin is discovered, so a card that
+This check enforces the rule when a card plugin is discovered, for the entry
+module and every other JavaScript file the card declares, so a card that
 breaks it is refused instead of silently leaking data. It is a line-based
 scan of top-level declarations (column 0), which is how every card module is
 written.

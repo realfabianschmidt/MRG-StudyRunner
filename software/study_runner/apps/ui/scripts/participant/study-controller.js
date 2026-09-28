@@ -753,9 +753,7 @@ function bindEvents() {
   questionContainer.addEventListener('input', handleQuestionInput);
   questionContainer.addEventListener('click', (event) => dispatchCardHook('onClick', event));
   questionContainer.addEventListener('change', handleQuestionChange);
-  questionContainer.addEventListener('ranking:changed', handleQuestionChange);
-  questionContainer.addEventListener('wordcloud:changed', handleQuestionChange);
-  questionContainer.addEventListener('moodmeter:changed', handleQuestionChange);
+  questionContainer.addEventListener('card:changed', handleQuestionChange);
   questionContainer.addEventListener('participantid:changed', handleQuestionChange);
 }
 
@@ -899,11 +897,10 @@ function handleQuestionChange(event) {
   if (questionIndex !== null && event.target?.matches('input[type="radio"], input[type="checkbox"]')) {
     markQuestionField(questionIndex, event.target.id || event.target.name || 'selection');
   }
-  if (questionIndex !== null && event.type === 'ranking:changed') {
-    markQuestionField(questionIndex, 'ranking');
-  }
-  if (questionIndex !== null && (event.type === 'wordcloud:changed' || event.type === 'moodmeter:changed')) {
-    markQuestionField(questionIndex, 'selection');
+  // Cards report non-input changes (tapped words, dragged items) through
+  // one generic event; see notifyCardChanged() in cards/card-info.js.
+  if (questionIndex !== null && event.type === 'card:changed') {
+    markQuestionField(questionIndex, event.detail?.field || 'selection');
   }
   
   if (event.type !== 'participantid:changed') {

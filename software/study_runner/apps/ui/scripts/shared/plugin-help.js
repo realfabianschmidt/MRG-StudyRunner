@@ -74,12 +74,53 @@ export function renderPluginHelpBody(plugin) {
   return `${intro ? `<div class="plugin-help-intro">${renderRichText(intro)}</div>` : ''}${sections}`;
 }
 
-export function openPluginHelp(plugin) {
-  if (!plugin) return;
+function showHelp(title, html) {
   if (!helpModal) {
     helpModal = createModal({ title: '', variant: 'help', closeLabel: t('settings.close', 'Close') });
   }
-  helpModal.setTitle(t('pluginHelp.title', 'Setting up {name}').replace('{name}', plugin.ui?.label || plugin.plugin_key));
-  helpModal.body.innerHTML = renderPluginHelpBody(plugin);
+  helpModal.setTitle(title);
+  helpModal.body.innerHTML = html;
   helpModal.open();
+}
+
+export function openPluginHelp(plugin) {
+  if (!plugin) return;
+  showHelp(
+    t('pluginHelp.title', 'Setting up {name}').replace('{name}', plugin.ui?.label || plugin.plugin_key),
+    renderPluginHelpBody(plugin),
+  );
+}
+
+/**
+ * The same help window for any explanation a plugin wants to give, with
+ * sources. `sections` is `[{ heading, text, references: [{ label, url }] }]`.
+ * Text uses the rich-text subset; links are allowed only in `references`,
+ * which come from the plugin's own code (never from study text), are escaped,
+ * and must be http(s).
+ */
+export function renderHelpSections({ intro = '', sections = [] } = {}) {
+  const body = sections.map((section) => `
+    <section class="plugin-help-field">
+      <h3>${escapeHtml(section.heading || '')}</h3>
+      <div class="plugin-help-text">${renderRichText(section.text || '')}</div>
+      ${renderReferences(section.references)}
+    </section>`).join('');
+  return `${intro ? `<div class="plugin-help-intro">${renderRichText(intro)}</div>` : ''}${body}`;
+}
+
+export function openHelpModal({ title = '', intro = '', sections = [] } = {}) {
+  showHelp(title, renderHelpSections({ intro, sections }));
+}
+
+function renderReferences(references) {
+  const links = (Array.isArray(references) ? references : [])
+    .filter((reference) => /^https?:\/\//i.test(String(reference?.url || '')))
+    .map((reference) => `
+      <li><a href="${escapeHtml(reference.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(reference.label || reference.url)}</a></li>`);
+  if (!links.length) return '';
+  return `
+    <div class="plugin-help-references">
+      <span>${escapeHtml(t('pluginHelp.sources', 'Sources'))}</span>
+      <ul>${links.join('')}</ul>
+    </div>`;
 }

@@ -511,7 +511,12 @@ function renderBiosignalSummary(intervalSummary) {
 function formatAnswerValue(value) {
   if (value === null || value === undefined || value === '') return '-';
   if (Array.isArray(value)) return value.join(', ');
-  if (typeof value === 'object') return Object.entries(value).map(([key, entryValue]) => `${key}: ${entryValue}`).join(', ');
+  // e.g. { words: [...], pleasantness: 0.72 } -> "words: a, b · pleasantness: 0.72"
+  if (typeof value === 'object') {
+    return Object.entries(value)
+      .map(([key, entryValue]) => `${key}: ${Array.isArray(entryValue) ? entryValue.join(', ') : entryValue}`)
+      .join(' · ');
+  }
   return String(value);
 }
 

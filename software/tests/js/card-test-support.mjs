@@ -1,6 +1,9 @@
 import fs from 'node:fs/promises';
+import { rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { configurePluginCatalog } from '../../study_runner/apps/ui/scripts/shared/plugin-catalog.js';
 import { loadCards, CARDS } from '../../study_runner/apps/ui/scripts/cards/index.js';
 
@@ -19,11 +22,34 @@ finally:
     reset_process_plugins()
 `], { cwd: fileURLToPath(software), encoding: 'utf8', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } }));
 
+// A card may split its browser code into several modules that import each
+// other relatively. Each card folder is copied once into a temp directory
+// with the '/static/' imports pointed at the real UI files, and loaded from
+// there, so relative imports resolve exactly as they do in the browser.
+const cardCopies = new Map();
+const copyRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'study-runner-cards-'));
+process.on('exit', () => {
+  try { rmSync(copyRoot, { recursive: true, force: true }); } catch { /* best effort */ }
+});
+
+async function cardFolderCopy(key) {
+  if (cardCopies.has(key)) return cardCopies.get(key);
+  const source = new URL(`study_runner/plugins/cards/${key}/`, software);
+  const target = path.join(copyRoot, key);
+  await fs.mkdir(target, { recursive: true });
+  for (const name of await fs.readdir(source)) {
+    if (!name.endsWith('.js')) continue;
+    const text = await fs.readFile(new URL(name, source), 'utf8');
+    await fs.writeFile(path.join(target, name), text.replaceAll("'/static/", `'${ui.href}`));
+  }
+  cardCopies.set(key, target);
+  return target;
+}
+
 export async function importCard(url) {
   const key = url.split('/')[3];
-  let source = await fs.readFile(new URL(`study_runner/plugins/cards/${key}/card.js`, software), 'utf8');
-  source = source.replaceAll("'/static/", `'${ui.href}`);
-  return import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+  const folder = await cardFolderCopy(key);
+  return import(pathToFileURL(path.join(folder, 'card.js')).href);
 }
 
 export async function loadShippedCards() {

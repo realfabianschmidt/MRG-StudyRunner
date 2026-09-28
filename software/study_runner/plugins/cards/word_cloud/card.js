@@ -1,5 +1,5 @@
 import { t } from '/static/scripts/shared/i18n.js';
-import { renderEditorToggle, renderStudyHeader } from '/static/scripts/cards/card-info.js';
+import { notifyCardChanged, renderEditorToggle, renderStudyHeader } from '/static/scripts/cards/card-info.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
 import { cardState } from '/static/scripts/cards/session-state.js';
 
@@ -155,7 +155,7 @@ export function bindInteractions(cardEl, cardIndex) {
       addTrayChip(tray, word, cardIndex, cloud, isMultiple);
     }
     updateTrayHint(tray, cardIndex);
-    cloud.dispatchEvent(new CustomEvent('wordcloud:changed', { bubbles: true }));
+    notifyCardChanged(cloud);
   }
 
   // ── Pointer events on the cloud ──

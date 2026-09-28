@@ -242,6 +242,7 @@ CARD_TYPE_FIXTURES: dict[str, dict[str, Any]] = {
             "type": "mood-meter",
             "prompt": "Pick the words that fit your mood.",
             "required": True,
+            "variant": "classic",
             "allow_multiple": True,
             "word_lists": None,
         },

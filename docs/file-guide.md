@@ -303,6 +303,10 @@ Thirteen folders, one per card (`choice` alone answers both `choice` and
 | `<card>/plugin.py` | Implements the executable card contract: `get_card_defaults`/`normalize_card_config`/`validate_card_answer`; imports only `contracts`, never `runtime_core` | careful |
 | `<card>/card.js` | Renderer/editor module: `metaByType`, `configureCard`, `renderStudy`, `renderEditor`, `collectConfig`, `collectAnswer`, and the optional `isAnswered`/`bindInteractions` hooks; loaded on demand by `apps/ui/scripts/cards/index.js` | careful |
 
+| `mood_meter/mood-core.js` | Mood Meter core: quadrants, each word's place on the energy x pleasantness plane (Brackett's 10 x 10 grid), colors, morphing shape, spring, animation loop | careful |
+| `mood_meter/word-space.js` | Mood Meter fullscreen word space (pan with momentum, zoom or circle reveal), shared by the classic and blob views | careful |
+| `mood_meter/view-classic.js`, `view-blobs.js`, `view-field.js`, `view-orbit.js` | The four Mood Meter views behind one small interface (`render`, `bind`, `onClick`, `refresh`, `records`); chosen by the card's `variant` setting | careful |
+
 Folders: `choice`, `finish`, `info`, `likert`, `mood_meter`, `multi_slider`,
 `participant_id`, `ranking`, `semantic`, `slider`, `stimulus`, `text`,
 `word_cloud` (folder, plugin key, and config key are the same string for every
