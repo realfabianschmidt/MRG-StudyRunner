@@ -33,6 +33,7 @@ it.
 | `brainbit_realtime_cli.py` | The acquisition program. Owns every vendor-SDK call: scan, connect, measure electrode contact, stream EEG, compute the derived attention/relaxation values, and print one tagged JSON line per event. | Bluetooth → tagged JSON lines on standard output |
 | `ui/dashboard.js` | The dashboard panel: connection state, dated contact measurements, live metric graphs and technical details. | plugin status → what the researcher sees |
 | `diagnose_backends.py` | A standalone comparison tool (vendor SDK vs. BrainFlow) for when a band behaves oddly. Deliberately *not* part of recording; nothing imports it at runtime. | run by hand → a comparison report |
+| `tools/ble_brainbit_probe.py` | A standalone discovery probe: lists the bands this computer can see and which one the production selector would pick. | run by hand → a list of bands |
 | `OUTPUT_REFERENCE.md` | The full list of JSON tags the CLI prints and what each field means. | — |
 | `README_ENHANCED.md` | Implementation constraints: SDK packet shapes, channel mapping rules, scaling. Read this before changing the decoder. | — |
 | `HelloEEG_HelloMYO_01.3.toe` | An example TouchDesigner project showing how to receive the OSC values. Not used by the software. | — |
@@ -174,3 +175,9 @@ Turn it on only if this plugin fails in a way that stops a study, and then:
   a scripted stand-in for the band: late-appearing bands, absent bands, failed
   connections, the announced-index-is-the-connected-band guarantee, and that
   Bluetooth being switched off is reported once instead of retried forever.
+- `software/tests/test_brainbit_monitor.py` — connection-scoped dashboard
+  facts, battery freshness and bounded graph history.
+- `software/tests/test_brainbit_streaming.py` — end-to-end streaming into the
+  native XDF core (only when `STUDY_RUNNER_XDF_CORE_TEST` is set).
+- `software/tests/test_brainbit_browser.py` — the dashboard in a headless
+  browser (only when `STUDY_RUNNER_BROWSER_TEST` is set).

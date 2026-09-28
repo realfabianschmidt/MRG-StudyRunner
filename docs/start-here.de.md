@@ -245,11 +245,9 @@ laufen dann, Pflicht-Recording bleibt jedoch mit einem klaren Hinweis blockiert.
 
 ### Neues heruntergeladenes Release verwenden
 
-Ein heruntergeladenes Archiv besitzt keine automatische Aktualisierung. Vor
-dem Wechsel die lokalen Studien, Einstellungen und Ergebnisse aus dem alten
-Ordner sichern. Den alten Ordner erst loeschen, wenn die Daten im neuen Release
-vorhanden und geprueft sind. Danach im neuen Ordner die Installation und auf
-macOS auch die Desktop-Verknuepfung erneut ausfuehren.
+Ab 1.2.0 aktualisiert sich ein entpacktes Release-Archiv selbst (siehe
+"Update am Nutzer-Rechner" unten). Nur wer von 1.1.x oder aelter kommt, zieht
+einmal von Hand in einen neuen Ordner um -- die Schritte stehen ebenfalls dort.
 
 Die Installation braucht weder signierte App-Pakete noch Apple-Notarisierung
 oder einen Apple-Developer-Account.
@@ -321,13 +319,18 @@ https://support.apple.com/en-us/102390
 
 Study Runner kann aktuell diese Sensoren/Integrationen nutzen:
 
-- BrainBit EEG ueber Bluetooth/NeuroSDK.
-- MR60 Radar ueber ESP32-C6 BLE-Firmware.
+- BrainBit EEG ueber Bluetooth/NeuroSDK (`brainbit`; die fruehere Umsetzung
+  bleibt als Rueckfall `brainbit_old` verfuegbar).
+- AM Hub (`am_hub`): Praesenz, Position, Bewegung, Herz- und Atemfrequenz,
+  Ventilzustand und Verbindungsqualitaet vom Parasite AM Hub.
+- MR60 Radar ueber ESP32-C6 BLE-Firmware (`mini_radar`).
 - Kamera und Emotion gemeinsam als Plugin `camera_emotion`; lokaler oder
   entfernter Analyse-Worker sind nur Betriebsarten dieses Plugins.
 - LSL als gemeinsamer Datenweg und der Python-Recording-Worker mit kleinem
   XDF-Kern fuer synchronisierte Rohdaten.
 - Notion Upload fuer kompakte Zusammenfassungen, wenn ein API-Key gesetzt ist.
+- Nextcloud Upload der fertigen Session-Ordner.
+- OSC fuer Live-Signale an TouchDesigner und aehnliche Programme.
 
 Wichtig: Kamera-Emotion streamt Livebilder ins Dashboard, sobald Camera Emotion
 effektiv aktiv ist, die Tablet-Seite offen ist und die Kamera erlaubt wurde.
@@ -403,6 +406,30 @@ rote Bestaetigung. Dann:
   (`software/study_content`, `software/saved_results`) werden nie angefasst.
 - Scheitert die Installation, wird die alte Version wiederhergestellt und
   wieder gestartet.
+- Was du selbst in die Programmordner gelegt hast (ein zusaetzliches Plugin, eine
+  Schrift unter `apps/ui/fonts/`), wird mit ersetzt und liegt danach im
+  Backup-Ordner -- von dort zurueckkopieren.
+
+**Wenn etwas schiefgeht:**
+
+- Download, Pruefung oder Entpacken scheitert: nichts wurde veraendert. Im
+  Update-Bereich erneut "Pruefen".
+- Eine Datei ist beim Austausch gesperrt (ein Programm hat eine Datei im
+  Study-Runner-Ordner offen, ein Cloud-Sync-Programm): die alten Dateien werden
+  zurueckgelegt und die alte Version startet wieder.
+- Wurde der Server waehrend des Downloads beendet, zeigt der Update-Bereich
+  beim naechsten Start "unterbrochen" -- einfach erneut pruefen.
+- Protokoll: `software/updates/update-helper.log`. Die alte Version liegt in
+  `.tools/update-backup/<alte-Version>-<Zeit>/`. Zurueck von Hand: Study Runner
+  beenden, die aktuellen Programmordner beiseitelegen, die Ordner aus dem
+  Backup in den Installationsordner verschieben, Installationsskript ausfuehren.
+
+**Windows und lange Pfade:** Ab 1.3.2 braucht das Update die
+Windows-Einstellung "lange Pfade" nicht mehr. Die Updater bis 1.3.1 schon:
+bleibt der Update-Bereich einer 1.2.x/1.3.x-Installation unter Windows bei
+"Verifying" haengen oder meldet einen Entpack-Fehler, ist nichts veraendert --
+dann einmal den Weg unten nehmen (ein kurzer Ordner wie `C:\StudyRunner`
+vermeidet das Problem ganz).
 
 **Per Terminal:** Study Runner mit Ctrl+C beenden, dann im Programmordner:
 
@@ -415,16 +442,30 @@ bash tools/update-macos.sh --check   # nur pruefen
 .\tools\update-windows.cmd
 ```
 
-Danach wie gewohnt starten.
+Danach wie gewohnt starten. Ctrl+C waehrend der Installation stellt die alte
+Version wieder her.
 
-**Einmalig von 1.1.x auf 1.2.0:** Diese Versionen koennen sich aus dem Archiv
-noch nicht selbst aktualisieren. Study Runner beenden, das neue Archiv in einen
-neuen Ordner entpacken, `software/study_content` und `software/saved_results`
-aus dem alten Ordner in den neuen kopieren (die dortigen Ordner ersetzen), dann
-`bash tools/install-macos.sh` bzw. `.\tools\install-windows.cmd` ausfuehren und
-starten. `git pull` funktioniert in einem
-entpackten Archiv nicht. Git-Installationen: `git pull --ff-only`, dann das
-Installationsskript.
+**Einmalig von 1.1.x oder aelter (oder wenn ein Update nicht laeuft):**
+
+1. Study Runner beenden.
+2. Aus dem neuesten Release `study-runner-source.zip` (Windows) bzw.
+   `study-runner-source.tar.gz` (Mac) laden -- nicht GitHubs automatisches
+   "Source code"-Archiv, das kann sich spaeter nicht selbst aktualisieren.
+3. In einen neuen Ordner entpacken (unter Windows am besten ein kurzer Pfad).
+4. `software/study_content` und `software/saved_results` aus dem alten Ordner in
+   den neuen kopieren und die dortigen Ordner ersetzen. Optional auch
+   `software/runtime` (Plugin-Logs, Emotionsmodell) und selbst hinzugefuegte
+   Plugins oder Schriften.
+5. `.venv` und `.tools` nicht kopieren -- sie zeigen auf den alten Ordner.
+6. `bash tools/install-macos.sh` bzw. `.\tools\install-windows.cmd` ausfuehren
+   (braucht Internet, einige Minuten) und starten. Auf dem Mac die
+   Desktop-Verknuepfung im Dashboard neu anlegen.
+7. Den alten Ordner erst loeschen, wenn Studien und Ergebnisse im neuen Ordner
+   geprueft sind.
+
+`git pull` funktioniert in einem entpackten Archiv nicht. Git-Installationen:
+`git pull --ff-only`, dann das Installationsskript. Danach aktualisiert sich der
+neue Ordner selbst.
 
 **Studienordner:** Ab 1.2.0 sind die Dateien in `software/study_content/studies`
 Zip-Pakete mit ihren Bildern (Endung weiterhin `.study-runner`). Alte

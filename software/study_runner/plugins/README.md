@@ -21,6 +21,24 @@ manifest, duplicate plugin key, duplicate stream source ID, or incompatible
 handler is reported as `invalid` by `GET /api/plugins/catalog`; it does not
 stop other plugins or the server from loading.
 
+## Plugins in this folder
+
+| Folder | `plugin_key` | What it does |
+| --- | --- | --- |
+| `sensors/am_hub/` | `am_hub` | Parasite AM Hub: presence, position, movement, heart/breathing rate, valves, link quality and latency |
+| `sensors/brainbit/` | `brainbit` | BrainBit EEG through the NeuroSDK CLI |
+| `sensors/brainbit_old/` | `brainbit_old` | The earlier BrainBit implementation, kept as a fallback |
+| `sensors/camera_emotion/` | `camera_emotion` | Tablet camera plus local or remote emotion worker |
+| `sensors/mr60_mini_radar/` | `mini_radar` | MR60 radar vitals over ESP32-C6 BLE (or serial) |
+| `destinations/notion_upload/` | `notion` | Session summaries and tables in Notion |
+| `destinations/nextcloud_upload/` | `nextcloud` | Upload of finished session folders to Nextcloud |
+| `outputs/osc_touchdesigner/` | `osc` | Live trial markers and signals over OSC |
+| `cards/<type>/` (13 folders) | card type | Study cards: choice, finish, info, likert, mood_meter, multi_slider, participant_id, ranking, semantic, slider, stimulus, text, word_cloud |
+
+Sensor, destination and output plugins each have a `README.md` in their
+folder; card plugins are described by their manifest and
+`docs/developer-guide.md`.
+
 ## Manifest contract
 
 Every current manifest uses `api_version: 5` and declares identity, plugin version,
@@ -106,5 +124,7 @@ reported as invalid; an intentional internal helper or compatibility shim must
 carry an explicit `.pluginignore` marker and is never imported by discovery.
 
 `camera_emotion/` is the single camera plugin and owns its internal
-`worker/`. The old `tablet_camera_emotion` and `local_emotion_worker` package
-names are one-release import/CLI shims only; neither is a catalog source.
+`worker/`. The old `tablet_camera_emotion` and `local_emotion_worker` packages
+no longer exist; only the emotion worker's model cache from a v2 install
+(`runtime/local_emotion_worker/`) is still reused so offline PCs keep their
+models.

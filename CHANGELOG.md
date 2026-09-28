@@ -5,6 +5,53 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Changed
+
+- AM Hub values are recorded in the declared units: the bio board's distance
+  (cm) and the radar's target speed (cm/s) are converted to mm and mm/s.
+- AM Hub records the firmware's "0 = no value" as missing (NaN): heart and
+  breathing rate or distance of 0, empty target slots, and the nearest target
+  while no target is tracked. "Lost" counts only packets lost in the current
+  session. The dashboard details show per-board link, rate, latency and losses.
+- Plugin logs and state (BrainBit, emotion worker) are written next to the
+  results (`runtime/<plugin>/`), no longer inside the program files that an
+  update replaces. Settings that still point into the program files are
+  redirected.
+- Without an emotion worker the camera plugin reports "unknown" with an
+  error; it no longer echoes the browser's emotion as a reading.
+
+### Fixed
+
+- Updates of release-archive installs work on Windows without the "long
+  paths" policy (for example in a Documents folder), start the old version
+  again when a file is locked during the swap, and never leave the Update
+  panel stuck ("interrupted" downloads, stale "Restart now"). On macOS the
+  restart keeps port, HTTPS and data-folder settings. Ctrl+C in the terminal
+  updater also restores the old version.
+- MR60 writes missing values as NaN instead of 0, and a restart can no longer
+  leave two readers on one port.
+- The release script no longer prints "fatal: Needed a single revision".
+
+### Removed
+
+- The fixed-key camera/emotion-worker compatibility routes
+  (`/api/admin/camera/*`, `/api/admin/emotion-worker/*`,
+  `/api/study/camera-monitor/start`); use the generic plugin routes.
+- The undeclared OpenCV analysis modes of the camera plugin.
+
+### Release
+
+- Every release now updates an installed copy to a synthetic next version on
+  Windows (long paths off) and both Mac architectures before it is published.
+
+### Not announced earlier
+
+- 1.3.1 already contained AM Hub API v2 (complete board data, valves, link
+  quality and latency per board) and renamed the backup output
+  `distance_m` to **`distance_mm`** (the value was always in mm).
+- 1.1.0 already contained the AM Hub plugin and the BrainBit rebuild with the
+  earlier implementation kept as the fallback plugin `brainbit_old`.
+
 ## 1.3.1 - 2026-09-24
 
 ### Added

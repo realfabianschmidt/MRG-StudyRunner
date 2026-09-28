@@ -8,7 +8,7 @@ study's stimulus timing. It carries no sensor data of its own
 
 ## Architecture
 
-Study Runner plugins are API v4: the core process supervises this plugin as
+Study Runner plugins are API v5: the core process supervises this plugin as
 a subprocess and never imports its Python modules directly (see
 `docs/file-guide.md`). This folder follows that same shape:
 

@@ -64,12 +64,13 @@ is no browser upload, dependency installer, marketplace, or third-party plugin
 execution path.
 
 ```text
-integrations/<plugin-key>/
+software/study_runner/plugins/<category>/<folder>/
   manifest.json
+  driver.py               # the only process entry point
   plugin.py
   adapter.py              # optional
   worker/                 # optional plugin-internal process
-  assets/                 # optional
+  ui/                     # optional dashboard/card assets
 ```
 
 `manifest.json` is validated before `plugin.py` is imported. Invalid plugins,
@@ -380,8 +381,9 @@ readable (fixture-pinned in `tests/test_legacy_flat_result_compat.py`) but are
 not part of the canonical session browser, and nothing writes that shape anymore.
 The `answers`/`meta` split (2026-09) is not similarly back-compatible: sessions
 recorded before it keep their old flat shape on disk but are not read by the
-current session browser -- see `test_real_0_7_0_session_compat.py`'s skip
-reason for why that guarantee was deliberately not carried forward.
+current session browser; that guarantee was deliberately not carried forward.
+The shipped 0.7.0 demo session was moved into the new layout once and stays
+readable (`test_real_0_7_0_session_compat.py`).
 
 ## Timer And Event Journal
 

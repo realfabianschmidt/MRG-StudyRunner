@@ -2,7 +2,7 @@
 
 Python tests for the whole backend (`software/study_runner/`), one file per
 behaviour area — roughly mirroring the module they test, not a strict 1:1
-mapping. 99 files, run with `python -m unittest discover software/tests` (or
+mapping. 115 files, run with `python -m unittest discover software/tests` (or
 `pytest software`).
 
 Three subfolders:
@@ -33,11 +33,16 @@ Grouped by the area each test exercises, matching the application folders.
 `test_app_server.py`, `test_finalization_routes.py`, `test_recovery_routes.py`,
 `test_results_routes.py`, `test_runtime_routes.py`, `test_sessions_routes.py`,
 `test_study_credentials_routes.py`, `test_study_session_routes.py`,
-`test_trial_timing_routes.py`, `test_update_routes.py`, `test_web_ui.py`
+`test_trial_timing_routes.py`, `test_update_routes.py`,
+`test_study_run_abort_route.py`, `test_web_ui.py`
 (CDN-free, `/static/`-only, i18n conventions), `test_self_check.py` (the
 packaging boot smoke test).
 
-**Frontend** (`apps/ui/`) — the JavaScript tests and Python wrappers, plus
+**Frontend** (`apps/ui/`) — the JavaScript tests and Python wrappers
+(`test_plugin_catalog_js.py`, `test_study_settings_js.py`,
+`test_finalization_view_model_js.py`, `test_reliable_event_queue_js.py`,
+`test_card_session_isolation.py`: no card value reaches the next participant),
+`test_fonts.py`, `test_toast_readability.py`, plus
 `test_study_settings_contract.py` (the browser and the server must agree on
 what a study's settings object looks like).
 
@@ -51,7 +56,8 @@ what a study's settings object looks like).
 native-core run, only when `STUDY_RUNNER_XDF_CORE_TEST` is set),
 `test_clock_sync_service.py`, `test_sensor_coordinator_service.py`,
 `test_sensor_flush_service.py`, `test_quality_journal.py`,
-`test_stream_contract.py`, `test_study_sensor_runtime.py`.
+`test_stream_contract.py`, `test_study_sensor_runtime.py`,
+`test_live_sensor_readiness.py`, `test_recording_quality_empty_streams.py`.
 
 **Plugin framework & cards** (`plugin_framework/`, `contracts/`)
 `test_plugin_catalog.py`, `test_plugin_registry.py`,
@@ -59,7 +65,8 @@ native-core run, only when `STUDY_RUNNER_XDF_CORE_TEST` is set),
 USB stick: pull it out and the software still runs"), `test_plugin_credentials_capability.py`,
 `test_plugin_readiness_requirements_capability.py`, `test_no_core_module_names_a_plugin.py`,
 `test_fixture_plugin_blueprint.py`, `test_adapter_utils.py`,
-`test_history_buffer.py`, `test_card_registry_contract.py`,
+`test_history_buffer.py`, `test_plugin_runtime_dirs.py` (plugin logs and state
+stay out of the program files), `test_card_registry_contract.py`,
 `test_card_extension_faults.py`, `test_card_type_fixtures.py`,
 `test_study_secrets_service.py` (covers both `settings/secrets_service.py`
 and `plugin_framework/plugin_secrets.py` together, since the one story —
@@ -75,7 +82,8 @@ per-study credentials — spans both), `test_plugin_sdk.py`
 `test_card_summary_service.py`, `test_results_service.py`,
 `test_recovery_service.py`, `test_legacy_flat_result_compat.py`,
 `test_real_0_7_0_session_compat.py` (a genuine, unmodified real session, see
-below).
+below), `test_study_package.py`, `test_shipped_study_content.py`,
+`test_operator_notices.py`, `test_csv_export_service.py`.
 
 **Settings** (`runtime_core/settings/`)
 `test_hardware_settings_service.py`, `test_runtime_config.py`,
@@ -93,9 +101,13 @@ below).
 
 **Specific built-in plugins** — sensor, destination, and manager tests
 `test_brainbit_adapter.py`, `test_brainbit_contract.py`,
-`test_brainbit_launch.py`, `test_camera_emotion_worker.py`,
-`test_mr60_mini_radar.py`, `test_notion_client_cache.py`,
-`test_notion_upload.py`, `test_nextcloud_webdav_client.py`,
+`test_brainbit_launch.py`, `test_brainbit_monitor.py`,
+`test_brainbit_reconnect.py`, `test_brainbit_streaming.py` (native core only
+when `STUDY_RUNNER_XDF_CORE_TEST` is set), `test_brainbit_browser.py` (only
+with `STUDY_RUNNER_BROWSER_TEST`), `test_am_hub_adapter.py`,
+`test_camera_emotion_worker.py`, `test_mr60_mini_radar.py`,
+`test_notion_client_cache.py`, `test_notion_upload.py`,
+`test_notion_error_classification.py`, `test_nextcloud_webdav_client.py`,
 `test_study_runner_manager.py` (the historical packaged-build manager tool).
 
 **Architecture & meta** — tests that check the shape of the codebase itself,

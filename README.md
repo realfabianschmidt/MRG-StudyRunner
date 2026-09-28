@@ -158,8 +158,9 @@ local studies, settings, and results are secured; follow
 
 Since 1.2.0 Study Runner updates itself: **Update now** in the admin Update
 panel, or `bash tools/update-macos.sh` / `.\tools\update-windows.cmd` while it
-is stopped. Studies, results and settings are kept. Coming from 1.1.x, replace
-the archive once by hand as described in
+is stopped. Studies, results and settings are kept. Coming from 1.1.x or older
+(or when an update on Windows stops at "Verifying"), move to a new folder once
+by hand as described in
 [Release and Update](docs/release-and-update.md#updating-an-installation).
 
 Developers and operators who want `git pull` updates can use the
@@ -360,7 +361,8 @@ STUDY_RUNNER_DATA_DIR=/path/to/writable/app-data
 ## GitHub Source Releases
 
 The active release workflow publishes auditable source archives, not a desktop
-app, Manager, PyInstaller server, or automatic updater:
+app, Manager or PyInstaller server. Installed archives update themselves from
+these releases (see [Release and Update](docs/release-and-update.md#updating-an-installation)):
 
 ```text
 https://github.com/realfabianschmidt/MRG-StudyRunner/releases/latest
@@ -374,9 +376,10 @@ or certificates; the tested XDF cores are separate
 `study-runner-xdf-core-<platform>.zip` assets that the installers download and
 verify automatically.
 
-Signing and notarization are unnecessary for this source-server workflow. Old
-PyInstaller/Manager/updater code is retained only as legacy or possible future
-work and is not published by the current release workflow.
+Signing and notarization are unnecessary for this source-server workflow. The
+old PyInstaller/Manager code and its signed-updater path are retained only as
+legacy or possible future work and are not published by the current release
+workflow.
 
 ## Plugin API v5
 
@@ -390,7 +393,10 @@ study unless explicitly unlocked with a recorded reason.
 
 Current built-in plugins:
 
-- **BrainBit** EEG through the repo-local NeuroSDK CLI.
+- **BrainBit** EEG through the repo-local NeuroSDK CLI (`brainbit`), with the
+  earlier implementation kept as the fallback plugin `brainbit_old`.
+- **AM Hub** (`am_hub`): presence, position, movement, heart and breathing
+  rate, valve state and per-board link quality/latency from the Parasite AM Hub.
 - **MR60 mini-radar** through ESP32-C6 BLE firmware in
   `software/study_runner/plugins/sensors/mr60_mini_radar/firmware/`.
 - **Camera and emotion** through the single `camera_emotion` plugin, using
@@ -401,10 +407,10 @@ Current built-in plugins:
 - Per-plugin LSL acquisition and the detached Python recording worker for
   synchronized native and merged XDF data.
 
-Each plugin folder has its own `README.md` with its architecture and, where
+Each sensor, destination and output plugin folder has its own `README.md` with its architecture and, where
 applicable, exactly which parts of its code come from a third-party SDK
 versus project-original code — see
-`software/study_runner/plugins/README.md` for the full list.
+`software/study_runner/plugins/README.md` for the full list of plugins.
 
 On Windows x64 and macOS Apple Silicon, the source installer installs DeepFace,
 TensorFlow/tf-keras, OpenCV and the local Emotion Worker from
@@ -482,8 +488,9 @@ The release helper:
 
 Normal commits and pushes do not create public releases. Only tags named
 `app-vX.Y.Z` publish the source archives, and publication happens only after all
-platform recording gates pass. Source installations update explicitly with
-`git pull --ff-only` followed by the platform install script.
+platform recording gates pass. Installations update themselves from the
+published release (Update panel or `tools/update-*`); a git clone does that
+with `git pull --ff-only` followed by the platform install script.
 
 ## Manual Checks
 
@@ -509,6 +516,7 @@ git diff --check
 | [developer-guide.md](docs/developer-guide.md) | Developers | You are adding a plugin or card, or need the code layout and naming rules. |
 | [file-guide.md](docs/file-guide.md) | Anyone touching a source file | You want to know what one file does and how safely it can be edited. A test keeps it complete. |
 | [release-and-update.md](docs/release-and-update.md) | Whoever cuts releases | You are tagging a release, or updating an existing installation. |
+| [20260915_brainbit.md](docs/20260915_brainbit.md) | Whoever works on BrainBit | You need the BrainBit rebuild record and the open hardware acceptance steps. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Everyone changing code | Before your first change. Project rules for keeping it readable. |
 
 Each plugin documents itself next to its code; start at

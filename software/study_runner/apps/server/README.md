@@ -40,12 +40,12 @@ Two things at the top level, then one folder:
 | `study.py` | Everything the participant tablet does during a study: load/save the active study, start/stop/resume a session, start/stop a trial (a stimulus), send timing markers, heartbeat, and clock sync. This is the tablet's entire vocabulary. | tablet |
 | `results.py` | Saving a participant's finished answers. The most protected file in the server: if saving fails for *any* reason, a raw backup copy is written to disk first, so an answer is never silently lost. Also stores incremental "partial" snapshots after every question in case the tablet dies mid-study. | tablet |
 | `admin.py` | Operator actions: health check, restart the server, list/load/delete saved studies, start/stop a study run, manage a study's own credentials (API keys), check whether the study is actually ready to run. | operator |
-| `sensors.py` | Hardware settings and generic on/off/settings control for any plugin (sensor, camera, ...), plus deprecated fixed sensor/camera URLs that forward to plugin handlers or return 410 when the plugin is absent. | operator + tablet |
+| `sensors.py` | Hardware settings and generic on/off/settings control for any plugin (sensor, camera, ...). It names no plugin; plugin-specific actions go through `plugins.py`. | operator + tablet |
 | `update.py` | The four "Check for update / download / install / status" actions behind the admin dashboard's Update panel. | operator |
-| `notion.py` | Old Notion-only URLs, kept only for clients built before the generic plugin system existed. Nothing current uses these. | (legacy only) |
 | `plugins.py` | The one doorway every plugin (sensor, question card, upload destination) uses: its catalog listing, admin actions, participant actions, receiving participant data, and a live debug console for developers. | operator + tablet + plugins |
 | `sessions.py` | Browsing already-finished sessions: the list, one session's detail view, its sensor signal graphs, and withdrawing (permanently deleting) a session's data. | operator |
 | `certificate.py` | HTTPS certificate status, and moving the local "root of trust" certificate to another computer so a new laptop can be trusted by the same tablet. | operator |
+| `study_assets.py` | Uploading and serving study images, and exporting/importing `.study-runner` study packages. | operator + tablet |
 | `branding.py` | Uploading and serving the small logo images shown on the participant waiting screen. | operator + tablet |
 | `uploads.py` | Status and manual retry for background uploads (e.g. to Notion), and "open this session's folder" for the operator. | operator |
 | `recovery.py` | Rescuing a session that was interrupted by a crash: list what can be recovered, finish saving it properly, or discard it. | operator |

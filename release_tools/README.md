@@ -1,9 +1,11 @@
 # Release Tools
 
 Study Runner releases are source-server releases. They retain the normal Python
-workflow and build the small native XDF core once on the installation machine.
-The GitHub release does not contain a prebuilt core, PyInstaller application,
-signed updater manifest, Apple signature, or notarization ticket.
+workflow; the small native XDF core is built and tested once per platform in CI
+and published as `study-runner-xdf-core-<platform>.zip`, which the installers
+download, verify and test locally -- no compiler on the installation machine.
+The GitHub release does not contain a PyInstaller application, signed updater
+manifest, Apple signature, or notarization ticket.
 
 ## Create a release
 

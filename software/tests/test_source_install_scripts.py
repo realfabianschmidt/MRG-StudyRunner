@@ -294,7 +294,7 @@ class SourceInstallScriptTests(unittest.TestCase):
         self.assertNotRegex(german, r"(?m)^\s*(?:mas|xcodes)\s+install\b")
         # Archive users cannot git pull; maintainer commands belong to the release section.
         update = german[german.index("## Update am Nutzer-Rechner") :]
-        self.assertIn("git pull` funktioniert in einem\nentpackten Archiv nicht", update)
+        self.assertIn("git pull` funktioniert in einem entpackten Archiv nicht", " ".join(update.split()))
         self.assertNotIn("release.ps1", update[: update.index("## Release-Zugang")])
 
     def test_macos_intel_keeps_local_tensorflow_out_of_the_base_install(self) -> None:

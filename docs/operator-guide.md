@@ -12,8 +12,9 @@ installation, start it with `tools/start-windows.cmd` or
 - `software/study_runner/runtime_core/`: study, settings, and delivery services.
 - `software/study_runner/data_core/host/`: recording orchestration and validation.
 - `software/study_runner/plugins/`: manifest-driven (API v5) plugins —
-  BrainBit, MR60 mini-radar, camera/emotion, Notion, Nextcloud, and
-  OSC/TouchDesigner.
+  AM Hub, BrainBit (plus the fallback BrainBit old), MR60 mini-radar,
+  camera/emotion, Notion, Nextcloud, OSC/TouchDesigner, and the study cards
+  (full list in `software/study_runner/plugins/README.md`).
 - `software/study_runner/data_core/worker/`: detached Python recording worker.
 - `software/recording_worker/native/`: small native XDF-core source.
 - `software/study_runner/apps/ui/`: browser pages, styles, scripts, cards, and
@@ -64,8 +65,9 @@ environment.
    stimulus.
 8. On Submit, the participant submission is committed locally. Only then does
    the completion page appear.
-9. The Admin finalization widget shows freeze, source validation, merge, merge
-   parity, card statistics, manifest, Notion, Nextcloud, and guarded purge.
+9. The session detail's progress rail shows freeze, source validation, merge,
+   merge parity, card statistics, manifest, Notion, Nextcloud, and guarded
+   purge, with retries; a notice appears when something needs attention.
 10. A valid run ends with `COMPLETE.json`; a quality problem uses
     `ATTENTION_REQUIRED.json`.
 
@@ -171,8 +173,9 @@ recovery/QC artifact, not a substitute for native raw streams.
 - Change a study in Admin or edit `study_config.json`.
 - Change plugin machine settings through the manifest-generated settings UI or
   `hardware_settings.json`.
-- Add a card type below `web/scripts/cards/` and register the type in the card
-  index.
+- Add a card type as a plugin folder below
+  `software/study_runner/plugins/cards/<type>/` (manifest plus renderer);
+  discovery picks it up, there is no card index to edit.
 - Add a plugin package with `manifest.json` and `plugin.py`; no central sensor
   import list is needed.
 - Install or repair the complete source environment with the platform script in

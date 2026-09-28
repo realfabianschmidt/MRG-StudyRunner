@@ -91,7 +91,7 @@ manifest source ID `study_runner.brainbit.eeg` in the resulting XDF.
 `diagnose_backends.py` runs a bounded raw-signal check and writes comparable
 reports. The same band cannot be owned by both backends simultaneously, so run
 them one after another and close Study Runner and the manufacturer application
-first. See `README.md` for exact commands. BrainFlow is diagnostic-only and is
+first. Run `python diagnose_backends.py --help` for its options. BrainFlow is diagnostic-only and is
 never selected silently as a production fallback.
 
 The plugin-owned monitor adds connection identifiers, snapshot diagnostics and

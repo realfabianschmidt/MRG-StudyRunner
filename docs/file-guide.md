@@ -57,9 +57,8 @@ Edit-safety legend:
 | `routes/study.py` | Everything the tablet calls: config, sessions, triggers, heartbeat, clock sync | careful |
 | `routes/results.py` | Saving results - crash-safe, with recovery files and partial snapshots | no |
 | `routes/admin.py` | Operator endpoints: health, studies list/activate/delete, status, restart | careful |
-| `routes/sensors.py` | Hardware config, sensor start/stop/restart, camera frames, worker repair | careful |
+| `routes/sensors.py` | Hardware config and generic plugin start/stop/restart (no plugin is named here) | careful |
 | `routes/update.py` | In-app updater endpoints (check/download/install) | no |
-| `routes/notion.py` | Notion status and offline-queue flush | careful |
 | `routes/sessions.py` | Read-only completed-session list, detail, and timeline-signal APIs | careful |
 | `routes/certificate.py` | Certificate status plus guarded root-CA export/import endpoints | no |
 | `routes/branding.py` | Uploads, removes, and serves the operator's group and funder logos | no |
@@ -197,7 +196,7 @@ it deliberately contains no HTTP, LSL, plugin, or study logic.
 | File | Purpose | Edit? |
 |---|---|---|
 | `software/study_runner/updates/signatures.py` | THE shared signed-update wire format + Ed25519 verification | no |
-| `software/study_runner/updates/trusted_keys.py` | Trusted public keys (filled in by CI at release build) | no |
+| `software/study_runner/updates/trusted_keys.py` | Trusted public keys for the dormant packaged-build updater; the source release uses none | no |
 | `software/study_runner/updates/installer.py` | Applies a staged update on restart (`--apply-update`) | no |
 | `software/study_runner/updates/archive_update.py` | Release-archive updates: safe extract, checksum, program-file swap that keeps studies/results/settings, rollback | no |
 
@@ -212,7 +211,7 @@ browser module a manifest declares under `ui.extensions`.
 | File | Purpose | Edit? |
 |---|---|---|
 | `plugin_secrets.py` | Per-study credential storage and env/study/machine/legacy resolution used by the host and each plugin subprocess | careful |
-| `adapter_utils.py` | Shared timestamps, locked state updates, and config-section lookup | careful |
+| `adapter_utils.py` | Shared timestamps, locked state updates, config-section lookup, and `plugin_runtime_dir`/`runtime_path_setting` (plugin logs and state live next to the results, never in the program files) | careful |
 | `registry.py` | The façade almost everything else calls: manifest-driven plugin lookup, generic actions, interval summaries, sidecar exports | careful |
 | `plugin_catalog.py` | Discovers trusted plugin folders and validates API-v5 manifests before dispatch | no |
 | `plugin_layout.py` | Defines trusted plugin category roots shared by discovery, drivers, UI assets, and self-check | no |
@@ -230,12 +229,14 @@ guide listed it in this section by mistake.)
 ## Plugins (`software/study_runner/plugins/`)
 
 The folder name, public plugin key, and hardware-config key are deliberately
-not assumed to be identical. `test_plugin_registry.py` freezes this compatibility
-mapping:
+not assumed to be identical (the manifest's `plugin_key` and `config_key`
+decide; tests derive the mapping from the manifests):
 
 | Folder | Plugin key | Config key |
 |---|---|---|
+| `am_hub` | `am_hub` | `am_hub` |
 | `brainbit` | `brainbit` | `brainbit` |
+| `brainbit_old` | `brainbit_old` | `brainbit_old` |
 | `mr60_mini_radar` | `mini_radar` | `mini_radar` |
 | `camera_emotion` | `camera_emotion` | `camera_emotion` |
 | `osc_touchdesigner` | `osc` | `osc` |
@@ -261,9 +262,12 @@ recording code now, not plugins: `data_core/host/markers.py` and
 | `mr60_mini_radar/plugin.py` | Plugin wrapper for the radar | careful |
 | `mr60_mini_radar/driver.py` | API-v5 process entry point (`run_plugin_driver("mini_radar")`) | no |
 | `mr60_mini_radar/tools/ble_mr60_receiver.py` | Standalone BLE test receiver for debugging | yes |
-| `am_hub/adapter.py` | Parasite AM Hub SSE client: presence/position/movement (vitals once the hub forwards them) | careful |
+| `am_hub/adapter.py` | Parasite AM Hub SSE client (API v2, v1 fallback): presence, position, movement, vitals, valves, per-board link quality and latency; converts firmware units and 0-for-no-value | careful |
 | `am_hub/plugin.py` | Plugin wrapper for the AM Hub adapter | careful |
 | `am_hub/driver.py` | API-v5 process entry point (`run_plugin_driver("am_hub")`) | no |
+| `brainbit_old/adapter.py` + `plugin.py` | The earlier BrainBit implementation, kept as a selectable fallback plugin | careful |
+| `brainbit_old/brainbit_realtime_cli.py` | The earlier BrainBit CLI the fallback plugin runs | careful |
+| `brainbit_old/driver.py` | API-v5 process entry point (`run_plugin_driver("brainbit_old")`) | no |
 | `camera_emotion/adapter.py` | Accepts tablet camera frames and publishes stable LSL streams | careful |
 | `camera_emotion/plugin.py` | Single public camera/emotion plugin and generic admin actions | careful |
 | `camera_emotion/driver.py` | API-v5 process entry point (`run_plugin_driver("camera_emotion")`) | no |
@@ -288,7 +292,7 @@ mandatory bookends of every study, so a catalog with neither cannot author a
 *playable* study (see `tests/test_plugin_removability.py`'s module docstring
 for why that is accepted, not a regression).
 
-Twelve folders, one per card (`choice` alone answers both `choice` and
+Thirteen folders, one per card (`choice` alone answers both `choice` and
 `single`); each one is the same four files:
 
 | File | Purpose | Edit? |
@@ -298,10 +302,9 @@ Twelve folders, one per card (`choice` alone answers both `choice` and
 | `<card>/plugin.py` | Implements the executable card contract: `get_card_defaults`/`normalize_card_config`/`validate_card_answer`; imports only `contracts`, never `runtime_core` | careful |
 | `<card>/card.js` | Renderer/editor module: `metaByType`, `configureCard`, `renderStudy`, `renderEditor`, `collectConfig`, `collectAnswer`, and the optional `isAnswered`/`bindInteractions` hooks; loaded on demand by `apps/ui/scripts/cards/index.js` | careful |
 
-Folders: `choice`, `finish`, `likert`, `mood_meter`, `multi_slider`,
+Folders: `choice`, `finish`, `info`, `likert`, `mood_meter`, `multi_slider`,
 `participant_id`, `ranking`, `semantic`, `slider`, `stimulus`, `text`,
-`word_cloud` (`test_plugin_registry.py`'s `EXPECTED_CARD_PLUGIN_KEYS` freezes
-this list; folder, plugin key, and config key are the same string for every
+`word_cloud` (folder, plugin key, and config key are the same string for every
 one, unlike the plugin table above).
 
 ## Frontend (`software/study_runner/apps/ui/scripts/`)
@@ -317,7 +320,7 @@ one, unlike the plugin table above).
 | `settings/study/study-settings-panel.js` | Per-study settings shell (editor only): sensors, participant, data destinations, export. Destination plugin settings (Notion, Nextcloud, ...) are generated here from the catalog, not from a per-destination file | careful |
 | `admin/session-timeline.js` | Renders completed-session sensor lanes and answer markers as offline SVG | careful |
 | `admin/sessions-browser.js` | Completed-session hub list, detail panel, and timeline data fetching | careful |
-| `admin/upload-monitor.js` | Background-upload completion modal and the corner progress widget it shrinks to | careful |
+| `admin/upload-monitor.js` | Corner progress widget for background finalization/uploads; a click opens the session's progress rail | careful |
 | `admin/operator-notices.js` | Shows operator notices as a toast and keeps them in a stack until clicked | careful |
 | `admin/session-progress-rail.js` | Session detail progress rail: started, ended, every finalization step left to right, with retry and degraded confirmation | careful |
 | `admin/finalization-actions.js` | Retry, degraded confirmation and open-folder for a finalization job, shared by the live notice and the session detail's "Completion & uploads" card | no |
@@ -345,17 +348,19 @@ one, unlike the plugin table above).
 | `shared/i18n.js` | Translation loading and the `t()` helper | careful |
 | `plugins/sensors/camera_emotion/ui/participant.js` | Camera/emotion participant lifecycle extension for preview, stimuli, submit, and heartbeat status | careful |
 | `plugins/sensors/camera_emotion/ui/camera-capture.js` | Plugin-owned tablet camera capture and frame upload adapter | careful |
+| `plugins/sensors/am_hub/ui/dashboard.js` | AM Hub dashboard: movement/breathing/heart-rate tiles, 60 s trend graphs, per-board link details | careful |
+| `plugins/sensors/brainbit_old/ui/dashboard.js` | Dashboard renderer of the fallback BrainBit plugin | careful |
 | `plugins/sensors/brainbit/ui/dashboard.js` | Optional BrainBit rich-status renderer loaded through the manifest extension hook | careful |
 | `plugins/sensors/mr60_mini_radar/ui/dashboard.js` | Optional MR60 rich-status renderer loaded through the manifest extension hook | careful |
 | `plugins/sensors/camera_emotion/ui/dashboard.js` | Optional camera/emotion rich-status renderer loaded through the manifest extension hook | careful |
 | `participant/study-client-heartbeat.js` | Keeps the tablet visible on the dashboard | careful |
 | `shared/qr-code.js` | QR code rendering for the access card | no |
-| `cards/index.js` | Package 5g.B5: `loadCards()` fetches each installed card's `card.js` (`/api/plugins/<key>/assets/card.js`) and Python-authoritative defaults (`/api/plugins/<key>/card-defaults`) instead of a static import list; the 12 card modules themselves now live in `plugins/cards/<name>/card.js` | careful |
+| `cards/index.js` | Package 5g.B5: `loadCards()` fetches each installed card's `card.js` (`/api/plugins/<key>/assets/card.js`) and Python-authoritative defaults (`/api/plugins/<key>/card-defaults`) instead of a static import list; the 13 card modules themselves now live in `plugins/cards/<name>/card.js` | careful |
 | `cards/card-info.js` | The shared editor frame every card composes into: question text, instruction, note, toggle group | careful |
 | `cards/session-state.js` | `cardState()` / `onSessionReset()`: the only place a card keeps non-DOM state; cleared at every session boundary | careful |
 
 Locales (`apps/ui/locales/en.json`, `de.json`) hold every UI string; both
-files must have identical keys (a test checks this). `web/vendor/`
+files must have identical keys (a test checks this). `apps/ui/vendor/`
 holds offline copies of third-party assets (icons).
 
 ## Release tooling (`release_tools/`, repo root)
@@ -363,6 +368,7 @@ holds offline copies of third-party assets (icons).
 | File | Purpose | Edit? |
 |---|---|---|
 | `release_tools/build_source_release.py` | Builds and verifies the source-release archives, checksums, metadata, and release notes | careful |
+| `release_tools/update_acceptance.py` | Release gate: the installed release updates itself to a synthetic next version from a local server (Windows with long paths off) and checks that user data stayed | careful |
 | `release_tools/tests/test_build_source_release.py` | Regression tests for safe source archives, metadata, release notes, and workflow contracts | yes |
 | `release_tools/build_python_onedir.py` | Legacy/future non-recording experiment: runs PyInstaller; not used by the active release | careful |
 | `release_tools/package_python_onedir.py` | Legacy/future non-recording experiment: packages PyInstaller output; not used by the active release | careful |

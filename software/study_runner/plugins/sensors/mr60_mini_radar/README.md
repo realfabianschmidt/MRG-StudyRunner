@@ -25,7 +25,7 @@ Default BLE identity:
 - Notify rate: 10 Hz
 - Payload size: 20 bytes, little-endian
 
-## Architecture (API v4)
+## Architecture (API v5)
 
 Like every Study Runner plugin, the core process never imports this folder's
 Python modules directly — it only ever starts `driver.py` as a subprocess
@@ -134,11 +134,9 @@ packet that decodes here should also decode in Study Runner.
 MR60 declares its canonical LSL streams, primary vitals stream, and backup
 projection in `manifest.json`. BLE itself does not transport LSL; the local
 adapter publishes decoded packets through the mandatory host bridge. Before
-the first source recording on a computer, run:
-
-```text
-python tools/setup_recording_worker.py
-```
+the first source recording on a computer, the platform installer
+(`tools/install-windows.cmd` or `tools/install-macos.sh`) has already
+installed and tested the recording core; run it again to repair it.
 
 Radar LSL output is continuous while the BLE reader and outlets are running. It
 is not gated by stimulus activity. The stimulus flag
@@ -149,7 +147,7 @@ manifest source IDs; XDF is internal infrastructure, not a plugin toggle.
 
 If LSL streams are missing:
 
-- Install dependencies with `pip install -r software/requirements.txt`.
+- Run the platform installer again; it installs `bleak` and `pylsl`.
 - Check that `bleak` and `pylsl` import in the same Python environment.
 - Check Recording infrastructure readiness in the dashboard.
 - Confirm dashboard status is `connected`.
@@ -157,9 +155,9 @@ If LSL streams are missing:
 
 ## Result Sidecars
 
-The radar adapter keeps recent samples in memory and exports interval samples
-when Study Runner saves results. The sidecar is written next to the participant
-result JSON and has a name ending in:
+Radar data is recorded to XDF. The adapter also keeps recent samples in memory
+for interval summaries; a JSON sidecar is written only when crash recovery
+saves a session in the old flat layout. Its name ends in:
 
 ```text
 mr60_signals.json
@@ -168,6 +166,10 @@ mr60_signals.json
 It includes sample count, timestamps, decoded radar values, sequence/drop
 information, jitter, and `card_events` so question and stimulus intervals can be
 reconstructed.
+
+Missing values (no reading from the sensor) are written to LSL/XDF as NaN,
+never as 0. `start()` clears the in-memory samples, and a restart can never
+leave two readers on one port (generation counter, as in `am_hub`).
 
 ## Common Problems
 

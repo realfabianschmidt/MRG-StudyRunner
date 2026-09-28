@@ -6,8 +6,9 @@ Silicon, plus one tested XDF recording core per platform. Recording computers
 download that core during first install, verify it, and test it again locally;
 they never compile anything.
 
-This release path does not publish an application bundle, installer, Manager,
-PyInstaller server, or automatic updater feed. It needs no Apple signing,
+This release path does not publish an application bundle, installer, Manager
+or PyInstaller server; installs update themselves from the published release
+(see Updating An Installation). It needs no Apple signing,
 notarization, updater key, or private release secret. GitHub's built-in token is
 used only to attach validated files to the tagged GitHub Release.
 
@@ -103,14 +104,44 @@ Then the server:
 3. exits. A helper waits for it, moves the old program files to
    `.tools/update-backup/<old-version>-<time>/`, moves the new ones in, adds new
    shipped study content that does not exist yet, runs the new install script
-   and starts Study Runner in a new visible window (Terminal on macOS, a
-   console on Windows). The page reloads once the new server answers.
+   and starts Study Runner in a new visible window (Terminal on macOS, with
+   the same port, HTTPS and data-folder settings; a console on Windows). The
+   page reloads once the new server answers.
 
-Never touched: `software/study_content/` (studies, settings, credentials,
-logos, fonts, certificates), `software/saved_results/`, `software/.build/`,
-`.venv/`, `.tools/` and an external `STUDY_RUNNER_DATA_DIR`. If the install
-script fails, the old program files are moved back and the old version starts
-again; the helper log is `updates/update-helper.log` in the Study Runner data folder.
+**What stays and what is replaced.** Never moved: `software/study_content/`
+(studies, settings, credentials, logos, fonts, certificates),
+`software/saved_results/` (results and session state), `software/.build/`,
+`.venv/`, `.tools/`, an external `STUDY_RUNNER_DATA_DIR`, and everything else
+the release does not contain (for example `software/runtime/` with plugin logs
+and the emotion-model cache). The install script may add packages to `.venv`
+or replace a stale core in `software/.build`; that is not undone on failure.
+Everything the release contains is replaced -- including anything you added
+inside those folders yourself (an extra plugin under
+`software/study_runner/plugins/`, a font under `apps/ui/fonts/`). Those land in
+the backup folder, not in the trash: copy them back after the update.
+
+**When something goes wrong.**
+
+- Download, checksum or unpacking fails: nothing was changed; the panel shows
+  the error. Check again.
+- A file is locked while the program files are swapped (a program with a file
+  open inside the Study Runner folder, a cloud-sync client): the old files are
+  put back and the old version starts again.
+- The install script fails: the old program files are moved back and the old
+  version starts again.
+- The server was stopped during a download: at the next start the panel shows
+  "interrupted"; check again.
+- The helper log is `updates/update-helper.log` in the Study Runner data folder
+  (by default `software/updates/`). The old version stays in
+  `.tools/update-backup/<old-version>-<time>/` -- to go back by hand, stop
+  Study Runner, move the current program folders aside, move the backup's
+  folders into the install folder, then run the install script.
+
+**Windows long paths.** From 1.3.2 on the updater works without the Windows
+"long paths" policy. Updaters up to 1.3.1 still need short paths while they
+unpack: if the panel of a 1.2.x/1.3.x install on Windows hangs at "Verifying"
+or reports an unpack error, nothing was changed -- use the one-time migration
+below once (a short folder such as `C:\StudyRunner` avoids it too).
 
 **From a terminal** (Study Runner stopped; it refuses while the port answers):
 
@@ -122,14 +153,28 @@ bash tools/update-macos.sh          # --check only reports
 .\tools\update-windows.cmd
 ```
 
-This runs the same steps without the server.
+This runs the same steps without the server; Ctrl+C during the install also
+restores the old version.
 
-**Once, from 1.1.x:** these versions cannot update an archive install yet.
-Stop Study Runner, extract the new archive into a new folder, copy
-`software/study_content` and `software/saved_results` from the old folder over
-the new ones, run the install script and start. A git clone just needs
-`git pull --ff-only` and the install script. Keep the old folder until the data
-is confirmed in the new one.
+**Once, from 1.1.x or older (or when an update cannot run):** these versions
+cannot update an archive install. Stop Study Runner, then:
+
+1. Download `study-runner-source.zip` (Windows) or `study-runner-source.tar.gz`
+   (macOS) from the latest release -- not GitHub's automatic "Source code"
+   archive, which lacks `study-runner-release.json` and cannot update itself.
+2. Extract it into a new folder (on Windows preferably a short path).
+3. Copy `software/study_content` and `software/saved_results` from the old
+   folder into the new one, replacing the shipped ones. Optionally also copy
+   `software/runtime` (plugin logs, emotion-model cache) and anything you added
+   yourself (extra plugins, fonts).
+4. Do not copy `.venv` or `.tools`: they point at the old folder.
+5. Run the install script (needs internet, a few minutes) and start Study
+   Runner. On macOS create the desktop shortcut again from the dashboard.
+6. Keep the old folder until the studies and results are confirmed in the new
+   one.
+
+A git clone just needs `git pull --ff-only` and the install script. From then
+on the new folder updates itself.
 
 The installer reuses a compatible `.venv`, refreshes dependencies, and only
 replaces a missing or stale native core.
@@ -214,5 +259,5 @@ Reviving a packaged release would need a fresh acceptance gate covering the
 verified native core, all runtime libraries, data-directory preservation and
 platform installation -- plus an Ed25519 release-signing key and, for the
 Manager on macOS, Apple signing and notarization credentials. This project
-holds none of those. The admin dashboard's Update panel, described above, is
-the one supported update path today.
+holds none of those. The admin dashboard's Update panel and the terminal
+updater, described above, are the supported update paths today.
