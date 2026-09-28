@@ -98,6 +98,23 @@ update" (its data is kept) and the study run ends. Finalizations and uploads
 continue after the restart. Studies, results and settings are never touched.
 Details: [Release and Update](release-and-update.md#updating-an-installation).
 
+## Data Folder (External Drive)
+
+Studies, results, settings, credentials, logos and the iPad certificate share
+one data folder, by default inside the program folder. **Settings > Data
+folder** puts it elsewhere, for example on an external drive:
+
+- An empty folder is set up like a clean install (with a new iPad certificate
+  that the tablets must trust once). "Bring the current data along" copies
+  everything first; the old copy stays until you delete it.
+- An existing Study Runner data folder is linked as it is. After a reinstall
+  the page offers the last used folder: one click and everything is back.
+- Study Runner restarts after every change; it refuses during a session or a
+  running study run.
+- If the drive is not connected, Study Runner does not start and names the
+  missing folder. Connect it and start again, or delete `data-folder.json` in
+  the install folder to use the program folder.
+
 ## Uploads That Fail
 
 A failed Notion or Nextcloud upload never blocks a session: the data is saved

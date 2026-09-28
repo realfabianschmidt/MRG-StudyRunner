@@ -5,6 +5,16 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Added
+
+- **Settings > Data folder:** studies, results, settings, credentials, logos
+  and the iPad certificate can live in a folder outside the program, for
+  example on an external drive. An empty folder is set up like a clean install
+  (optionally with the current data copied in), an existing data folder is
+  linked as it is, and after a reinstall the last used folder is offered for
+  relinking. A data folder that is not reachable stops the start with a clear
+  message instead of creating an empty one.
+
 ## 1.3.2 - 2026-09-28
 
 ### Changed

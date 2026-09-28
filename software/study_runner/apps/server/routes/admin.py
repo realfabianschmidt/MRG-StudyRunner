@@ -1,4 +1,6 @@
-"""Operator/admin endpoints: health, studies, status, restart, shortcut."""
+"""Operator/admin endpoints: health, studies, status, restart, shortcut, data folder."""
+import os
+from pathlib import Path
 import sys
 import threading
 
@@ -9,6 +11,7 @@ from study_runner.runtime_core.studies.live_sensor_readiness import live_sensor_
 from study_runner.runtime_core.studies.study_run_abort import StudyRunAbortError, abort_study_run
 from study_runner.runtime_core.settings.admin_status_service import build_admin_status
 from study_runner.runtime_core.settings.runtime_config import build_runtime_info
+from study_runner.runtime_core.settings import data_folder
 from study_runner.runtime_core.settings.shortcut_service import ShortcutError, create_desktop_shortcut
 from study_runner.runtime_core.studies.study_client_service import get_client_status
 from study_runner.runtime_core.settings.secrets_service import update_local_secrets
@@ -31,6 +34,7 @@ from .helpers import (
     _sensor_runtime_state,
     _session_overrides,
     _spawn_server_restart,
+    _spawn_visible_restart,
     _start_study_run,
     _stop_study_run,
     _study_run_state,
@@ -74,6 +78,107 @@ def admin_restart():
 
     threading.Thread(target=_exit_process_soon, daemon=True, name="restart-exit").start()
     return jsonify({"ok": True, "message": "Server restart requested."})
+
+
+@bp.route("/api/admin/data-folder")
+def admin_data_folder_status():
+    """Where studies, results, settings and the certificate live, and what can be linked."""
+    config = current_app.config
+    external = bool(config.get("USES_EXTERNAL_STORAGE"))
+    current = str(config["STORAGE_ROOT"]) if external else ""
+    return jsonify({
+        "ok": True,
+        "external": external,
+        "current": current,
+        "program_folder": str(config["BASE_DIR"]),
+        "data_dir": str(config["DATA_DIR"]),
+        "set_by_environment": _data_folder_set_by_environment(),
+        "remembered": [folder for folder in data_folder.remembered_folders() if folder != current],
+    })
+
+
+@bp.route("/api/admin/data-folder/choose", methods=["POST"])
+def admin_data_folder_choose():
+    """Open the native folder dialog on this computer and check the choice."""
+    chosen = ""
+    try:
+        chosen = data_folder.choose_folder_dialog() or ""
+        kind = data_folder.check_candidate(chosen, _install_root()) if chosen else ""
+    except data_folder.DataFolderError as error:
+        return jsonify({"ok": False, "path": chosen, "error": str(error)}), 400
+    return jsonify({"ok": True, "path": chosen, "kind": kind})
+
+
+@bp.route("/api/admin/data-folder", methods=["POST"])
+def admin_data_folder_change():
+    """Use another data folder (set up fresh, or with the current data copied in),
+    link an existing one, or go back to the program folder -- then restart."""
+    payload = request.get_json(silent=True) or {}
+    if getattr(sys, "frozen", False):
+        return jsonify({"ok": False, "error": "Not available in packaged builds."}), 503
+    if _data_folder_set_by_environment():
+        return jsonify({"ok": False, "error": "The data folder is set by STUDY_RUNNER_DATA_DIR; change it there."}), 409
+    busy = _data_folder_busy_reason()
+    if busy:
+        return jsonify({"ok": False, "error": busy}), 409
+
+    root = _install_root()
+    config = current_app.config
+    if payload.get("reset"):
+        data_folder.write_setting(None, root)
+        return _restart_for_data_folder({"kind": "default"})
+    try:
+        kind = data_folder.check_candidate(payload.get("path"), root)
+    except data_folder.DataFolderError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    target = Path(str(payload.get("path"))).expanduser().resolve()
+    if config.get("USES_EXTERNAL_STORAGE") and target == Path(config["STORAGE_ROOT"]).resolve():
+        return jsonify({"ok": False, "error": "This folder is already in use."}), 400
+    copy_current = bool(payload.get("copy_current"))
+    if kind == "link" and copy_current:
+        return jsonify({
+            "ok": False,
+            "error": "This folder already holds Study Runner data; link it without copying, or choose an empty folder.",
+        }), 400
+    copied: list[str] = []
+    if kind == "new":
+        from study_runner.version import __version__
+
+        try:
+            copied = data_folder.prepare_new_folder(target, config if copy_current else None, __version__)
+        except OSError as error:
+            return jsonify({"ok": False, "error": f"Could not set up {target}: {error}"}), 500
+    data_folder.write_setting(target, root)
+    data_folder.remember(target)
+    return _restart_for_data_folder({"kind": kind, "path": str(target), "copied": copied})
+
+
+def _install_root() -> Path:
+    return Path(current_app.config["BASE_DIR"]).parent
+
+
+def _data_folder_set_by_environment() -> bool:
+    return bool(os.environ.get(data_folder.ENV_DATA_DIR)) and os.environ.get(data_folder.ENV_FROM_SETTING) != "1"
+
+
+def _data_folder_busy_reason() -> str:
+    from .update import _activity
+
+    activity = _activity()
+    if activity.get("active_session"):
+        return "A session is being recorded. Change the data folder after it has ended."
+    if activity.get("study_run_status") == "running":
+        return "A study run is active. End it before changing the data folder."
+    return ""
+
+
+def _restart_for_data_folder(result: dict):
+    try:
+        _spawn_visible_restart(Path(current_app.config["BASE_DIR"]), current_app.config.get("SERVER_PORT") or "")
+    except Exception as error:
+        return jsonify({"ok": False, "error": f"Saved, but Study Runner could not restart itself: {error}. Start it again by hand."}), 500
+    threading.Thread(target=_exit_process_soon, daemon=True, name="data-folder-exit").start()
+    return jsonify({"ok": True, **result})
 
 
 @bp.route("/api/admin/studies", methods=["GET"])

@@ -24,6 +24,9 @@ from study_runner.apps.server import create_app
 EXPECTED_ROUTES = {
     ("GET", "/"),
     ("GET", "/admin"),
+    ("GET", "/api/admin/data-folder"),
+    ("POST", "/api/admin/data-folder"),
+    ("POST", "/api/admin/data-folder/choose"),
     ("GET", "/api/admin/certificate/export"),
     ("POST", "/api/admin/certificate/import"),
     ("GET", "/api/admin/certificate/status"),

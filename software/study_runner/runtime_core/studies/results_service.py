@@ -16,7 +16,7 @@ from study_runner.plugin_framework.registry import (
     get_plugin_manifest,
     iter_plugins,
 )
-from ..settings.runtime_config import get_project_base_dir
+from ..settings.runtime_config import get_project_base_dir, resolve_runtime_paths
 from study_runner.shared.atomic_io import atomic_write_json
 from study_runner.shared.filename_sanitizer import sanitize_identifier_for_filename
 
@@ -254,7 +254,7 @@ def build_biosignal_summary(
 ) -> dict[str, Any]:
     """Build lightweight metadata for every installed study-sensor plugin."""
     runtime_context = context or _context_from_hardware_config(
-        _project_root() / "saved_results",
+        _default_data_dir(),
         hardware_config,
     )
     summary: dict[str, Any] = {}
@@ -565,7 +565,7 @@ def _interval_summary_from_epochs(
     if end_epoch < start_epoch:
         start_epoch, end_epoch = end_epoch, start_epoch
     runtime_context = context or _context_from_hardware_config(
-        _project_root() / "saved_results",
+        _default_data_dir(),
         hardware_config,
     )
     return build_plugin_interval_summary(runtime_context, start_epoch, end_epoch)
@@ -615,6 +615,11 @@ def time_now_epoch() -> float:
 
 def _project_root() -> Path:
     return get_project_base_dir()
+
+
+def _default_data_dir() -> Path:
+    """The results folder when no context was passed -- the chosen data folder, not always the program folder."""
+    return resolve_runtime_paths(_project_root()).data_dir
 
 
 def _question_prompt(question: dict[str, Any]) -> str:

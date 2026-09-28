@@ -82,7 +82,6 @@
     "connection_type": "ble",
     "data_timeout_seconds": 5,
     "enabled": true,
-    "log_dir": "saved_results",
     "lsl": {
       "auto_install": false,
       "stream_prefix": "MiniRadar"

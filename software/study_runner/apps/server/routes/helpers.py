@@ -400,6 +400,28 @@ def _spawn_server_restart(base_dir) -> None:
     )
 
 
+def _spawn_visible_restart(base_dir, port) -> None:
+    """Start Study Runner again in a new visible window once this server stopped.
+
+    Unlike ``_spawn_server_restart`` the new server gets its own console (a
+    Terminal window on macOS), so the operator can stop it with Ctrl+C again.
+    The child inherits the environment, including the data-folder marker that
+    makes it read the data-folder setting afresh.
+    """
+    kwargs = {"cwd": str(base_dir), "env": os.environ.copy(), "close_fds": True,
+              "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+            subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+        )
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen(
+        [sys.executable, str(base_dir / "server.py"), "--restart-when-stopped", str(base_dir.parent), str(port)],
+        **kwargs,
+    )
+
+
 def _exit_process_soon(grace_seconds: float = 1.5, forced_after_seconds: float = 10.0) -> None:
     """Let the response reach the browser, then stop this server process.
 

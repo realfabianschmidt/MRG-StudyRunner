@@ -75,6 +75,11 @@ class OperatorNoticeStore:
             atomic_write_json(self.path, self._notices)
         return copy.deepcopy(notice)
 
+    def has_code(self, code: str) -> bool:
+        """True once a notice with ``code`` was ever added, acknowledged or not."""
+        with self._lock:
+            return any(n.get("code") == code for n in self._notices)
+
     def unacknowledged(self) -> list[dict[str, Any]]:
         with self._lock:
             return [copy.deepcopy(n) for n in self._notices if n.get("acknowledged_at_epoch") is None]

@@ -20,6 +20,7 @@ import { activateShellPanel, bindShellNav, renderShellNav, renderShellPanel } fr
 import { refreshCertificateStatus } from './certificate-settings-controller.js';
 import { refreshBrandingSettings, renderBrandingSettingsPanel } from './branding-settings-controller.js';
 import { refreshFontSettings, renderFontSettingsPanel } from './font-settings-controller.js';
+import { refreshDataFolderSettings, renderDataFolderSettingsPanel } from './data-folder-settings-controller.js';
 import { fieldLabel, fieldPlaceholder, openPluginHelp, renderPluginHelpButton } from '../../shared/plugin-help.js';
 import {
   PLUGIN_UI_SURFACES,
@@ -174,6 +175,7 @@ function onSettingsPanelShown(key) {
   if (key === 'certificate') void refreshCertificateStatus();
   if (key === 'branding') void refreshBrandingSettings();
   if (key === 'fonts') void refreshFontSettings();
+  if (key === 'data-folder') void refreshDataFolderSettings();
   if (key === 'update') void host.loadUpdateStatus({ silent: true });
 }
 
@@ -186,6 +188,7 @@ function settingsHubEntries() {
     { key: 'tablet', icon: 'iconoir-smartphone-device', label: t('settingsHub.tabTablet', 'Tablet'), group: groupThisComputer },
     { key: 'branding', icon: 'iconoir-media-image', label: t('branding.title', 'Logos'), group: groupThisComputer },
     { key: 'fonts', icon: 'iconoir-text-size', label: t('fonts.title', 'Fonts'), group: groupThisComputer },
+    { key: 'data-folder', icon: 'iconoir-folder', label: t('dataFolder.title', 'Data folder'), group: groupThisComputer },
     ...settingsHubPlugins().map((plugin) => ({
       key: `plugin:${plugin.key}`,
       icon: pluginIcon(plugin),
@@ -213,6 +216,7 @@ function settingsHubPanels() {
     renderShellPanel('tablet', renderTabletAccessPanel(), active !== 'tablet'),
     renderShellPanel('branding', renderBrandingSettingsPanel(), active !== 'branding'),
     renderShellPanel('fonts', renderFontSettingsPanel(), active !== 'fonts'),
+    renderShellPanel('data-folder', renderDataFolderSettingsPanel(), active !== 'data-folder'),
     ...(getPluginCatalog().invalid_plugins.length ? [renderShellPanel(
       'plugin-problems',
       renderInvalidPlugins(),

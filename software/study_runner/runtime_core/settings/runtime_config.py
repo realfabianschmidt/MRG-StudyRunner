@@ -123,6 +123,12 @@ def initialize_runtime_storage(paths: RuntimePaths) -> None:
     if not paths.uses_external_storage:
         return
 
+    from study_runner.runtime_core.settings.data_folder import write_marker
+    from study_runner.version import __version__
+
+    # Marks the folder as a Study Runner data folder, so it can be relinked
+    # after a reinstall and a missing drive is recognised at start.
+    write_marker(paths.storage_root, __version__)
     default_settings = paths.content_dir / "settings"
     _copy_default_file(default_settings / "study_config.json", paths.config_file)
     _copy_default_file(default_settings / "hardware_settings.json", paths.hardware_config_file)

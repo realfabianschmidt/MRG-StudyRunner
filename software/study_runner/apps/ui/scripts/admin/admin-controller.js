@@ -3,6 +3,7 @@ import { initializeAdminDashboard } from './admin-dashboard-controller.js';
 import { initializeCertificateSettings } from '../settings/machine/certificate-settings-controller.js';
 import { initializeBrandingSettings } from '../settings/machine/branding-settings-controller.js';
 import { initializeFontSettings } from '../settings/machine/font-settings-controller.js';
+import { initializeDataFolderSettings } from '../settings/machine/data-folder-settings-controller.js';
 import { applyFonts, loadBranding, renderGroupLogo } from '../shared/branding.js';
 import { initializeSessionsBrowser, loadCompletedSessions, openSessionDetail } from './sessions-browser.js';
 import { initializeUploadMonitor } from './upload-monitor.js';
@@ -225,6 +226,7 @@ async function init() {
     onBrandingChanged: (branding) => renderGroupLogo($('hub-brand-logo'), branding),
   });
   initializeFontSettings({ showToast });
+  initializeDataFolderSettings({ showToast, confirmWithModal, waitForRestartAndReload });
   void applyHubBranding();
   initializeStudySettingsPanel({
     showToast,

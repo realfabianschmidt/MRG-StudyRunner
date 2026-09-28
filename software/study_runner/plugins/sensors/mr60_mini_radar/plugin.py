@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from study_runner.plugin_framework.adapter_utils import config_section
+from study_runner.plugin_framework.adapter_utils import config_section, runtime_path_setting
 from study_runner.contracts.plugin_api import PluginContext, Plugin
 
 
@@ -32,7 +32,7 @@ def _initialize(context: PluginContext) -> None:
         ble_scan_timeout_seconds=ble_config.get("scan_timeout_seconds", 5),
         ble_service_uuid=ble_config.get("service_uuid", "9d6f0001-7d2a-4c6b-9f4e-5c2b1f4a6e10"),
         ble_characteristic_uuid=ble_config.get("characteristic_uuid", "9d6f0002-7d2a-4c6b-9f4e-5c2b1f4a6e10"),
-        log_dir=context.resolve_project_path(context.resolve_platform_value(config.get("log_dir")) or "saved_results"),
+        log_dir=str(runtime_path_setting(context, config.get("log_dir"), "mini_radar", "logs")),
     )
 
 

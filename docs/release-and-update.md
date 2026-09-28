@@ -111,7 +111,8 @@ Then the server:
 **What stays and what is replaced.** Never moved: `software/study_content/`
 (studies, settings, credentials, logos, fonts, certificates),
 `software/saved_results/` (results and session state), `software/.build/`,
-`.venv/`, `.tools/`, an external `STUDY_RUNNER_DATA_DIR`, and everything else
+`.venv/`, `.tools/`, a data folder chosen in the settings (and its
+`data-folder.json`) or `STUDY_RUNNER_DATA_DIR`, and everything else
 the release does not contain (for example `software/runtime/` with plugin logs
 and the emotion-model cache). The install script may add packages to `.venv`
 or replace a stale core in `software/.build`; that is not undone on failure.

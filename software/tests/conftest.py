@@ -20,10 +20,15 @@ refcounting alone will not always collect it the instant a test function
 returns -- it can wait for the next scheduled cyclic-GC pass, leaving that
 executor's worker threads alive in the meantime. Forcing a collection pass
 after every test makes that cleanup deterministic instead of "usually".
+
+Third: the remembered data folders live in the user's own settings folder
+(%APPDATA%, ~/Library/Application Support). Tests use a temporary one, so they
+never read or write the real list.
 """
 from __future__ import annotations
 
 import gc
+import os
 from pathlib import Path
 import sys
 
@@ -34,6 +39,17 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.plugin_framework.process_host import shutdown_process_plugins
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _private_user_config_dir(tmp_path_factory):
+    previous = os.environ.get("STUDY_RUNNER_USER_CONFIG_DIR")
+    os.environ["STUDY_RUNNER_USER_CONFIG_DIR"] = str(tmp_path_factory.mktemp("user-config"))
+    yield
+    if previous is None:
+        os.environ.pop("STUDY_RUNNER_USER_CONFIG_DIR", None)
+    else:
+        os.environ["STUDY_RUNNER_USER_CONFIG_DIR"] = previous
 
 
 @pytest.fixture(autouse=True)

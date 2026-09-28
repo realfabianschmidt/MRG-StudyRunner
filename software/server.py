@@ -51,10 +51,24 @@ if __name__ == "__main__":
         from study_runner.updates.installer import main as run_installer
 
         raise SystemExit(run_installer(sys.argv[2:]))
+    if len(sys.argv) > 3 and sys.argv[1] == "--restart-when-stopped":
+        from pathlib import Path
+
+        from study_runner.updates.installer import restart_when_stopped
+
+        raise SystemExit(restart_when_stopped(Path(sys.argv[2]), sys.argv[3], Path(sys.argv[2]) / ".tools" / "restart.log"))
     if len(sys.argv) > 1 and sys.argv[1] == "--self-check":
         from study_runner.self_check import main as run_self_check
 
         raise SystemExit(run_self_check())
+    # Before the app is imported: importing it creates the app in the data folder.
+    from study_runner.runtime_core.settings.data_folder import DataFolderError, apply_data_folder_setting
+
+    try:
+        apply_data_folder_setting()
+    except DataFolderError as error:
+        print("\n" + "!" * 60 + f"\n{error}\n" + "!" * 60 + "\n")
+        raise SystemExit(1)
     from study_runner.app_server import run_app
 
     run_app()

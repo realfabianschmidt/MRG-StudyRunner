@@ -358,6 +358,16 @@ STUDY_RUNNER_CONTENT_DIR=/path/to/study-content
 STUDY_RUNNER_DATA_DIR=/path/to/writable/app-data
 ```
 
+**Data folder.** Studies, results, settings, credentials, logos and the iPad
+certificate live in one data folder -- by default inside the program folder.
+**Settings > Data folder** moves it elsewhere (for example an external drive):
+an empty folder is set up like a clean install, "Bring the current data along"
+copies everything first, and an existing Study Runner data folder is linked as
+it is. The choice is stored in `data-folder.json` in the install folder, which
+updates keep; after a reinstall the settings offer the last used folder again.
+If the folder is not reachable (drive not connected), Study Runner does not
+start and says so. `STUDY_RUNNER_DATA_DIR` set by hand overrides the setting.
+
 ## GitHub Source Releases
 
 The active release workflow publishes auditable source archives, not a desktop

@@ -61,6 +61,18 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
+def restart_when_stopped(install_root: Path, port: str, log_file: Path) -> int:
+    """Start the server again in a visible window once the running one has
+    stopped -- a plain restart, e.g. after choosing another data folder."""
+    try:
+        _wait_for_server_exit({"port": port}, log_file)
+        _start_visible(Path(install_root).resolve(), log_file)
+        return 0
+    except Exception as error:
+        _append_log(log_file, f"Restart failed: {error}")
+        return 1
+
+
 def _restart_packaged_build(state: dict[str, Any], staged: dict[str, Any], log_file: Path) -> None:
     executable = Path(str(staged.get("executable") or "")).expanduser().resolve()
     if not executable.exists():

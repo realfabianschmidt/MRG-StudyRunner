@@ -470,8 +470,30 @@ neue Ordner selbst.
 **Studienordner:** Ab 1.2.0 sind die Dateien in `software/study_content/studies`
 Zip-Pakete mit ihren Bildern (Endung weiterhin `.study-runner`). Alte
 JSON-Dateien werden beim ersten Start einmalig umgewandelt; die Originale
-liegen in `studies/_backup-json/`. Wer die Daten dauerhaft ausserhalb des
-Programmordners halten moechte, setzt `STUDY_RUNNER_DATA_DIR`.
+liegen in `studies/_backup-json/`.
+
+### Datenordner (z. B. externe Festplatte)
+
+Studien, Ergebnisse, Einstellungen, Zugangsdaten, Logos und das
+iPad-Zertifikat liegen zusammen in einem Datenordner. Standard ist der
+Programmordner. Unter **Einstellungen > Datenordner** laesst er sich woanders
+hinlegen, zum Beispiel auf eine externe Festplatte:
+
+- **Leerer Ordner:** wird eingerichtet wie nach einer Neuinstallation. Das
+  bedeutet auch ein neues iPad-Zertifikat, dem die Tablets einmal vertrauen
+  muessen.
+- **"Aktuelle Daten mitnehmen":** kopiert vorher alles in den neuen Ordner. Die
+  alte Kopie bleibt liegen, bis du sie selbst loeschst.
+- **Vorhandener Study-Runner-Datenordner:** wird einfach verknuepft.
+- Study Runner startet danach neu. Waehrend einer Session oder eines laufenden
+  Studienlaufs geht das nicht.
+- **Nach einer Neuinstallation** zeigt Study Runner den zuletzt genutzten
+  Datenordner an ("Verknuepfen und neu starten") -- danach ist alles wieder da.
+- **Festplatte nicht angeschlossen:** Study Runner startet nicht und sagt im
+  Startfenster, welcher Ordner fehlt. Festplatte anschliessen und neu starten.
+  Wer stattdessen wieder den Programmordner nutzen will, loescht die Datei
+  `data-folder.json` im Installationsordner.
+- Updates lassen die Einstellung und den Datenordner unangetastet.
 
 ## Release-Zugang
 

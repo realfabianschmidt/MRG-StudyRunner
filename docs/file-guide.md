@@ -56,7 +56,7 @@ Edit-safety legend:
 | `routes/pages.py` | Serves the two pages: `/` (participant) and `/admin`. The audit text moved into the settings shell, so there is no separate `/audit` page any more | careful |
 | `routes/study.py` | Everything the tablet calls: config, sessions, triggers, heartbeat, clock sync | careful |
 | `routes/results.py` | Saving results - crash-safe, with recovery files and partial snapshots | no |
-| `routes/admin.py` | Operator endpoints: health, studies list/activate/delete, status, restart | careful |
+| `routes/admin.py` | Operator endpoints: health, studies list/activate/delete, status, restart, data folder (show, choose, link, set up, reset) | careful |
 | `routes/sensors.py` | Hardware config and generic plugin start/stop/restart (no plugin is named here) | careful |
 | `routes/update.py` | In-app updater endpoints (check/download/install) | no |
 | `routes/sessions.py` | Read-only completed-session list, detail, and timeline-signal APIs | careful |
@@ -111,6 +111,7 @@ Edit-safety legend:
 | `software/study_runner/runtime_core/delivery/upload_jobs_service.py` | Persistent upload journal, crash replay, backoff worker, and retry state | no |
 | `software/study_runner/runtime_core/delivery/upload_runtime.py` | Registers manifest-declared destination plugin handlers with persistent upload jobs | no |
 | `software/study_runner/runtime_core/settings/folder_open_service.py` | Validates and opens result folders on Windows or macOS | no |
+| `software/study_runner/runtime_core/settings/data_folder.py` | Where studies, results, settings and the certificate live: `<install>/data-folder.json` > program folder (`STUDY_RUNNER_DATA_DIR` by hand wins); folder marker, check before linking, missing drive stops the start, remembered folders for relinking, native folder dialog | careful |
 | `software/study_runner/runtime_core/settings/runtime_config.py` | Paths, ports, app mode, data-folder resolution | careful |
 | `software/study_runner/runtime_core/studies/study_config_service.py` | Load/save the active study and the saved-studies folder | careful |
 | `software/study_runner/runtime_core/studies/study_run_state_service.py` | Persists the operator-controlled loaded/running/completed run state | careful |
@@ -342,6 +343,7 @@ one, unlike the plugin table above).
 | `shared/modal.js` | Shared accessible modal lifecycle, modal-shell markup, and the yes/no confirmation | careful |
 | `shared/branding.js` | Shared branding fetch and logo rendering for the waiting slide and the hub | careful |
 | `settings/machine/font-settings-controller.js` | The Fonts settings page next to Logos: choose, upload, or remove the heading and body fonts | no |
+| `settings/machine/data-folder-settings-controller.js` | The Data folder settings page: current folder, choose/link another one (optionally bringing the data along), back to the program folder; restarts Study Runner | careful |
 | `shared/ambient-bubbles.js` | Self-contained morphing background for the waiting slide; tune CONFIG at the top | no |
 | `shared/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
 | `shared/api-client.js` | Tiny fetch helpers (getJson/postJson) | careful |

@@ -29,6 +29,7 @@ from study_runner.runtime_core.delivery.recording_finalization_adapter import Ru
 from study_runner.runtime_core.delivery.withdrawal_service import WithdrawalService
 from study_runner.runtime_core.settings.secrets_service import load_local_secrets
 from study_runner.runtime_core.settings.update_service import recover_interrupted_update
+from study_runner.runtime_core.settings.data_folder import remembered_folders
 from study_runner.plugin_framework.plugin_secrets import resolve_plugin_secret
 from study_runner.data_core.host.sensor_coordinator_service import SensorCoordinator
 from study_runner.data_core.host.sensor_flush_service import SensorFlushService
@@ -75,6 +76,27 @@ def _hardware_disabled() -> bool:
         "yes",
         "on",
     }
+
+
+def _offer_remembered_data_folder(app: Flask) -> None:
+    """After a reinstall: point at a data folder this user used before (once).
+
+    Only a suggestion -- linking stays the operator's choice in Settings.
+    """
+    if app.config["USES_EXTERNAL_STORAGE"]:
+        return
+    notices = app.config["OPERATOR_NOTICES"]
+    try:
+        remembered = remembered_folders()
+        if remembered and not notices.has_code("data_folder_found"):
+            notices.add(
+                f"Found the data folder {remembered[0]} from an earlier installation. "
+                "To use it again: Settings > Data folder > Link and restart.",
+                severity="info",
+                code="data_folder_found",
+            )
+    except Exception as error:  # a suggestion must never stop the start
+        print(f"[DATA] Could not check remembered data folders: {error}")
 
 
 def _plugin_context(app: Flask):
@@ -126,6 +148,7 @@ def create_app() -> Flask:
     app.config["SENSOR_COORDINATOR"] = SensorCoordinator()
     app.config["SESSION_STORE"] = SessionStore(app.config["DATA_DIR"])
     app.config["OPERATOR_NOTICES"] = OperatorNoticeStore(app.config["DATA_DIR"])
+    _offer_remembered_data_folder(app)
     app.config["TRIAL_EVENT_SERVICE"] = TrialEventService(
         app.config["DATA_DIR"],
         scheduling_enabled=not is_background_disabled(),
