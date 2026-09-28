@@ -5,7 +5,18 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Fixed
+
+- Release archives build again: every release section of the changelog now
+  has entries (1.5.1 stopped on its empty section). 1.5.2 is the first
+  published release with the 1.5.0 changes.
+
 ## 1.5.1 - 2026-09-28
+
+### Fixed
+
+- A test fixture path was too long for Windows release archives, which
+  stopped 1.5.0 from being published. Not published itself.
 
 ## 1.5.0 - 2026-09-28
 
