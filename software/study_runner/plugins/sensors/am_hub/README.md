@@ -18,8 +18,26 @@ fixed URL. The hub itself decides per board whether it is reached over
 Bluetooth or WiFi.
 
 - **v2:** every board packet arrives as one `frame` event with all its values. The adapter writes them into its topic cache under one lock, so the 10 Hz tick never sees half a packet. The stream also carries the hub's per-board status (10 Hz) and valve/scene state.
-- **Read timeout:** 10 s on v2, 30 s on v1. v2 sends 10 status events per second, so a silent connection is a dead one (e.g. the hub lost power). It is replaced instead of blocking forever.
+- **Instant delivery:** the stream is read chunk by chunk (`iter_content(None)`) with an own SSE parser, so every event is handled the moment its bytes arrive (the earlier `iter_lines` waited for 512-byte blocks).
+- **Dead connection in 2 s:** v2 sends 10 status events per second, so 2 s without a byte is a dead connection (WiFi dropout, hub restart). The socket read timeout (2 s on v2, 35 s on v1) ends it on every platform; closing a socket from another thread does not interrupt a blocked read on Windows. TCP keepalive and `TCP_NODELAY` are set on the socket.
+- **Back at once:** the next attempt follows immediately, then after 0.5 / 1 / 2 s at most. The stream URL carries `?client=study-runner-<computer>`, so the hub replaces this computer's old, possibly half-open stream instead of keeping it.
+- **Honest status:** only the stream reader decides whether the hub is connected (link state and the time of the last event of any kind). The 10 Hz publisher never claims a connection: before the first event the status is `connecting`, after 2 s of silence `stale` (reconnecting).
+- **Diagnostics:** `link` in the status (events/s, connected for, reconnects, last loss with reason), `boards` (frames/s and age per board), and the hub's `hub_host.wifi_power_save` from its `hello` event -- the tile warns while it is `on`.
 - **Restart safety:** every `start()`/`stop()` bumps a generation counter. Threads of an earlier run exit before new ones start, so a restart can never push samples twice.
+
+## Person Detected
+
+A person counts as detected when **any** fresh source (< 2.5 s) sees one: the
+LD2410B presence flag (`/sensor/presence`), a tracked LD2450 target
+(`/sensor/targetCount` ≥ 1), or MR60 distance / heart / breathing rate. The
+tile names the sources. Before, only the presence flag counted, so the plugin
+said "no person" while the hub showed position and vital signs.
+
+## Everything The Hub Sends
+
+- **`hub_events` stream:** every hub event, verbatim, one JSON string per event (`frame` with all values, `seq`, `sender`, hub time; `status`, `valves`, `scene`, `gap`, `hello`), plus the adapter's own `{"type":"link","source":"study_runner","state":"connected"|"lost",...}` events. Nothing is filtered, converted or dropped, and topics this adapter does not know yet are included. Irregular rate; roughly 10 KB/s (about 36 MB per hour), mostly the 10 Hz status.
+- **All topics:** every topic address the hub sends lands in the topic cache and in the status (`topics`: raw value and age), unknown ones listed in `unknown_topics` (today the WiFi-only `/sensor/rssiRadar`, `/sensor/rssiBio`, `/solenoid/rssi`, `/solenoid/alive`). The tile lists them all under "All values from the hub".
+- The 10 Hz streams below stay the interpreted view (mm, NaN for "no value"); `hub_events` is the raw one.
 
 ## Timing Stays In The Study Runner
 

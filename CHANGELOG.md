@@ -5,6 +5,31 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Changed
+
+- Sensor tiles: the device list on the left, four round buttons beside it
+  (search, measure contact, initialize, auto-reconnect), always visible and
+  greyed out with the reason until their turn. Tiles no longer overflow onto
+  their neighbour.
+- BrainBit never searches or connects by itself while the study is being set
+  up: *Starting …* → *Ready to connect* with the band used last time offered
+  in the list. Search runs once; one band found connects at once. Poor contact
+  keeps *Measure contact* as the next step, but *Initialize* stays possible.
+- Auto-reconnect (on by default, switchable per sensor, also during a
+  recording) restores a lost connection only once a device was connected and
+  the study runs. AM Hub and radar offer the same switch.
+
+### Fixed
+
+- AM Hub: a dropped connection is noticed within 2 s and replaced at once;
+  the status no longer shows "connected" while no data arrives. Events are
+  handled the moment they arrive.
+- AM Hub: a person counts as detected from any sensor (presence flag, radar
+  position, heart/breathing), not only the presence flag.
+- AM Hub: every hub event is recorded verbatim in the new `hub_events`
+  stream, including values the plugin does not interpret; the tile lists all
+  values the hub sends and warns when WiFi power saving is on at the hub.
+
 ## 1.5.5 - 2026-09-29
 
 ### Fixed

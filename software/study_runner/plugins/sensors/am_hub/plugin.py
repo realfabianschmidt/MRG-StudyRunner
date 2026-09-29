@@ -5,6 +5,10 @@ from typing import Any
 from study_runner.plugin_framework.adapter_utils import config_section
 from study_runner.contracts.plugin_api import PluginContext, Plugin
 
+# The operator's auto-reconnect switch on the dashboard. None until used:
+# then the machine setting decides. Kept for the life of the driver.
+_auto_reconnect_choice: bool | None = None
+
 
 def _initialize(context: PluginContext) -> None:
     config = config_section(context, "am_hub")
@@ -17,7 +21,10 @@ def _initialize(context: PluginContext) -> None:
     adapter.initialize(
         enabled=config.get("enabled", False),
         base_url=context.resolve_platform_value(config.get("base_url")) or "",
-        auto_reconnect=config.get("auto_reconnect", True),
+        auto_reconnect=(
+            _auto_reconnect_choice if _auto_reconnect_choice is not None
+            else config.get("auto_reconnect", True)
+        ),
         reconnect_delay_seconds=config.get("reconnect_delay_seconds", 3),
         data_timeout_seconds=config.get("data_timeout_seconds", 5),
         lsl_enabled=bool(config.get("enabled", False)),
@@ -53,6 +60,24 @@ def _restart(context: PluginContext) -> Any:
         _initialize(context)
         return adapter.get_status()
     return adapter.restart()
+
+
+def _run_admin_action(context: PluginContext, action_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+    global _auto_reconnect_choice
+    if action_key != "auto_reconnect":
+        raise ValueError(f"Unknown AM Hub admin action: {action_key}")
+    from . import adapter
+
+    _auto_reconnect_choice = bool(payload.get("enabled"))
+    adapter.set_auto_reconnect(_auto_reconnect_choice)
+    return {
+        "auto_reconnect": _auto_reconnect_choice,
+        "last_message": (
+            "Auto-reconnect on: the AM Hub connection is restored by itself."
+            if _auto_reconnect_choice
+            else "Auto-reconnect off: a lost AM Hub connection waits for you."
+        ),
+    }
 
 
 def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
@@ -97,6 +122,7 @@ PLUGIN = Plugin(
     start=_start,
     stop=_stop,
     restart=_restart,
+    run_admin_action=_run_admin_action,
     on_trial_start=_trial_start,
     on_trial_stop=_trial_stop,
     get_interval_summary=_interval,

@@ -90,24 +90,39 @@ Admin actions use a closed `payload_schema`. Dynamic buttons may map cached
 status candidates with `instances.status_paths`, `payload_map`, and
 `label_fields`. The server rejects unknown fields and invalid types before it
 calls `run_admin_action(context, action_key, payload)`. An action may take one
-connection `role` (`select`, `scan`, `measure_signal`, `initialize`); the
-shared connection panel then draws it and the generic action list skips it.
-Each role may appear once, and `select` needs `instances.presentation: select`.
+connection `role` (`select`, `scan`, `measure_signal`, `initialize`,
+`auto_reconnect`); the shared connection panel then draws it and the generic
+action list skips it. Each role may appear once, and `select` needs
+`instances.presentation: select`. `auto_reconnect` receives
+`{"enabled": true|false}` and is the only role usable while a participant
+session records.
 
 ## Connection pattern
 
 Every sensor is prepared, shown and recorded the same way:
 
 - **Facts from the plugin.** Its status carries `running` (acquisition runs
-  right now) and a `connection` block: `phase` (`off`, `no_device`,
+  right now) and a `connection` block: `phase` (`off`, `starting`, `idle`,
   `searching`, `selection_required`, `connecting`, `connected`,
-  `reconnecting`, `failed`), `device`, `candidates`, `signal.state` (`good`,
-  `fair`, `poor`, `measuring`, `stale`, `unknown`), `setup.state` (`needed`,
-  `running`, `done`, `stalled`, `not_needed`) and `streaming`.
+  `reconnecting`, `failed`), an optional `detail` for `idle`/`failed`
+  (`not_found`, `connection_lost`, …), `device`, `candidates` (a remembered
+  device carries `note: "last_used"`), `signal.state` (`good`, `fair`,
+  `poor`, `measuring`, `stale`, `unknown`), `setup.state` (`needed`,
+  `running`, `done`, `stalled`, `not_needed`), `streaming` and, with the
+  `auto_reconnect` role, `auto_reconnect: {enabled, had_connection}`.
 - **Decisions in the core.** `plugin_framework/sensor_connection.py` adds
-  `ready` and `next_step` for every sensor alike. The dashboard panel and the
-  Start check use exactly these. A plugin without a block gets one derived
-  from its plain `status`.
+  `ready`, `next_step` and `auto_reconnect.active` for every sensor alike.
+  The dashboard panel and the Start check use exactly these. A plugin without
+  a block gets one derived from its plain `status`.
+- **Nothing connects behind the operator's back.** Switched on, a sensor the
+  operator connects by hand (`scan`/`select`) waits in `idle` ("Ready to
+  connect") and offers the device used last time. It searches once per
+  Search and tries a chosen device once. Only when a device was connected
+  and the study runs (`PluginContext.study_running`) does auto-reconnect
+  restore a lost connection by itself; plugins ask
+  `auto_reconnect_active()` so the plugin and the dashboard never disagree.
+  Sensors without a manual connection (hub, radar) reconnect whenever their
+  switch is on.
 - **Lifecycle.** Loading a study starts the sensors it needs and stops the
   rest. A participant session neither re-initializes nor stops a running
   sensor; the core also never re-sends `initialize` for an unchanged

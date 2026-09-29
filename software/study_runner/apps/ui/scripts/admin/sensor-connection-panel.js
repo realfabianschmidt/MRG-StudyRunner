@@ -2,16 +2,19 @@
  * The one connection panel every sensor tile shows.
  *
  * The server standardizes each sensor's status into a `connection` block
- * (phase, device, candidates, signal, setup, streaming) and decides `ready`
- * and `next_step` in the core (plugin_framework/sensor_connection.py). This
- * module only draws it, the same way for every sensor:
+ * (phase, device, candidates, signal, setup, streaming, auto_reconnect) and
+ * decides `ready` and `next_step` in the core
+ * (plugin_framework/sensor_connection.py). This module only draws it, the
+ * same way for every sensor:
  *
  *   [status pill] Connected – electrode contact good · Calibration done [Ready]   [switch] [restart]
- *   [device select ...................] [Search] [Measure contact] [Initialize]
+ *   [device list (shrinks) ...........] (search) (contact) (initialize) (auto-reconnect)
  *
- * The button for `next_step` is the call to action; buttons that cannot help
- * right now are disabled with the reason as tooltip. Choosing a device in the
- * list connects immediately, so there is no separate Connect button.
+ * The round buttons always stay beside the list and are always visible. The
+ * button for `next_step` is the call to action; buttons that cannot help
+ * right now are greyed out with the reason as tooltip. Choosing a device in
+ * the list connects immediately, so there is no separate Connect button. The
+ * last button switches auto-reconnect; it stays usable during a recording.
  */
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
@@ -21,16 +24,29 @@ const ROLE_ICONS = {
   scan: 'iconoir-search',
   measure_signal: 'iconoir-activity',
   initialize: 'iconoir-play',
+  auto_reconnect: 'iconoir-refresh-double',
 };
 const PHASE_FALLBACKS = {
   off: 'Switched off',
-  no_device: 'No device known yet',
+  starting: 'Starting …',
+  idle: 'Ready to connect',
   searching: 'Searching …',
   selection_required: 'Several found – choose one',
   connecting: 'Connecting …',
   connected: 'Connected',
   reconnecting: 'Connection lost – reconnecting …',
   failed: 'Connection failed',
+};
+// Why a sensor waits for the operator: a pill title and a hint.
+const DETAIL_FALLBACKS = {
+  not_found: ['', 'Nothing found – is the device switched on, charged and close by?'],
+  target_missing: ['Not reachable', 'The chosen device did not answer. Switch it on, or search.'],
+  connect_failed: ['Connection failed', 'Choose the device again, or search.'],
+  connection_lost: ['Connection lost', 'Choose the device again to reconnect, or search.'],
+  no_data: ['No data', 'The device sends no data. Choose it again to reconnect.'],
+  bluetooth_unavailable: ['Bluetooth unavailable', 'Switch Bluetooth on, then search again.'],
+  missing_dependency: ['Software missing', 'The device software is not installed. See the diagnostics.'],
+  crashed: ['Stopped unexpectedly', 'Choose the device again, or search.'],
 };
 const SIGNAL_FALLBACKS = {
   good: 'good',
@@ -49,7 +65,8 @@ const SETUP_FALLBACKS = {
 // Pill colours reuse the existing status palette.
 const PHASE_PILL = {
   off: 'stopped',
-  no_device: 'waiting',
+  starting: 'starting',
+  idle: 'waiting',
   searching: 'starting',
   selection_required: 'waiting',
   connecting: 'starting',
@@ -57,6 +74,10 @@ const PHASE_PILL = {
   reconnecting: 'stale',
   failed: 'failed',
 };
+// Phases where the list shows the device in use rather than a choice.
+const DEVICE_IN_USE_PHASES = new Set(['connecting', 'connected', 'reconnecting']);
+// Short phases that end by themselves; searching or choosing waits for them.
+const BUSY_PHASES = new Set(['starting', 'searching', 'connecting']);
 
 /** `{role: action}` for the actions a manifest gives a connection role. */
 export function roleActions(manifest) {
@@ -79,9 +100,12 @@ function keyFallback(key, generic) {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : generic;
 }
 
-function nounText(config, suffix, fallback) {
-  const key = config.device_noun_key;
-  return key ? t(suffix ? `${key}.${suffix}` : key, fallback) : fallback;
+function phaseTitle(connection) {
+  const phase = connection?.phase || 'connecting';
+  const detail = connection?.detail;
+  const detailTitle = detail && DETAIL_FALLBACKS[detail]?.[0];
+  if (detailTitle) return t(`sensorConnection.detailTitle.${detail}`, detailTitle);
+  return t(`sensorConnection.phase.${phase}`, PHASE_FALLBACKS[phase] || phase);
 }
 
 /** The status sentence: "Connected – electrode contact good · calibration done". */
@@ -89,11 +113,13 @@ export function connectionStatusText(connection, manifest) {
   const config = connectionConfig(manifest);
   const roles = roleActions(manifest);
   const phase = connection?.phase || 'connecting';
-  const parts = [];
-  if (phase === 'no_device') {
-    parts.push(nounText(config, 'noneKnown', t('sensorConnection.phase.no_device', PHASE_FALLBACKS.no_device)));
-  } else {
-    parts.push(t(`sensorConnection.phase.${phase}`, PHASE_FALLBACKS[phase] || phase));
+  const parts = [phaseTitle(connection)];
+  const detail = connection?.detail;
+  if (detail && DETAIL_FALLBACKS[detail] && ['idle', 'failed'].includes(phase)) {
+    parts.push(t(`sensorConnection.detail.${detail}`, DETAIL_FALLBACKS[detail][1]));
+  }
+  if (['connecting', 'reconnecting'].includes(phase) && connection.device?.label) {
+    parts.push(connection.device.label);
   }
   if (phase === 'connected') {
     const signal = connection.signal || {};
@@ -119,14 +145,23 @@ export function connectionStatusText(connection, manifest) {
   return parts;
 }
 
-/** Why a step button is disabled right now, or '' when it can be used. */
+/**
+ * Why a button or the device list is disabled right now, or '' when usable.
+ * `role` is a step role, 'select' for the list or 'auto_reconnect'.
+ */
 export function stepBlockReason(role, connection, { locked = false, pending = false } = {}) {
-  if (locked) return t('sensorConnection.blocked.locked', 'Locked while a participant session is recording.');
-  if (pending) return t('sensorConnection.blocked.pending', 'An action is still running.');
   const phase = connection?.phase || 'connecting';
+  // Auto-reconnect changes no data, only how a lost connection is handled,
+  // so it stays usable while a participant session records.
+  if (locked && role !== 'auto_reconnect') {
+    return t('sensorConnection.blocked.locked', 'Locked while a participant session is recording.');
+  }
+  if (pending) return t('sensorConnection.blocked.pending', 'An action is still running.');
   if (phase === 'off') return t('sensorConnection.blocked.off', 'Switch the sensor on first.');
-  if (role === 'scan') {
-    return ['searching', 'connecting'].includes(phase)
+  if (phase === 'starting') return t('sensorConnection.blocked.starting', 'The sensor is starting.');
+  if (role === 'auto_reconnect') return '';
+  if (role === 'scan' || role === 'select') {
+    return BUSY_PHASES.has(phase)
       ? t('sensorConnection.blocked.busy', 'Wait until the current search or connection finishes.')
       : '';
   }
@@ -134,54 +169,85 @@ export function stepBlockReason(role, connection, { locked = false, pending = fa
     return t('sensorConnection.blocked.notConnected', 'Connect the device first.');
   }
   const signal = connection.signal?.state || 'unknown';
-  if (role === 'measure_signal') {
-    return signal === 'measuring' ? t('sensorConnection.blocked.measuring', 'The measurement is running.') : '';
-  }
-  if (role === 'initialize') {
-    if (signal === 'measuring') return t('sensorConnection.blocked.measuring', 'The measurement is running.');
-    if (['poor', 'stale', 'unknown'].includes(signal) && connection.next_step === 'measure_signal') {
-      return t('sensorConnection.blocked.signalFirst', 'Measure the signal first and make sure it is good.');
-    }
-    if (connection.setup?.state === 'running') return t('sensorConnection.blocked.setupRunning', 'The initialization is running.');
+  if (signal === 'measuring') return t('sensorConnection.blocked.measuring', 'The measurement is running.');
+  if (role === 'initialize' && connection.setup?.state === 'running') {
+    return t('sensorConnection.blocked.setupRunning', 'The initialization is running.');
   }
   return '';
 }
 
-function renderDeviceSelect(plugin, manifest, connection, selectAction, disabled) {
+function renderDeviceSelect(plugin, manifest, connection, selectAction, state) {
   const config = connectionConfig(manifest);
   const candidates = Array.isArray(connection.candidates) ? connection.candidates : [];
-  const device = connection.device;
+  const phase = connection.phase || 'connecting';
+  // Only a device in use is pre-selected. Waiting for the operator, the list
+  // asks for a choice, so picking the remembered device fires `change`.
+  const device = DEVICE_IN_USE_PHASES.has(phase) ? connection.device : null;
   const known = new Set(candidates.map((candidate) => candidate.id));
-  const connectedSuffix = connection.phase === 'connected' ? t('sensorConnection.deviceConnected', 'connected') : '';
+  const connectedSuffix = phase === 'connected' ? t('sensorConnection.deviceConnected', 'connected') : '';
+  const lastUsed = t('sensorConnection.lastUsed', 'last used');
   const options = [];
   if (device?.id && !known.has(device.id)) {
     options.push(`<option value="" data-option-key="${escapeHtml(device.id)}" selected>${escapeHtml(device.label)}${connectedSuffix ? ` (${escapeHtml(connectedSuffix)})` : ''}</option>`);
   }
   candidates.forEach((candidate) => {
     const selected = device?.id && candidate.id === device.id ? 'selected' : '';
-    options.push(`<option value="${escapeHtml(JSON.stringify(candidate.payload || {}))}" data-option-key="${escapeHtml(candidate.id)}" ${selected}>${escapeHtml(candidate.label)}</option>`);
+    const note = candidate.note === 'last_used' && !selected ? ` (${lastUsed})` : '';
+    const suffix = selected && connectedSuffix ? ` (${connectedSuffix})` : note;
+    options.push(`<option value="${escapeHtml(JSON.stringify(candidate.payload || {}))}" data-option-key="${escapeHtml(candidate.id)}" ${selected}>${escapeHtml(candidate.label)}${escapeHtml(suffix)}</option>`);
   });
   const placeholder = candidates.length
-    ? t('sensorConnection.choose', 'Choose a device')
+    ? nounText(config, 'choose', t('sensorConnection.choose', 'Choose a device'))
     : nounText(config, 'searchPrompt', t('sensorConnection.searchPrompt', 'Please search for devices'));
-  const cta = connection.next_step === 'select' ? ' is-cta' : '';
+  const reason = stepBlockReason('select', connection, state);
+  const cta = connection.next_step === 'select' && !reason ? ' is-cta' : '';
+  const label = t(`plugins.${plugin.key}.actions.${selectAction.key}`, selectAction.label);
   return `<select class="dashboard-select sensor-connection-select${cta}" id="sensor-connection-${escapeHtml(plugin.key)}-select"
       data-connection-select data-plugin-key="${escapeHtml(plugin.key)}" data-plugin-admin-action="${escapeHtml(selectAction.key)}"
-      aria-label="${escapeHtml(t(`plugins.${plugin.key}.actions.${selectAction.key}`, selectAction.label))}" ${disabled ? 'disabled data-blocked' : ''}>
+      aria-label="${escapeHtml(label)}" title="${escapeHtml(reason || label)}" ${reason ? 'disabled data-blocked' : ''}>
       ${device?.id ? '' : `<option value="" selected disabled>${escapeHtml(placeholder)}</option>`}${options.join('')}
     </select>`;
+}
+
+function nounText(config, suffix, fallback) {
+  const key = config.device_noun_key;
+  return key ? t(suffix ? `${key}.${suffix}` : key, fallback) : fallback;
 }
 
 function renderStepButton(plugin, role, action, connection, state) {
   const reason = stepBlockReason(role, connection, state);
   const label = t(`plugins.${plugin.key}.actions.${action.key}`, action.label || role);
   const isCta = connection.next_step === role && !reason;
-  const title = reason || action.description || label;
-  return `<button type="button" class="${isCta ? 'btn-primary' : 'btn-secondary'} sensor-connection-step"
+  const title = reason ? `${label} – ${reason}` : (action.description ? `${label} – ${action.description}` : label);
+  return `<button type="button" class="sensor-connection-step${isCta ? ' is-cta' : ''}"
       data-connection-action="${escapeHtml(role)}" data-plugin-key="${escapeHtml(plugin.key)}"
       data-plugin-admin-action="${escapeHtml(action.key)}" ${reason ? 'disabled data-blocked' : ''}
       title="${escapeHtml(title)}" aria-label="${escapeHtml(label)}">
-      <i class="${ROLE_ICONS[role] || 'iconoir-flash'}"></i><span class="sensor-connection-step-label">${escapeHtml(label)}</span>
+      <i class="${ROLE_ICONS[role] || 'iconoir-flash'}" aria-hidden="true"></i>
+    </button>`;
+}
+
+/** Auto-reconnect: a pressed/unpressed button; a dot when it is armed right now. */
+function renderAutoReconnectToggle(plugin, action, connection, state) {
+  const auto = connection.auto_reconnect || {};
+  const enabled = auto.enabled !== false;
+  const active = enabled && Boolean(auto.active);
+  const reason = stepBlockReason('auto_reconnect', connection, state);
+  const label = t(`plugins.${plugin.key}.actions.${action.key}`, action.label || 'Auto-reconnect');
+  let meaning;
+  if (!enabled) {
+    meaning = t('sensorConnection.auto.off', 'Off – a lost connection waits for you.');
+  } else if (active) {
+    meaning = t('sensorConnection.auto.active', 'On and active – a lost connection is restored by itself.');
+  } else {
+    meaning = t('sensorConnection.auto.armed', 'On – takes effect once a device is connected and the study runs.');
+  }
+  const title = reason ? `${label} – ${reason}` : `${label}: ${meaning}`;
+  return `<button type="button" class="sensor-connection-step sensor-connection-toggle${enabled ? ' is-on' : ''}${active ? ' is-active' : ''}"
+      data-connection-action="auto_reconnect" data-lock-exempt data-plugin-key="${escapeHtml(plugin.key)}"
+      data-plugin-admin-action="${escapeHtml(action.key)}" aria-pressed="${enabled ? 'true' : 'false'}"
+      ${reason ? 'disabled data-blocked' : ''} title="${escapeHtml(title)}" aria-label="${escapeHtml(label)}">
+      <i class="${ROLE_ICONS.auto_reconnect}" aria-hidden="true"></i>
     </button>`;
 }
 
@@ -218,13 +284,15 @@ export function renderSensorConnectionPanel(plugin, manifest, state = {}) {
     ? `<span class="status-pill status-pill--ready"><i class="iconoir-check"></i> ${escapeHtml(t('sensorConnection.ready', 'Ready'))}</span>`
     : '';
   const stepRoles = STEP_ROLES.filter((role) => roles[role]);
-  const hasSteps = Boolean(roles.select || stepRoles.length);
-  const disabledSelect = state.locked || state.pending || phase === 'off' || ['searching', 'connecting'].includes(phase);
+  const hasSteps = Boolean(roles.select || stepRoles.length || roles.auto_reconnect);
+  const buttons = [
+    ...stepRoles.map((role) => renderStepButton(plugin, role, roles[role], connection, state)),
+    roles.auto_reconnect ? renderAutoReconnectToggle(plugin, roles.auto_reconnect, connection, state) : '',
+  ].join('');
   const steps = hasSteps ? `
     <div class="sensor-connection-steps">
-      ${roles.select ? renderDeviceSelect(plugin, manifest, connection, roles.select, disabledSelect) : '<span class="sensor-connection-device">'
-        + escapeHtml(connection.device?.label || '') + '</span>'}
-      ${stepRoles.map((role) => renderStepButton(plugin, role, roles[role], connection, state)).join('')}
+      ${roles.select ? renderDeviceSelect(plugin, manifest, connection, roles.select, state) : `<span class="sensor-connection-device">${escapeHtml(connection.device?.label || '')}</span>`}
+      <div class="sensor-connection-buttons" role="group" aria-label="${escapeHtml(t('sensorConnection.steps', 'Connection steps'))}">${buttons}</div>
     </div>` : '';
   const deviation = state.deviatesFromStudy
     ? `<p class="sensor-connection-note">${escapeHtml(t('sensorConnection.deviation', 'Differs from the loaded study until the study is loaded again.'))}

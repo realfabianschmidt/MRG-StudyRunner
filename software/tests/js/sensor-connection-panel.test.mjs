@@ -21,6 +21,7 @@ const manifest = {
       { key: 'scan_devices', role: 'scan', label: 'Search' },
       { key: 'check_contact', role: 'measure_signal', label: 'Measure contact' },
       { key: 'calibrate', role: 'initialize', label: 'Initialize' },
+      { key: 'auto_reconnect', role: 'auto_reconnect', label: 'Auto-reconnect', payload_schema: { enabled: { type: 'boolean' } } },
     ] },
   },
 };
@@ -30,12 +31,13 @@ const plugin = (connection, extra = {}) => ({
 });
 
 function ctaRole(html) {
-  const match = html.match(/class="btn-primary sensor-connection-step"[^>]*data-connection-action="([a-z_]+)"/);
+  const match = html.match(/class="sensor-connection-step is-cta"[^>]*data-connection-action="([a-z_]+)"/);
   return match ? match[1] : null;
 }
 
-test('without a known band, Search is the call to action and the list asks to search', () => {
-  const html = renderSensorConnectionPanel(plugin({ phase: 'no_device', next_step: 'scan', candidates: [] }), manifest);
+test('ready to connect without a known band: Search is the call to action and the list asks to search', () => {
+  const html = renderSensorConnectionPanel(plugin({ phase: 'idle', next_step: 'scan', candidates: [] }), manifest);
+  assert.match(html, />Ready to connect</);
   assert.equal(ctaRole(html), 'scan');
   assert.match(html, /<option value="" selected disabled>Please search for devices<\/option>/);
   assert.match(html, /data-connection-action="measure_signal"[^>]*disabled/);
@@ -43,7 +45,7 @@ test('without a known band, Search is the call to action and the list asks to se
   assert.doesNotMatch(html, /Connect</);
 });
 
-test('connected with poor contact: measure is the call to action, initialize waits', () => {
+test('connected with poor contact: measure is the call to action, initialize is still possible', () => {
   const connection = {
     phase: 'connected', streaming: true, next_step: 'measure_signal', ready: false,
     device: { id: 'serial:1', label: 'BrainBit 1' },
@@ -51,7 +53,7 @@ test('connected with poor contact: measure is the call to action, initialize wai
   };
   const html = renderSensorConnectionPanel(plugin(connection), manifest);
   assert.equal(ctaRole(html), 'measure_signal');
-  assert.match(html, /data-connection-action="initialize"[^>]*disabled/);
+  assert.doesNotMatch(html, /data-connection-action="initialize"[^>]*disabled/);
   assert.match(html, /Electrode contact poor \(O1, T3\)/);
   assert.doesNotMatch(html, /status-pill--ready/);
 });
@@ -78,11 +80,14 @@ test('the switch shows the running state, not the ability to stop', () => {
   assert.match(pending, /data-runtime-toggle="brainbit"(?![^>]*checked)[^>]*disabled/);
 });
 
-test('a recording session locks every step', () => {
+test('a recording session locks every step but the auto-reconnect switch', () => {
   const connection = { phase: 'connected', streaming: true, signal: { state: 'good' }, setup: { state: 'needed' } };
   assert.match(stepBlockReason('initialize', connection, { locked: true }), /Locked/);
+  assert.equal(stepBlockReason('auto_reconnect', connection, { locked: true }), '');
   const html = renderSensorConnectionPanel(plugin(connection), manifest, { locked: true });
   assert.equal((html.match(/data-connection-action="[a-z_]+"[^>]*disabled/g) || []).length, 3);
+  assert.match(html, /<select[^>]*disabled/);
+  assert.match(html, /data-connection-action="auto_reconnect" data-lock-exempt/);
 });
 
 test('a sensor without steps shows only its status and switch', () => {
@@ -93,6 +98,74 @@ test('a sensor without steps shows only its status and switch', () => {
   assert.doesNotMatch(html, /sensor-connection-steps/);
   assert.match(html, /no presence/);
   assert.match(html, /status-pill--ready/);
+});
+
+test('the list comes first and the four round buttons stay beside it', () => {
+  const html = renderSensorConnectionPanel(plugin({ phase: 'idle', next_step: 'scan', candidates: [] }), manifest);
+  const steps = html.slice(html.indexOf('sensor-connection-steps'));
+  assert.ok(steps.indexOf('<select') < steps.indexOf('sensor-connection-buttons'));
+  const group = steps.slice(steps.indexOf('sensor-connection-buttons'));
+  assert.deepEqual(
+    [...group.matchAll(/data-connection-action="([a-z_]+)"/g)].map((match) => match[1]),
+    ['scan', 'measure_signal', 'initialize', 'auto_reconnect'],
+  );
+  assert.doesNotMatch(html, /btn-primary sensor-connection-step|btn-secondary sensor-connection-step/);
+});
+
+test('while starting, everything but the switch waits', () => {
+  const html = renderSensorConnectionPanel(plugin({ phase: 'starting' }), manifest);
+  assert.match(html, />Starting …</);
+  assert.equal((html.match(/data-connection-action="[a-z_]+"[^>]*disabled/g) || []).length, 4);
+  assert.match(html, /<select[^>]*disabled/);
+  assert.match(html, /data-runtime-toggle="brainbit"[^>]*checked/);
+});
+
+test('searching blocks the list and the steps, but not auto-reconnect', () => {
+  const html = renderSensorConnectionPanel(plugin({ phase: 'searching' }), manifest);
+  assert.match(html, /<select[^>]*disabled/);
+  assert.match(html, /data-connection-action="scan"[^>]*disabled/);
+  assert.doesNotMatch(html, /data-connection-action="auto_reconnect"[^>]*disabled/);
+});
+
+test('reconnecting by itself leaves search and the list usable', () => {
+  const connection = { phase: 'reconnecting', device: { id: 'serial:1', label: 'BrainBit 1' },
+    auto_reconnect: { enabled: true, active: true } };
+  const html = renderSensorConnectionPanel(plugin(connection), manifest);
+  assert.doesNotMatch(html, /<select[^>]*disabled/);
+  assert.doesNotMatch(html, /data-connection-action="scan"[^>]*disabled/);
+  assert.match(html, /Connection lost – reconnecting …/);
+});
+
+test('the band used last time is offered, not pre-selected, so choosing it connects', () => {
+  const connection = { phase: 'idle', next_step: 'select', device: { id: 'serial:1', label: 'BrainBit 1' },
+    candidates: [{ id: 'serial:1', label: 'BrainBit 1', payload: { serial_number: '1' }, note: 'last_used' }] };
+  const html = renderSensorConnectionPanel(plugin(connection), manifest);
+  assert.match(html, /<option value="" selected disabled>Choose a device<\/option>/);
+  assert.match(html, /data-option-key="serial:1" >BrainBit 1 \(last used\)<\/option>/);
+  assert.match(html, /sensor-connection-select is-cta/);
+  assert.equal(ctaRole(html), null);
+});
+
+test('a lost connection names what happened and what to do', () => {
+  const connection = { phase: 'failed', detail: 'connection_lost', next_step: 'select',
+    candidates: [{ id: 'serial:1', label: 'BrainBit 1', payload: {}, note: 'last_used' }] };
+  const parts = connectionStatusText(connection, manifest);
+  assert.equal(parts[0], 'Connection lost');
+  assert.match(parts[1], /Choose the device again/);
+  const nothing = connectionStatusText({ phase: 'idle', detail: 'not_found' }, manifest);
+  assert.equal(nothing[0], 'Ready to connect');
+  assert.match(nothing[1], /Nothing found/);
+});
+
+test('the auto-reconnect switch shows its position and whether it is armed', () => {
+  const connected = { phase: 'connected', streaming: true, signal: { state: 'good' }, setup: { state: 'done' } };
+  const on = renderSensorConnectionPanel(plugin({ ...connected, auto_reconnect: { enabled: true, active: false } }), manifest);
+  assert.match(on, /sensor-connection-toggle is-on"[^>]*aria-pressed="true"/);
+  assert.match(on, /takes effect once a device is connected and the study runs/);
+  const active = renderSensorConnectionPanel(plugin({ ...connected, auto_reconnect: { enabled: true, active: true } }), manifest);
+  assert.match(active, /sensor-connection-toggle is-on is-active"/);
+  const off = renderSensorConnectionPanel(plugin({ ...connected, auto_reconnect: { enabled: false, active: false } }), manifest);
+  assert.match(off, /sensor-connection-toggle"[^>]*aria-pressed="false"/);
 });
 
 test('the connected device is selected even without scan results', () => {

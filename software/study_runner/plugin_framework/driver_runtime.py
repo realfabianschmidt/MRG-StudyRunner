@@ -314,6 +314,7 @@ def _context_from_payload(value: Any) -> PluginContext:
         local_secrets=_dict(value.get("local_secrets")),
         local_secrets_file=Path(str(value.get("local_secrets_file") or ".")).resolve(),
         runtime_locked=bool(value.get("runtime_locked", False)),
+        study_running=bool(value.get("study_running", False)),
         persist_hardware_config=persist if value.get("can_persist_hardware_config", True) else None,
         secret_resolver=resolve_plugin_secret,
     )

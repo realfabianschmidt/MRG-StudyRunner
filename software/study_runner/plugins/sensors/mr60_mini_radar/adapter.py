@@ -218,6 +218,12 @@ def is_configured() -> bool:
     return bool(_config)
 
 
+def set_auto_reconnect(enabled: bool) -> None:
+    """The operator's auto-reconnect switch; the read loops check it after each loss."""
+    if _config:
+        _config["auto_reconnect"] = bool(enabled)
+
+
 def ingest_sample(payload: dict[str, Any], *, source: str = "manual") -> dict[str, Any]:
     """Ingest one radar sample from serial parsing, BLE parsing, or a direct API path."""
     sample = _normalize_sample(payload)
@@ -288,6 +294,10 @@ def get_status() -> dict[str, Any]:
         str(status.get("status") or ""),
         running=bool(_running),
         message=str(status.get("last_message") or ""),
+        # The radar connects by itself when switched on, so the switch applies
+        # at once; there is no manual connection to wait for.
+        auto_reconnect=bool(_config.get("auto_reconnect", True)),
+        had_connection=True,
     )
     return status
 

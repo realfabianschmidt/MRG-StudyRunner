@@ -8,6 +8,7 @@
     "reconnect_delay_seconds": 3
   },
   "brainbit": {
+    "auto_reconnect": true,
     "auto_restart_max_attempts": 3,
     "debug": false,
     "device_address": "",

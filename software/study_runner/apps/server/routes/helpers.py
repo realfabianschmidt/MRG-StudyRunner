@@ -128,6 +128,8 @@ def _plugin_context(
     selected_config = json.loads(json.dumps(selected_config))
     baseline_config = json.loads(json.dumps(selected_config))
     runtime_locked = isinstance(app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"), dict)
+    run_state_store = app.config.get("STUDY_RUN_STATE")
+    study_running = bool(run_state_store) and run_state_store.public().get("status") == "running"
 
     def persist_hardware_config(updated_config: dict) -> None:
         safe_config = json.loads(json.dumps(updated_config))
@@ -147,6 +149,7 @@ def _plugin_context(
         local_secrets=app.config.get("LOCAL_SECRETS", {}),
         local_secrets_file=app.config["LOCAL_SECRETS_FILE"],
         runtime_locked=runtime_locked,
+        study_running=study_running,
         persist_hardware_config=persist_hardware_config,
     )
 

@@ -890,18 +890,30 @@ class _ControlCommands:
                       while the participant wears the band.
     RESET_CALIBRATION forget the calibration (a new participant); derived
                       metrics wait for the next CALIBRATE.
+    AUTO_RECONNECT_ON / AUTO_RECONNECT_OFF
+                      whether a lost or failed session is tried again, or
+                      ends this process so the operator decides.
     """
 
-    COMMANDS = ("MEASURE_CONTACT", "CALIBRATE", "RESET_CALIBRATION")
+    COMMANDS = (
+        "MEASURE_CONTACT", "CALIBRATE", "RESET_CALIBRATION",
+        "AUTO_RECONNECT_ON", "AUTO_RECONNECT_OFF",
+    )
 
     def __init__(self) -> None:
         self.measure_contact = threading.Event()
         self.calibrate = threading.Event()
         self.reset_calibration = threading.Event()
+        self.auto_reconnect = threading.Event()
+        self.auto_reconnect.set()
 
     def dispatch(self, line: str) -> bool:
         command = str(line or "").strip().upper()
-        if command == "MEASURE_CONTACT":
+        if command == "AUTO_RECONNECT_ON":
+            self.auto_reconnect.set()
+        elif command == "AUTO_RECONNECT_OFF":
+            self.auto_reconnect.clear()
+        elif command == "MEASURE_CONTACT":
             self.measure_contact.set()
         elif command == "CALIBRATE":
             self.reset_calibration.clear()
@@ -963,6 +975,15 @@ def main(argv: Optional[List[str]] = None):
         default=0,
         help="0 = keep reconnecting until stopped. Only tests set a limit.",
     )
+    ap.add_argument(
+        "--auto-reconnect",
+        choices=("on", "off"),
+        default="on",
+        help=(
+            "off = one attempt: a failed or lost session ends the process. "
+            "The host switches it at runtime with AUTO_RECONNECT_ON/OFF."
+        ),
+    )
 
     # staging (per SDK: Resist and Signal cannot run simultaneously)
     ap.add_argument("--no-resist", action="store_true")
@@ -1010,6 +1031,10 @@ def main(argv: Optional[List[str]] = None):
     osc = None if args.no_osc else SimpleUDPClient(args.osc_host, int(args.osc_port))
 
     stop_event = threading.Event()
+    if args.auto_reconnect == "off":
+        _CONTROL.auto_reconnect.clear()
+    else:
+        _CONTROL.auto_reconnect.set()
     if args.control_stdin:
         _CONTROL.start_reader()
 
@@ -1056,6 +1081,10 @@ def _run_until_stopped(args, osc, stop_event: threading.Event) -> int:
     First connection and reconnection are therefore the same code path, and
     there is no attempt ceiling: as long as the operator wants the band
     recording, this keeps reaching for it.
+
+    With auto-reconnect off (the host's default until a band is connected and
+    the study runs), a failed or lost session ends the process instead: the
+    operator decides, and no search runs behind their back.
     """
     attempts = 0
     max_attempts = max(0, int(getattr(args, "max_session_attempts", 0) or 0))
@@ -1090,6 +1119,8 @@ def _run_until_stopped(args, osc, stop_event: threading.Event) -> int:
             return exit_code
         if max_attempts and attempts >= max_attempts:
             return exit_code
+        if not _CONTROL.auto_reconnect.is_set():
+            return exit_code
 
         _print_json(
             "WAITING",
@@ -1102,6 +1133,9 @@ def _run_until_stopped(args, osc, stop_event: threading.Event) -> int:
         )
         _print(f"# Retrying in {RETRY_DELAY_SECONDS:.0f} s ...", flush=True)
         stop_event.wait(RETRY_DELAY_SECONDS)
+        if not _CONTROL.auto_reconnect.is_set():
+            # Switched off during the pause: no further attempt.
+            return exit_code
     return EXIT_OK
 
 

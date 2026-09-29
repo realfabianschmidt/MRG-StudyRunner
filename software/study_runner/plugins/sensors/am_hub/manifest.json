@@ -95,7 +95,18 @@
     "machine_settings": {},
     "study_settings": {},
     "interval_summary": {},
-    "sidecar_export": {}
+    "sidecar_export": {},
+    "admin_actions": {
+      "actions": [
+        {
+          "key": "auto_reconnect",
+          "role": "auto_reconnect",
+          "label": "Auto-reconnect",
+          "description": "Restore a lost AM Hub connection by itself.",
+          "payload_schema": {"enabled": {"type": "boolean", "required": true}}
+        }
+      ]
+    }
   },
   "streams": [
     {
@@ -157,6 +168,17 @@
       "channel_format": "float32",
       "channels": ["radarConnected", "radarTransport", "radarRssi", "radarRateHz", "radarLost", "radarLinkRttMs", "radarLatencyMs", "bioConnected", "bioTransport", "bioRssi", "bioRateHz", "bioLost", "bioLinkRttMs", "bioLatencyMs", "solenoidConnected", "solenoidTransport", "solenoidRssi", "solenoidRateHz", "solenoidLost", "solenoidLinkRttMs", "solenoidLatencyMs", "hubRttMs", "hubDroppedEvents"],
       "channel_units": ["boolean", "enum", "decibel_milliwatt", "hertz", "count", "millisecond", "millisecond", "boolean", "enum", "decibel_milliwatt", "hertz", "count", "millisecond", "millisecond", "boolean", "enum", "decibel_milliwatt", "hertz", "count", "millisecond", "millisecond", "millisecond", "count"]
+    },
+    {
+      "key": "hub_events",
+      "source_id": "study_runner.am_hub.hub_events",
+      "type": "HUB_EVENTS",
+      "nominal_rate_hz": 0,
+      "may_be_empty": true,
+      "clock_domain": "lsl",
+      "channel_format": "string",
+      "channels": ["event"],
+      "channel_units": ["json"]
     }
   ],
   "settings": {

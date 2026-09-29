@@ -248,6 +248,64 @@ class ReconnectLoopTests(unittest.TestCase):
         self.assertEqual(exit_code, cli.EXIT_BLE_UNAVAILABLE)
         self.assertNotIn("WAITING", [tag for tag, _ in lines])
 
+    def test_without_auto_reconnect_one_failed_attempt_ends_the_process(self) -> None:
+        """The operator decides; nothing keeps searching behind their back."""
+        band = FakeInfo(serial="WANTED")
+        scanner_class = _make_scanner(bands=(band,), connect_failures=1)
+        exit_code, lines = _run_cli(
+            scanner_class,
+            ["--serial-number", "WANTED", "--max-session-attempts", "5", "--auto-reconnect", "off"],
+        )
+
+        tags = [tag for tag, _ in lines]
+        self.assertEqual(exit_code, cli.EXIT_CONNECT_FAILED)
+        self.assertIn("CONNECT_FAILED", tags)
+        self.assertNotIn("WAITING", tags)
+        self.assertEqual(len(scanner_class.instances), 1)
+
+    def test_nothing_found_without_auto_reconnect_is_one_search(self) -> None:
+        scanner_class = _make_scanner(bands=())
+        exit_code, lines = _run_cli(scanner_class, ["--max-session-attempts", "5", "--auto-reconnect", "off"])
+
+        self.assertEqual(exit_code, cli.EXIT_NO_DEVICE_FOUND)
+        self.assertEqual([tag for tag, _ in lines].count("SCANNING"), 1)
+
+    def test_auto_reconnect_is_switched_at_runtime(self) -> None:
+        control = cli._ControlCommands()
+        self.assertTrue(control.auto_reconnect.is_set())
+        self.assertTrue(control.dispatch("AUTO_RECONNECT_OFF\n"))
+        self.assertFalse(control.auto_reconnect.is_set())
+        self.assertTrue(control.dispatch("auto_reconnect_on"))
+        self.assertTrue(control.auto_reconnect.is_set())
+
+    def test_switching_off_during_the_pause_ends_the_loop(self) -> None:
+        stop_event = threading.Event()
+        args = mock.Mock(max_session_attempts=0)
+        calls = []
+
+        def failing_session(*_args):
+            calls.append(True)
+            return cli.EXIT_CONNECT_FAILED
+
+        def pause(_seconds):
+            cli._CONTROL.auto_reconnect.clear()
+            return False
+
+        cli._CONTROL.auto_reconnect.set()
+        try:
+            with (
+                mock.patch.object(cli, "_run_session", side_effect=failing_session),
+                mock.patch.object(cli, "_release_active_sensor"),
+                mock.patch.object(stop_event, "wait", side_effect=pause),
+                redirect_stdout(io.StringIO()),
+            ):
+                exit_code = cli._run_until_stopped(args, None, stop_event)
+        finally:
+            cli._CONTROL.auto_reconnect.set()
+
+        self.assertEqual(exit_code, cli.EXIT_CONNECT_FAILED)
+        self.assertEqual(len(calls), 1)
+
     def test_a_stop_request_ends_the_loop_cleanly(self) -> None:
         stop_event = threading.Event()
         stop_event.set()

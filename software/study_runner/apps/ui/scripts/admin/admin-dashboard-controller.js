@@ -149,7 +149,11 @@ async function runConnectionStep(button, elements, showToast) {
     const device = connection.device?.label || pluginDisplayName(pluginKey);
     if (!window.confirm(t('sensorConnection.confirmScan', 'Searching disconnects {device}. Continue?').replace('{device}', device))) return;
   }
-  await postConnectionAction(pluginKey, actionKey, {}, elements, showToast);
+  // The auto-reconnect button is a switch: it sends the new position.
+  const payload = button.dataset.connectionAction === 'auto_reconnect'
+    ? { enabled: button.getAttribute('aria-pressed') !== 'true' }
+    : {};
+  await postConnectionAction(pluginKey, actionKey, payload, elements, showToast);
 }
 
 async function runConnectionSelect(select, elements, showToast) {
@@ -444,10 +448,13 @@ function pluginActionPending(pluginKey) {
 
 function updatePluginActionAvailability(tile, pluginKey) {
   if (!tile) return;
-  const blocked = tile.dataset.runtimeLocked === 'true' || pluginActionPending(pluginKey);
+  const locked = tile.dataset.runtimeLocked === 'true';
+  const pending = pluginActionPending(pluginKey);
   tile.querySelectorAll('[data-plugin-admin-action], select[data-action-key]').forEach((node) => {
-    // A connection step the panel disabled for a reason stays disabled.
-    node.disabled = blocked || node.hasAttribute('data-blocked');
+    // A connection step the panel disabled for a reason stays disabled; a
+    // lock-exempt control (auto-reconnect) stays usable while recording.
+    const lockBlocks = locked && !node.hasAttribute('data-lock-exempt');
+    node.disabled = lockBlocks || pending || node.hasAttribute('data-blocked');
   });
 }
 

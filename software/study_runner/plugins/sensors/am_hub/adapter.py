@@ -18,6 +18,7 @@ hub, completing the per-board latency (see README.md).
 from __future__ import annotations
 
 import atexit
+import codecs
 import contextlib
 import json
 import threading
@@ -110,7 +111,13 @@ EMPTY_AT_ORIGIN: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("t3x", "t3y", ("t3x", "t3y", "t3speed", "t3res")),
 )
 NEAREST_TARGET_CHANNELS: tuple[str, ...] = ("personDist", "personX", "personY")
-LSL_SOURCE_IDS = {key: f"study_runner.am_hub.{key}" for key in STREAM_CHANNELS}
+# Every hub event, verbatim, as one JSON string per event: frames with all
+# their values, seq, sender and hub time, status, valves, scene, gap, hello,
+# plus this adapter's own "link" events when the connection drops or returns.
+# Nothing the hub sends is filtered, converted or lost in the recording --
+# including topics this adapter does not know yet.
+EVENTS_STREAM = "hub_events"
+LSL_SOURCE_IDS = {key: f"study_runner.am_hub.{key}" for key in (*STREAM_CHANNELS, EVENTS_STREAM)}
 LSL_CHANNEL_UNITS: dict[str, tuple[str, ...]] = {
     "presence": ("boolean", "enum", "millimetre", "arbitrary_unit", "arbitrary_unit", "count"),
     "position": (
@@ -124,6 +131,7 @@ LSL_CHANNEL_UNITS: dict[str, tuple[str, ...]] = {
     "valves": ("boolean",) * 9,
     "hub_status": ("boolean", "enum", "decibel_milliwatt", "hertz", "count", "millisecond", "millisecond") * 3
     + ("millisecond", "count"),
+    EVENTS_STREAM: ("json",),
 }
 # Dashboard trend-graph channels -- a subset of STREAM_CHANNELS, matching
 # ui/dashboard.js's TREND_CONFIG.
@@ -136,10 +144,22 @@ PUBLISH_RATE_HZ = 10.0
 # (None -> NaN) rather than silently carried forward as if it were live.
 # Matches manifest.json's capabilities.backup_projection.stale_after_ms.
 TOPIC_STALE_SECONDS = 2.5
-# v2 sends a status event 10x per second, so a connection silent for this
-# long is dead (e.g. hub power loss) and is replaced instead of blocking forever.
-READ_TIMEOUT_SECONDS = 10.0
+# v2 sends a status event 10x per second, so a v2 connection silent for 2 s
+# is dead (WiFi dropout, hub restart) and is replaced at once. v1 only sends
+# a keepalive every 15 s. The socket read timeout IS the watchdog: it ends a
+# silent stream on every platform, whereas closing a socket from another
+# thread does not interrupt a blocked read on Windows.
+LINK_IDLE_SECONDS = {"v2": 2.0, "v1": 35.0}
+READ_TIMEOUT_SECONDS = dict(LINK_IDLE_SECONDS)
+CONNECT_TIMEOUT_SECONDS = 3.0
+# Reconnect at once, then back off briefly; never longer than 2 s.
+RECONNECT_BACKOFF_SECONDS = (0.0, 0.5, 1.0, 2.0)
 PING_INTERVAL_SECONDS = 1.0
+# A person counts as detected when any fresh source sees one: the LD2410B
+# presence flag, a tracked LD2450 target, or MR60 distance / vital signs.
+PERSON_FLAG_TOPIC = "/sensor/presence"
+PERSON_TARGETS_TOPIC = "/sensor/targetCount"
+PERSON_VITAL_TOPICS = ("/sensor/bioDist", "/sensor/heartBpm", "/sensor/breathRate")
 # Package 5d (docs/archive/architecture-1.0-umbau.md): this plugin's own frozen
 # stream contract, for the desc/study_runner XDF header block only.
 STREAM_CONTRACTS = load_own_stream_contracts(__file__)
@@ -170,7 +190,11 @@ _ping_thread: threading.Thread | None = None
 _hub_rtts: deque[float] = deque(maxlen=5)
 _hub_boards: dict[str, dict[str, Any]] = {}
 _hub_dropped_events = 0
+# What the hub says about its own host (hello event), e.g. WiFi power saving.
+_hub_host: dict[str, Any] = {}
 _frame_counts: dict[str, int] = {}
+# Arrival times of the last frames per board (for its live rate and age).
+_frame_times: dict[str, deque[float]] = {}
 _seq_gaps: dict[str, int] = {}
 _last_seq: dict[str, int] = {}
 _lost_baseline: dict[str, float] = {}
@@ -190,6 +214,28 @@ _latest_state: dict[str, Any] = {
     "latest": {},
     "last_message": "AM Hub adapter has not been configured.",
 }
+# The connection to the hub, kept apart from the data: only the stream
+# reader changes it, so the 10 Hz publisher can never claim "connected".
+#   state            idle | connecting | open | lost
+#   opened_at        when the current stream was opened (local epoch)
+#   last_event_at    when the last event of any kind arrived (local epoch)
+#   close_reason     set by the watchdog before it closes a silent stream
+_link_lock = threading.Lock()
+_link: dict[str, Any] = {}
+_event_times: deque[float] = deque(maxlen=400)
+
+
+def _reset_link() -> None:
+    with _link_lock:
+        _link.clear()
+        _link.update({
+            "state": "idle", "opened_at": None, "last_event_at": None, "close_reason": "",
+            "reconnects": 0, "last_loss": None, "last_error": "",
+        })
+        _event_times.clear()
+
+
+_reset_link()
 
 
 def initialize(
@@ -256,10 +302,11 @@ def start() -> dict[str, Any]:
             return get_status()
         old_threads = [t for t in (_reader_thread, _publisher_thread, _ping_thread) if t is not None]
     # Let the previous run's threads finish first (they exit on the
-    # generation change; the reader at the latest after its read timeout).
+    # generation change; stop() closes the stream, so the reader returns at
+    # once, at the latest after its read timeout).
     for thread in old_threads:
         if thread is not threading.current_thread():
-            thread.join(timeout=READ_TIMEOUT_SECONDS + 1.0)
+            thread.join(timeout=READ_TIMEOUT_SECONDS["v2"] + CONNECT_TIMEOUT_SECONDS)
 
     with _lock:
         if _running:
@@ -275,12 +322,15 @@ def start() -> dict[str, Any]:
             _topics.clear()
         _hub_rtts.clear()
         _hub_boards.clear()
+        _hub_host.clear()
         _frame_counts.clear()
+        _frame_times.clear()
         _seq_gaps.clear()
         _last_seq.clear()
         _lost_baseline.clear()
         _hub_dropped_events = 0
         _clear_preview()
+        _reset_link()
         _reader_thread = threading.Thread(target=_sse_loop, args=(generation,), daemon=True)
         _publisher_thread = threading.Thread(target=_publish_loop, args=(generation,), daemon=True)
         _ping_thread = threading.Thread(target=_ping_loop, args=(generation,), daemon=True)
@@ -288,7 +338,7 @@ def start() -> dict[str, Any]:
         _publisher_thread.start()
         _ping_thread.start()
 
-    _set_state({"status": "starting", "last_message": "AM Hub stream starting."})
+    _set_state({"status": "connecting", "last_message": f"Connecting to the AM Hub at {_config.get('base_url')}."})
     return get_status()
 
 
@@ -300,9 +350,12 @@ def stop() -> dict[str, Any]:
         _running = False
         _generation += 1
         _stop_event.set()
-        if _active_response is not None:
-            with contextlib.suppress(Exception):
-                _active_response.close()
+        response = _active_response
+    # Outside the lock: closing can wait for the reader's read to return.
+    if response is not None:
+        _abort_response(response)
+    with _link_lock:
+        _link["state"] = "idle"
 
     _set_state({"status": "stopped", "last_message": "AM Hub stream stopped."})
     return get_status()
@@ -322,6 +375,12 @@ def is_configured() -> bool:
     return bool(_config)
 
 
+def set_auto_reconnect(enabled: bool) -> None:
+    """The operator's auto-reconnect switch; the read loop checks it after each loss."""
+    if _config:
+        _config["auto_reconnect"] = bool(enabled)
+
+
 def ingest_sample(payload: dict[str, Any], *, source: str = "manual") -> dict[str, Any]:
     """Ingest one combined AM Hub sample (one value per declared channel)."""
     sample = _normalize_sample(payload)
@@ -331,15 +390,10 @@ def ingest_sample(payload: dict[str, Any], *, source: str = "manual") -> dict[st
     _history.append(dict(sample))
     _update_preview(sample)
 
-    _set_state(
-        {
-            "status": "connected" if sample.get("presence") else "no_presence",
-            "latest": sample,
-            "last_activity_at": sample["server_received_at"],
-            "last_activity_epoch": sample["_epoch"],
-            "last_message": "AM Hub sample received.",
-        }
-    )
+    # Only the sample. Whether the hub is connected and whether a person is
+    # there is decided in get_status() from the link and the topics -- this
+    # runs on a fixed tick even while the hub is unreachable.
+    _set_state({"latest": sample})
     if _config.get("lsl_enabled"):
         _push_lsl_sample(sample)
     return sample
@@ -370,6 +424,7 @@ def get_status() -> dict[str, Any]:
     status["streams"] = list(_lsl_outlets.keys())
     status["auto_reconnect"] = bool(_config.get("auto_reconnect", True))
     status["api_version"] = _api_version
+    status["hub_host"] = dict(_hub_host)
     status["hub_boards"] = {role: dict(info) for role, info in _hub_boards.items()}
     status["hub_rtt_ms"] = _hub_rtt_ms()
     status["data_quality"] = {
@@ -380,20 +435,33 @@ def get_status() -> dict[str, Any]:
     with _preview_lock:
         status["preview"] = {key: list(points) for key, points in _preview.items()}
 
+    now = time.time()
     # Freshness is judged by when a topic last actually updated, not by the
     # sample's own _epoch -- that is always "now", since combined samples
     # publish on a fixed tick regardless of whether the hub sent anything new.
     with _topics_lock:
         last_topic_epoch = _last_topic_update_epoch
+        topics = {addr: dict(entry) for addr, entry in _topics.items()}
     if last_topic_epoch is not None:
         status["last_activity_epoch"] = last_topic_epoch
         status["last_activity_at"] = timestamp(last_topic_epoch)
-        age = max(0.0, time.time() - last_topic_epoch)
-        status["seconds_since_last_activity"] = round(age, 3)
-        timeout = float(_config.get("data_timeout_seconds", 5.0))
-        if _running and age > timeout and status.get("status") in {"connected", "no_presence", "starting"}:
-            status["status"] = "stale"
-            status["last_message"] = f"No AM Hub data for {age:.1f}s."
+        status["seconds_since_last_activity"] = round(max(0.0, now - last_topic_epoch), 3)
+
+    person = _person(topics, now)
+    status["person"] = person
+    status["link"] = _link_status(now)
+    status["boards"] = _board_status(now)
+    # Everything the hub sent, as sent: raw value and age per topic address.
+    status["topics"] = {
+        addr: {"value": entry["value"], "age_s": round(max(0.0, now - entry["received_at"]), 2)}
+        for addr, entry in sorted(topics.items())
+        if not addr.startswith("hub:")
+    }
+    status["unknown_topics"] = sorted(
+        addr for addr in topics if not addr.startswith("hub:") and addr not in TOPIC_CHANNELS
+    )
+    if _running:
+        status.update(_link_derived_status(status["link"], person))
 
     # The live running state (not the configured one) and the shared
     # connection facts every sensor reports; the core derives ready/next step.
@@ -402,6 +470,10 @@ def get_status() -> dict[str, Any]:
         str(status.get("status") or ""),
         running=bool(_running),
         message=str(status.get("last_message") or ""),
+        # The hub connects by itself when switched on, so the switch applies
+        # at once; there is no manual connection to wait for.
+        auto_reconnect=bool(_config.get("auto_reconnect", True)),
+        had_connection=True,
     )
     return status
 
@@ -439,82 +511,323 @@ def export_interval_samples(start_epoch: float, end_epoch: float) -> list[dict[s
 
 
 def _sse_loop(generation: int) -> None:
+    """Hold one stream to the hub; replace a dead one at once.
+
+    A stream counts as dead when the hub sends no byte for LINK_IDLE_SECONDS:
+    the socket read times out and the reader returns. The next attempt
+    follows immediately, then after 0.5 / 1 / 2 s.
+    """
     global _running, _active_response, _api_version
 
-    last_attempt = 0.0
+    session = _stream_session()
+    failures = 0
     prefer_v2 = True
-    while _alive(generation):
-        now = time.time()
-        delay = float(_config.get("reconnect_delay_seconds", 3.0))
-        if now - last_attempt < delay:
-            _stop_event.wait(0.2)
-            continue
-        last_attempt = now
+    try:
+        while _alive(generation):
+            delay = RECONNECT_BACKOFF_SECONDS[min(failures, len(RECONNECT_BACKOFF_SECONDS) - 1)]
+            if delay and _stop_event.wait(delay):
+                break
+            if not _alive(generation):
+                break
 
-        import requests
+            version = "v2" if prefer_v2 else "v1"
+            prefer_v2 = True  # v1 is only this attempt's fallback; a hub may gain v2
+            response = None
+            reason = ""
+            delivered = False
+            _link_update(state="connecting", close_reason="")
+            try:
+                response = session.get(
+                    f"{_config['base_url']}/api/{version}/stream",
+                    params={"client": _client_id()},
+                    stream=True,
+                    timeout=(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS[version]),
+                )
+                if version == "v2" and response.status_code == 404:
+                    prefer_v2 = False  # older hub without /api/v2: try v1 right away
+                    failures = 0
+                    continue
+                response.raise_for_status()
+                with _lock:
+                    if not _alive(generation):
+                        break
+                    _active_response = response
+                _api_version = version
+                _link_opened(version)
+                delivered = _read_sse_events(response, generation)
+                reason = "the hub closed the stream"
+            except Exception as error:
+                reason = _describe_error(error)
+            finally:
+                with _lock:
+                    if _active_response is response:
+                        _active_response = None
+                if response is not None:
+                    with contextlib.suppress(Exception):
+                        response.close()
 
-        version = "v2" if prefer_v2 else "v1"
-        prefer_v2 = True  # v1 is only this attempt's fallback; a hub may gain v2
-        response = None
-        try:
-            _set_state({"status": "waiting", "last_message": f"Connecting to AM Hub at {_config.get('base_url')} ({version})."})
-            # Read timeout: v2 sends 10 status events/s, v1 a keepalive every
-            # 15 s - a longer silence means the connection is dead.
-            response = requests.get(f"{_config['base_url']}/api/{version}/stream", stream=True,
-                                    timeout=(5, READ_TIMEOUT_SECONDS if version == "v2" else 30.0))
-            if version == "v2" and response.status_code == 404:
-                prefer_v2 = False  # older hub without /api/v2
-                last_attempt = 0.0
-                continue
-            response.raise_for_status()
-            with _lock:
-                if not _alive(generation):
-                    break
-                _active_response = response
-            _api_version = version
-            _set_state({"status": "starting", "last_message": f"AM Hub stream connected ({version}), waiting for data."})
-            _read_sse_events(response, generation)
-        except Exception as error:
-            if _alive(generation):
-                _set_state({"status": "waiting", "last_message": f"AM Hub connection failed: {error}"})
-        finally:
-            with _lock:
-                if _active_response is response:
-                    _active_response = None
-            if response is not None:
-                with contextlib.suppress(Exception):
-                    response.close()
-
-        if not _config.get("auto_reconnect", True):
-            break
-
-    with _lock:
-        if generation == _generation:
-            _running = False
+            if not _alive(generation):
+                break
+            with _link_lock:
+                reason = _link.get("close_reason") or reason
+            _link_lost(reason)
+            failures = 0 if delivered else failures + 1
+            if not _config.get("auto_reconnect", True):
+                break
+    finally:
+        with contextlib.suppress(Exception):
+            session.close()
+        with _lock:
+            if generation == _generation:
+                _running = False
 
 
-def _read_sse_events(response: Any, generation: int | None = None) -> None:
+def _read_sse_events(response: Any, generation: int | None = None) -> bool:
+    """Hand every event over the moment its bytes arrive. True if any came.
+
+    ``iter_lines`` waited for 512-byte blocks; ``iter_content(None)`` yields
+    each chunk of the chunked stream as soon as it is received.
+    """
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    pending = ""
     data_lines: list[str] = []
-    for raw_line in response.iter_lines(decode_unicode=True):
+    delivered = False
+    chunked = getattr(getattr(response, "raw", None), "chunked", True)
+    for chunk in response.iter_content(chunk_size=None if chunked is not False else 1):
         if not _running or (generation is not None and generation != _generation):
             break
-        if raw_line is None:
+        if not chunk:
             continue
-        line = raw_line.rstrip("\r")
-        if line == "":
-            if data_lines:
-                _handle_sse_event("\n".join(data_lines))
-                data_lines = []
+        pending += decoder.decode(chunk) if isinstance(chunk, bytes) else chunk
+        while "\n" in pending:
+            line, pending = pending.split("\n", 1)
+            line = line.rstrip("\r")
+            if line == "":
+                if data_lines:
+                    _handle_sse_event("\n".join(data_lines))
+                    delivered = True
+                    data_lines = []
+                continue
+            if line.startswith(":"):
+                _link_heard()  # keepalive: the hub is there
+                continue
+            if line.startswith("data:"):
+                data_lines.append(line[len("data:"):].lstrip(" "))
+            # "event:"/"id:"/"retry:" fields are unused -- the hub only sends
+            # default "message" events, distinguished by their "type" field.
+    return delivered
+
+
+def _stream_session() -> Any:
+    """A requests session whose sockets notice a dead peer and send at once."""
+    import socket
+
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    options = [(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1), (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)]
+    for name, value in (("TCP_KEEPIDLE", 5), ("TCP_KEEPINTVL", 2), ("TCP_KEEPCNT", 3)):
+        if hasattr(socket, name):
+            options.append((socket.IPPROTO_TCP, getattr(socket, name), value))
+    usable = []
+    probe = socket.socket()
+    try:
+        for option in options:
+            try:
+                probe.setsockopt(*option)
+                usable.append(option)
+            except OSError:
+                pass  # not supported on this platform: skip it, never fail the connect
+    finally:
+        probe.close()
+
+    class _KeepAliveAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
+            kwargs["socket_options"] = usable
+            super().init_poolmanager(*args, **kwargs)
+
+    session = requests.Session()
+    session.mount("http://", _KeepAliveAdapter())
+    session.mount("https://", _KeepAliveAdapter())
+    return session
+
+
+def _client_id() -> str:
+    """One stable name per computer: the hub replaces this computer's old stream."""
+    import socket
+
+    return f"study-runner-{socket.gethostname()}"
+
+
+def _describe_error(error: Exception) -> str:
+    text = str(error) or type(error).__name__
+    if "read timed out" in text.lower():
+        # The watchdog in plain words: the hub fell silent.
+        with _link_lock:
+            api = _link.get("api") or "v2"
+        return f"no data from the hub for {READ_TIMEOUT_SECONDS.get(api, READ_TIMEOUT_SECONDS['v2']):.0f} s"
+    return text if len(text) <= 160 else text[:157] + "..."
+
+
+def _link_update(**values: Any) -> None:
+    with _link_lock:
+        _link.update(values)
+
+
+def _link_opened(version: str) -> None:
+    now = time.time()
+    with _link_lock:
+        _link.update(state="open", opened_at=now, api=version, last_error="")
+    _push_link_event("connected", "")
+
+
+def _link_heard(at: float | None = None) -> None:
+    moment = at if at is not None else time.time()
+    with _link_lock:
+        _link["last_event_at"] = moment
+    _event_times.append(moment)
+
+
+def _link_lost(reason: str) -> None:
+    now = time.time()
+    with _link_lock:
+        was_open = _link.get("state") == "open"
+        _link.update(state="lost", last_error=reason, close_reason="")
+        if was_open:
+            _link["reconnects"] = int(_link.get("reconnects") or 0) + 1
+            _link["last_loss"] = {"at": timestamp(now), "epoch": now, "reason": reason}
+    if was_open:
+        _push_link_event("lost", reason)
+        print(f"[AmHub] Connection lost ({reason}); reconnecting.")
+
+
+def _abort_response(response: Any) -> None:
+    """Cut a stream so the thread blocked reading it returns at once.
+
+    ``close()`` alone does not interrupt a read blocked in another thread on
+    every platform (on Windows the reader sat out its read timeout); shutting
+    the socket down does.
+    """
+    import socket
+
+    sock = None
+    raw = getattr(response, "raw", None)
+    for path in (("_connection", "sock"), ("_fp", "fp", "raw", "_sock")):
+        candidate: Any = raw
+        for name in path:
+            candidate = getattr(candidate, name, None)
+            if candidate is None:
+                break
+        if candidate is not None and hasattr(candidate, "shutdown"):
+            sock = candidate
+            break
+    if sock is not None:
+        with contextlib.suppress(OSError):
+            sock.shutdown(socket.SHUT_RDWR)
+    with contextlib.suppress(Exception):
+        response.close()
+
+
+def _link_status(now: float) -> dict[str, Any]:
+    with _link_lock:
+        link = dict(_link)
+    recent = [moment for moment in list(_event_times) if now - moment <= 2.0]
+    last_event = link.get("last_event_at")
+    return {
+        "state": link.get("state"),
+        "api": link.get("api"),
+        "connected_for_s": round(now - link["opened_at"], 1) if link.get("state") == "open" and link.get("opened_at") else None,
+        "last_event_age_s": round(max(0.0, now - last_event), 2) if last_event else None,
+        "events_per_s": round(len(recent) / 2.0, 1),
+        "reconnects": int(link.get("reconnects") or 0),
+        "last_loss": link.get("last_loss"),
+        "last_error": link.get("last_error") or "",
+    }
+
+
+def _link_derived_status(link: dict[str, Any], person: dict[str, Any]) -> dict[str, Any]:
+    """The plain status from the link: connected only while events arrive."""
+    state = link.get("state")
+    age = link.get("last_event_age_s")
+    limit = LINK_IDLE_SECONDS.get(link.get("api") or "v2", LINK_IDLE_SECONDS["v2"])
+    if state == "open" and age is not None and age <= limit:
+        if person["detected"]:
+            return {"status": "connected", "last_message": "AM Hub connected; person detected."}
+        return {"status": "no_presence", "last_message": "AM Hub connected; no person detected."}
+    if link.get("last_event_age_s") is None:
+        error = link.get("last_error")
+        message = f"AM Hub not reachable: {error}" if error else f"Connecting to the AM Hub at {_config.get('base_url')}."
+        return {"status": "connecting", "last_message": message}
+    reason = link.get("last_error") or (link.get("last_loss") or {}).get("reason") or "no data"
+    return {"status": "stale", "last_message": f"Connection to the AM Hub lost ({reason}); reconnecting."}
+
+
+def _person(topics: dict[str, dict[str, Any]], now: float) -> dict[str, Any]:
+    """Whether any fresh source sees a person, and which ones do."""
+
+    def fresh(addr: str) -> float | None:
+        entry = topics.get(addr)
+        if entry is None or now - entry["received_at"] > TOPIC_STALE_SECONDS:
+            return None
+        return entry["value"]
+
+    sources = []
+    if (fresh(PERSON_FLAG_TOPIC) or 0) > 0:
+        sources.append("presence")
+    if (fresh(PERSON_TARGETS_TOPIC) or 0) >= 1:
+        sources.append("position")
+    if any((fresh(addr) or 0) > 0 for addr in PERSON_VITAL_TOPICS):
+        sources.append("vitals")
+    return {"detected": bool(sources), "sources": sources}
+
+
+def _board_status(now: float) -> dict[str, Any]:
+    """Per board: frames per second over the last 2 s and age of the last frame."""
+    boards: dict[str, Any] = {}
+    silent_after = float(_config.get("data_timeout_seconds", 5.0))
+    for board, times in list(_frame_times.items()):
+        moments = list(times)
+        if not moments:
             continue
-        if line.startswith(":"):
-            continue  # SSE comment/heartbeat line.
-        if line.startswith("data:"):
-            data_lines.append(line[len("data:"):].strip())
-        # "event:"/"id:"/"retry:" fields are unused -- the hub only sends
-        # default "message" events, distinguished by their "type" field.
+        age = max(0.0, now - moments[-1])
+        recent = [moment for moment in moments if now - moment <= 2.0]
+        boards[board] = {
+            "rate_hz": round(len(recent) / 2.0, 1),
+            "age_s": round(age, 2),
+            "frames": _frame_counts.get(board, 0),
+            "live": age <= silent_after,
+        }
+    return boards
+
+
+def _push_link_event(state: str, reason: str) -> None:
+    """Mark a connection change in the recorded event stream, so every gap is visible."""
+    now = time.time()
+    _push_raw_event(json.dumps(
+        {"type": "link", "source": "study_runner", "state": state, "reason": reason,
+         "client_time": now, "api": _link.get("api")},
+        separators=(",", ":"),
+    ))
+
+
+def _push_raw_event(data: str) -> None:
+    outlet = _lsl_outlets.get(EVENTS_STREAM.upper())
+    if outlet is None:
+        return
+    try:
+        outlet.push_sample([data])
+    except Exception as error:
+        print(f"[AmHub] Could not push a hub event to LSL: {error}")
 
 
 def _handle_sse_event(data: str) -> None:
+    # Freshness is always judged on this machine's clock: a value counts as
+    # received when it arrives here. Hub timestamps only ever say how old a
+    # value already was on arrival (hub clock minus hub clock).
+    received = time.time()
+    _link_heard(received)
+    # Recorded first and verbatim, whatever it contains.
+    _push_raw_event(data)
     try:
         payload = json.loads(data)
     except json.JSONDecodeError:
@@ -522,16 +835,15 @@ def _handle_sse_event(data: str) -> None:
     if not isinstance(payload, dict):
         return
 
-    # Freshness is always judged on this machine's clock: a value counts as
-    # received when it arrives here. Hub timestamps only ever say how old a
-    # value already was on arrival (hub clock minus hub clock).
-    received = time.time()
     event_type = payload.get("type")
     if event_type == "frame":
         _handle_frame(payload, received)
     elif event_type in ("status", "hello"):
         devices = payload.get("devices") if event_type == "status" else payload.get("status")
         _handle_hub_status(devices, received)
+        if event_type == "hello" and isinstance(payload.get("host"), dict):
+            _hub_host.clear()
+            _hub_host.update(payload["host"])
     elif event_type == "valves":
         _update_topic("hub:sceneActive", 1.0 if payload.get("scene_active") else 0.0, received)
     elif event_type == "scene":
@@ -541,7 +853,7 @@ def _handle_sse_event(data: str) -> None:
     elif event_type == "init":
         hub_now = _to_float(payload.get("t"))
         for addr, info in (payload.get("topics") or {}).items():
-            if addr not in TOPIC_CHANNELS or not isinstance(info, dict):
+            if not isinstance(info, dict):
                 continue
             samples = info.get("samples") or []
             if samples:
@@ -551,7 +863,8 @@ def _handle_sse_event(data: str) -> None:
                 _update_topic(addr, last_value, received - age)
     elif event_type == "sample":
         addr = payload.get("addr")
-        if addr in TOPIC_CHANNELS:
+        if isinstance(addr, str) and addr:
+            # Every topic is kept, known or not: nothing the hub sends vanishes.
             _update_topic(addr, payload.get("value"), received)
     # "tick" (v1) and "valve_change" carry nothing the fixed tick needs.
 
@@ -570,7 +883,11 @@ def _handle_frame(payload: dict[str, Any], received: float) -> None:
             _seq_gaps[device] = _seq_gaps.get(device, 0) + seq - previous - 1
         _last_seq[device] = seq
     _frame_counts[device] = _frame_counts.get(device, 0) + 1
-    _update_topics({addr: value for addr, value in values.items() if addr in TOPIC_CHANNELS}, received)
+    # Per board by its role (radar, bio, solenoid), as the hub names it.
+    board = str(payload.get("role") or device)
+    _frame_times.setdefault(board, deque(maxlen=64)).append(received)
+    # All values, known topics or not (for example the WiFi-only RSSI).
+    _update_topics({str(addr): value for addr, value in values.items() if addr}, received)
 
 
 def _handle_hub_status(devices: Any, received: float) -> None:
@@ -789,7 +1106,23 @@ def _initialize_lsl_outlets() -> None:
         apply_stream_contract_desc(info, STREAM_CONTRACTS[suffix])
         return StreamOutlet(info)
 
+    def create_events_outlet() -> Any:
+        info = StreamInfo(
+            name=f"{prefix}_{EVENTS_STREAM.upper()}",
+            type=EVENTS_STREAM.upper(),
+            channel_count=1,
+            nominal_srate=0.0,  # irregular: one sample per hub event
+            channel_format="string",
+            source_id=LSL_SOURCE_IDS[EVENTS_STREAM],
+        )
+        channel = info.desc().append_child("channels").append_child("channel")
+        channel.append_child_value("label", "event")
+        channel.append_child_value("unit", LSL_CHANNEL_UNITS[EVENTS_STREAM][0])
+        apply_stream_contract_desc(info, STREAM_CONTRACTS[EVENTS_STREAM])
+        return StreamOutlet(info)
+
     _lsl_outlets = {key.upper(): create_outlet(key) for key in STREAM_CHANNELS}
+    _lsl_outlets[EVENTS_STREAM.upper()] = create_events_outlet()
     print("[AmHub] LSL outlets ready.")
 
 

@@ -504,7 +504,7 @@ def _normalize_capability_config(name: str, config: dict[str, Any]) -> dict[str,
 # Roles an admin action can play in the shared sensor connection panel. The
 # core decides which role is the next step (the call to action) from the
 # plugin's reported connection state, so every sensor guides the same way.
-ADMIN_ACTION_ROLES = ("select", "scan", "measure_signal", "initialize")
+ADMIN_ACTION_ROLES = ("select", "scan", "measure_signal", "initialize", "auto_reconnect")
 
 
 def _normalize_connection_capability(config: dict[str, Any]) -> dict[str, Any]:

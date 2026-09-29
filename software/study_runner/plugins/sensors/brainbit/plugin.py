@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import config_section, runtime_path_setting
+from study_runner.plugin_framework.sensor_connection import auto_reconnect_active
 from study_runner.contracts.plugin_api import PluginContext, Plugin
 
 
@@ -14,7 +15,12 @@ DEFAULT_BRAINBIT = {
     "working_dir": "study_runner/plugins/sensors/brainbit",
     "log_dir": "study_runner/plugins/sensors/brainbit/logs",
 }
+# The operator connects the band by hand (Search, or a band from the list).
+_CONNECT_ROLES = ("scan", "select")
 _remembered_connection = None
+# The operator's auto-reconnect switch. None until they use it: then the
+# machine setting decides. Kept for the life of the driver, across restarts.
+_auto_reconnect_choice: bool | None = None
 
 
 def _read_json_file(path: Path) -> dict[str, Any]:
@@ -63,18 +69,18 @@ def _is_inside_bundle(context: PluginContext, candidate: str) -> bool:
     return True
 
 
-def _has_known_band(config: dict[str, Any]) -> bool:
-    """A band was chosen or connected before, so it can be reconnected automatically."""
-    last_connected = config.get("last_connected_device") or {}
-    return bool(
-        config.get("serial_number")
-        or config.get("device_address")
-        or config.get("device_name")
-        or (isinstance(last_connected, dict) and (last_connected.get("serial_number") or last_connected.get("address")))
-    )
+def _auto_reconnect_enabled(config: dict[str, Any]) -> bool:
+    if _auto_reconnect_choice is not None:
+        return _auto_reconnect_choice
+    return bool(config.get("auto_reconnect", True))
 
 
-def _initialize(context: PluginContext, *, scan_requested: bool = False) -> None:
+def _initialize(context: PluginContext, *, connect: bool = False) -> None:
+    """Configure the adapter. It connects only when the operator asked (``connect``).
+
+    Switched on, the plugin is ready to connect and offers the band used last
+    time; nothing searches by itself.
+    """
     config = config_section(context, "brainbit")
     if not config.get("enabled"):
         return
@@ -83,7 +89,9 @@ def _initialize(context: PluginContext, *, scan_requested: bool = False) -> None
 
     lsl_config = config.get("lsl") or {}
     last_connected = config.get("last_connected_device") or {}
-    has_target = bool(config.get("serial_number") or config.get("device_address") or config.get("device_name"))
+    last_connected = last_connected if isinstance(last_connected, dict) else {}
+    # A chosen band (serial/address) wins; otherwise the band connected last.
+    has_target = bool(config.get("serial_number") or config.get("device_address"))
     adapter.initialize(
         script_path=context.resolve_project_path(
             context.resolve_platform_value(config.get("script_path")) or DEFAULT_BRAINBIT["script_path"]
@@ -116,11 +124,34 @@ def _initialize(context: PluginContext, *, scan_requested: bool = False) -> None
         log_dir=_runtime_dir(context, config.get("log_dir"), DEFAULT_BRAINBIT["log_dir"], "logs"),
         log_max_bytes=config.get("log_max_bytes", 10 * 1024 * 1024),
         log_backup_count=config.get("log_backup_count", 3),
-        # Search only when asked: a known band reconnects on its own, an
-        # unknown one waits for the operator's Search.
-        start_process=scan_requested or _has_known_band(config),
+        start_process=connect,
     )
-    adapter.wait_for_stream_contract()
+    if not connect:
+        # The host's own initialize (start, study preflight): a band that is
+        # already connecting gets the chance to publish its streams.
+        adapter.wait_for_stream_contract()
+
+
+def _apply_auto_reconnect(context: PluginContext, config: dict[str, Any]) -> bool:
+    """Tell the adapter whether to restore a lost connection; returns the switch.
+
+    Every status poll carries whether the study runs, so this follows Play,
+    Stop and the operator's switch within one poll. The rule itself is the
+    core's, the same one the dashboard shows.
+    """
+    from . import adapter
+
+    enabled = _auto_reconnect_enabled(config)
+    if adapter.is_configured():
+        adapter.set_auto_reconnect(
+            auto_reconnect_active(
+                enabled=enabled,
+                had_connection=adapter.had_connection(),
+                study_running=bool(getattr(context, "study_running", False)),
+                roles=_CONNECT_ROLES,
+            )
+        )
+    return enabled
 
 
 def _status(context: PluginContext) -> dict[str, Any]:
@@ -128,6 +159,7 @@ def _status(context: PluginContext) -> dict[str, Any]:
     config = config_section(context, "brainbit")
     from . import adapter
 
+    enabled = _apply_auto_reconnect(context, config)
     adapter_status = adapter.get_status()
     log_dir = Path(
         _runtime_dir(context, config.get("log_dir"), DEFAULT_BRAINBIT["log_dir"], "logs")
@@ -146,6 +178,10 @@ def _status(context: PluginContext) -> dict[str, Any]:
             updated.setdefault("brainbit", {})["last_connected_device"] = identity
             context.persist_hardware_config(updated)
             _remembered_connection = connection_id
+
+    connection = adapter_status.get("connection")
+    if isinstance(connection, dict):
+        connection["auto_reconnect"] = {**(connection.get("auto_reconnect") or {}), "enabled": enabled}
 
     status_value = adapter_status.get("status")
     if not config.get("enabled"):
@@ -192,7 +228,7 @@ def _status(context: PluginContext) -> dict[str, Any]:
         "lsl_enabled": bool(config.get("enabled", False)),
         "touchdesigner_target": f"{config.get('osc_host', '127.0.0.1')}:{config.get('osc_port', 8000)}",
         "scan_timeout_seconds": int(config.get("scan_seconds", 5)),
-        "scan_mode": adapter_status.get("scan_mode", "repeated_while_enabled"),
+        "scan_mode": adapter_status.get("scan_mode", "on_request"),
         "last_scan_started_at": adapter_status.get("last_scan_started_at") or latest.get("last_scan_started_at"),
         "last_scan_finished_at": adapter_status.get("last_scan_finished_at") or latest.get("last_scan_finished_at"),
         "next_retry_at": adapter_status.get("next_retry_at"),
@@ -269,33 +305,44 @@ def _start(context: PluginContext) -> Any:
     config = config_section(context, "brainbit")
     if not adapter.is_configured() and config.get("enabled"):
         _initialize(context)
-    elif not _has_known_band(config):
-        # Switching on never scans by itself; the Search button does.
+    elif not adapter.get_status().get("runtime_enabled"):
+        # Switching on never searches or connects by itself: ready to connect.
         adapter.await_scan()
-    else:
-        adapter.start()
-    return adapter.wait_for_stream_contract()
+    return adapter.get_status()
 
 
 def _stop(context: PluginContext) -> Any:
     from . import adapter
 
     adapter.stop()
+    # Switched off on purpose: switching on again must not reconnect by itself.
+    adapter.forget_connection(keep_band=True)
     return adapter.get_status()
 
 
-def _restart(context: PluginContext, *, scan_requested: bool = False) -> Any:
+def _restart(context: PluginContext, *, connect: bool | None = None) -> Any:
+    """Stop and configure again from the current settings.
+
+    ``connect`` None (the Restart button): reconnect only if a band was
+    connected, otherwise stay ready to connect. The call returns once the
+    CLI runs; the dashboard follows the connection through the status.
+    """
     from . import adapter
 
     config = config_section(context, "brainbit")
+    if connect is None:
+        connect = adapter.had_connection()
     adapter.reset_retry_budget()
     adapter.stop()
     if not config.get("enabled"):
         return adapter.get_status()
+    if connect:
+        # The Bluetooth stack needs a moment to let go of the band.
+        adapter.settle_after_stop()
     # Re-read every machine setting from the refreshed v5 context. A plain
     # adapter.restart() would retain the old serial/path/timeout configuration.
-    _initialize(context, scan_requested=scan_requested)
-    return adapter.wait_for_stream_contract()
+    _initialize(context, connect=connect)
+    return adapter.get_status()
 
 
 def _session_end(context: PluginContext, options: dict[str, Any]) -> None:
@@ -341,25 +388,39 @@ def _run_admin_action(
     action_key: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    if action_key not in {"select_device", "scan_devices", "check_contact", "calibrate"}:
+    global _auto_reconnect_choice
+    if action_key not in {"select_device", "scan_devices", "check_contact", "calibrate", "auto_reconnect"}:
         raise ValueError(f"Unknown BrainBit admin action: {action_key}")
+    from . import adapter
+
+    if action_key == "auto_reconnect":
+        # Changes no data, only how a lost connection is handled, so the
+        # operator may switch it during a recording too.
+        _auto_reconnect_choice = bool(payload.get("enabled"))
+        _apply_auto_reconnect(context, config_section(context, "brainbit"))
+        return {
+            "auto_reconnect": _auto_reconnect_choice,
+            "last_message": (
+                "Auto-reconnect on: a lost connection is restored while the study runs."
+                if _auto_reconnect_choice
+                else "Auto-reconnect off: a lost connection waits for you."
+            ),
+        }
     if context.runtime_locked:
         return {
             "study_controlled": True,
             "last_message": "BrainBit is locked while a participant session is recording.",
         }
-    from . import adapter
 
     if action_key == "calibrate":
         if not adapter.calibrate():
             raise ValueError("BrainBit must be connected and streaming EEG before it can be initialized.")
         return {"last_message": "Initializing BrainBit: the participant sits still with eyes open (about 6 s)."}
     if action_key == "check_contact":
-        # Measured between EEG windows on the same connection; only when that
-        # is impossible (not connected yet) does a reconnect measure it.
+        # Measured between EEG windows on the same connection.
         if adapter.measure_contact():
             return {"last_message": "Measuring electrode contact (about 6 s)."}
-        return _restart(context)
+        raise ValueError("Connect the BrainBit headband before measuring the contact.")
     if context.persist_hardware_config is None:
         raise RuntimeError("BrainBit device selection requires a machine-settings context.")
     if action_key == "scan_devices":
@@ -371,7 +432,9 @@ def _run_admin_action(
         # Exactly one band found: it is taken automatically and remembered.
         # Several: the operator chooses one from the list.
         section["require_selection"] = False
-        return _restart(replace(context, hardware_config=config), scan_requested=True)
+        adapter.forget_connection()
+        _restart(replace(context, hardware_config=config), connect=True)
+        return {"last_message": f"Searching for BrainBit headbands ({int(section.get('scan_seconds', 5) or 5)} s)."}
 
     serial_number = str(payload.get("serial_number") or "").strip()
     device_address = str(payload.get("address") or "").strip()
@@ -405,17 +468,19 @@ def _run_admin_action(
         brainbit_config["device_index"] = device_index
 
     context.persist_hardware_config(hardware_config)
+    adapter.forget_connection()
     restart_result = None
     restart_error = ""
     try:
-        restart_result = _restart(replace(context, hardware_config=hardware_config))
+        restart_result = _restart(replace(context, hardware_config=hardware_config), connect=True)
     except Exception as error:  # The persisted selection remains recoverable.
         restart_error = str(error)
+    label = " ".join(part for part in (device_name or "BrainBit", serial_number) if part)
     return {
         "last_message": (
-            "BrainBit band saved and restart requested"
+            f"Connecting to {label} …"
             if not restart_error
-            else "BrainBit band saved; restart needs attention"
+            else "BrainBit band saved; connecting needs attention"
         ),
         "target_device": {
             "serial_number": serial_number,

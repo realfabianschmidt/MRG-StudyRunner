@@ -59,6 +59,9 @@ class PluginContext:
     local_secrets: dict[str, Any]
     local_secrets_file: Path
     runtime_locked: bool = False
+    # True while the operator has started the study run (Play). Sensors that
+    # are connected by hand restore a lost connection by themselves only then.
+    study_running: bool = False
     persist_hardware_config: Callable[[dict[str, Any]], None] | None = None
     secret_resolver: SecretResolver | None = None
 

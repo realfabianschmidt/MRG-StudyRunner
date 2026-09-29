@@ -1,9 +1,9 @@
 {
-  "cross_package_import_edges": 471,
+  "cross_package_import_edges": 472,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
-    "lines": 2819,
+    "lines": 2986,
     "path": "software/study_runner/plugins/sensors/brainbit/adapter.py"
   },
   "largest_file_per_package": {
@@ -20,7 +20,7 @@
       "path": ""
     },
     "apps.ui.admin": {
-      "lines": 922,
+      "lines": 929,
       "path": "software/study_runner/apps/ui/scripts/admin/admin-dashboard-controller.js"
     },
     "apps.ui.cards": {
@@ -60,7 +60,7 @@
       "path": "software/study_runner/data_core/worker/lsl_recording.py"
     },
     "plugin_framework": {
-      "lines": 1017,
+      "lines": 1019,
       "path": "software/study_runner/plugin_framework/process_host.py"
     },
     "plugins": {
@@ -80,7 +80,7 @@
       "path": "software/study_runner/plugins/outputs/osc_touchdesigner/plugin.py"
     },
     "plugins.sensors": {
-      "lines": 2819,
+      "lines": 2986,
       "path": "software/study_runner/plugins/sensors/brainbit/adapter.py"
     },
     "runtime_core": {
@@ -98,24 +98,24 @@
   },
   "lines_per_package": {
     "apps": 0,
-    "apps.server": 4658,
+    "apps.server": 4661,
     "apps.ui": 0,
-    "apps.ui.admin": 5420,
+    "apps.ui.admin": 5495,
     "apps.ui.cards": 3487,
     "apps.ui.participant": 2777,
     "apps.ui.settings": 1853,
     "apps.ui.shared": 2902,
-    "contracts": 2758,
+    "contracts": 2761,
     "data_core": 16,
     "data_core.contract": 1184,
     "data_core.host": 6644,
     "data_core.worker": 2406,
-    "plugin_framework": 3207,
+    "plugin_framework": 3295,
     "plugins": 0,
     "plugins.cards": 1181,
     "plugins.destinations": 1894,
     "plugins.outputs": 154,
-    "plugins.sensors": 11242,
+    "plugins.sensors": 11981,
     "runtime_core": 14845,
     "shared": 448,
     "updates": 696

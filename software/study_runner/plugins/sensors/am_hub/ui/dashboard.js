@@ -88,9 +88,11 @@ export function renderTrend(kind, plugin, ui, now = Date.now() / 1000) {
 export function renderDashboard({ plugin: amHub }, ui) {
   const latest = amHub.latest || {};
 
-  // Status, presence and the switch are drawn by the shared connection panel.
+  // Status and the switch are drawn by the shared connection panel.
   return `
-    <p class="status-muted" role="status">${formatMessage(amHub, ui)}</p>
+    <p class="status-muted" role="status">${renderPerson(amHub, ui)}</p>
+    ${renderHostWarning(amHub, ui)}
+    ${renderBoardLine(amHub, ui)}
     ${renderVitalTiles(amHub, ui)}
     ${renderTrend('movement', amHub, ui)}
     ${renderTrend('vitals', amHub, ui)}
@@ -107,17 +109,93 @@ export function renderDashboard({ plugin: amHub }, ui) {
       <dt>${ui.fieldLabel('vitals', 'Vitals (heart / breath)')}</dt><dd>${ui.formatSensorChannels(latest, ['heartRate', 'breathRate'])}</dd>
       <dt>${ui.fieldLabel('amHubBoards', 'Boards (link, rate, latency, lost)')}</dt><dd>${formatBoards(amHub, ui)}</dd>
       <dt>${ui.fieldLabel('amHubLink', 'Hub round trip / losses')}</dt><dd>${formatHubLink(amHub, ui)}</dd>
+      <dt>${ui.fieldLabel('amHubConnection', 'Connection to the hub')}</dt><dd>${formatConnection(amHub, ui)}</dd>
       <dt>${ui.fieldLabel('lastActive', 'Last active')}</dt><dd>${ui.formatTimestampAge(latest.server_received_at || amHub.last_activity_at, amHub.seconds_since_last_activity)}</dd>
       <dt>${ui.fieldLabel('amHubDataLsl', 'AM Hub data LSL')}</dt><dd>${ui.formatEnabled(amHub.lsl_enabled)}</dd>
     </dl>
     </details>
+    ${renderAllTopics(amHub, ui)}
   `;
+}
+
+const PERSON_SOURCES = {
+  presence: ['amHub.person.presence', 'presence sensor'],
+  position: ['amHub.person.position', 'radar position'],
+  vitals: ['amHub.person.vitals', 'heart / breathing'],
+};
+const BOARD_LABELS = {
+  radar: ['amHub.board.radar', 'Radar'],
+  bio: ['amHub.board.bio', 'Vital signs'],
+  solenoid: ['amHub.board.solenoid', 'Valves'],
+};
+
+/** "Person detected – via radar position · heart / breathing", from every source the hub has. */
+function renderPerson(amHub, ui) {
+  if (!['connected', 'no_presence'].includes(amHub.status)) return formatMessage(amHub, ui);
+  const person = amHub.person || {};
+  if (!person.detected) return ui.escapeHtml(ui.t('amHub.person.none', 'No person detected by any sensor.'));
+  const sources = (person.sources || [])
+    .map((source) => ui.t(...(PERSON_SOURCES[source] || [source, source])))
+    .join(' · ');
+  return `<strong>${ui.escapeHtml(ui.t('amHub.person.detected', 'Person detected'))}</strong> – ${ui.escapeHtml(ui.t('amHub.person.via', 'via'))} ${ui.escapeHtml(sources)}`;
+}
+
+/** WiFi power saving on the Pi causes the dropouts; the hub says whether it is on. */
+function renderHostWarning(amHub, ui) {
+  if (amHub.hub_host?.wifi_power_save !== 'on') return '';
+  return `<p class="status-warning" data-am-hub-powersave>${ui.escapeHtml(ui.t('amHub.host.powerSaveOn',
+    'WiFi power saving is on at the AM Hub – this causes dropouts. On the Pi run: sudo bash deploy/install-network-helpers.sh'))}</p>`;
+}
+
+/** One line: each board with a live dot, its frame rate and, when silent, how long. */
+function renderBoardLine(amHub, ui) {
+  const boards = amHub.boards || {};
+  const entries = Object.entries(boards);
+  if (!entries.length) return '';
+  const items = entries.map(([board, info]) => {
+    const label = ui.t(...(BOARD_LABELS[board] || [board, board]));
+    const dot = `<span aria-hidden="true" style="color:${info.live ? 'var(--pos)' : 'var(--ink-30)'}">●</span>`;
+    const detail = info.live
+      ? ui.formatValue(info.rate_hz, ' Hz')
+      : `${ui.escapeHtml(ui.t('amHub.board.silent', 'silent'))} ${ui.formatValue(info.age_s, ' s')}`;
+    return `${dot} ${ui.escapeHtml(label)} ${detail}`;
+  });
+  return `<p class="status-muted" data-am-hub-boards>${items.join(' · ')}</p>`;
+}
+
+/** Events per second, how long the stream holds, reconnects and the last loss. */
+function formatConnection(amHub, ui) {
+  const link = amHub.link || {};
+  const parts = [
+    `${ui.formatValue(link.events_per_s, ' events/s')}`,
+    `${ui.escapeHtml(ui.t('amHub.link.connectedFor', 'connected for'))} ${ui.formatValue(link.connected_for_s, ' s')}`,
+    `${ui.escapeHtml(ui.t('amHub.link.reconnects', 'reconnects'))} ${ui.formatValue(link.reconnects)}`,
+  ];
+  if (link.last_loss) {
+    parts.push(`${ui.escapeHtml(ui.t('amHub.link.lastLoss', 'last loss'))} ${ui.escapeHtml(link.last_loss.at)} (${ui.escapeHtml(link.last_loss.reason)})`);
+  }
+  if (link.last_error && link.state !== 'open') parts.push(ui.escapeHtml(link.last_error));
+  return parts.join(' · ');
+}
+
+/** Every value the hub sent, as sent: address, raw value, age. Unknown topics are marked. */
+function renderAllTopics(amHub, ui) {
+  const topics = Object.entries(amHub.topics || {});
+  if (!topics.length) return '';
+  const unknown = new Set(amHub.unknown_topics || []);
+  const rows = topics.map(([address, entry]) => `<dt>${ui.escapeHtml(address)}${unknown.has(address) ? ' *' : ''}</dt>`
+    + `<dd>${ui.formatValue(entry.value)} <span class="status-muted">(${ui.formatValue(entry.age_s, ' s')})</span></dd>`).join('');
+  const note = unknown.size
+    ? `<small>* ${ui.escapeHtml(ui.t('amHub.topics.unknownNote', 'not part of the 10 Hz streams; recorded in hub_events'))}</small>`
+    : '';
+  return `<details><summary>${ui.escapeHtml(ui.t('amHub.topics.title', 'All values from the hub'))} (${topics.length})</summary>
+    <dl class="status-list">${rows}</dl>${note}</details>`;
 }
 
 /** Latest movement, breathing and heart rate at a glance; "-" when missing or stale. */
 function renderVitalTiles(amHub, ui) {
   const latest = amHub.latest || {};
-  const stale = amHub.status === 'stale';
+  const stale = !['connected', 'no_presence'].includes(amHub.status);
   const tiles = VITAL_TILES.map(([channel, key, fallback, unit]) => {
     const value = latest[channel];
     const shown = !stale && Number.isFinite(value) ? ui.formatValue(value, unit) : '-';

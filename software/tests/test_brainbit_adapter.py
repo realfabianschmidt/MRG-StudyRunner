@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.plugins.sensors.brainbit import adapter
+from study_runner.plugins.sensors.brainbit import adapter, brainbit_realtime_cli
 
 
 class FakeOutlet:
@@ -51,8 +51,10 @@ class BrainBitAdapterTests(unittest.TestCase):
         adapter._lsl_stream_health = {}
         adapter._auto_restart_count = 0
         adapter._last_auto_restart_at = 0.0
+        adapter._auto_reconnect_active = False
 
     def tearDown(self) -> None:
+        adapter._auto_reconnect_active = False
         adapter._lsl_outlets = {}
         adapter._routing_state["forward_to_lsl"] = False
         adapter._routing_state["forward_to_touchdesigner"] = False
@@ -124,6 +126,7 @@ class BrainBitAdapterTests(unittest.TestCase):
         adapter._auto_restart_count = 0
         adapter._last_auto_restart_at = 0.0
         adapter._desired_running = False
+        adapter._auto_reconnect_active = True
 
         restarts: list[bool] = []
         original_restart = adapter.restart
@@ -321,12 +324,87 @@ class GuidedConnectionTests(BrainBitAdapterTests):
         self.assertEqual(connection["setup"]["state"], "needed")
         self.assertIn("RESET_CALIBRATION\n", adapter._process.stdin.lines)
 
-    def test_without_a_known_band_nothing_is_scanned_until_search(self) -> None:
+    def test_switched_on_nothing_is_searched_until_the_operator_acts(self) -> None:
         adapter._process = None
         adapter.await_scan()
         status = adapter.get_status()
         self.assertTrue(status["running"])
-        self.assertEqual(status["connection"]["phase"], "no_device")
+        self.assertEqual(status["connection"]["phase"], "idle")
+
+
+class OperatorDecidesTests(GuidedConnectionTests):
+    """Without auto-reconnect a failed or lost connection waits for the operator."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        adapter.forget_connection()
+        adapter._process_connected = False
+        adapter._desired_running = True
+
+    def tearDown(self) -> None:
+        super().tearDown()
+        adapter.forget_connection()
+        adapter._process_connected = False
+        adapter._desired_running = False
+
+    def _exit(self, code: int) -> dict:
+        adapter._process = None
+        adapter._hand_back_to_operator(code)
+        return adapter.get_status()
+
+    def test_a_lost_connection_is_reported_and_the_band_is_offered_again(self) -> None:
+        adapter._remember_connected_band({"serial": "X1", "name": "BrainBit"})
+        status = self._exit(brainbit_realtime_cli.EXIT_CONNECT_FAILED)
+        connection = status["connection"]
+        self.assertTrue(status["running"])
+        self.assertFalse(adapter._desired_running)
+        self.assertEqual(connection["phase"], "failed")
+        self.assertEqual(connection["detail"], "connection_lost")
+        self.assertIn(
+            {"id": "serial:x1", "label": "BrainBit X1", "payload": {"serial_number": "X1", "name": "BrainBit"}, "note": "last_used"},
+            connection["candidates"],
+        )
+
+    def test_nothing_found_is_simply_ready_to_connect(self) -> None:
+        connection = self._exit(brainbit_realtime_cli.EXIT_NO_DEVICE_FOUND)["connection"]
+        self.assertEqual(connection["phase"], "idle")
+        self.assertEqual(connection["detail"], "not_found")
+
+    def test_a_connection_that_never_took_is_a_failed_connect(self) -> None:
+        connection = self._exit(brainbit_realtime_cli.EXIT_CONNECT_FAILED)["connection"]
+        self.assertEqual(connection["detail"], "connect_failed")
+
+    def test_the_cli_starts_with_the_switch_and_returns_to_the_connected_band(self) -> None:
+        adapter._config.update({"script_path": "brainbit_cli.py", "python_executable": "python"})
+        command = adapter._build_cli_command()
+        self.assertEqual(command[command.index("--auto-reconnect") + 1], "off")
+        adapter._remember_connected_band({"serial": "X1"})
+        adapter._auto_reconnect_active = True
+        command = adapter._build_cli_command()
+        self.assertEqual(command[command.index("--auto-reconnect") + 1], "on")
+        self.assertEqual(command[command.index("--serial-number") + 1], "X1")
+
+    def test_the_running_cli_is_told_only_when_the_switch_changes(self) -> None:
+        adapter.set_auto_reconnect(True)
+        adapter.set_auto_reconnect(True)
+        adapter.set_auto_reconnect(False)
+        self.assertEqual(adapter._process.stdin.lines, ["AUTO_RECONNECT_ON\n", "AUTO_RECONNECT_OFF\n"])
+
+    def test_turning_on_after_a_loss_reconnects_to_the_band(self) -> None:
+        adapter._remember_connected_band({"serial": "X1"})
+        self._exit(brainbit_realtime_cli.EXIT_CONNECT_FAILED)
+        starts: list[bool] = []
+        with mock.patch.object(adapter, "start", lambda: starts.append(True)):
+            adapter.set_auto_reconnect(True)
+        self.assertEqual(starts, [True])
+
+    def test_an_exit_is_not_revived_without_auto_reconnect(self) -> None:
+        adapter._last_exit_code = brainbit_realtime_cli.EXIT_CONNECT_FAILED
+        adapter._last_exit_at = 0.0
+        starts: list[bool] = []
+        with mock.patch.object(adapter, "start", lambda: starts.append(True)):
+            self.assertTrue(adapter._maybe_restart_after_exit(now_value=500.0))
+        self.assertEqual(starts, [])
 
 
 if __name__ == "__main__":

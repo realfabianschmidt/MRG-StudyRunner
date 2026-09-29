@@ -55,13 +55,19 @@ it.
 4. **Stream.** EEG flows, and derived values follow once enough signal has been
    seen to calibrate.
 
-If any step fails, the program **waits five seconds and starts again from step
-one**, for as long as the plugin is switched on. It does not give up and it does
-not need to be restarted by hand. While it is waiting, the dashboard says so and
-shows when the next attempt is due.
+Nothing of this runs by itself while the researcher sets up. Switched on, the
+plugin says *Starting …*, then *Ready to connect*: the band used last time is
+offered in the list, and **Search** scans once. Exactly one band found is
+connected at once; several are listed to choose from. A failed step ends the
+attempt and the dashboard says what happened (nothing found, not reachable,
+connection lost) and which button helps next.
 
-That last point matters in the room: when the status says *waiting*, pressing
-Restart does not help — it interrupts an attempt that is already running.
+**Auto-reconnect** (the fourth round button, on by default) takes over only
+once a band was connected *and* the study runs. Then a failed step makes the
+program **wait five seconds and start again from step one**, on the same band,
+until the band is back or the study stops. The button can be switched during a
+recording too. While it reconnects, pressing Restart does not help — it
+interrupts an attempt that is already running.
 
 ## Settings
 
@@ -107,12 +113,13 @@ and the last electrode-contact measurement. Contact is measured before EEG and
 can be checked manually outside an active study. Its timestamp remains visible;
 the normalized contact ratio is diagnostic, not a validated quality percentage.
 
-Choose a headset in the device dropdown and press **Connect**. Names are labels;
+Choosing a headset in the device list connects to it. Names are labels;
 selection uses serial number or address. A missing saved target is never replaced
-by another nearby headset. Without a saved target, a complete scan connects one
-unambiguous device or waits for a choice if there are several. **Search again**
-disconnects and scans for an explicit new choice. Successful connections are
-remembered separately from the configured target.
+by another nearby headset. A complete scan connects one unambiguous device or
+waits for a choice if there are several. **Search** while connected disconnects
+(after a confirmation) and scans for an explicit new choice. Successful
+connections are remembered separately from the configured target. Poor contact
+keeps **Measure contact** as the next step, but **Initialize** stays possible.
 
 The selected identity survives dashboard updates, focus changes and reordered
 scan results. If it disappears from the list, the dropdown clears instead of

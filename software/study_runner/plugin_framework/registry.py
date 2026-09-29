@@ -23,6 +23,7 @@ def build_context(
     local_secrets: dict[str, Any],
     local_secrets_file: Path,
     runtime_locked: bool = False,
+    study_running: bool = False,
     persist_hardware_config=None,
     secret_resolver: SecretResolver | None = None,
 ) -> PluginContext:
@@ -41,6 +42,7 @@ def build_context(
         local_secrets=local_secrets,
         local_secrets_file=Path(local_secrets_file),
         runtime_locked=runtime_locked,
+        study_running=study_running,
         persist_hardware_config=persist_hardware_config,
         secret_resolver=secret_resolver,
     )
@@ -403,6 +405,7 @@ def _standardize_status(
             raw_status,
             running=running,
             roles=action_roles(manifest),
+            study_running=bool(getattr(context, "study_running", False)),
         )
     return payload
 

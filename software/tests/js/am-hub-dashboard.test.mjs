@@ -49,9 +49,54 @@ test('dashboard renders the trend graphs and details without its own switch', ()
     },
   }, ui);
   assert.doesNotMatch(html, /data-runtime-toggle/);
-  assert.match(html, /AM Hub sample received\./);
+  assert.match(html, /No person detected by any sensor\./);
   assert.match(html, /Movement &amp; presence energy/);
   assert.match(html, /Position \(relative to the sensor\)/);
   assert.match(html, /<details>/);
   assert.match(html, /http:\/\/hub:8000/);
+});
+
+test('the person line names every source that sees someone', () => {
+  const html = renderDashboard({
+    plugin: { status: 'connected', person: { detected: true, sources: ['position', 'vitals'] }, latest: {}, preview: {} },
+  }, ui);
+  assert.match(html, /<strong>Person detected<\/strong> – via radar position · heart \/ breathing/);
+});
+
+test('while the hub is not connected, the tile says why instead of guessing a person', () => {
+  const html = renderDashboard({
+    plugin: { status: 'stale', last_message: 'Connection to the AM Hub lost (no data from the hub for 2.1 s); reconnecting.',
+      person: { detected: false, sources: [] }, latest: { heartRate: 70 }, preview: {} },
+  }, ui);
+  assert.match(html, /Connection to the AM Hub lost/);
+  assert.doesNotMatch(html, /No person detected/);
+  assert.doesNotMatch(html, /<strong>70 BPM<\/strong>/);
+});
+
+test('each board shows whether it delivers, and at what rate', () => {
+  const html = renderDashboard({
+    plugin: { status: 'no_presence', latest: {}, preview: {},
+      boards: { radar: { live: true, rate_hz: 9.5, age_s: 0.1 }, bio: { live: false, rate_hz: 0, age_s: 12 } } },
+  }, ui);
+  assert.match(html, /Radar 9\.5 Hz/);
+  assert.match(html, /Vital signs silent 12 s/);
+});
+
+test('every value the hub sent is listed, unknown topics marked', () => {
+  const html = renderDashboard({
+    plugin: { status: 'connected', latest: {}, preview: {},
+      topics: { '/sensor/heartBpm': { value: 72, age_s: 0.2 }, '/sensor/rssiRadar': { value: -61, age_s: 1.1 } },
+      unknown_topics: ['/sensor/rssiRadar'] },
+  }, ui);
+  assert.match(html, /All values from the hub \(2\)/);
+  assert.match(html, /<dt>\/sensor\/rssiRadar \*<\/dt><dd>-61/);
+  assert.match(html, /<dt>\/sensor\/heartBpm<\/dt><dd>72/);
+});
+
+test('a hub with WiFi power saving on gets a warning with the fix', () => {
+  const on = renderDashboard({ plugin: { status: 'connected', latest: {}, preview: {}, hub_host: { wifi_power_save: 'on' } } }, ui);
+  assert.match(on, /WiFi power saving is on at the AM Hub/);
+  assert.match(on, /install-network-helpers\.sh/);
+  const off = renderDashboard({ plugin: { status: 'connected', latest: {}, preview: {}, hub_host: { wifi_power_save: 'off' } } }, ui);
+  assert.doesNotMatch(off, /WiFi power saving/);
 });

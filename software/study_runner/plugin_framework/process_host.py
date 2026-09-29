@@ -992,12 +992,13 @@ def reset_process_plugins() -> None:
 def _initialize_signature(context: PluginContext) -> str:
     """Stable fingerprint of everything a plugin's initialize hook can read.
 
-    ``runtime_locked`` is left out on purpose: it flips at every participant
-    session start and end, reaches the driver with every request anyway, and
-    must never cause a re-initialization.
+    ``runtime_locked`` and ``study_running`` are left out on purpose: they
+    flip at every participant session or study run, reach the driver with
+    every request anyway, and must never cause a re-initialization.
     """
     serialized = _serialize_context(context)
     serialized.pop("runtime_locked", None)
+    serialized.pop("study_running", None)
     encoded = json.dumps(serialized, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -1010,6 +1011,7 @@ def _serialize_context(context: PluginContext) -> dict[str, Any]:
         "local_secrets": deepcopy(context.local_secrets),
         "local_secrets_file": str(context.local_secrets_file),
         "runtime_locked": bool(context.runtime_locked),
+        "study_running": bool(getattr(context, "study_running", False)),
         "can_persist_hardware_config": context.persist_hardware_config is not None,
     }
 

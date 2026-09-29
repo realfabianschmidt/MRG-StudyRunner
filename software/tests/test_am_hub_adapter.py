@@ -22,6 +22,9 @@ class FakeResponse:
     def iter_lines(self, decode_unicode: bool = True):
         return iter(self._lines)
 
+    def iter_content(self, chunk_size=None):
+        return iter([("\n".join(self._lines) + "\n").encode("utf-8")])
+
 
 def _reset_adapter_state() -> None:
     adapter._config = {}
@@ -33,6 +36,9 @@ def _reset_adapter_state() -> None:
     adapter._hub_rtts.clear()
     adapter._lost_baseline.clear()
     adapter._api_version = None
+    adapter._frame_times.clear()
+    adapter._lsl_outlets = {}
+    adapter._reset_link()
     adapter._latest_state = {
         "status": "not_configured",
         "latest": {},
@@ -65,10 +71,13 @@ class SseEventHandlingTests(unittest.TestCase):
             adapter._publish_combined_sample()
         self.assertEqual(adapter._latest_state["latest"]["moveEnergy"], 37.5)
 
-    def test_unknown_topic_is_ignored_without_error(self) -> None:
+    def test_an_unknown_topic_is_kept_and_listed(self) -> None:
         adapter._handle_sse_event('{"type":"sample","addr":"/sensor/unrelated","value":1.0,"t":2.0}')
         adapter._publish_combined_sample()
-        self.assertEqual(adapter._topics, {})
+        self.assertEqual(adapter._topics["/sensor/unrelated"]["value"], 1.0)
+        status = adapter.get_status()
+        self.assertEqual(status["unknown_topics"], ["/sensor/unrelated"])
+        self.assertEqual(status["topics"]["/sensor/unrelated"]["value"], 1.0)
 
     def test_tick_event_carries_no_value_and_is_a_no_op(self) -> None:
         adapter._handle_sse_event('{"type":"tick","t":3.0,"topics":{"/sensor/presence":{"rate":9.5}}}')
@@ -253,14 +262,14 @@ class ConnectionTests(unittest.TestCase):
             def raise_for_status(self) -> None:
                 pass
 
-            def iter_lines(self, decode_unicode: bool = True):
+            def iter_content(self, chunk_size=None):
                 adapter._running = False     # end the loop after the v1 connect
                 return iter([])
 
             def close(self) -> None:
                 pass
 
-        def fake_get(url, **_kwargs):
+        def fake_get(_session, url, **_kwargs):
             requested.append(url)
             return Response(404 if url.endswith("/api/v2/stream") else 200)
 
@@ -268,7 +277,7 @@ class ConnectionTests(unittest.TestCase):
                            "auto_reconnect": False}
         adapter._running = True
         adapter._generation = 1
-        with mock.patch("requests.get", side_effect=fake_get):
+        with mock.patch("requests.Session.get", autospec=True, side_effect=fake_get):
             adapter._sse_loop(1)
         self.assertEqual(requested, ["http://hub/api/v2/stream", "http://hub/api/v1/stream"])
         self.assertEqual(adapter._api_version, "v1")
@@ -283,13 +292,13 @@ class ConnectionTests(unittest.TestCase):
             def raise_for_status(self) -> None:
                 pass
 
-            def iter_lines(self, decode_unicode: bool = True):
+            def iter_content(self, chunk_size=None):
                 return iter([])
 
             def close(self) -> None:
                 pass
 
-        def fake_get(url, **_kwargs):
+        def fake_get(_session, url, **_kwargs):
             requested.append(url)
             if len(requested) == 3:
                 adapter._running = False
@@ -299,7 +308,8 @@ class ConnectionTests(unittest.TestCase):
                            "auto_reconnect": True}
         adapter._running = True
         adapter._generation = 1
-        with mock.patch("requests.get", side_effect=fake_get):
+        with mock.patch("requests.Session.get", autospec=True, side_effect=fake_get), \
+                mock.patch.object(adapter, "RECONNECT_BACKOFF_SECONDS", (0.0,)):
             adapter._sse_loop(1)
         self.assertEqual(requested, ["http://hub/api/v2/stream", "http://hub/api/v1/stream",
                                      "http://hub/api/v2/stream"])
@@ -389,26 +399,40 @@ class StalenessTests(unittest.TestCase):
             adapter._publish_combined_sample()
         self.assertEqual(adapter._latest_state["latest"]["moveEnergy"], 42.0)
 
-    def test_status_reports_stale_once_topics_stop_updating_even_while_publishing_continues(self) -> None:
-        with mock.patch.object(adapter.time, "time", return_value=1000.0):
-            adapter._update_topic("/sensor/presence", 1.0, 1000.0)
+    def _event_at(self, moment: float, values: dict) -> None:
+        frame = {"type": "frame", "device": "radar_hub", "role": "radar", "seq": 1, "values": values}
+        with mock.patch.object(adapter.time, "time", return_value=moment):
+            adapter._link_opened("v2")
+            adapter._handle_sse_event(json.dumps(frame))
+
+    def test_status_reports_stale_once_the_hub_goes_silent_even_while_publishing_continues(self) -> None:
+        self._event_at(1000.0, {"/sensor/presence": 1.0})
         adapter._running = True
 
-        # 10s later, well past the 5s timeout -- but the publisher is still
-        # ticking (ingest_sample called), as it would every 100ms in reality.
-        with mock.patch.object(adapter.time, "time", return_value=1010.0):
+        # 3 s later, past the 2 s link limit -- but the publisher is still
+        # ticking (ingest_sample called), as it would every 100 ms in reality.
+        with mock.patch.object(adapter.time, "time", return_value=1003.0):
             adapter.ingest_sample({"presence": None}, source="test")
             status = adapter.get_status()
 
         self.assertEqual(status["status"], "stale")
+        self.assertEqual(status["connection"]["phase"], "reconnecting")
 
-    def test_status_stays_fresh_while_topics_keep_updating(self) -> None:
-        with mock.patch.object(adapter.time, "time", return_value=1000.0):
-            adapter._update_topic("/sensor/presence", 1.0, 1000.0)
+    def test_status_stays_fresh_while_events_keep_arriving(self) -> None:
+        self._event_at(1000.0, {"/sensor/presence": 1.0})
+        adapter._running = True
+        with mock.patch.object(adapter.time, "time", return_value=1000.5):
             adapter.ingest_sample({"presence": 1.0}, source="test")
             status = adapter.get_status()
         self.assertEqual(status["status"], "connected")
-        self.assertEqual(status["seconds_since_last_activity"], 0.0)
+        self.assertEqual(status["seconds_since_last_activity"], 0.5)
+
+    def test_the_publisher_never_claims_a_connection_before_the_hub_answered(self) -> None:
+        adapter._running = True
+        adapter.ingest_sample({"presence": 1.0}, source="test")
+        status = adapter.get_status()
+        self.assertEqual(status["status"], "connecting")
+        self.assertEqual(status["connection"]["phase"], "connecting")
 
 
 class IntervalSummaryTests(unittest.TestCase):
@@ -474,11 +498,178 @@ class LiveRunningStateTests(unittest.TestCase):
 
     def test_presence_is_shown_but_never_blocks(self) -> None:
         adapter._running = True
-        adapter._latest_state["status"] = "no_presence"
+        adapter._link_opened("v2")
+        adapter._handle_sse_event('{"type":"status","devices":{}}')
         connection = adapter.get_status()["connection"]
         self.assertEqual(connection["phase"], "connected")
         self.assertEqual(connection["signal"]["detail"], "no_presence")
         self.assertEqual(connection["setup"]["state"], "not_needed")
+
+
+class LinkTests(unittest.TestCase):
+    """The stream to the hub: instant delivery, fast loss detection, fast return."""
+
+    def setUp(self) -> None:
+        _reset_adapter_state()
+        adapter._config = {"enabled": True, "base_url": "http://hub", "lsl_enabled": False, "auto_reconnect": True}
+        adapter._running = True
+        adapter._generation = 1
+
+    def tearDown(self) -> None:
+        _reset_adapter_state()
+
+    def test_events_split_anywhere_in_the_byte_stream_arrive_whole(self) -> None:
+        body = (b'data: {"type":"frame","device":"bio_hub","role":"bio","seq":1,'
+                b'"values":{"/sensor/heartBpm":72.0}}\r\n\r\n: keepalive\r\n\r\n'
+                b'data: {"type":"frame","device":"bio_hub","role":"bio","seq":2,"values":{"/sensor/breathRate":14.0}}\n\n')
+        chunks = [body[i:i + 7] for i in range(0, len(body), 7)]
+
+        class Chunked:
+            def iter_content(self, chunk_size=None):
+                return iter(chunks)
+
+        self.assertTrue(adapter._read_sse_events(Chunked(), 1))
+        self.assertEqual(adapter._topics["/sensor/heartBpm"]["value"], 72.0)
+        self.assertEqual(adapter._topics["/sensor/breathRate"]["value"], 14.0)
+        self.assertEqual(adapter._frame_counts["bio_hub"], 2)
+
+    def test_a_silent_v2_stream_ends_after_two_seconds_and_says_why(self) -> None:
+        # The hub sends 10 status events per second: 2 s without a byte is a
+        # dead connection, and the socket read timeout ends it on any platform.
+        self.assertEqual(adapter.READ_TIMEOUT_SECONDS["v2"], 2.0)
+        timeouts = []
+
+        def silent(_session, url, **kwargs):
+            timeouts.append(kwargs["timeout"])
+            adapter._running = False
+            raise OSError("HTTPConnectionPool(host='hub', port=8000): Read timed out.")
+
+        with mock.patch("requests.Session.get", autospec=True, side_effect=silent):
+            adapter._sse_loop(1)
+        self.assertEqual(timeouts[0], (adapter.CONNECT_TIMEOUT_SECONDS, 2.0))
+        adapter._link_update(api="v2")
+        self.assertEqual(adapter._describe_error(OSError("Read timed out.")), "no data from the hub for 2 s")
+
+    def test_reconnects_at_once_then_backs_off_to_at_most_two_seconds(self) -> None:
+        waits = []
+
+        def refuse(_session, url, **_kwargs):
+            if len(waits) >= 5:
+                adapter._running = False
+            raise OSError("hub unreachable")
+
+        def record_wait(seconds):
+            waits.append(seconds)
+            return False
+
+        with mock.patch("requests.Session.get", autospec=True, side_effect=refuse), \
+                mock.patch.object(adapter._stop_event, "wait", side_effect=record_wait):
+            adapter._sse_loop(1)
+        self.assertEqual(waits[:5], [0.5, 1.0, 2.0, 2.0, 2.0])
+        self.assertEqual(adapter.get_status()["link"]["last_error"], "hub unreachable")
+
+    def test_a_lost_stream_is_counted_and_marked_in_the_recording(self) -> None:
+        class Outlet:
+            def __init__(self) -> None:
+                self.samples = []
+
+            def push_sample(self, values) -> None:
+                self.samples.append(values[0])
+
+        outlet = Outlet()
+        adapter._lsl_outlets = {"HUB_EVENTS": outlet}
+        adapter._link_opened("v2")
+        adapter._link_lost("no data from the hub for 2.1 s")
+        link = adapter.get_status()["link"]
+        self.assertEqual(link["reconnects"], 1)
+        self.assertEqual(link["last_loss"]["reason"], "no data from the hub for 2.1 s")
+        states = [json.loads(sample)["state"] for sample in outlet.samples]
+        self.assertEqual(states, ["connected", "lost"])
+
+    def test_the_stream_names_this_computer_so_the_hub_can_replace_its_old_stream(self) -> None:
+        params = []
+
+        def capture(_session, url, **kwargs):
+            params.append(kwargs.get("params"))
+            adapter._running = False
+            raise OSError("stop")
+
+        with mock.patch("requests.Session.get", autospec=True, side_effect=capture):
+            adapter._sse_loop(1)
+        self.assertTrue(params[0]["client"].startswith("study-runner-"))
+
+
+class EverythingTheHubSendsTests(unittest.TestCase):
+    """Nothing the hub sends is filtered: it is shown and recorded as sent."""
+
+    def setUp(self) -> None:
+        _reset_adapter_state()
+        adapter._config = {"enabled": True, "base_url": "http://hub", "lsl_enabled": False}
+        adapter._running = True
+
+    def tearDown(self) -> None:
+        _reset_adapter_state()
+
+    def _frame(self, role: str, values: dict) -> str:
+        return json.dumps({"type": "frame", "device": f"{role}_hub", "role": role, "seq": 1,
+                           "sender": f"{role}_hub:wifi", "t": 5.0, "values": values})
+
+    def test_every_event_is_recorded_verbatim(self) -> None:
+        class Outlet:
+            def __init__(self) -> None:
+                self.samples = []
+
+            def push_sample(self, values) -> None:
+                self.samples.append(values[0])
+
+        outlet = Outlet()
+        adapter._lsl_outlets = {"HUB_EVENTS": outlet}
+        frame = self._frame("radar", {"/sensor/personX": 12.0, "/sensor/rssiRadar": -61.0})
+        adapter._handle_sse_event(frame)
+        adapter._handle_sse_event("{broken")
+        self.assertEqual(outlet.samples, [frame, "{broken"])
+
+    def test_the_hubs_own_host_facts_are_reported(self) -> None:
+        adapter._handle_sse_event('{"type":"hello","status":{},"host":{"wifi_power_save":"on"}}')
+        self.assertEqual(adapter.get_status()["hub_host"], {"wifi_power_save": "on"})
+
+    def test_wifi_only_topics_are_kept(self) -> None:
+        adapter._handle_sse_event(self._frame("radar", {"/sensor/rssiRadar": -61.0}))
+        self.assertEqual(adapter.get_status()["topics"]["/sensor/rssiRadar"]["value"], -61.0)
+
+    def test_a_person_is_detected_from_any_source(self) -> None:
+        cases = [
+            ({"/sensor/presence": 1.0}, ["presence"]),
+            ({"/sensor/presence": 0.0, "/sensor/targetCount": 1.0}, ["position"]),
+            ({"/sensor/heartBpm": 72.0}, ["vitals"]),
+            ({"/sensor/bioDist": 80.0}, ["vitals"]),
+            ({"/sensor/presence": 0.0, "/sensor/targetCount": 0.0, "/sensor/heartBpm": 0.0}, []),
+        ]
+        for values, sources in cases:
+            with self.subTest(values=values):
+                _reset_adapter_state()
+                adapter._running = True
+                with mock.patch.object(adapter.time, "time", return_value=50.0):
+                    adapter._link_opened("v2")
+                    adapter._handle_sse_event(self._frame("radar", values))
+                    status = adapter.get_status()
+                self.assertEqual(status["person"]["sources"], sources)
+                self.assertEqual(status["status"], "connected" if sources else "no_presence")
+
+    def test_an_old_reading_is_no_person(self) -> None:
+        with mock.patch.object(adapter.time, "time", return_value=50.0):
+            adapter._handle_sse_event(self._frame("bio", {"/sensor/heartBpm": 72.0}))
+        with mock.patch.object(adapter.time, "time", return_value=50.0 + adapter.TOPIC_STALE_SECONDS + 1):
+            self.assertFalse(adapter.get_status()["person"]["detected"])
+
+    def test_boards_report_their_live_rate(self) -> None:
+        for index in range(10):
+            with mock.patch.object(adapter.time, "time", return_value=100.0 + index * 0.1):
+                adapter._handle_sse_event(self._frame("radar", {"/sensor/personX": float(index)}))
+        with mock.patch.object(adapter.time, "time", return_value=101.0):
+            board = adapter.get_status()["boards"]["radar"]
+        self.assertEqual(board["rate_hz"], 5.0)
+        self.assertTrue(board["live"])
 
 
 if __name__ == "__main__":

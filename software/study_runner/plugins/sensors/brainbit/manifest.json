@@ -107,9 +107,16 @@
             "label_fields": ["name", "serial", "serial_number", "address"]
           }
         },
-        {"key": "scan_devices", "role": "scan", "label": "Search", "description": "Search for BrainBit headbands. Exactly one found is connected automatically."},
+        {"key": "scan_devices", "role": "scan", "label": "Search", "description": "Search for BrainBit headbands once. Exactly one found is connected automatically; several are listed to choose from."},
         {"key": "check_contact", "role": "measure_signal", "label": "Measure contact", "description": "Pause the EEG for about 6 s and measure the electrode contact, without reconnecting."},
-        {"key": "calibrate", "role": "initialize", "label": "Initialize", "description": "Calibrate the attention and relaxation indices for this participant (about 6 s, sitting still, eyes open)."}
+        {"key": "calibrate", "role": "initialize", "label": "Initialize", "description": "Calibrate the attention and relaxation indices for this participant (about 6 s, sitting still, eyes open)."},
+        {
+          "key": "auto_reconnect",
+          "role": "auto_reconnect",
+          "label": "Auto-reconnect",
+          "description": "Restore a lost connection to the same headband by itself, once a headband was connected and the study runs.",
+          "payload_schema": {"enabled": {"type": "boolean", "required": true}}
+        }
       ]
     }
   },
@@ -184,6 +191,11 @@
         "minimum": 0, "maximum": 30,
         "label_key": "pluginSettings.brainbit.settleSeconds", "apply": "restart", "scope": "machine",
         "help_key": "pluginHelp.brainbit.settleSeconds"
+      },
+      "auto_reconnect": {
+        "type": "boolean", "path": "auto_reconnect", "default": true,
+        "label_key": "pluginSettings.brainbit.autoReconnect", "apply": "immediate", "scope": "machine",
+        "help_key": "pluginHelp.brainbit.autoReconnect"
       },
       "auto_restart_max_attempts": {
         "type": "number", "path": "auto_restart_max_attempts", "default": 3,

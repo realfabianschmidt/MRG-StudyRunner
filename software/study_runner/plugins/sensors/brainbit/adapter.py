@@ -80,7 +80,7 @@ _EXIT_REASONS: dict[int, dict[str, Any]] = {
     },
     EXIT_NO_DEVICE_FOUND: {
         "detail_key": "brainbit.error.deviceNotFound",
-        "message": "No BrainBit headset was found. Switch it on, keep it close, then start BrainBit again.",
+        "message": "No BrainBit headset was found. Switch it on, keep it close, then search again.",
         "retry": True,
     },
     EXIT_DEVICE_TARGET_MISSING: {
@@ -100,7 +100,7 @@ _EXIT_REASONS: dict[int, dict[str, Any]] = {
     },
     EXIT_CONNECT_FAILED: {
         "detail_key": "brainbit.error.connectFailed",
-        "message": "The BrainBit headset was found, but the connection did not take. Retrying.",
+        "message": "The BrainBit headset was found, but the connection did not take.",
         "retry": True,
     },
     EXIT_BLE_UNAVAILABLE: {
@@ -167,9 +167,26 @@ _routing_state = {
 }
 _auto_restart_count = 0
 _last_auto_restart_at = 0.0
-# Enabled, but no band is known yet: nothing is scanned until the operator
-# presses Search. The plugin counts as switched on while it waits.
+# Switched on, but no search or connection runs: the plugin waits for the
+# operator (Search, or a band from the list). It counts as switched on.
 _awaiting_scan = False
+# Whether a lost connection is restored without the operator. The plugin sets
+# it from the core rule (operator's switch on, a band connected, the study
+# running). Off, a failed or lost session hands the decision back.
+_auto_reconnect_active = False
+# A band was connected since the operator last searched or chose one, and
+# which band that was: auto-reconnect goes back to exactly this band.
+_had_connection = False
+_connected_identity: dict[str, Any] = {}
+# The current CLI process reached CONNECTED at least once.
+_process_connected = False
+# Why the plugin waits for the operator after the CLI ended by itself.
+_idle_detail = ""
+# Details that are a failure; the rest (no band found) is plain "ready".
+_FAILED_DETAILS = frozenset({
+    "target_missing", "connect_failed", "connection_lost", "no_data",
+    "bluetooth_unavailable", "missing_dependency", "crashed",
+})
 # Electrode contact and calibration belong to one participant. After a
 # session ends they are marked stale until they are measured again.
 _contact_stale = False
@@ -252,14 +269,22 @@ def _build_cli_command() -> list[str] | None:
         "--signal-seconds",
         str(_config.get("signal_seconds", 0)),
     ]
-    if _config.get("serial_number"):
-        command.extend(["--serial-number", str(_config["serial_number"])])
-    if _config.get("device_address"):
-        command.extend(["--device-address", str(_config["device_address"])])
+    serial_number = _config.get("serial_number")
+    device_address = _config.get("device_address")
+    if not (serial_number or device_address):
+        # An automatic reconnect goes back to the band that was connected.
+        serial_number = _connected_identity.get("serial_number")
+        device_address = _connected_identity.get("address")
+    if serial_number:
+        command.extend(["--serial-number", str(serial_number)])
+    if device_address:
+        command.extend(["--device-address", str(device_address)])
     if _config.get("device_name"):
         command.extend(["--device-name", str(_config["device_name"])])
     if _config.get("require_selection"):
         command.append("--require-selection")
+    # Off: one attempt, then the operator decides. Switched at runtime too.
+    command.extend(["--auto-reconnect", "on" if _auto_reconnect_active else "off"])
     # Operator commands (measure contact, initialize) arrive on stdin, and the
     # derived metrics are calibrated only on the operator's Initialize.
     command.extend(["--control-stdin", "--manual-calibration"])
@@ -305,8 +330,9 @@ def initialize(
 ) -> None:
     """Store BrainBit settings, prepare optional LSL mirrors, and start the external CLI.
 
-    With ``start_process=False`` (no band known yet) the adapter is configured
-    but does not scan: it reports ``no_device`` until the operator searches.
+    With ``start_process=False`` the adapter is configured but does not scan:
+    it reports ``idle`` (ready to connect) until the operator searches or
+    chooses a band.
     """
     global _registered_shutdown, _config, _awaiting_scan
 
@@ -422,14 +448,7 @@ def initialize(
         _registered_shutdown = True
 
     if not start_process:
-        _awaiting_scan = True
-        _set_state(
-            {
-                "status": "no_device",
-                "last_message": "No BrainBit headband is known yet. Search for headbands.",
-            },
-            force=True,
-        )
+        await_scan()
         return
     start()
 
@@ -443,6 +462,7 @@ def start() -> None:
     global _log_write_error, _last_log_flush_at
     global _eeg_lsl_channels, _lsl_stream_health
     global _awaiting_scan, _contact_stale, _calibration_needs_initialize
+    global _idle_detail, _process_connected
 
     if not _config:
         print("[BrainBit] Adapter not configured.")
@@ -450,6 +470,8 @@ def start() -> None:
     _awaiting_scan = False
     _contact_stale = False
     _calibration_needs_initialize = False
+    _idle_detail = ""
+    _process_connected = False
 
     with _lock:
         if _process is not None and _process.poll() is None:
@@ -675,21 +697,70 @@ def is_configured() -> bool:
 
 
 def is_awaiting_scan() -> bool:
-    """True while switched on without a known band, waiting for a Search."""
+    """True while switched on and waiting for the operator to search or choose."""
     return _awaiting_scan
 
 
 def await_scan() -> None:
-    """Switch on without scanning: report ``no_device`` until the operator searches."""
-    global _awaiting_scan
+    """Switch on without scanning: ``idle`` (ready to connect) until the operator acts."""
+    global _awaiting_scan, _idle_detail
     _awaiting_scan = True
+    _idle_detail = ""
     _set_state(
         {
-            "status": "no_device",
-            "last_message": "No BrainBit headband is known yet. Search for headbands.",
+            "status": "idle",
+            "last_message": "Ready to connect. Choose a headband or search for one.",
         },
         force=True,
     )
+
+
+def forget_connection(*, keep_band: bool = False) -> None:
+    """The operator searches, chooses a band or switches off.
+
+    Auto-reconnect then no longer goes back by itself. ``keep_band`` keeps
+    offering the last band in the list (switching off); a search or a new
+    choice replaces it.
+    """
+    global _had_connection, _connected_identity, _idle_detail, _auto_reconnect_active
+    _had_connection = False
+    # No band to go back to, so nothing is armed: a search now runs once.
+    _auto_reconnect_active = False
+    if not keep_band:
+        _connected_identity = {}
+    _idle_detail = ""
+
+
+def settle_after_stop() -> None:
+    """Pause before connecting again, so the Bluetooth stack has let go of the band."""
+    _settle_after_stop()
+
+
+def set_auto_reconnect(active: bool) -> None:
+    """Let the CLI restore a lost connection by itself, or hand back to the operator.
+
+    Turned on while the band is gone (lost before the study started), it
+    reconnects to that band right away.
+    """
+    global _auto_reconnect_active
+    active = bool(active)
+    changed = active != _auto_reconnect_active
+    _auto_reconnect_active = active
+    if changed:
+        send_cli_command("AUTO_RECONNECT_ON" if active else "AUTO_RECONNECT_OFF")
+    with _lock:
+        running = _process is not None and _process.poll() is None
+    if active and changed and not running and _awaiting_scan and _had_connection and _config:
+        reset_retry_budget()
+        start()
+
+
+def auto_reconnect_active() -> bool:
+    return _auto_reconnect_active
+
+
+def had_connection() -> bool:
+    return _had_connection
 
 
 # ============================================================
@@ -734,9 +805,8 @@ def get_status() -> dict[str, Any]:
         # tends to hit Restart, which interrupts the attempt already running.
         "next_retry_at": latest.get("next_retry_at"),
         "retry_attempt": latest.get("retry_attempt"),
-        # The band is searched for again and again while the plugin is on, not
-        # once at start. Naming that here keeps the UI honest about the wait.
-        "scan_mode": "repeated_while_enabled",
+        # Searched only when the operator asks; retried only by auto-reconnect.
+        "scan_mode": "on_request",
         "measured_sample_rate_hz": latest.get("measured_sample_rate_hz"),
         "state_file": _config.get("state_path") if _config else None,
         "raw_log_path": _config.get("raw_log_path") if _config else None,
@@ -779,12 +849,24 @@ def _connection_block(
     health: dict[str, str],
 ) -> dict[str, Any]:
     """Facts for the shared connection panel; the core decides ready/next step."""
-    if _awaiting_scan and not running:
-        phase = "no_device"
+    detail = ""
+    if not _config:
+        phase = "starting"
+    elif _awaiting_scan and not running:
+        detail = _idle_detail
+        phase = "failed" if detail in _FAILED_DETAILS else "idle"
     else:
         phase = _PHASES.get(str(monitoring.get("connection_state") or ""), "connecting")
-        if phase == "failed" and not _target_device_from_config():
-            phase = "no_device"
+        if phase == "failed" and not running and _auto_reconnect_active and not latest.get("auto_restart_exhausted"):
+            # The watchdog brings the CLI back.
+            phase = "reconnecting"
+        elif phase == "reconnecting" and not _auto_reconnect_active:
+            # One attempt only: the CLI ends and hands back to the operator.
+            phase = "failed"
+            detail = "connection_lost" if _process_connected else "connect_failed"
+        elif phase == "connected" and latest.get("status") == "stale" and not _auto_reconnect_active:
+            phase = "failed"
+            detail = "no_data"
     device = latest.get("selected_device") or latest.get("device") or latest.get("target_device") or _target_device_from_config()
     device_label = _device_label(device)
 
@@ -836,7 +918,10 @@ def _connection_block(
         identity = _device_identity(payload)
         if identity:
             candidates.append({"id": identity, "label": _device_label(candidate), "payload": payload})
-    return {
+    remembered = _remembered_candidate()
+    if remembered and remembered["id"] not in {candidate["id"] for candidate in candidates}:
+        candidates.append(remembered)
+    block = {
         "phase": phase,
         "device": {"id": _device_identity(device), "label": device_label} if device_label else None,
         "candidates": candidates,
@@ -844,7 +929,32 @@ def _connection_block(
         "setup": setup,
         "streaming": health.get("raw_eeg") == "receiving",
         "message": str(latest.get("last_message") or ""),
+        "auto_reconnect": {"had_connection": _had_connection},
     }
+    if detail:
+        block["detail"] = detail
+    return block
+
+
+def _remembered_candidate() -> dict[str, Any] | None:
+    """The band used last time, offered in the list without a search.
+
+    Only a serial or address finds the same band again; a bare name does not.
+    """
+    source = _connected_identity or _target_device_from_config()
+    payload = {
+        key: value
+        for key, value in {
+            "serial_number": source.get("serial_number") or source.get("serial"),
+            "address": source.get("address"),
+            "name": source.get("name"),
+        }.items()
+        if value
+    }
+    identity = _device_identity(payload)
+    if not identity:
+        return None
+    return {"id": identity, "label": _device_label(payload) or "BrainBit", "payload": payload, "note": "last_used"}
 
 
 def _device_identity(device: Any) -> str:
@@ -1037,9 +1147,18 @@ def _read_output(process: subprocess.Popen[str], generation: int | None = None) 
         final_facts = _monitor.snapshot()
         if _desired_running:
             _update_state_from_line('DISCONNECTED {"reason":"acquisition_process_exit"}')
+        # Without auto-reconnect the CLI makes one attempt and ends: the
+        # plugin stays switched on and the operator decides what comes next.
+        hand_back = _desired_running and not _auto_reconnect_active
+        if hand_back:
+            _hand_back_to_operator(exit_code)
 
         reason = _exit_reason(exit_code)
-        if not _desired_running and previous_status == "stopped":
+        if hand_back and _idle_detail == "":
+            final_status = "idle"
+            final_message = "Ready to connect. Choose a headband or search for one."
+            detail_key = None
+        elif not _desired_running and not hand_back and previous_status == "stopped":
             final_status = "stopped"
             final_message = previous_message or "BrainBit CLI stopped."
             detail_key = None
@@ -1072,6 +1191,32 @@ def _read_output(process: subprocess.Popen[str], generation: int | None = None) 
         _stream_contract_ready.set()
         _close_log_handle()
         print(f"[BrainBit] External CLI exited with code {exit_code}. {final_message or ''}".rstrip())
+
+
+# Exit codes mapped onto the reason the plugin shows while it waits for the
+# operator. A code that is not listed means the connection broke.
+_EXIT_DETAILS = {
+    EXIT_NO_DEVICE_FOUND: "not_found",
+    EXIT_DEVICE_TARGET_MISSING: "target_missing",
+    EXIT_BLE_UNAVAILABLE: "bluetooth_unavailable",
+    EXIT_MISSING_DEPENDENCY: "missing_dependency",
+}
+
+
+def _hand_back_to_operator(exit_code: int | None) -> None:
+    global _desired_running, _awaiting_scan, _idle_detail
+    _desired_running = False
+    _awaiting_scan = True
+    if exit_code in (None, 0):
+        _idle_detail = ""
+    elif exit_code in _EXIT_DETAILS:
+        _idle_detail = _EXIT_DETAILS[exit_code]
+    elif _process_connected:
+        _idle_detail = "connection_lost"
+    elif exit_code == EXIT_CONNECT_FAILED:
+        _idle_detail = "connect_failed"
+    else:
+        _idle_detail = "crashed"
 
 
 def _exit_reason(exit_code: int | None) -> dict[str, Any] | None:
@@ -1301,6 +1446,20 @@ def _validated_metric_batch(
     latest["ts"] = parsed_timestamps[-1]
     latest["validity"] = payload.get("validity", "unknown")
     return values, parsed_timestamps, latest
+
+
+def _remember_connected_band(payload: dict[str, Any]) -> None:
+    global _had_connection, _connected_identity, _process_connected, _idle_detail
+    _had_connection = True
+    _process_connected = True
+    _idle_detail = ""
+    identity = {
+        "serial_number": str(payload.get("serial") or payload.get("serial_number") or "").strip(),
+        "address": str(payload.get("address") or "").strip(),
+        "name": str(payload.get("name") or "").strip(),
+    }
+    if identity["serial_number"] or identity["address"]:
+        _connected_identity = identity
 
 
 def _update_state_from_line(line: str) -> bool:
@@ -1587,6 +1746,7 @@ def _update_state_from_line(line: str) -> bool:
                 # once the band is actually connected does continued silence
                 # mean something is wrong.
                 _connected_at = now
+                _remember_connected_band(payload)
                 state_update["connected_at"] = now_text
                 state_update["connected_epoch"] = now
                 state_update["next_retry_at"] = None
@@ -1599,6 +1759,8 @@ def _update_state_from_line(line: str) -> bool:
                 state_update["status"] = "connecting"
                 state_update["last_message"] = (
                     "Could not connect to the band on this attempt. Trying again."
+                    if _auto_reconnect_active
+                    else "Could not connect to the band. Choose it again or search."
                 )
                 important = True
             elif tag == "WAITING":
@@ -2706,7 +2868,8 @@ def _maybe_restart_after_exit(now_value: float) -> bool:
 
     Only exit codes where a retry can plausibly help are retried; a missing
     dependency or switched-off Bluetooth needs a human, so the watchdog stops
-    and leaves the explanation on the dashboard.
+    and leaves the explanation on the dashboard. Without auto-reconnect nothing
+    is revived: the operator decides.
     """
     global _auto_restart_count, _last_auto_restart_at
 
@@ -2716,8 +2879,11 @@ def _maybe_restart_after_exit(now_value: float) -> bool:
                   "message": "BrainBit acquisition ended while continuous acquisition was requested."}
     if reason is None:
         return False  # clean exit: signal-seconds elapsed or stopped on purpose
-    if not reason.get("retry") or not _config.get("auto_restart", True):
+    if not reason.get("retry"):
         return False
+    if not _auto_reconnect_active:
+        # The operator decides; the reader hands the plugin back to them.
+        return True
 
     max_attempts = int(_config.get("auto_restart_max_attempts", 3))
     if _auto_restart_count >= max_attempts:
@@ -2778,11 +2944,12 @@ def _maybe_auto_restart(age: float, stale_timeout: float, now_value: float) -> N
 
     The MR60 adapter already reconnects on its own; this gives BrainBit the
     same self-healing. Limited attempts with exponential backoff so a dead
-    device does not cause an endless restart loop.
+    device does not cause an endless restart loop. Only while auto-reconnect
+    is active; otherwise the dashboard reports "no data" and the operator acts.
     """
     global _auto_restart_count, _last_auto_restart_at
 
-    if not _config.get("auto_restart", True) or _build_cli_command() is None:
+    if not _auto_reconnect_active or _build_cli_command() is None:
         return
     max_attempts = int(_config.get("auto_restart_max_attempts", 3))
     if _auto_restart_count >= max_attempts:

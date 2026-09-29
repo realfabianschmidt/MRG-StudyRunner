@@ -109,6 +109,54 @@ class MonitorTests(unittest.TestCase):
             self.assertTrue(plugin._run_admin_action(context, 'check_contact', {})['study_controlled'])
             restart.assert_not_called()
 
+    def test_a_known_band_is_not_connected_by_switching_on(self):
+        context = SimpleNamespace(
+            hardware_config={'brainbit': {'enabled': True, 'device_name': 'BrainBit',
+                                          'last_connected_device': {'serial_number': 'X1'}}},
+            base_dir=Path('.'), data_dir=Path('.'), runtime_locked=False, study_running=False,
+            resolve_project_path=lambda value: value, resolve_platform_value=lambda value: value,
+        )
+        with patch.object(adapter, 'initialize') as initialize, patch.object(adapter, 'wait_for_stream_contract'), \
+                patch.object(plugin, '_runtime_dir', return_value='.'):
+            plugin._initialize(context)
+        options = initialize.call_args.kwargs
+        self.assertFalse(options['start_process'])
+        # The band used last time is still the target, to be offered in the list.
+        self.assertEqual(options['serial_number'], 'X1')
+
+    def test_the_auto_reconnect_switch_works_while_recording(self):
+        context = SimpleNamespace(hardware_config={'brainbit': {'enabled': True}}, runtime_locked=True, study_running=True)
+        with patch.object(adapter, 'is_configured', return_value=True), patch.object(adapter, 'had_connection', return_value=True), \
+                patch.object(adapter, 'set_auto_reconnect') as set_auto, patch.object(plugin, '_auto_reconnect_choice', None):
+            result = plugin._run_admin_action(context, 'auto_reconnect', {'enabled': False})
+            self.assertFalse(result['auto_reconnect'])
+            set_auto.assert_called_with(False)
+            plugin._run_admin_action(context, 'auto_reconnect', {'enabled': True})
+            set_auto.assert_called_with(True)
+
+    def test_auto_reconnect_follows_the_study_run(self):
+        config = {'brainbit': {'enabled': True}}
+        with patch.object(adapter, 'is_configured', return_value=True), patch.object(adapter, 'had_connection', return_value=True), \
+                patch.object(adapter, 'set_auto_reconnect') as set_auto, patch.object(plugin, '_auto_reconnect_choice', None):
+            plugin._apply_auto_reconnect(SimpleNamespace(study_running=False), config['brainbit'])
+            set_auto.assert_called_with(False)
+            plugin._apply_auto_reconnect(SimpleNamespace(study_running=True), config['brainbit'])
+            set_auto.assert_called_with(True)
+            plugin._apply_auto_reconnect(SimpleNamespace(study_running=True), {'enabled': True, 'auto_reconnect': False})
+            set_auto.assert_called_with(False)
+
+    def test_search_returns_once_the_search_runs(self):
+        from study_runner.contracts.plugin_api import PluginContext
+        context = PluginContext(base_dir=Path('.'), data_dir=Path('.'), local_secrets={}, local_secrets_file=Path('s.json'),
+                                hardware_config={'brainbit': {'enabled': True, 'serial_number': 'OLD', 'scan_seconds': 7}},
+                                persist_hardware_config=Mock())
+        with patch.object(plugin, '_restart') as restart, patch.object(adapter, 'forget_connection') as forget:
+            result = plugin._run_admin_action(context, 'scan_devices', {})
+        forget.assert_called_once()
+        self.assertTrue(restart.call_args.kwargs['connect'])
+        self.assertNotIn('serial_number', restart.call_args.args[0].hardware_config['brainbit'])
+        self.assertIn('7 s', result['last_message'])
+
     def test_explicit_scan_never_auto_connects_even_with_one_device(self):
         args = SimpleNamespace(require_selection=True, serial_number='', device_address='', device_name='')
         self.assertEqual(cli._select_sensor_info([SimpleNamespace(SerialNumber='A')], args)[2], 'selection_required')

@@ -122,7 +122,7 @@ class RestartAfterExitTests(unittest.TestCase):
         self._original_start = adapter.start
         self.starts: list[bool] = []
         adapter.start = lambda: self.starts.append(True)
-        adapter._config = {"auto_restart": True, "python_executable": "python", "script_path": "cli.py"}
+        adapter._config = {"python_executable": "python", "script_path": "cli.py"}
         adapter._latest_state = {}
         adapter._process = None
         adapter._desired_running = True
@@ -130,9 +130,11 @@ class RestartAfterExitTests(unittest.TestCase):
         adapter._last_auto_restart_at = 0.0
         adapter._last_exit_at = 0.0
         adapter._last_exit_code = None
+        adapter._auto_reconnect_active = True
 
     def tearDown(self) -> None:
         adapter.start = self._original_start
+        adapter._auto_reconnect_active = False
         adapter._desired_running = False
         adapter._latest_state = {}
         adapter._config = {}
