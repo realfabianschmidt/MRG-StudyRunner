@@ -87,19 +87,29 @@ class StudyCredentialRouteTests(unittest.TestCase):
 
     def test_no_route_ever_returns_the_value(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            client = _app(temp_dir).test_client()
+            app = _app(temp_dir)
+            client = app.test_client()
             _save_study(client, "Study A")
             client.post(
                 "/api/admin/studies/Study A/credentials",
                 json={"notion": "top-secret-key", "nextcloud": "top-secret-pw"},
             )
 
-            responses = [
-                client.get("/api/admin/studies/Study A/credentials"),
-                client.get("/api/hardware-config"),
-                client.get("/api/admin/status"),
-                client.get("/api/config"),
-            ]
+            # Real asynchronous driver polls could outlive the temporary data
+            # tree and write logs into it while it is being removed.
+            with patch(
+                "study_runner.data_core.host.sensor_coordinator_service.get_plugin_status",
+                return_value={"status": "disabled"},
+            ):
+                try:
+                    responses = [
+                        client.get("/api/admin/studies/Study A/credentials"),
+                        client.get("/api/hardware-config"),
+                        client.get("/api/admin/status"),
+                        client.get("/api/config"),
+                    ]
+                finally:
+                    app.config["SENSOR_COORDINATOR"].close(wait=True)
             self.assertTrue(all(response.status_code == 200 for response in responses))
             bodies = [response.get_data(as_text=True) for response in responses]
 
