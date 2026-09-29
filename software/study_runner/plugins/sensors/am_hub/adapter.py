@@ -474,8 +474,23 @@ def get_status() -> dict[str, Any]:
         # at once; there is no manual connection to wait for.
         auto_reconnect=bool(_config.get("auto_reconnect", True)),
         had_connection=True,
+        device_label=_device_label(),
     )
     return status
+
+
+def _device_label() -> str:
+    """The hub's address, API and how each board is attached (BLE / WiFi)."""
+    url = str(_config.get("base_url") or "").split("://", 1)[-1]
+    parts = [f"AM Hub {url}".strip()]
+    if _api_version:
+        parts.append(_api_version)
+    boards = [
+        f"{role} {str(info.get('transport') or '').upper() or '?'}"
+        for role, info in sorted(_hub_boards.items())
+        if info.get("connected")
+    ]
+    return " · ".join(parts + boards)
 
 
 def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]:

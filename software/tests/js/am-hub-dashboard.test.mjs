@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { renderTrend, renderDashboard } from '../../study_runner/plugins/sensors/am_hub/ui/dashboard.js';
+import { graphSection, infoTip } from '../../study_runner/apps/ui/scripts/shared/dashboard-graph.js';
 
 const ui = {
   escapeHtml: (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;'),
@@ -9,6 +10,8 @@ const ui = {
   formatValue: (value, unit = '') => (value === null || value === undefined ? '-' : `${value}${unit}`),
   formatBoolean: (value) => String(!!value),
   formatSensorChannels: () => '-', formatTimestampAge: () => '-',
+
+  graphSection, infoTip,
 };
 const point = (at, values, validity = 'valid') => ({ at, received_at: at, values, validity });
 
@@ -48,7 +51,7 @@ test('dashboard renders the trend graphs and details without its own switch', ()
       preview: { movement: [], position: [] },
     },
   }, ui);
-  assert.doesNotMatch(html, /data-runtime-toggle/);
+  assert.doesNotMatch(html, /data-runtime-toggle|data-runtime-switch/);
   assert.match(html, /No person detected by any sensor\./);
   assert.match(html, /Movement &amp; presence energy/);
   assert.match(html, /Position \(relative to the sensor\)/);

@@ -76,13 +76,16 @@ export function renderTrend(kind, plugin, ui, now = Date.now() / 1000) {
   const axisLine = signed
     ? '<path d="M32 64H338" fill="none" stroke="currentColor" opacity=".4" />'
     : '<path d="M32 18V110H338" fill="none" stroke="currentColor" opacity=".4" />';
-  return `<section aria-label="${ui.escapeHtml(title)}"><strong>${ui.escapeHtml(title)}</strong>
-    <svg viewBox="0 0 360 140" width="100%" role="img" aria-label="${ui.escapeHtml(title)}">
+  const svg = `<svg viewBox="0 0 360 140" width="100%" role="img" aria-label="${ui.escapeHtml(title)}">
       ${axisLine}
       <g fill="currentColor" font-size="10"><text x="2" y="22">${topLabel}</text><text x="2" y="114">${bottomLabel}</text>
-      <text x="32" y="130">−60 s</text><text x="318" y="130">0 s</text></g>${paths}</svg>
-    <small>${legend}<br>${ui.escapeHtml(ui.t('amHub.monitor.previewNote', '60-second preview, at most 1 Hz.'))}
-    ${last ? ` · ${ui.escapeHtml(ui.t('amHub.monitor.age', 'Age'))}: ${Math.max(0, now - last.received_at).toFixed(0)} s` : ''}</small></section>`;
+      <text x="32" y="130">−60 s</text><text x="318" y="130">0 s</text></g>${paths}</svg>`;
+  // How the preview works and how old it is: in the (i), not under the graph.
+  const info = [
+    ui.t('amHub.monitor.previewNote', '60-second preview, at most 1 Hz.'),
+    last ? `${ui.t('amHub.monitor.age', 'Age')}: ${Math.max(0, now - last.received_at).toFixed(0)} s` : '',
+  ].filter(Boolean).join('\n');
+  return ui.graphSection({ title, svg, legend, info });
 }
 
 export function renderDashboard({ plugin: amHub }, ui) {

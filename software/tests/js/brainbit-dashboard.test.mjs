@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { renderTrend, renderDashboard } from '../../study_runner/plugins/sensors/brainbit/ui/dashboard.js';
+import { graphSection, infoTip } from '../../study_runner/apps/ui/scripts/shared/dashboard-graph.js';
 
 const ui = {
   escapeHtml: (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;'),
@@ -9,6 +10,8 @@ const ui = {
   formatValue: (value) => String(value ?? '-'), formatSensorChannels: () => '-',
   formatHealthValue: (value) => value || '-', formatTimestampAge: () => '-',
   formatObjectBrief: () => '-', renderRuntimeButtons: () => '',
+
+  graphSection, infoTip,
 };
 const point = (at, validity = 'valid', connection_id = 'new') => ({
   at, received_at: at, validity, connection_id, values: { alpha: .2 },
@@ -69,5 +72,5 @@ test('a connected band shows only notes the connection panel does not', () => {
 
 test('the tile draws no switch, device list or step buttons of its own', () => {
   const html = renderDashboard({ plugin: { key: 'brainbit', connection_state: 'connected', can_restart: true, latest: {} } }, ui);
-  assert.doesNotMatch(html, /data-runtime-toggle|data-plugin-admin-action|<select/);
+  assert.doesNotMatch(html, /data-runtime-toggle|data-runtime-switch|data-plugin-admin-action|<select/);
 });

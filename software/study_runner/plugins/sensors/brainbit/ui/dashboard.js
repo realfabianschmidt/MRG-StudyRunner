@@ -1,7 +1,7 @@
 /** Optional trusted dashboard renderer for the BrainBit plugin. */
 /**
- * Mental-index series get a hover explanation (Instant vs. Relative isn't
- * self-evident); band-power series (delta/theta/...) don't need one.
+ * Mental-index series get an explanation in the graph's (i) (Instant vs.
+ * Relative isn't self-evident); band-power series (delta/theta/...) don't.
  */
 const MENTAL_HELP_KEYS = {
   Inst_Attention: ['brainbitMentalInstAttention', "Instant attention: the SDK attention index for the current analysis window. This preview updates at most once per second."],
@@ -47,21 +47,22 @@ export function renderTrend(kind, plugin, ui, now = Date.now() / 1000) {
     }
     return `<path d="${d}" fill="none" stroke="${colors[index]}" stroke-width="2" stroke-dasharray="${index % 2 ? '5 2' : 'none'}" />`;
   }).join('');
-  const legend = names.map((name, index) => {
-    const label = ui.escapeHtml(ui.t(`brainbit.channel.${name}`, name));
-    const help = MENTAL_HELP_KEYS[name];
-    const span = help
-      ? `<span style="color:${colors[index]}" class="status-label-help" tabindex="0" title="${ui.escapeHtml(ui.t(`dashboard.help.${help[0]}`, help[1]))}">${label}</span>`
-      : `<span style="color:${colors[index]}">${label}</span>`;
-    return span;
-  }).join(' · ');
-  return `<section aria-label="${ui.escapeHtml(title)}"><strong>${ui.escapeHtml(title)}</strong>
-    <svg viewBox="0 0 360 140" width="100%" role="img" aria-label="${ui.escapeHtml(title)}">
+  const legend = names
+    .map((name, index) => `<span style="color:${colors[index]}">${ui.escapeHtml(ui.t(`brainbit.channel.${name}`, name))}</span>`)
+    .join(' · ');
+  // Everything explanatory goes into the (i): what the indices mean, how the
+  // preview works and how old the newest point is.
+  const info = [
+    ...names.filter((name) => MENTAL_HELP_KEYS[name])
+      .map((name) => ui.t(`dashboard.help.${MENTAL_HELP_KEYS[name][0]}`, MENTAL_HELP_KEYS[name][1])),
+    ui.t('brainbit.monitor.previewNote', "60-second preview, at most 1 Hz. The scale follows the visible values; gaps indicate unavailable or uncertain data."),
+    last ? `${ui.t('brainbit.monitor.age', 'Age')}: ${Math.max(0, now - last.received_at).toFixed(0)} s` : '',
+  ].filter(Boolean).join('\n');
+  const svg = `<svg viewBox="0 0 360 140" width="100%" role="img" aria-label="${ui.escapeHtml(title)}">
       <path d="M32 18V110H338" fill="none" stroke="currentColor" opacity=".4" />
       <g fill="currentColor" font-size="10"><text x="2" y="22">${Math.round(displayMax * 100)}%</text><text x="12" y="114">0%</text>
-      <text x="32" y="130">−60 s</text><text x="318" y="130">0 s</text></g>${paths}</svg>
-    <small>${legend}<br>${ui.escapeHtml(ui.t('brainbit.monitor.previewNote', "60-second preview, at most 1 Hz. The scale follows the visible values; gaps indicate unavailable or uncertain data."))}
-    ${last ? ` · ${ui.escapeHtml(ui.t('brainbit.monitor.age', 'Age'))}: ${Math.max(0, now - last.received_at).toFixed(0)} s` : ''}</small></section>`;
+      <text x="32" y="130">−60 s</text><text x="318" y="130">0 s</text></g>${paths}</svg>`;
+  return ui.graphSection({ title, svg, legend, info });
 }
 
 /**

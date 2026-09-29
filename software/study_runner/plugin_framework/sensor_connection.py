@@ -189,12 +189,15 @@ def presence_sensor_connection(
     message: str = "",
     auto_reconnect: bool | None = None,
     had_connection: bool = False,
+    device_label: str = "",
 ) -> dict[str, Any]:
     """Connection facts for sensors that detect a person (radar, hub).
 
     They need no setup. Whether a person is detected is shown as the signal
     but never blocks the start: the participant may sit down afterwards.
     ``auto_reconnect`` is the operator's switch, for plugins that offer it.
+    ``device_label`` names what it is connected to (address, transport, ID)
+    for the tile's device bar.
     """
     value = str(status or "").strip().lower()
     if not running or value in _OFF_STATUSES:
@@ -216,9 +219,10 @@ def presence_sensor_connection(
         signal = {"state": "good", "detail": "presence"}
     elif value == "no_presence":
         signal = {"state": "unknown", "detail": "no_presence"}
+    label = str(device_label or "").strip()
     block: dict[str, Any] = {
         "phase": phase,
-        "device": None,
+        "device": {"id": label, "label": label} if label else None,
         "candidates": [],
         "signal": signal,
         "setup": {"state": "not_needed"},

@@ -1056,23 +1056,52 @@ body.admin::before { display: none; }
      drawn over the neighbouring tile. */
   grid-template-columns: minmax(0, 1fr);
   gap: var(--s-2);
-  margin-bottom: var(--s-3);
+  margin-bottom: var(--s-5);
   container-type: inline-size;
+  /* One row height (x1) for indicator, switch, device list and step buttons. */
+  --sensor-row-h: 32px;
 }
-.sensor-connection-status {
+/* Head: indicator left, runtime switch right, nothing in between. */
+.sensor-connection-head {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.sensor-indicator {
+  display: inline-flex;
+  align-items: center;
   gap: var(--s-2);
-}
-.sensor-connection-text {
-  flex: 1 1 10rem;
   min-width: 0;
+  height: var(--sensor-row-h);
+  padding: 0 var(--s-3);
+  border-radius: var(--r-pill);
+  background: var(--ink-08);
   color: var(--ink-70);
-  font-size: .85rem;
+  font-size: .8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.sensor-connection-status .dashboard-status-row-actions {
-  margin-left: auto;
+.sensor-indicator-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.sensor-indicator--connected { background: var(--pos-14); color: var(--pos); }
+.sensor-indicator--ready { background: var(--pos-14); color: var(--pos); }
+.sensor-indicator--starting,
+.sensor-indicator--stale { background: var(--warn-14); color: var(--warn); }
+.sensor-indicator--failed { background: var(--neg-14); color: var(--neg); }
+/* The small line under the steps: signal, setup and what to do next. */
+.sensor-connection-info {
+  margin: 0;
+  color: var(--ink-55);
+  font-size: .78rem;
+  line-height: 1.4;
 }
 .sensor-connection-steps {
   display: flex;
@@ -1085,6 +1114,7 @@ body.admin::before { display: none; }
 .sensor-connection-steps .dashboard-select,
 .sensor-connection-device {
   order: 0;
+  height: var(--sensor-row-h, var(--control-md));
   flex: 1 1 auto;
   width: auto;
   min-width: 6rem;
@@ -1093,7 +1123,35 @@ body.admin::before { display: none; }
   white-space: nowrap;
 }
 .sensor-connection-device {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--s-3);
+  border: 1px solid var(--ink-14);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
   color: var(--ink-70);
+  font-size: .85rem;
+}
+.sensor-connection-device.is-empty { color: var(--ink-30); }
+.sensor-connection-device .marquee-text {
+  display: inline-block;
+  white-space: nowrap;
+}
+/* Too long for the bar: scroll through, pausing at both ends; hover or focus
+   holds it still so it can be read. */
+.sensor-connection-device.is-scrolling { text-overflow: clip; }
+.sensor-connection-device.is-scrolling .marquee-text {
+  animation: marquee var(--marquee-duration, 8s) ease-in-out infinite;
+}
+.sensor-connection-device.is-scrolling:hover .marquee-text { animation-play-state: paused; }
+@keyframes marquee {
+  0%, 20% { transform: translateX(0); }
+  60%, 80% { transform: translateX(var(--marquee-shift, 0)); }
+  100% { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sensor-connection-device.is-scrolling { text-overflow: ellipsis; }
+  .sensor-connection-device.is-scrolling .marquee-text { animation: none; }
 }
 .sensor-connection-buttons {
   display: flex;
@@ -1108,8 +1166,8 @@ body.admin::before { display: none; }
   align-items: center;
   justify-content: center;
   flex: none;
-  width: var(--control-md);
-  height: var(--control-md);
+  width: var(--sensor-row-h, var(--control-md));
+  height: var(--sensor-row-h, var(--control-md));
   padding: 0;
   border: 1.5px solid var(--ink-14);
   border-radius: 50%;
@@ -1180,9 +1238,11 @@ body.admin::before { display: none; }
   .sensor-connection-buttons {
     gap: var(--s-1);
   }
+  .sensor-connection-head,
+  .sensor-connection-steps {
+    --sensor-row-h: var(--control-sm);
+  }
   .sensor-connection-step {
-    width: var(--control-sm);
-    height: var(--control-sm);
     font-size: .875rem;
   }
   .sensor-connection-steps .dashboard-select,
@@ -1190,6 +1250,141 @@ body.admin::before { display: none; }
     min-width: 4rem;
   }
 }
+
+/* Runtime switch: Off | On | Restart in one track, same height as the row.
+   The knob sits on the current field; while dragging it follows the pointer
+   (--runtime-drag), and while restarting it stays right and spins. */
+.runtime-switch {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+  flex: none;
+  width: calc(var(--sensor-row-h, 32px) * 3.4);
+  height: var(--sensor-row-h, 32px);
+  padding: 2px;
+  border-radius: var(--r-pill);
+  background: var(--ink-14);
+  transition: background var(--t-fast);
+  touch-action: none;
+  user-select: none;
+}
+.runtime-switch.is-on { background: var(--ink); }
+.runtime-switch.is-restart { background: var(--accent); }
+.runtime-switch-option {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-55);
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.runtime-switch.is-on .runtime-switch-option,
+.runtime-switch.is-restart .runtime-switch-option { color: rgba(255, 255, 255, .7); }
+.runtime-switch-option[aria-checked="true"] { color: var(--ink); }
+.runtime-switch.is-on .runtime-switch-option[aria-checked="true"],
+.runtime-switch.is-restart .runtime-switch-option[aria-checked="true"] { color: var(--ink); }
+.runtime-switch-option:disabled { cursor: not-allowed; opacity: .55; }
+.runtime-switch-option[aria-checked="true"]:disabled { opacity: 1; }
+.runtime-switch-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.runtime-switch-knob {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 3);
+  border-radius: var(--r-pill);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transform: translateX(var(--knob-x, 0%)) translateX(var(--runtime-drag, 0px));
+  transition: transform var(--t-fast) var(--fluid);
+}
+.runtime-switch.is-on .runtime-switch-knob { --knob-x: 100%; }
+.runtime-switch.is-restart .runtime-switch-knob { --knob-x: 200%; }
+.runtime-switch.is-dragging .runtime-switch-knob { transition: none; }
+.runtime-switch.is-busy { cursor: progress; }
+.runtime-switch.is-restart.is-busy .runtime-switch-option[aria-checked="true"] i {
+  animation: runtime-switch-spin 1s linear infinite;
+}
+@keyframes runtime-switch-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .runtime-switch-knob { transition: none; }
+  .runtime-switch.is-restart.is-busy .runtime-switch-option[aria-checked="true"] i { animation: none; }
+}
+
+/* Sensor tiles in two column stacks: each tile its own height, the next
+   one right below it. One column on narrow screens, in the plugins' order. */
+.sensor-columns { align-items: start; }
+.sensor-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-width: 0;
+}
+@media (max-width: 860px) {
+  .sensor-column { display: contents; }
+}
+
+/* Graphs: title, graph, legend left and (i) right; room between graphs. */
+.sensor-graph { margin: var(--s-6) 0 0; }
+.sensor-graph-title {
+  margin-bottom: var(--s-2);
+  color: var(--ink);
+  font-size: .82rem;
+  font-weight: 600;
+}
+.sensor-graph svg { display: block; }
+.sensor-graph-foot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-top: var(--s-1);
+  font-size: .75rem;
+}
+.sensor-graph-legend { min-width: 0; }
+.info-tip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-30);
+  font-size: .95rem;
+  cursor: help;
+}
+.info-tip:hover,
+.info-tip:focus-visible { color: var(--ink-70); outline: none; }
+
+/* Inside sensor tiles: calm key/value lists, no rules, two tones. */
+.sensor-tile .dashboard-card-body > * + * { margin-top: var(--s-4); }
+.sensor-tile .status-list {
+  gap: var(--s-1) var(--s-4);
+  font-size: .8rem;
+}
+.sensor-tile .status-list dt,
+.sensor-tile .status-list dd {
+  padding: 0;
+  border-top: 0;
+}
+.sensor-tile .status-list dt { color: var(--ink-55); font-weight: 400; }
+.sensor-tile .status-list dd { color: var(--ink); font-weight: 400; text-align: left; }
+.sensor-tile details > summary {
+  color: var(--ink-55);
+  font-size: .8rem;
+  cursor: pointer;
+}
+.sensor-tile details[open] > summary { margin-bottom: var(--s-2); }
+/* Diagnostics at the bottom, clearly apart from the graphs above. */
+.sensor-tile details { margin-top: var(--s-6); }
+.sensor-tile .camera-live-monitor { padding-top: 0; border-top: 0; }
 /* Restart interrupts a running acquisition, so it reads as a destructive action. */
 .dashboard-status-row-actions .btn-icon-only.is-danger {
   color: var(--neg);

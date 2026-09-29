@@ -2,8 +2,11 @@
 
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
+import { graphSection, infoTip } from '../shared/dashboard-graph.js';
 import { openPluginConsole } from './plugin-console.js';
 import { renderSensorConnectionPanel, studyBarState } from './sensor-connection-panel.js';
+import { bindRuntimeSwitch } from './runtime-switch-input.js';
+import { placeInColumn, sensorColumns, updateMarquees } from './sensor-columns.js';
 import {
   getPluginCatalog,
   getPluginUiExtension,
@@ -23,6 +26,8 @@ let callbacks = {};
 const pendingPluginActions = new Set();
 // Switch position the operator chose while the start/stop request runs.
 const pendingRuntime = new Map();
+// Plugins restarting right now: their switch knob stays on Restart until done.
+const pendingRestart = new Set();
 let latestStatus = null;
 
 export function initializeAdminDashboard(options = {}) {
@@ -45,11 +50,7 @@ export function initializeAdminDashboard(options = {}) {
       void openPluginConsole(consoleButton.dataset.pluginConsole, { showToast });
       return;
     }
-    const runtimeToggle = event.target.closest('[data-runtime-toggle]');
-    if (runtimeToggle) {
-      void switchPluginRuntime(runtimeToggle.dataset.runtimeToggle, runtimeToggle.checked, elements, showToast);
-      return;
-    }
+    if (event.target.closest('[data-runtime-switch]')) return; // runtime-switch-input.js
     const stepButton = event.target.closest('[data-connection-action]');
     if (stepButton) {
       void runConnectionStep(stepButton, elements, showToast);
@@ -64,6 +65,9 @@ export function initializeAdminDashboard(options = {}) {
   elements.dashboard.addEventListener('change', (event) => {
     const select = event.target.closest('select[data-connection-select]');
     if (select) void runConnectionSelect(select, elements, showToast);
+  });
+  bindRuntimeSwitch(elements.dashboard, (pluginKey, target) => {
+    void moveRuntimeSwitch(pluginKey, target, elements, showToast);
   });
 
   const refresh = () => {
@@ -100,15 +104,36 @@ async function runDashboardAction(actionSource, elements, showToast) {
     await switchPluginRuntime(pluginKey, runtimeAction === 'start', elements, showToast);
     return;
   }
+  await restartPluginRuntime(pluginKey, elements, showToast);
+}
+
+/** Off | On | Restart on the runtime switch. */
+async function moveRuntimeSwitch(pluginKey, target, elements, showToast) {
+  if (!pluginKey || !target) return;
+  if (target === 'restart') {
+    await restartPluginRuntime(pluginKey, elements, showToast);
+    return;
+  }
+  await switchPluginRuntime(pluginKey, target === 'on', elements, showToast);
+}
+
+/** The knob stays on Restart while the restart runs, then follows the real state. */
+async function restartPluginRuntime(pluginKey, elements, showToast) {
+  if (!pluginKey || pendingRestart.has(pluginKey) || pendingRuntime.has(pluginKey)) return;
+  pendingRestart.add(pluginKey);
+  statusGeneration += 1;
+  if (latestStatus) renderSensorTiles(elements.sensorTiles, latestStatus);
   try {
     await postJson(`/api/admin/plugins/${encodeURIComponent(pluginKey)}/restart`, {});
     showToast?.(t('sensorConnection.restarted', '{name} restarted').replace('{name}', pluginDisplayName(pluginKey)), 'success');
   } catch (error) {
     console.error('[admin] Plugin restart failed:', error);
     showToast?.(`${t('sensorConnection.restartFailed', 'Could not restart {name}').replace('{name}', pluginDisplayName(pluginKey))}: ${error?.message || error}`, 'error');
+  } finally {
+    pendingRestart.delete(pluginKey);
+    statusGeneration += 1;
+    await refreshAdminStatus(elements, showToast);
   }
-  statusGeneration += 1;
-  await refreshAdminStatus(elements, showToast);
 }
 
 /**
@@ -117,7 +142,7 @@ async function runDashboardAction(actionSource, elements, showToast) {
  * before the request finished are discarded, so it never jumps back.
  */
 async function switchPluginRuntime(pluginKey, wantRunning, elements, showToast) {
-  if (!pluginKey || pendingRuntime.has(pluginKey)) return;
+  if (!pluginKey || pendingRuntime.has(pluginKey) || pendingRestart.has(pluginKey)) return;
   pendingRuntime.set(pluginKey, Boolean(wantRunning));
   statusGeneration += 1;
   if (latestStatus) renderSensorTiles(elements.sensorTiles, latestStatus);
@@ -398,18 +423,21 @@ export function renderSensorTiles(target, status) {
   target.querySelectorAll('[data-plugin-tile]').forEach((tile) => {
     if (!keys.has(tile.dataset.pluginTile)) tile.remove();
   });
-  items.forEach((item) => {
+  const columns = sensorColumns(target);
+  items.forEach((item, index) => {
     const detail = renderPluginDashboardDetail(item, status);
     const icon = pluginUiIcon(item.manifest);
     let tile = [...target.querySelectorAll('[data-plugin-tile]')].find((node) => node.dataset.pluginTile === item.key);
     if (!tile) {
-      target.insertAdjacentHTML('beforeend', `
-      <article class="dashboard-card" data-plugin-tile="${escapeHtml(item.key)}">
+      const template = document.createElement('template');
+      template.innerHTML = `
+      <article class="dashboard-card sensor-tile" data-plugin-tile="${escapeHtml(item.key)}">
         <div class="dashboard-card-title"><i class="${escapeHtml(icon)}"></i> <span>${escapeHtml(item.label || item.key)}</span></div>
         <div class="dashboard-card-body"><div data-plugin-inline-controls></div><div data-plugin-detail></div><div data-plugin-actions></div>${renderPluginConsoleButton(item.manifest)}</div>
-      </article>`);
-      tile = target.lastElementChild;
+      </article>`.trim();
+      tile = template.content.firstElementChild;
     }
+    placeInColumn(columns, tile, items.map((entry) => entry.key), index);
     const locked = Boolean(item.runtime_locked || status.active_study_session);
     tile.dataset.runtimeLocked = String(locked);
     const template = document.createElement('template');
@@ -421,6 +449,7 @@ export function renderSensorTiles(target, status) {
       locked,
       pending: pluginActionPending(item.key),
       pendingRunning: pendingRuntime.has(item.key) ? pendingRuntime.get(item.key) : undefined,
+      pendingRestart: pendingRestart.has(item.key),
       deviatesFromStudy: Boolean((status.sensor_runtime?.override_active || {})[item.key]),
     });
     renderPluginActionControls(tile.querySelector('[data-plugin-inline-controls]'), panel || inlineControls?.outerHTML || '');
@@ -429,7 +458,7 @@ export function renderSensorTiles(target, status) {
     const focusable = 'button, input, select, textarea, summary, [tabindex]';
     const focused = body.contains(document.activeElement) ? document.activeElement : null;
     const focusIndex = [...body.querySelectorAll(focusable)].indexOf(focused);
-    const focusIdentity = (node) => node && `${node.tagName}:${node.id}:${node.dataset.dashboardAction || node.dataset.runtimeToggle || node.getAttribute('aria-label') || ''}`;
+    const focusIdentity = (node) => node && `${node.tagName}:${node.id}:${node.dataset.dashboardAction || node.dataset.target || node.getAttribute('aria-label') || ''}`;
     const oldFocusIdentity = focusIdentity(focused);
     const openDetails = [...body.querySelectorAll('details')].map((node) => node.open);
     body.innerHTML = template.innerHTML;
@@ -440,6 +469,7 @@ export function renderSensorTiles(target, status) {
     renderPluginActionControls(actions, renderPluginAdminActions(item.manifest, item));
     updatePluginActionAvailability(tile, item.key);
   });
+  updateMarquees(target);
 }
 
 function pluginActionPending(pluginKey) {
@@ -497,7 +527,8 @@ function renderPluginActionControls(container, html) {
 function controlIdentity(node) {
   return [
     node.dataset?.connectionAction,
-    node.dataset?.runtimeToggle,
+    node.closest?.('[data-runtime-switch]')?.dataset.runtimeSwitch,
+    node.dataset?.target,
     node.dataset?.dashboardAction,
     node.dataset?.pluginAdminAction,
   ].filter(Boolean).join(':');
@@ -532,6 +563,8 @@ function dashboardUiHelpers() {
     formatTimestampAge,
     formatObjectBrief,
     renderRuntimeButtons,
+    graphSection,
+    infoTip,
   };
 }
 

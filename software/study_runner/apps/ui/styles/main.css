@@ -662,7 +662,10 @@ label.field > span:first-child {
 .switch-slider::before {
   content: "";
   position: absolute;
-  top: var(--s-0h);
+  /* Centred, whatever the track's border: a fixed top offset left the knob
+     sitting on the lower edge of the 1px-bordered track. */
+  top: 50%;
+  transform: translateY(-50%);
   left: var(--s-0h);
   width: var(--s-5);
   height: var(--s-5);
@@ -676,7 +679,7 @@ label.field > span:first-child {
   border-color: var(--ink);
 }
 .switch input:checked + .switch-slider::before {
-  transform: translateX(var(--s-4));
+  transform: translate(var(--s-4), -50%);
 }
 .switch input:focus-visible + .switch-slider {
   box-shadow: 0 0 0 3px var(--accent-16);

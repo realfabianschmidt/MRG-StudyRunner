@@ -298,8 +298,19 @@ def get_status() -> dict[str, Any]:
         # at once; there is no manual connection to wait for.
         auto_reconnect=bool(_config.get("auto_reconnect", True)),
         had_connection=True,
+        device_label=_device_label(),
     )
     return status
+
+
+def _device_label() -> str:
+    """How the radar is attached: BLE name/address, or serial port and speed."""
+    if _connection_type() == "ble":
+        name = str(_config.get("ble_device_name") or BLE_DEVICE_NAME)
+        address = str(_config.get("ble_address") or "").strip()
+        return " · ".join(part for part in ("MR60", "BLE", name, address) if part)
+    port = str(_config.get("port") or "").strip() or "?"
+    return f"MR60 · Serial {port} · {int(_config.get('baudrate') or 115200)} Bd"
 
 
 def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]:

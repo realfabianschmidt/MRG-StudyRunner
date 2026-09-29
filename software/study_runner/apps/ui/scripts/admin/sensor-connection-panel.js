@@ -7,8 +7,9 @@
  * (plugin_framework/sensor_connection.py). This module only draws it, the
  * same way for every sensor:
  *
- *   [status pill] Connected – electrode contact good · Calibration done [Ready]   [switch] [restart]
+ *   [● Connected / Ready ✓]                                   [ Off | On | Restart ]
  *   [device list (shrinks) ...........] (search) (contact) (initialize) (auto-reconnect)
+ *   electrode contact good · calibration done          (small info line)
  *
  * The round buttons always stay beside the list and are always visible. The
  * button for `next_step` is the call to action; buttons that cannot help
@@ -251,61 +252,106 @@ function renderAutoReconnectToggle(plugin, action, connection, state) {
     </button>`;
 }
 
-function renderSwitch(plugin, { pendingRunning } = {}) {
-  const running = pendingRunning ?? Boolean(plugin.running);
-  const busy = pendingRunning !== undefined;
+/**
+ * Where a push moves the runtime switch: right from Off switches on (however
+ * far), right from On restarts, left from On switches off. null = no change.
+ */
+export function runtimeSwitchStep(position, direction) {
+  if (direction > 0) return position === 'off' ? 'on' : (position === 'on' ? 'restart' : null);
+  if (direction < 0) return position === 'off' ? null : 'off';
+  return null;
+}
+
+/** A click on a field: Restart while off only switches on, like a push right. */
+export function runtimeSwitchClick(position, target) {
+  if (target === position) return null;
+  if (position === 'off' && target === 'restart') return 'on';
+  return target;
+}
+
+/** The connected device for sensors without a device list: name, ID, transport. */
+function renderDeviceBar(plugin, connection) {
+  const label = connection.device?.label || plugin.device_label || '';
+  const text = label || t('sensorConnection.noDevice', 'No device connected');
+  // The inner span scrolls through when the text does not fit (sensor-columns.js).
+  return `<span class="sensor-connection-device${label ? '' : ' is-empty'}" title="${escapeHtml(text)}" data-marquee><span class="marquee-text">${escapeHtml(text)}</span></span>`;
+}
+
+/** Where the runtime switch stands: off, on, or restarting (right). */
+export function runtimeSwitchPosition(plugin, { pendingRunning, pendingRestart } = {}) {
+  if (pendingRestart) return 'restart';
+  if (pendingRunning !== undefined) return pendingRunning ? 'on' : 'off';
+  return plugin?.running ? 'on' : 'off';
+}
+
+/**
+ * Off | On | Restart in one track. Pushing right from Off switches on;
+ * pushing right from On restarts and the knob comes back to On once the
+ * restart is done; pushing left switches off. Handled in the dashboard
+ * controller (click, drag, arrow keys).
+ */
+function renderRuntimeSwitch(plugin, state = {}) {
+  const position = runtimeSwitchPosition(plugin, state);
+  const busy = state.pendingRunning !== undefined || Boolean(state.pendingRestart);
   const canSwitch = Boolean(plugin.can_start || plugin.can_stop);
-  const label = running
-    ? t('sensorConnection.switchOff', 'Switch off')
-    : t('sensorConnection.switchOn', 'Switch on');
-  const restartLabel = t('dashboard.action.restart', 'Restart');
-  return `<div class="dashboard-status-row-actions">
-      <label class="dashboard-toggle" title="${escapeHtml(label)}">
-        <span class="switch"><input type="checkbox" data-runtime-toggle="${escapeHtml(plugin.key)}" ${running ? 'checked' : ''} ${canSwitch && !busy ? '' : 'disabled'} aria-label="${escapeHtml(label)}"><span class="switch-slider"></span></span>
-      </label>
-      ${plugin.can_restart ? `<button type="button" class="btn-icon-only is-danger" data-dashboard-action="runtime_${escapeHtml(plugin.key)}_restart"
-          ${running && !busy ? '' : 'disabled'} title="${escapeHtml(restartLabel)}" aria-label="${escapeHtml(restartLabel)}"><i class="iconoir-refresh"></i></button>` : ''}
+  const segments = [
+    ['off', t('sensorConnection.runtime.off', 'Off'), '', !canSwitch],
+    ['on', t('sensorConnection.runtime.on', 'On'), '', !canSwitch],
+    ['restart', t('dashboard.action.restart', 'Restart'), 'iconoir-refresh', !plugin.can_restart || position === 'off'],
+  ];
+  const label = t('sensorConnection.runtime.label', 'Sensor runtime');
+  return `<div class="runtime-switch is-${position}${busy ? ' is-busy' : ''}" role="radiogroup"
+      aria-label="${escapeHtml(label)}" data-runtime-switch="${escapeHtml(plugin.key)}" data-position="${position}"
+      ${busy || !canSwitch ? 'aria-disabled="true"' : ''}>
+      ${segments.map(([target, text, icon, disabled]) => `<button type="button" role="radio" class="runtime-switch-option"
+        data-target="${target}" aria-checked="${position === target ? 'true' : 'false'}"
+        title="${escapeHtml(text)}" aria-label="${escapeHtml(text)}" tabindex="${position === target ? '0' : '-1'}"
+        ${disabled || busy ? 'disabled' : ''}>${icon ? `<i class="${icon}" aria-hidden="true"></i>` : `<span>${escapeHtml(text)}</span>`}</button>`).join('')}
+      <span class="runtime-switch-knob" aria-hidden="true"></span>
     </div>`;
 }
 
 /**
  * @param plugin   the plugin status (standardized, with `connection`, `running`)
  * @param manifest the plugin manifest
- * @param state    {locked, pending, pendingRunning, deviatesFromStudy}
+ * @param state    {locked, pending, pendingRunning, pendingRestart, deviatesFromStudy}
+ *
+ *   [● Connected           ]                 [ Off | On | ↻ ]
+ *   [device list ▾        ] (search)(contact)(init)(auto)
+ *   Electrode contact good · Calibration done
  */
 export function renderSensorConnectionPanel(plugin, manifest, state = {}) {
   const connection = plugin?.connection;
   if (!connection) return '';
   const roles = roleActions(manifest);
   const phase = connection.phase || 'connecting';
-  const pill = PHASE_PILL[phase] || 'unknown';
   const statusParts = connectionStatusText(connection, manifest);
-  const readyPill = connection.ready
-    ? `<span class="status-pill status-pill--ready"><i class="iconoir-check"></i> ${escapeHtml(t('sensorConnection.ready', 'Ready'))}</span>`
-    : '';
+  const tone = connection.ready ? 'ready' : (PHASE_PILL[phase] || 'unknown');
+  const indicatorText = connection.ready ? t('sensorConnection.ready', 'Ready') : (statusParts[0] || '');
   const stepRoles = STEP_ROLES.filter((role) => roles[role]);
-  const hasSteps = Boolean(roles.select || stepRoles.length || roles.auto_reconnect);
   const buttons = [
     ...stepRoles.map((role) => renderStepButton(plugin, role, roles[role], connection, state)),
     roles.auto_reconnect ? renderAutoReconnectToggle(plugin, roles.auto_reconnect, connection, state) : '',
   ].join('');
-  const steps = hasSteps ? `
+  // Every sensor has this bar: the device list, or what it is connected to.
+  const steps = `
     <div class="sensor-connection-steps">
-      ${roles.select ? renderDeviceSelect(plugin, manifest, connection, roles.select, state) : `<span class="sensor-connection-device">${escapeHtml(connection.device?.label || '')}</span>`}
-      <div class="sensor-connection-buttons" role="group" aria-label="${escapeHtml(t('sensorConnection.steps', 'Connection steps'))}">${buttons}</div>
-    </div>` : '';
+      ${roles.select ? renderDeviceSelect(plugin, manifest, connection, roles.select, state) : renderDeviceBar(plugin, connection)}
+      ${buttons ? `<div class="sensor-connection-buttons" role="group" aria-label="${escapeHtml(t('sensorConnection.steps', 'Connection steps'))}">${buttons}</div>` : ''}
+    </div>`;
+  // When ready, the indicator says so; the phase then joins the info line.
+  const info = (connection.ready ? statusParts : statusParts.slice(1)).join(' · ');
   const deviation = state.deviatesFromStudy
     ? `<p class="sensor-connection-note">${escapeHtml(t('sensorConnection.deviation', 'Differs from the loaded study until the study is loaded again.'))}
         <button type="button" class="btn-secondary btn-xs" data-dashboard-action="reset_sensor_overrides">${escapeHtml(t('dashboard.overrideReset', 'Reset to study settings'))}</button></p>`
     : '';
   return `<div class="sensor-connection" data-plugin-dashboard-controls data-sensor-connection="${escapeHtml(plugin.key)}" data-phase="${escapeHtml(phase)}">
-      <div class="sensor-connection-status">
-        <span class="status-pill status-pill--${escapeHtml(pill)}">${escapeHtml(statusParts[0] || '')}</span>
-        <span class="sensor-connection-text" role="status">${escapeHtml(statusParts.slice(1).join(' · '))}</span>
-        ${readyPill}
-        ${renderSwitch(plugin, state)}
+      <div class="sensor-connection-head">
+        <span class="sensor-indicator sensor-indicator--${escapeHtml(tone)}" role="status">${connection.ready ? '<i class="iconoir-check" aria-hidden="true"></i>' : '<span class="sensor-indicator-dot" aria-hidden="true"></span>'}${escapeHtml(indicatorText)}</span>
+        ${renderRuntimeSwitch(plugin, state)}
       </div>
       ${steps}
+      ${info ? `<p class="sensor-connection-info">${escapeHtml(info)}</p>` : ''}
       ${deviation}
     </div>`;
 }

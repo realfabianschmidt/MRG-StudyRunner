@@ -3,6 +3,8 @@ import test from 'node:test';
 import {
   connectionStatusText,
   renderSensorConnectionPanel,
+  runtimeSwitchClick,
+  runtimeSwitchStep,
   stepBlockReason,
   studyBarState,
 } from '../../study_runner/apps/ui/scripts/admin/sensor-connection-panel.js';
@@ -55,7 +57,7 @@ test('connected with poor contact: measure is the call to action, initialize is 
   assert.equal(ctaRole(html), 'measure_signal');
   assert.doesNotMatch(html, /data-connection-action="initialize"[^>]*disabled/);
   assert.match(html, /Electrode contact poor \(O1, T3\)/);
-  assert.doesNotMatch(html, /status-pill--ready/);
+  assert.doesNotMatch(html, /sensor-indicator--ready/);
 });
 
 test('good contact: initialize is next, then ready', () => {
@@ -67,17 +69,54 @@ test('good contact: initialize is next, then ready', () => {
   const ready = { ...needed, next_step: null, ready: true, setup: { state: 'done' } };
   const html = renderSensorConnectionPanel(plugin(ready), manifest);
   assert.equal(ctaRole(html), null);
-  assert.match(html, /status-pill--ready/);
+  assert.match(html, /sensor-indicator--ready/);
   assert.deepEqual(connectionStatusText(ready, manifest), ['Connected', 'Electrode contact good', 'Calibration done']);
 });
 
 test('the switch shows the running state, not the ability to stop', () => {
   const off = renderSensorConnectionPanel(plugin({ phase: 'off' }, { running: false }), manifest);
-  assert.match(off, /data-runtime-toggle="brainbit"(?![^>]*checked)/);
+  assert.match(off, /runtime-switch is-off"[^>]*data-runtime-switch="brainbit"[^>]*data-position="off"/);
   const on = renderSensorConnectionPanel(plugin({ phase: 'connecting' }), manifest);
-  assert.match(on, /data-runtime-toggle="brainbit"[^>]*checked/);
+  assert.match(on, /runtime-switch is-on"[^>]*data-position="on"/);
   const pending = renderSensorConnectionPanel(plugin({ phase: 'connected' }), manifest, { pendingRunning: false });
-  assert.match(pending, /data-runtime-toggle="brainbit"(?![^>]*checked)[^>]*disabled/);
+  assert.match(pending, /runtime-switch is-off is-busy"[^>]*aria-disabled="true"/);
+});
+
+test('the runtime switch has Off, On and Restart; Restart needs a running sensor that can restart', () => {
+  const on = renderSensorConnectionPanel(plugin({ phase: 'connected' }), manifest);
+  assert.deepEqual([...on.matchAll(/role="radio" class="runtime-switch-option"\s+data-target="([a-z]+)"/g)].map((m) => m[1]),
+    ['off', 'on', 'restart']);
+  assert.match(on, /data-target="on" aria-checked="true"/);
+  assert.doesNotMatch(on, /data-target="restart"[^>]*disabled/);
+  const off = renderSensorConnectionPanel(plugin({ phase: 'off' }, { running: false }), manifest);
+  assert.match(off, /data-target="restart"[^>]*disabled/);
+  const noRestart = renderSensorConnectionPanel(plugin({ phase: 'connected' }, { can_restart: false }), manifest);
+  assert.match(noRestart, /data-target="restart"[^>]*disabled/);
+});
+
+test('while restarting the knob stays on Restart', () => {
+  const html = renderSensorConnectionPanel(plugin({ phase: 'connecting' }), manifest, { pendingRestart: true });
+  assert.match(html, /runtime-switch is-restart is-busy"/);
+  assert.match(html, /data-target="restart" aria-checked="true"/);
+});
+
+test('pushing the switch: right from Off switches on, right from On restarts, left switches off', () => {
+  assert.equal(runtimeSwitchStep('off', 1), 'on');
+  assert.equal(runtimeSwitchStep('on', 1), 'restart');
+  assert.equal(runtimeSwitchStep('restart', 1), null);
+  assert.equal(runtimeSwitchStep('on', -1), 'off');
+  assert.equal(runtimeSwitchStep('off', -1), null);
+  assert.equal(runtimeSwitchClick('off', 'restart'), 'on');
+  assert.equal(runtimeSwitchClick('on', 'restart'), 'restart');
+  assert.equal(runtimeSwitchClick('on', 'on'), null);
+});
+
+test('nothing stands between the indicator and the switch; details go to the info line', () => {
+  const connection = { phase: 'connected', streaming: true, ready: true, signal: { state: 'good' }, setup: { state: 'done' } };
+  const html = renderSensorConnectionPanel(plugin(connection), manifest);
+  const head = html.slice(html.indexOf('sensor-connection-head'), html.indexOf('sensor-connection-steps'));
+  assert.match(head, /sensor-indicator sensor-indicator--ready"[^>]*>.*Ready<\/span>\s*<div class="runtime-switch/s);
+  assert.match(html, /<p class="sensor-connection-info">Connected · Electrode contact good · Calibration done<\/p>/);
 });
 
 test('a recording session locks every step but the auto-reconnect switch', () => {
@@ -90,14 +129,18 @@ test('a recording session locks every step but the auto-reconnect switch', () =>
   assert.match(html, /data-connection-action="auto_reconnect" data-lock-exempt/);
 });
 
-test('a sensor without steps shows only its status and switch', () => {
+test('a sensor without a device list still shows what it is connected to', () => {
   const html = renderSensorConnectionPanel(
-    plugin({ phase: 'connected', streaming: true, ready: true, signal: { state: 'unknown', detail: 'no_presence' }, setup: { state: 'not_needed' } }),
+    plugin({ phase: 'connected', streaming: true, ready: true, device: { id: 'hub', label: 'AM Hub 10.0.0.5:8000 · v2 · radar BLE' },
+      signal: { state: 'unknown', detail: 'no_presence' }, setup: { state: 'not_needed' } }),
     { plugin_key: 'am_hub', capability_config: { connection: { signal_label_key: 'sensorConnection.signal.presence' } } },
   );
-  assert.doesNotMatch(html, /sensor-connection-steps/);
+  assert.match(html, /<span class="sensor-connection-device"[^>]*><span class="marquee-text">AM Hub 10\.0\.0\.5:8000 · v2 · radar BLE<\/span><\/span>/);
+  assert.doesNotMatch(html, /sensor-connection-buttons/);
+  const empty = renderSensorConnectionPanel(plugin({ phase: 'connecting' }), { plugin_key: 'x', capability_config: { connection: {} } });
+  assert.match(empty, /sensor-connection-device is-empty"[^>]*><span class="marquee-text">No device connected</);
   assert.match(html, /no presence/);
-  assert.match(html, /status-pill--ready/);
+  assert.match(html, /sensor-indicator--ready/);
 });
 
 test('the list comes first and the four round buttons stay beside it', () => {
@@ -117,7 +160,7 @@ test('while starting, everything but the switch waits', () => {
   assert.match(html, />Starting …</);
   assert.equal((html.match(/data-connection-action="[a-z_]+"[^>]*disabled/g) || []).length, 4);
   assert.match(html, /<select[^>]*disabled/);
-  assert.match(html, /data-runtime-toggle="brainbit"[^>]*checked/);
+  assert.match(html, /runtime-switch is-on"/);
 });
 
 test('searching blocks the list and the steps, but not auto-reconnect', () => {
@@ -191,4 +234,14 @@ test('the study bar lists what is missing before Start becomes the call to actio
   assert.equal(state.tabletOk, true);
   status.plugins.brainbit.connection.ready = true;
   assert.deepEqual(studyBarState(status).missing, []);
+});
+
+test('the auto-reconnect button stays in the device bar, also without a device list', () => {
+  const hub = { plugin_key: 'am_hub', capability_config: { connection: {}, admin_actions: { actions: [
+    { key: 'auto_reconnect', role: 'auto_reconnect', label: 'Auto-reconnect' }] } } };
+  const html = renderSensorConnectionPanel(plugin({ phase: 'connected', streaming: true, ready: true, device: { id: 'h', label: 'AM Hub' },
+    signal: { state: 'good', detail: 'presence' }, setup: { state: 'not_needed' }, auto_reconnect: { enabled: true, active: true } }, { key: 'am_hub' }), hub);
+  const bar = html.slice(html.indexOf('sensor-connection-steps'));
+  assert.match(bar, /sensor-connection-device"[^>]*><span class="marquee-text">AM Hub<\/span><\/span>\s*<div class="sensor-connection-buttons"[^>]*><button[^>]*data-connection-action="auto_reconnect"/);
+  assert.doesNotMatch(html.slice(0, html.indexOf('sensor-connection-steps')), /auto_reconnect/);
 });
