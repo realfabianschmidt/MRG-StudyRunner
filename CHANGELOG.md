@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.5.7 - 2026-09-29
+
 ### Added
 
 - English/German software labels for card types, participant controls, Mood Meter views, and stimulus warnings. A study now fixes the participant UI language independently of the admin language.
