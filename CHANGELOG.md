@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.5.5 - 2026-09-29
+
 ### Fixed
 
 - Installs without `.git` update themselves even without the release marker,
