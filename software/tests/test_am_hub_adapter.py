@@ -34,6 +34,11 @@ def _reset_adapter_state() -> None:
     adapter._last_topic_update_epoch = None
     adapter._clear_preview()
     adapter._hub_rtts.clear()
+    adapter._hub_boards.clear()
+    adapter._frame_counts.clear()
+    adapter._seq_gaps.clear()
+    adapter._last_seq.clear()
+    adapter._hub_dropped_events = 0
     adapter._lost_baseline.clear()
     adapter._api_version = None
     adapter._frame_times.clear()

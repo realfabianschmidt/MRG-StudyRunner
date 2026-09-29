@@ -15,6 +15,7 @@ All notable Study Runner changes are documented here. Release tags use
 ### Fixed
 
 - The translation-key test now scans actual `t()` calls and HTML keys. German UI quality checks catch uppercase ASCII umlaut spellings.
+- AM Hub tests now reset frame bookkeeping between cases, preventing a false failure in the full release suite.
 
 ## 1.5.6 - 2026-09-29
 
