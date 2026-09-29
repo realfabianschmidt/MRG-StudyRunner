@@ -266,3 +266,4 @@
 #screen-questions:has(.q-card-study.active .media-layout--image-right) {
   max-width: 960px;
 }
+body.i18n-loading .screen { visibility: hidden; }

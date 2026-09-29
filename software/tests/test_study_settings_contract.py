@@ -70,6 +70,7 @@ class StudySettingsContractTests(unittest.TestCase):
                 "sensors",
                 "plugins",
                 "progress_bar_enabled",
+                "participant_language",
                 # Package 5b (docs/archive/architecture-1.0-umbau.md): preflight's
                 # capacity check needs this; no dedicated settings-panel UI
                 # exists for it yet, but the round-trip through
@@ -115,6 +116,13 @@ class StudySettingsContractTests(unittest.TestCase):
 
 
 class StudySettingsRoundTripTests(unittest.TestCase):
+    def test_participant_language_defaults_and_validates(self) -> None:
+        self.assertEqual(_validate_study_settings({})["participant_language"], "en")
+        self.assertEqual(_validate_study_settings({"participant_language": "de"})["participant_language"], "de")
+        for invalid in ("fr", "DE", None, [], {}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                _validate_study_settings({"participant_language": invalid})
+
     def test_planned_duration_round_trips_and_non_finite_values_fail(self) -> None:
         settings = _validate_study_settings({"planned_session_duration_minutes": 45.5})
         self.assertEqual(settings["planned_session_duration_minutes"], 45.5)

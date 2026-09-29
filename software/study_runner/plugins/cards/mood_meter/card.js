@@ -18,6 +18,7 @@ import * as blobs from './view-blobs.js';
 import * as field from './view-field.js';
 import * as orbit from './view-orbit.js';
 
+
 export const meta = { type: 'mood-meter', icon: 'app-window', label: 'Mood Meter', pill: 'pill-mood-meter' };
 
 const VIEWS = Object.freeze({ classic, blobs, field, orbit });
@@ -46,7 +47,7 @@ function viewFor(i) {
 const CTX = Object.freeze({
   state: getState,
   question: questionFor,
-  quads: (i) => wordLists(questionFor(i), defaultQuestion),
+  quads: (i) => wordLists(questionFor(i), defaultQuestion, t),
   toggle: toggleWord,
   setPosition,
 });
@@ -201,7 +202,7 @@ export function renderEditor(q) {
       <span class="mm-ed-variant-desc">${escapeHtml(t(`cards.moodMeter.variant.${variant}Hint`, VARIANT_TEXT[variant][1]))}</span>
     </label>`).join('');
 
-  const quadSections = wordLists(q, defaultQuestion).map((quad) => `
+  const quadSections = wordLists(q, defaultQuestion, t).map((quad) => `
     <div class="field mm-ed-quad-field">
       <label class="mm-ed-quad-label" style="color:${quad.colorDark};">
         <span style="width:10px;height:10px;border-radius:50%;background:${quad.color};flex-shrink:0;"></span>

@@ -55,6 +55,13 @@ environment.
 
 ## How A Study Run Works
 
+The study editor's **Participant experience** settings choose English or German
+for software labels on the participant tablet and its preview. This choice is
+saved in the study package; an older study defaults to English. The admin's
+language switch affects only the admin page. Question prompts, answer options,
+cover text, and custom Mood Meter words stay exactly as the study author wrote
+them. Write those in the language intended for participants.
+
 1. Start the Python server and open `/admin`.
 2. Load or edit the study. The loaded study decides which sensors run: the
    ones it needs are started, all others are stopped. A study without

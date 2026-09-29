@@ -1,4 +1,6 @@
 import { renderStudyHeader } from '/static/scripts/cards/card-info.js';
+import { t } from '/static/scripts/shared/i18n.js';
+import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
 
 export const meta = { type:'text', icon:'chat-bubble', label:'Free text', pill:'pill-text' };
 
@@ -6,7 +8,7 @@ export const meta = { type:'text', icon:'chat-bubble', label:'Free text', pill:'
 export function renderStudy(q, i) {
   return `
     ${renderStudyHeader(q, { icon: 'chat-bubble', tagKey: 'cards.text.tag', tagFallback: 'Free answer' })}
-    <textarea class="fi-textarea" id="q${i}" placeholder="Your answer..."></textarea>`;
+    <textarea class="fi-textarea" id="q${i}" placeholder="${escapeHtml(t('cards.text.answerPlaceholder', 'Your answer...'))}"></textarea>`;
 }
 
 export function renderEditor(q) {

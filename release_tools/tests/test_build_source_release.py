@@ -80,6 +80,13 @@ def write_core_asset(
 
 
 class SourceReleaseTests(unittest.TestCase):
+    def test_archive_rejects_any_non_example_study(self) -> None:
+        with temporary_directory() as temporary:
+            path = Path(temporary) / release.ARCHIVES[0]
+            write_zip(path, members("software/study_content/studies/_backup-json/private.study-runner"))
+            with self.assertRaisesRegex(release.ReleaseError, "non-example study"):
+                release.validate_archive(path, version=VERSION)
+
     def test_source_archives_have_one_safe_root_and_required_files(self) -> None:
         with temporary_directory() as temporary:
             root = Path(temporary)

@@ -38,6 +38,12 @@ THIRD_PARTY_NOTICE_FILES = (
     "software/study_runner/apps/ui/vendor/iconoir/LICENSE",
     "software/study_runner/apps/ui/vendor/geist/LICENSE",
 )
+EXAMPLE_STUDY_FILES = (
+    "Example Basic Study.study-runner",
+    "Example Sensors Study.study-runner",
+    "Example Card Gallery Study.study-runner",
+)
+STUDIES_PREFIX = "software/study_content/studies/"
 REQUIRED_SOURCE_FILES = (
     "LICENSE",
     *THIRD_PARTY_NOTICE_FILES,
@@ -62,6 +68,7 @@ REQUIRED_SOURCE_FILES = (
     "tools/update-windows.cmd",
     "software/recording_worker/native/CMakeLists.txt",
     "software/recording_worker/native/UPSTREAM_LOCK.json",
+    *(f"{STUDIES_PREFIX}{name}" for name in EXAMPLE_STUDY_FILES),
 )
 FORBIDDEN_ARCHIVE_PARTS = (
     "/.git/",
@@ -227,6 +234,11 @@ def validate_archive(path: Path, *, version: str | None = None) -> None:
             raise ReleaseError(f"required source file is absent from {path.name}: {relative}")
     for name in normalized:
         lowered = name.casefold()
+        relative = name.removeprefix(f"/{expected_root}/")
+        if relative.startswith(STUDIES_PREFIX):
+            study_file = relative.removeprefix(STUDIES_PREFIX)
+            if study_file and study_file not in EXAMPLE_STUDY_FILES:
+                raise ReleaseError(f"non-example study leaked into {path.name}")
         for part in FORBIDDEN_ARCHIVE_PARTS:
             if part.casefold() not in lowered:
                 continue

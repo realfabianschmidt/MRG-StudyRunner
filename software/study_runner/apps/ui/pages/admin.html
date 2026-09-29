@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Study Admin</title>
+<title data-i18n="page.adminTitle">Study Admin</title>
 <link rel="stylesheet" href="/static/vendor/iconoir/iconoir.css">
 <link rel="stylesheet" href="/static/styles/main.css">
 <link rel="stylesheet" href="/static/styles/admin.css">
@@ -102,7 +102,7 @@
           <div class="study-readiness" id="hub-study-readiness" role="status" aria-live="polite" hidden>
             <div class="study-readiness-header">
               <i class="iconoir-warning-triangle"></i>
-              <strong id="hub-study-readiness-title">Study cannot start</strong>
+              <strong id="hub-study-readiness-title" data-i18n="readiness.blockedTitle">Study cannot start</strong>
             </div>
             <ul class="study-readiness-list" id="hub-study-readiness-list"></ul>
             <button class="btn-secondary" id="btn-readiness-settings" type="button" data-i18n="readiness.openSettings">Open study settings</button>
@@ -408,6 +408,14 @@
             <article class="dashboard-card dashboard-card--wide">
               <div class="dashboard-card-title"><i class="iconoir-smartphone-device"></i> <span data-i18n="studySettings.participantTitle">Participant experience</span></div>
               <div class="field">
+                <label for="study-participant-language" data-i18n="studySettings.participantLanguage">Participant language</label>
+                <select id="study-participant-language">
+                  <option value="en" data-i18n="studySettings.languageEnglish">English</option>
+                  <option value="de" data-i18n="studySettings.languageGerman">German</option>
+                </select>
+                <small class="settings-hint" data-i18n="studySettings.participantLanguageHint">Applies to software labels on the participant page. Study text stays as written.</small>
+              </div>
+              <div class="field">
                 <label class="switch-row" for="study-progress-bar-enabled" style="margin-bottom: 0;">
                   <span style="display:flex; flex-direction:column; gap:4px;">
                     <strong style="color:var(--ink);" data-i18n="settings.showProgressBar">Show progress bar</strong>
@@ -676,7 +684,7 @@
       </button>
     </div>
     <div class="settings-modal-body access-qr-body">
-      <div class="access-qr-label" id="access-qr-label">Participant link</div>
+      <div class="access-qr-label" id="access-qr-label" data-i18n="access.participantLink">Participant link</div>
       <div class="access-qr-code" id="access-qr-code" aria-hidden="true"></div>
       <code class="access-qr-url" id="access-qr-url"></code>
     </div>

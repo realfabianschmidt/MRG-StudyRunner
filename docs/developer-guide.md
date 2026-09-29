@@ -7,6 +7,13 @@ Study Runner uses trusted built-in integration plugins. A plugin is a Python
 package below `software/study_runner/plugins/`; there is no web upload,
 marketplace, automatic dependency installation, or untrusted code path.
 
+Participant UI language is stored as `study_settings.participant_language`
+(`en` or `de`, default `en` when absent). Browser chrome and built-in card
+labels use locale keys; authored study content is kept verbatim. A future
+multilingual-content feature would need explicit per-language values in the
+study schema and an operator-controlled fallback, rather than translating
+saved prompts at runtime.
+
 The complete recording contract is in
 `plugin-recording-architecture.md`. This guide focuses on the code layout and
 the smallest safe plugin workflow.

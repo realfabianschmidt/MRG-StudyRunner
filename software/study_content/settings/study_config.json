@@ -176,6 +176,7 @@
       }
     },
     "progress_bar_enabled": true,
+    "participant_language": "en",
     "cover_page": {
       "enabled": true,
       "title": "Example Basic Study",

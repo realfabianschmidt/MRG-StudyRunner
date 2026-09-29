@@ -724,6 +724,9 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
     plugins = _validate_plugin_study_settings(migrated["plugins"])
 
     sensors_enabled = normalize_boolean(migrated.get("sensors_enabled", True))
+    participant_language = migrated.get("participant_language", "en")
+    if not isinstance(participant_language, str) or participant_language not in {"en", "de"}:
+        raise ValidationError("study_settings.participant_language must be 'en' or 'de'.")
     return {
         "sensors_enabled": sensors_enabled,
         "sensors": normalize_study_sensors(
@@ -734,6 +737,7 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
         ),
         "plugins": plugins,
         "progress_bar_enabled": normalize_boolean(migrated.get("progress_bar_enabled", False)),
+        "participant_language": participant_language,
         "cover_page": _validate_cover_page(migrated.get("cover_page")),
         "planned_session_duration_minutes": _optional_positive_minutes(
             migrated.get("planned_session_duration_minutes"),

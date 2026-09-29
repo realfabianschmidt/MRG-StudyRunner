@@ -118,6 +118,33 @@ export function renderStudySettingsPanel() {
   fillFields();
 }
 
+/** Refresh generated labels after a language switch without losing an unsaved form. */
+export function translateOpenStudySettingsPanel() {
+  const root = byId('view-study-settings');
+  if (!root?.classList.contains('active')) return;
+  const before = [...root.querySelectorAll('input, select, textarea')];
+  const draft = before.map((input) => ({
+    id: input.id,
+    name: input.name,
+    type: input.type,
+    value: input.value,
+    checked: input.checked,
+  }));
+  const focusIndex = before.indexOf(document.activeElement);
+  renderStudySettingsPanel();
+  const after = [...root.querySelectorAll('input, select, textarea')];
+  const byId = new Map(draft.filter((item) => item.id).map((item) => [item.id, item]));
+  after.forEach((input, index) => {
+    const saved = (input.id && byId.get(input.id)) || draft[index];
+    if (!saved || saved.type !== input.type || saved.name !== input.name) return;
+    input.value = saved.value;
+    if ('checked' in input) input.checked = saved.checked;
+  });
+  syncSensorControls();
+  syncCoverEditor();
+  after[focusIndex]?.focus();
+}
+
 function studySettingsEntries() {
   return [
     { key: 'sensors', icon: 'iconoir-activity', label: t('studySettings.navSensors', 'Sensors'), group: t('studySettings.groupRecording', 'Recording') },
@@ -134,6 +161,8 @@ function fillFields() {
   renderSensorPlugins(settings);
   renderDestinationPlugins(settings);
   set('study-progress-bar-enabled', settings.progress_bar_enabled);
+  const participantLanguage = byId('study-participant-language');
+  if (participantLanguage) participantLanguage.value = settings.participant_language;
   fillCoverPage(settings.cover_page);
   const duration = byId('study-planned-duration');
   if (duration) duration.value = settings.planned_session_duration_minutes ?? '';
@@ -592,6 +621,7 @@ async function saveFromPanel() {
     sensors,
     plugins,
     progress_bar_enabled: Boolean(byId('study-progress-bar-enabled')?.checked),
+    participant_language: byId('study-participant-language')?.value || 'en',
     planned_session_duration_minutes: plannedDuration,
     cover_page: collectCoverPage(),
   });

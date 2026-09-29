@@ -323,6 +323,8 @@ one, unlike the plugin table above).
 | `admin/admin-update-handling.js` | Update status, download/install confirmation, progress, and restart handling | careful |
 | `admin/admin-study-editor.js` | Card editor/list, study persistence, packages, and recent-study behavior | careful |
 | `admin/admin-dashboard-controller.js` | Live sensor dashboard with plain-language statuses | careful |
+| `admin/sensor-columns.js` | Sensor dashboard column layout and tile placement | careful |
+| `admin/runtime-switch-input.js` | Accessible Off/On/Restart switch behavior for live sensors | careful |
 | `admin/sensor-connection-panel.js` | The connection panel on every sensor tile: status line, Ready badge, switch, device list and guided steps; also the study bar's state | careful |
 | `settings/machine/machine-settings-panel.js` | Machine settings shell: nav, generated sensor forms, tablet links | careful |
 | `settings/machine/certificate-settings-controller.js` | Certificate status, setup, export, and import, inside the machine settings shell | no |
@@ -337,6 +339,7 @@ one, unlike the plugin table above).
 | `admin/recovery-panel.js` | Hub banner listing crash-orphaned sessions, with finalize/discard actions | careful |
 | `admin/plugin-console.js` | Diagnostics modal: guided plugin status view plus the line-oriented expert console (SSE-fed) | careful |
 | `shared/study-settings.js` | THE client-side study-settings shape; mirrors `_validate_study_settings` | no |
+| `shared/dashboard-graph.js` | Shared graph markup and tooltip helpers for sensor dashboard extensions | careful |
 | `shared/deadline-timer.js` | Monotonic deadline timer whose UI ticks never define elapsed study time | no |
 | `shared/finalization-view-model.js` | Pure finalization status/progress view model | careful |
 | `shared/timeline-view-model.js` | Pure timeline model: stream grouping, waveform/line classification from the LSL header, zoom window maths | careful |

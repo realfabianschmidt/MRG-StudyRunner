@@ -1,5 +1,6 @@
 // Card registration and defaults come from the shared extension catalog.
 import { getJson } from '../shared/api-client.js';
+import { t } from '../shared/i18n.js';
 import { loadPluginCatalog, getPluginCatalog, getPluginCatalogGeneration, loadPluginStyles, loadPluginUiExtension } from '../shared/plugin-catalog.js';
 
 export const CARDS = {};
@@ -7,6 +8,17 @@ export const CARD_TYPES = [];
 const definitions = new Map();
 const defaultsByType = new Map();
 const pending = new Map();
+export const CARD_LABEL_KEYS = Object.freeze({
+  choice: 'cardType.choice', single: 'cardType.single', finish: 'cardType.finish',
+  info: 'cardType.info', likert: 'cardType.likert', 'mood-meter': 'cardType.moodMeter',
+  'multi-slider': 'cardType.multiSlider', 'participant-id': 'cardType.participantId',
+  ranking: 'cardType.ranking', semantic: 'cardType.semantic', slider: 'cardType.slider',
+  stimulus: 'cardType.stimulus', text: 'cardType.text', 'word-cloud': 'cardType.wordCloud',
+});
+
+export function cardTypeLabel(type, fallback = type) {
+  return t(CARD_LABEL_KEYS[type] || '', fallback);
+}
 let generation = -1;
 
 function refreshDefinitions() {

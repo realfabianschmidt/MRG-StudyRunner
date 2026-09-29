@@ -46,7 +46,7 @@ class LocaleTests(unittest.TestCase):
         en = json.loads(_read(WEB / "locales" / "en.json"))
         de = json.loads(_read(WEB / "locales" / "de.json"))
 
-        pattern = re.compile(r"""t\(\s*['"]([A-Za-z0-9_.]+)['"]""")
+        pattern = re.compile(r"""\bt\(\s*['"]([A-Za-z0-9_.]+)['"]""")
         sources = list((WEB / "scripts").rglob("*.js"))
         sources += list((PROJECT_ROOT / "study_runner" / "plugins").rglob("*.js"))
 
@@ -56,8 +56,32 @@ class LocaleTests(unittest.TestCase):
                 continue  # its docstring example is not a real key
             used.update(pattern.findall(_read(path)))
 
+        self.assertGreater(len(used), 500, "t() discovery appears to be broken")
         self.assertEqual(sorted(used - set(en)), [], "t() keys missing from en.json")
         self.assertEqual(sorted(used - set(de)), [], "t() keys missing from de.json")
+
+    def test_html_and_card_type_keys_resolve_in_both_locales(self) -> None:
+        en = json.loads(_read(WEB / "locales" / "en.json"))
+        de = json.loads(_read(WEB / "locales" / "de.json"))
+        html = "\n".join(_read(path) for path in (WEB / "pages").glob("*.html"))
+        html_keys = set(re.findall(r'data-i18n(?:-placeholder|-title|-aria-label)?="([A-Za-z0-9_.]+)"', html))
+        self.assertGreater(len(html_keys), 100, "HTML translation discovery appears to be broken")
+        card_index = _read(WEB / "scripts" / "cards" / "index.js")
+        card_keys = set(re.findall(r"'(cardType\.[A-Za-z]+)'", card_index))
+        dynamic_keys = {
+            *(f"cards.moodMeter.quadrant.{colour}" for colour in ("red", "yellow", "green", "blue")),
+            *(f"cards.moodMeter.examples.{colour}" for colour in ("red", "yellow", "green", "blue")),
+            *(f"stimulus.trigger.{kind}" for kind in ("timer", "image", "video", "audio", "html", "js")),
+        }
+        from study_runner.plugin_framework.registry import get_plugin_manifests
+        types = {
+            kind
+            for manifest in get_plugin_manifests().values()
+            for kind in ((manifest.get("capability_config") or {}).get("card_contract") or {}).get("question_types", [])
+        }
+        self.assertEqual(len(card_keys), len(types), "Every shipped card type needs a translated name")
+        for language, messages in (("en", en), ("de", de)):
+            self.assertEqual(sorted((html_keys | card_keys | dynamic_keys) - set(messages)), [], f"missing {language} UI keys")
 
     def test_german_locale_spells_umlauts(self) -> None:
         """The German UI writes oeffnen/fuer/Zurueck nowhere - it has umlauts."""
@@ -71,7 +95,7 @@ class LocaleTests(unittest.TestCase):
         offenders = [
             f"{key}: {value}"
             for key, value in de.items()
-            if isinstance(value, str) and any(word in value for word in banned)
+            if isinstance(value, str) and (any(word.lower() in value.lower() for word in banned) or "\ufffd" in value)
         ]
         self.assertEqual(offenders[:5], [], "write proper umlauts in de.json")
 
@@ -575,6 +599,8 @@ class PluginUiContractTests(unittest.TestCase):
     def test_study_credentials_are_not_offered_for_the_whole_computer(self) -> None:
         panel = _read(WEB / "scripts" / "settings" / "machine" / "machine-settings-panel.js")
         self.assertIn("credential.per_study === true", panel)
+        self.assertIn("capability_config?.upload_destination ? groupUploads : groupSensors", panel)
+        self.assertIn("visibility?.dashboard === false", panel)
 
     def test_editor_preview_cards_are_mounted_live(self) -> None:
         editor = _read(WEB / "scripts" / "admin" / "admin-study-editor.js")

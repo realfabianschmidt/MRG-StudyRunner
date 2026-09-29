@@ -5,7 +5,7 @@ import { dispatchCardHook as dispatchSharedCardHook, mountCard } from '../cards/
 import { escapeHtml } from '../shared/dom-utils.js';
 import { renderMediaLayout } from '../shared/rich-text.js';
 import { getStudyClientId, startStudyClientHeartbeat } from './study-client-heartbeat.js';
-import { initI18n, t } from '../shared/i18n.js';
+import { setLanguage, t } from '../shared/i18n.js';
 import { startDeadlineTimer, remainingWholeSeconds } from '../shared/deadline-timer.js';
 import {
   createEventId,
@@ -109,12 +109,6 @@ function getElement(id) {
 }
 
 async function init() {
-  // A locale failure must not block the study, so swallow errors here.
-  try {
-    await initI18n();
-  } catch (error) {
-    console.error('[study] Could not load translations:', error);
-  }
   bindEvents();
   initFullscreenUi();
   // The heartbeat is what claims the single tablet slot, so a preview must not
@@ -142,6 +136,7 @@ async function init() {
     }
     await activateStudyUiAfterAdminStart();
   } catch (error) {
+    document.body.classList.remove('i18n-loading');
     console.error('[study] Could not load configuration:', error);
     showStudyNotice(`${t('study.loadFailed', 'The study could not be loaded. Please tell the study supervisor.')} ${error.message}`);
   }
@@ -153,6 +148,12 @@ async function loadStudyConfig() {
     getJson(`/api/config?client_id=${encodeURIComponent(getStudyClientId())}`),
     loadPluginCatalog(),
   ]);
+  try {
+    await setLanguage(config.study_settings?.participant_language || 'en', { persist: false });
+  } catch (error) {
+    console.error('[study] Could not load translations:', error);
+  }
+  document.body.classList.remove('i18n-loading');
   await loadCards({ types: [...new Set((config.questions || []).map(q => q.type))] });
   state.config = config;
   state.studyRunState = state.config._runtime?.study_run_state || null;

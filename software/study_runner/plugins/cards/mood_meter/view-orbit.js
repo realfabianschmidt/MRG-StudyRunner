@@ -9,6 +9,7 @@ import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
 import { prefersReducedMotion, runAnimation } from '/static/scripts/cards/card-motion.js';
 import {
   QUADRANTS,
+  localizedQuadrants,
   colorAt,
   createSpring,
   haptic,
@@ -46,7 +47,7 @@ export function render(_q, i, ctx) {
         <span class="mm-orbit-label">${escapeHtml(entry.word)}</span>
       </button>`;
   }).join('');
-  const quadrantLabels = QUADRANTS.map((quadrant) => (
+  const quadrantLabels = localizedQuadrants(t).map((quadrant) => (
     `<span class="mm-orbit-quadrant mm-orbit-quadrant--${quadrant.id}">${escapeHtml(quadrant.label)}</span>`
   )).join('');
   return `

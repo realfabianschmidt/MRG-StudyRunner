@@ -7,6 +7,8 @@
  */
 import { mountCard } from '../cards/card-mount.js';
 import { resetAllCardState } from '../cards/session-state.js';
+import { cardTypeLabel } from '../cards/index.js';
+import { withLanguage } from '../shared/i18n.js';
 
 export function createAdminStudyEditor(context) {
   const {
@@ -265,7 +267,8 @@ export function createAdminStudyEditor(context) {
           </button>
         </div>`;
       preview.appendChild(wrap);
-      mountCard(wrap.querySelector('.q-card-study'), question, questionIndex, { mode: 'preview' });
+      withLanguage(state.config.study_settings?.participant_language || 'en', () =>
+        mountCard(wrap.querySelector('.q-card-study'), question, questionIndex, { mode: 'preview' }));
     });
   }
   
@@ -296,7 +299,7 @@ export function createAdminStudyEditor(context) {
   
     const meta = getMeta(question.type);
     $('overlay-type-tag').innerHTML =
-      `<i class="iconoir-${meta.icon}"></i> ${meta.label} <span class="editor-index">#${index + 1}</span>`;
+      `<i class="iconoir-${escapeHtml(meta.icon)}"></i> ${escapeHtml(cardTypeLabel(question.type, meta.label))} <span class="editor-index">#${index + 1}</span>`;
   
     const editorEl = $('editor-fields');
     // The order an author actually writes a question in: what is being asked,
@@ -338,7 +341,8 @@ export function createAdminStudyEditor(context) {
   
     const previewWrap = $(`pc-${index}`);
     if (previewWrap) {
-      mountCard(previewWrap.querySelector('.q-card-study'), updated, index, { mode: 'preview' });
+      withLanguage(state.config.study_settings?.participant_language || 'en', () =>
+        mountCard(previewWrap.querySelector('.q-card-study'), updated, index, { mode: 'preview' }));
     }
   
     const label = $('admin-q-list').querySelector(`.admin-q-item[data-index="${index}"] .admin-q-label`);
@@ -680,4 +684,3 @@ export function createAdminStudyEditor(context) {
     showToast,
   };
 }
-

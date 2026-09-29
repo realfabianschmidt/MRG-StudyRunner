@@ -33,9 +33,9 @@ export function renderStudy(q, i) {
     ${renderStudyHeader(q, { icon: 'chat-bubble', tagKey: 'cards.wordCloud.tag', tagFallback: 'Word selection' })}
     <div class="wc-cloud" id="wc-cloud-${i}" data-multiple="${isMultiple}" role="group"
          aria-label="${escapeHtml(q.prompt)}">${chips}</div>
-    <div class="wc-tray" id="wc-tray-${i}" aria-label="Selected words">
+    <div class="wc-tray" id="wc-tray-${i}" aria-label="${escapeHtml(t('cards.wordCloud.selectedWords', 'Selected words'))}">
       <span class="wc-tray-hint" id="wc-tray-hint-${i}">
-        Tap a word or drag it here
+        ${escapeHtml(t('cards.wordCloud.trayHint', 'Tap a word or drag it here'))}
       </span>
     </div>`;
 }
@@ -231,7 +231,7 @@ function addTrayChip(tray, word, cardIndex, cloud, isMultiple) {
   const chip = document.createElement('span');
   chip.className = 'wc-tray-chip';
   chip.dataset.word = word;
-  chip.innerHTML = `${escapeHtml(word)}<button class="wc-tray-remove" aria-label="Remove ${escapeHtml(word)}">x</button>`;
+  chip.innerHTML = `${escapeHtml(word)}<button class="wc-tray-remove" aria-label="${escapeHtml(t('cards.wordCloud.removeWord', 'Remove {word}').replace('{word}', word))}">x</button>`;
 
   chip.querySelector('.wc-tray-remove').addEventListener('click', () => {
     const sel = getSelected(cardIndex);

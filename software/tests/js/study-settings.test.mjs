@@ -78,6 +78,9 @@ assert.deepEqual(normalized.plugins.future_sensor, {
 });
 
 const catalogDefault = normalizeStudySettings({});
+assert.equal(catalogDefault.participant_language, 'en');
+assert.equal(normalizeStudySettings({ participant_language: 'de' }).participant_language, 'de');
+assert.equal(normalizeStudySettings({ participant_language: 'fr' }).participant_language, 'en');
 assert.equal(catalogDefault.sensors.future_sensor, true);
 assert.deepEqual(catalogDefault.plugins.future_sensor, {
   enabled: true,

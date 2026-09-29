@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
+import subprocess
 import unittest
 
 
@@ -48,6 +49,17 @@ def _load(path: Path) -> dict:
 
 
 class ShippedStudyContentTests(unittest.TestCase):
+    def test_only_examples_are_tracked_under_studies(self) -> None:
+        if not (SOFTWARE_ROOT.parent / ".git").exists():
+            self.skipTest("Source archive has no Git index; archive membership is checked by release_tools.")
+        result = subprocess.run(
+            ["git", "ls-files", "-z", "--", "software/study_content/studies"],
+            cwd=SOFTWARE_ROOT.parent, capture_output=True, check=True,
+        )
+        tracked = {path.decode("utf-8") for path in result.stdout.split(b"\0") if path}
+        allowed = {str(path.relative_to(SOFTWARE_ROOT.parent)).replace("\\", "/") for path in EXAMPLE_PRESETS}
+        self.assertTrue(tracked == allowed, "Only the three curated example studies may be tracked.")
+
     def test_the_example_presets_are_present(self) -> None:
         """A renamed example would make the guard below vacuously pass."""
         missing = [str(p.relative_to(SOFTWARE_ROOT)) for p in EXAMPLE_PRESETS if not p.is_file()]

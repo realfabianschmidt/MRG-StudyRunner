@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 473,
+  "cross_package_import_edges": 478,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -28,11 +28,11 @@
       "path": "software/study_runner/plugins/cards/participant_id/card.js"
     },
     "apps.ui.participant": {
-      "lines": 999,
+      "lines": 1000,
       "path": "software/study_runner/apps/ui/scripts/participant/study-controller.js"
     },
     "apps.ui.settings": {
-      "lines": 630,
+      "lines": 660,
       "path": "software/study_runner/apps/ui/scripts/settings/study/study-settings-panel.js"
     },
     "apps.ui.shared": {
@@ -100,11 +100,11 @@
     "apps": 0,
     "apps.server": 4661,
     "apps.ui": 0,
-    "apps.ui.admin": 5681,
-    "apps.ui.cards": 3487,
-    "apps.ui.participant": 2777,
-    "apps.ui.settings": 1853,
-    "apps.ui.shared": 2926,
+    "apps.ui.admin": 5699,
+    "apps.ui.cards": 3511,
+    "apps.ui.participant": 2778,
+    "apps.ui.settings": 1884,
+    "apps.ui.shared": 2948,
     "contracts": 2761,
     "data_core": 16,
     "data_core.contract": 1184,
@@ -116,7 +116,7 @@
     "plugins.destinations": 1894,
     "plugins.outputs": 154,
     "plugins.sensors": 12011,
-    "runtime_core": 14845,
+    "runtime_core": 14849,
     "shared": 448,
     "updates": 696
   }

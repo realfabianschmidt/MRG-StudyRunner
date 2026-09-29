@@ -24,8 +24,9 @@ import {
   initializeStudySettingsPanel,
   openStudySettingsPanel,
   refreshStudySettingsIfStale,
+  translateOpenStudySettingsPanel,
 } from '../settings/study/study-settings-panel.js';
-import { CARDS, CARD_TYPES, defaultFor, loadCards, assertCardsAvailable } from '../cards/index.js';
+import { CARDS, CARD_TYPES, cardTypeLabel, defaultFor, loadCards, assertCardsAvailable } from '../cards/index.js';
 import {
   collectInfo,
   renderEditorToggles,
@@ -33,7 +34,7 @@ import {
   renderNoteField,
   renderPromptField,
 } from '../cards/card-info.js';
-import { initI18n, setLanguage, getLanguage, t } from '../shared/i18n.js';
+import { initI18n, preloadLanguage, setLanguage, getLanguage, t, withLanguage } from '../shared/i18n.js';
 import { createQrSvg } from '../shared/qr-code.js';
 import { byId, escapeHtml, setHidden, setText } from '../shared/dom-utils.js';
 import { loadPluginCatalog, pluginByKey } from '../shared/plugin-catalog.js';
@@ -49,6 +50,7 @@ const STUDY_RUN_POLL_INTERVAL_MS = 1500;
 async function setupLanguage() {
   try {
     await initI18n();
+    await Promise.allSettled(['en', 'de'].map(preloadLanguage));
   } catch (error) {
     console.error('[admin] Could not load translations:', error);
   }
@@ -241,6 +243,7 @@ async function init() {
     getStudyConfig: () => state.config,
     setStudySettings: (settings) => {
       state.config.study_settings = normalizeStudySettings(settings);
+      rebuildAll();
       markUnsaved();
     },
     getCurrentStudyName,
@@ -389,7 +392,7 @@ function openTypePicker() {
       ${CARD_TYPES.filter(ct => ct.type !== 'participant-id' && ct.type !== 'finish').map(({ type, module, overrideMeta }) => {
         const meta = overrideMeta || module.meta;
         return `<button type="button" class="type-btn" data-add-type="${escapeHtml(type)}">
-          <i class="iconoir-${escapeHtml(meta.icon)}"></i>${escapeHtml(meta.label)}<small>${escapeHtml(type)}</small>
+          <i class="iconoir-${escapeHtml(meta.icon)}"></i>${escapeHtml(cardTypeLabel(type, meta.label))}<small>${escapeHtml(type)}</small>
         </button>`;
       }).join('')}
     </div>`;
@@ -445,7 +448,7 @@ function bindEvents() {
     if (button) {
       selectQuestion(Number(button.dataset.index));
     } else if (wrap?.classList.contains('selected')) {
-      dispatchCardHook('onClick', event);
+      withLanguage(state.config.study_settings?.participant_language || 'en', () => dispatchCardHook('onClick', event));
     } else if (wrap) {
       selectQuestion(Number(wrap.id.replace('pc-', '')));
     }
@@ -484,6 +487,18 @@ function bindEvents() {
       updateAccessQrModalText(state.accessQrKind, getAccessUrl(state.accessQrKind));
     }
     renderStudyRunState();
+    translateOpenStudySettingsPanel();
+    if ($('view-workspace')?.classList.contains('active')) {
+      if ($('editor-fields')?.querySelector('.type-grid')) {
+        openTypePicker();
+      } else if ($('admin-sidebar')?.classList.contains('has-overlay') && state.selectedIndex !== null) {
+        liveUpdate(state.selectedIndex);
+        rebuildAll();
+        selectQuestion(state.selectedIndex);
+      } else {
+        rebuildAll();
+      }
+    }
     if (isSettingsHubOpen()) {
       renderSettingsHubShell();
     }

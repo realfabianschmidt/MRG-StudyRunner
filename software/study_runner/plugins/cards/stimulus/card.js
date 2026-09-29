@@ -94,7 +94,7 @@ export function renderEditor(q) {
       <div class="trigger-type-pills">
         ${triggerTypes.map(type => `
           <button type="button" class="trigger-pill${triggerType === type ? ' active' : ''}" data-trigger-type="${escapeHtml(type)}">
-            ${escapeHtml(type)}
+            ${escapeHtml(t(`stimulus.trigger.${type}`, type.toUpperCase()))}
           </button>`).join('')}
       </div>
       <input type="hidden" class="se-trigger-type" value="${escapeHtml(triggerType)}">

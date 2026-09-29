@@ -521,10 +521,10 @@ export function createParticipantStimulusExecution(context) {
     warningBox.className = 'stimulus-unsafe-warning';
   
     const title = document.createElement('strong');
-    title.textContent = `${String(triggerType).toUpperCase()} stimulus blocked`;
+    title.textContent = t('stimulus.unsafeBlockedTitle', '{type} stimulus blocked').replace('{type}', String(triggerType).toUpperCase());
   
     const message = document.createElement('p');
-    message.textContent = 'This study uses executable stimulus content, but the server has not enabled unsafe stimulus code. Set STUDY_RUNNER_ALLOW_UNSAFE_STIMULUS_CODE=1 on the server to allow it intentionally.';
+    message.textContent = t('stimulus.unsafeBlockedBody', 'This study uses executable stimulus content, but the server has not enabled unsafe stimulus code. Set STUDY_RUNNER_ALLOW_UNSAFE_STIMULUS_CODE=1 on the server to allow it intentionally.');
   
     warningBox.appendChild(title);
     warningBox.appendChild(message);

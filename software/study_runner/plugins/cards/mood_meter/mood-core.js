@@ -37,8 +37,16 @@ export const QUADRANTS = [
 ];
 
 // The quadrant's words, falling back to the study defaults per quadrant.
-export function wordLists(question, defaults) {
+export function localizedQuadrants(t) {
   return QUADRANTS.map((quadrant) => ({
+    ...quadrant,
+    label: t(`cards.moodMeter.quadrant.${quadrant.id}`, quadrant.label),
+    examples: t(`cards.moodMeter.examples.${quadrant.id}`, quadrant.examples.join('|')).split('|'),
+  }));
+}
+
+export function wordLists(question, defaults, t = (_key, fallback) => fallback) {
+  return localizedQuadrants(t).map((quadrant) => ({
     ...quadrant,
     words: question?.word_lists?.[quadrant.id] ?? defaults?.word_lists?.[quadrant.id] ?? [],
   }));

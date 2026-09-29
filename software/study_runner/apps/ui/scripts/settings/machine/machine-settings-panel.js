@@ -182,6 +182,7 @@ function onSettingsPanelShown(key) {
 function settingsHubEntries() {
   const groupThisComputer = t('settingsHub.groupComputer', 'This computer');
   const groupSensors = t('settingsHub.groupSensors', 'Sensors');
+  const groupUploads = t('settingsHub.groupUploads', 'Integrations / Uploads');
   const groupSystem = t('settingsHub.groupSystem', 'System');
   const entries = [
     { key: 'certificate', icon: 'iconoir-shield-check', label: t('hub.certificateSettings', 'Certificate'), group: groupThisComputer },
@@ -193,7 +194,7 @@ function settingsHubEntries() {
       key: `plugin:${plugin.key}`,
       icon: pluginIcon(plugin),
       label: plugin.label || plugin.key,
-      group: groupSensors,
+      group: plugin.manifest?.capability_config?.upload_destination ? groupUploads : groupSensors,
     })),
     { key: 'update', icon: 'iconoir-download-circle', label: t('update.title', 'Python app update'), group: groupSystem },
     { key: 'shortcut', icon: 'iconoir-computer', label: t('hub.createShortcut', 'Create desktop shortcut'), group: groupSystem },
@@ -339,9 +340,9 @@ function renderPluginSettingsPanel(plugin) {
       ${plugin.manifest?.ui?.description ? `<p class="settings-hint">${escapeHtml(plugin.manifest.ui.description)}</p>` : ''}
       ${renderPluginSettingsForm(plugin.key)}
       ${renderPluginCredentialForm(plugin)}
-      <div class="dashboard-actions">
+      ${plugin.manifest?.ui?.visibility?.dashboard === false ? '' : `<div class="dashboard-actions">
         ${settingsHubAction('dashboard', pluginIcon(plugin), t('settingsHub.openLiveControls', 'Open live controls'), t('settingsHub.openLiveControlsHint', 'Live start, stop, recovery, and monitoring stay on the dashboard.'))}
-      </div>
+      </div>`}
     </div>
   `;
 }

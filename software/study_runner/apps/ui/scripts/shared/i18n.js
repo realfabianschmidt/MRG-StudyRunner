@@ -16,6 +16,8 @@ const STORAGE_KEY = 'studyRunnerLanguage';
 
 let activeLanguage = DEFAULT_LANGUAGE;
 let messages = {};
+const messageCache = new Map();
+let scopedMessages = null;
 
 function pickInitialLanguage() {
   try {
@@ -35,18 +37,34 @@ export function getLanguage() {
 
 // Return the translated string for a key, or the fallback (or the key) if missing.
 export function t(key, fallback) {
-  if (Object.prototype.hasOwnProperty.call(messages, key)) {
-    return messages[key];
+  const source = scopedMessages || messages;
+  if (Object.prototype.hasOwnProperty.call(source, key)) {
+    return source[key];
   }
   return fallback !== undefined ? fallback : key;
 }
 
 async function loadMessages(language) {
+  if (messageCache.has(language)) return messageCache.get(language);
   const response = await fetch(`/static/locales/${language}.json`, { cache: 'no-cache' });
   if (!response.ok) {
     throw new Error(`Could not load locale "${language}" (HTTP ${response.status})`);
   }
-  return response.json();
+  const loaded = await response.json();
+  messageCache.set(language, loaded);
+  return loaded;
+}
+
+export async function preloadLanguage(language) {
+  if (!SUPPORTED_LANGUAGES.includes(language)) return;
+  await loadMessages(language);
+}
+
+/** Translate synchronous preview rendering without changing the admin's language. */
+export function withLanguage(language, render) {
+  const previous = scopedMessages;
+  scopedMessages = messageCache.get(language) || null;
+  try { return render(); } finally { scopedMessages = previous; }
 }
 
 function has(key) {
@@ -76,14 +94,16 @@ function applyTranslations(root = document) {
   });
 }
 
-export async function setLanguage(language) {
+export async function setLanguage(language, { persist = true } = {}) {
   const next = SUPPORTED_LANGUAGES.includes(language) ? language : DEFAULT_LANGUAGE;
   messages = await loadMessages(next);
   activeLanguage = next;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, next);
-  } catch (error) {
-    // Ignore storage errors; the language still applies for this session.
+  if (persist) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, next);
+    } catch (error) {
+      // Ignore storage errors; the language still applies for this session.
+    }
   }
   document.documentElement.lang = next;
   applyTranslations(document);

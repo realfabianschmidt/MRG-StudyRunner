@@ -5,6 +5,17 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Added
+
+- English/German software labels for card types, participant controls, Mood Meter views, and stimulus warnings. A study now fixes the participant UI language independently of the admin language.
+- Repository and source archive guards allow only the three curated example studies.
+- Upload destination machine controls appear under Integrations / Uploads in the settings hub.
+- Sensor tiles now use column layouts with a separate device bar, calmer graphs, and a three-position Off / On / Restart control.
+
+### Fixed
+
+- The translation-key test now scans actual `t()` calls and HTML keys. German UI quality checks catch uppercase ASCII umlaut spellings.
+
 ## 1.5.6 - 2026-09-29
 
 ### Changed

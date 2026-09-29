@@ -199,6 +199,7 @@ jobs:
           python -m pytest "$SOURCE_ROOT/software"
           (
             cd "$SOURCE_ROOT"
+            python tools/measure_structure.py --check
             python -m unittest -v release_tools.tests.test_build_source_release
             node --test software/tests/js/*.test.mjs
           )
