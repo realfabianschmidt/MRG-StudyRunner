@@ -128,7 +128,7 @@ export function createAdminUpdateHandling(context) {
       return;
     }
     const message = sourceMode
-      ? t('update.updateSourceConfirm', 'Update this checkout to {version} now? This runs git pull and the install script.').replace('{version}', version)
+      ? t('update.updateSourceConfirm', 'Update Study Runner to {version} now? It downloads and checks the new version, then restarts.').replace('{version}', version)
       : t('update.downloadConfirm', 'Download and verify update {version}?').replace('{version}', version);
     const proceed = await confirmWithModal({
       title: sourceMode ? t('update.updateSourceTitle', 'Update checkout') : t('update.downloadTitle', 'Download update'),
@@ -259,7 +259,7 @@ export function createAdminUpdateHandling(context) {
       pillState = 'starting';
       pillText = t('update.downloading', 'Downloading');
       message = status.source_mode
-        ? t('update.updatingSourceDetail', 'Running git pull and the install script -- this can take a few minutes.')
+        ? t('update.updatingSourceDetail', 'Downloading and checking the new version -- this can take a few minutes.')
         : formatUpdateDownload(status.download);
     } else if (stateName === 'verifying') {
       pillState = 'starting';

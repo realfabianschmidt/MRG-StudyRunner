@@ -62,7 +62,8 @@ def run(*, check_only: bool, port: int) -> int:
         _update_archive_install(metadata, latest)
     else:
         raise RuntimeError(
-            "This folder is neither a release archive nor a git clone. Download the latest release archive instead."
+            "This folder is not a Study Runner installation that can update itself. Download "
+            "study-runner-source.tar.gz (macOS) or study-runner-source.zip (Windows) from the release page."
         )
     start = "bash tools/start-macos.sh" if os.name != "nt" else r".\tools\start-windows.cmd"
     print(f"\nStudy Runner {latest} is installed. Start it with:\n  {start}")

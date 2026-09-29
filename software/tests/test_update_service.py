@@ -189,13 +189,25 @@ class SourceUpdateTests(unittest.TestCase):
                 update_service.download_and_stage_update(app_config)  # fails later: no remote to pull
             self.assertNotIn("session is active", str(raised.exception))
 
-    def test_refuses_a_checkout_that_is_not_a_git_clone(self) -> None:
+    def test_a_study_runner_folder_without_git_or_marker_updates_as_an_archive(self) -> None:
+        # GitHub's automatic "Source code" archive and pre-marker installs.
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            self._write_checkout_files(root / "repo", "1.0.0")  # no git init
+            self._write_checkout_files(root / "repo", "1.0.0")  # no git init, no marker
             app_config = self._app_config(root / "repo" / "software", root / "storage")
             self._mark_update_available(app_config, "1.1.0")
-            with self.assertRaisesRegex(update_service.UpdateError, "neither a release archive nor a git clone"):
+            with patch.object(update_service, "_stage_archive_update", return_value={"state": "ready"}) as staged:
+                result = update_service.download_and_stage_update(app_config)
+            staged.assert_called_once_with(app_config)
+            self.assertEqual(result, {"state": "ready"})
+
+    def test_refuses_a_folder_that_is_not_a_study_runner_install(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "repo" / "software").mkdir(parents=True)
+            app_config = self._app_config(root / "repo" / "software", root / "storage")
+            self._mark_update_available(app_config, "1.1.0")
+            with self.assertRaisesRegex(update_service.UpdateError, "not a Study Runner installation"):
                 update_service.download_and_stage_update(app_config)
 
     def test_refuses_a_branch_other_than_main(self) -> None:

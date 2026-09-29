@@ -44,7 +44,8 @@ The installer is safe to run again after an interruption or an update.
 
 #### First installation
 
-1. Download `study-runner-source.zip` from the latest release and extract it.
+1. Download `study-runner-source.zip` from the latest release (under
+   **Assets**, not GitHub's automatic "Source code" links) and extract it.
 2. Move the extracted Study Runner folder to a permanent location --
    **Documents** is a good default.
 3. Open that folder in File Explorer, click the address bar, type `powershell`,
@@ -82,7 +83,8 @@ that window to stop it.
 
 #### First installation
 
-1. Download `study-runner-source.tar.gz` from the latest release. Double-click
+1. Download `study-runner-source.tar.gz` from the latest release (under
+   **Assets**, not GitHub's automatic "Source code" links). Double-click
    it in Finder if the browser did not extract it automatically.
 2. Move the extracted Study Runner folder to a permanent location --
    **Documents** is a good default.

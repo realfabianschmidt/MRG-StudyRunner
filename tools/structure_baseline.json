@@ -1,9 +1,9 @@
 {
-  "cross_package_import_edges": 461,
+  "cross_package_import_edges": 471,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
-    "lines": 2583,
+    "lines": 2819,
     "path": "software/study_runner/plugins/sensors/brainbit/adapter.py"
   },
   "largest_file_per_package": {
@@ -12,7 +12,7 @@
       "path": ""
     },
     "apps.server": {
-      "lines": 767,
+      "lines": 772,
       "path": "software/study_runner/apps/server/routes/study.py"
     },
     "apps.ui": {
@@ -20,7 +20,7 @@
       "path": ""
     },
     "apps.ui.admin": {
-      "lines": 739,
+      "lines": 922,
       "path": "software/study_runner/apps/ui/scripts/admin/admin-dashboard-controller.js"
     },
     "apps.ui.cards": {
@@ -28,7 +28,7 @@
       "path": "software/study_runner/plugins/cards/participant_id/card.js"
     },
     "apps.ui.participant": {
-      "lines": 998,
+      "lines": 999,
       "path": "software/study_runner/apps/ui/scripts/participant/study-controller.js"
     },
     "apps.ui.settings": {
@@ -40,7 +40,7 @@
       "path": "software/study_runner/apps/ui/scripts/shared/qr-code.js"
     },
     "contracts": {
-      "lines": 1531,
+      "lines": 1578,
       "path": "software/study_runner/contracts/manifest.py"
     },
     "data_core": {
@@ -52,7 +52,7 @@
       "path": "software/study_runner/data_core/contract/worker_protocol.py"
     },
     "data_core.host": {
-      "lines": 1284,
+      "lines": 1332,
       "path": "software/study_runner/data_core/host/recording_runtime.py"
     },
     "data_core.worker": {
@@ -60,7 +60,7 @@
       "path": "software/study_runner/data_core/worker/lsl_recording.py"
     },
     "plugin_framework": {
-      "lines": 977,
+      "lines": 1017,
       "path": "software/study_runner/plugin_framework/process_host.py"
     },
     "plugins": {
@@ -72,7 +72,7 @@
       "path": "software/study_runner/plugins/cards/mood_meter/plugin.py"
     },
     "plugins.destinations": {
-      "lines": 1137,
+      "lines": 1135,
       "path": "software/study_runner/plugins/destinations/notion_upload/adapter.py"
     },
     "plugins.outputs": {
@@ -80,11 +80,11 @@
       "path": "software/study_runner/plugins/outputs/osc_touchdesigner/plugin.py"
     },
     "plugins.sensors": {
-      "lines": 2583,
+      "lines": 2819,
       "path": "software/study_runner/plugins/sensors/brainbit/adapter.py"
     },
     "runtime_core": {
-      "lines": 1704,
+      "lines": 1931,
       "path": "software/study_runner/runtime_core/delivery/finalization_service.py"
     },
     "shared": {
@@ -92,32 +92,32 @@
       "path": "software/study_runner/shared/system_clock_probe.py"
     },
     "updates": {
-      "lines": 270,
+      "lines": 297,
       "path": "software/study_runner/updates/archive_update.py"
     }
   },
   "lines_per_package": {
     "apps": 0,
-    "apps.server": 4497,
+    "apps.server": 4658,
     "apps.ui": 0,
-    "apps.ui.admin": 4874,
-    "apps.ui.cards": 3420,
-    "apps.ui.participant": 2776,
-    "apps.ui.settings": 1851,
+    "apps.ui.admin": 5420,
+    "apps.ui.cards": 3487,
+    "apps.ui.participant": 2777,
+    "apps.ui.settings": 1853,
     "apps.ui.shared": 2902,
-    "contracts": 2707,
+    "contracts": 2758,
     "data_core": 16,
     "data_core.contract": 1184,
-    "data_core.host": 6279,
+    "data_core.host": 6644,
     "data_core.worker": 2406,
-    "plugin_framework": 2874,
+    "plugin_framework": 3207,
     "plugins": 0,
     "plugins.cards": 1181,
-    "plugins.destinations": 1884,
+    "plugins.destinations": 1894,
     "plugins.outputs": 154,
-    "plugins.sensors": 10969,
-    "runtime_core": 14478,
+    "plugins.sensors": 11242,
+    "runtime_core": 14845,
     "shared": 448,
-    "updates": 669
+    "updates": 696
   }
 }

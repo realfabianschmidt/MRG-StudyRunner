@@ -238,6 +238,24 @@ class ArchiveStagingTests(unittest.TestCase):
             (root / ".git").mkdir()
             self.assertEqual(archive_update.install_kind(root), "git")
 
+    def test_a_study_runner_tree_without_marker_is_an_archive_install(self) -> None:
+        # GitHub's automatic "Source code" archive has no release marker.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "software" / "study_runner").mkdir(parents=True)
+            (root / "software" / "server.py").write_text("", encoding="utf-8")
+            (root / "tools").mkdir()
+            (root / "tools" / "install-macos.sh").write_text("", encoding="utf-8")
+            self.assertEqual(archive_update.install_kind(root), "unknown")
+            (root / "software" / "study_runner" / "version.py").write_text(
+                '"""Version."""\n\n__version__ = "1.3.2"\n', encoding="utf-8"
+            )
+            self.assertEqual(archive_update.install_kind(root), "archive")
+            # Without a marker the installed version comes from the program itself.
+            self.assertEqual(archive_update.read_installed_version(root), "1.3.2")
+            (root / archive_update.RELEASE_INFO_NAME).write_text('{"version": "1.4.0"}', encoding="utf-8")
+            self.assertEqual(archive_update.read_installed_version(root), "1.4.0")
+
 
 if __name__ == "__main__":
     unittest.main()

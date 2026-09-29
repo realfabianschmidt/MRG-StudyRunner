@@ -44,13 +44,29 @@ class ArchiveUpdateError(RuntimeError):
 
 
 def install_kind(install_root: Path) -> str:
-    """``git``, ``archive`` or ``unknown`` for this installation."""
+    """``git``, ``archive`` or ``unknown`` for this installation.
+
+    A folder without ``.git`` counts as an archive install when it has the
+    release marker, or when it is recognisably a Study Runner tree. The second
+    case covers GitHub's automatic "Source code" archives and installs older
+    than the marker: the update itself trusts only the SHA-256 of the published
+    release, never the old folder, and the new archive brings the marker along.
+    """
     root = Path(install_root)
     if (root / ".git").exists():
         return "git"
     if (root / RELEASE_INFO_NAME).is_file():
         return "archive"
+    if _is_study_runner_tree(root):
+        return "archive"
     return "unknown"
+
+
+def _is_study_runner_tree(root: Path) -> bool:
+    return all(
+        (root / relative).is_file()
+        for relative in ("software/server.py", "software/study_runner/version.py", "tools/install-macos.sh")
+    )
 
 
 def archive_name_for_platform() -> str:
@@ -217,8 +233,19 @@ def merge_new_content(release_root: Path, install_root: Path) -> list[str]:
 
 
 def read_installed_version(install_root: Path) -> str:
+    """The installed version: the release marker, else the program's own version file."""
     info = _read_json(Path(install_root) / RELEASE_INFO_NAME)
-    return str(info.get("version") or "")
+    version = str(info.get("version") or "")
+    if version:
+        return version
+    try:
+        text = (Path(install_root) / "software" / "study_runner" / "version.py").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        if line.strip().startswith("__version__"):
+            return line.split("=", 1)[1].strip().strip("\"'")
+    return ""
 
 
 def _safe_extract(archive_path: Path, destination: Path) -> None:

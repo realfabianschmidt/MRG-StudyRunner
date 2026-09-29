@@ -5,38 +5,20 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Fixed
+
+- Installs without `.git` update themselves even without the release marker,
+  e.g. from GitHub's automatic "Source code" archive. The download is still
+  checked against the published release's SHA-256. The install guides name
+  the right download (`study-runner-source` under Assets).
+- CI: the architecture structure baseline records the 1.5 features.
+
 ## 1.5.4 - 2026-09-28
 
-### Fixed
-
-- `.study-runner` packages are byte-identical on Windows, macOS and Linux;
-  the ZIP header recorded the building system, which failed the Linux
-  release tests for 1.5.2.
-
-## 1.5.3 - 2026-09-28
-
-### Fixed
-
-- `.study-runner` packages are byte-identical on Windows, macOS and Linux;
-  the ZIP header recorded the building system, which failed the Linux
-  release tests for 1.5.2.
-
-## 1.5.2 - 2026-09-28
-
-### Fixed
-
-- Release archives build again: every release section of the changelog now
-  has entries (1.5.1 stopped on its empty section). 1.5.2 is the first
-  published release with the 1.5.0 changes.
-
-## 1.5.1 - 2026-09-28
-
-### Fixed
-
-- A test fixture path was too long for Windows release archives, which
-  stopped 1.5.0 from being published. Not published itself.
-
-## 1.5.0 - 2026-09-28
+First published 1.5 release. 1.5.0 to 1.5.3 were tagged but not published
+(a too-long fixture path, empty changelog sections, and `.study-runner`
+packages that differed by operating system); their tags were removed. Study
+packages are now byte-identical on Windows, macOS and Linux.
 
 ### Added
 

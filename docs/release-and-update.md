@@ -86,8 +86,12 @@ platform-specific wheel files and hashes maintained for all three targets.
 ## Updating An Installation
 
 Since 1.2.0 both kinds of installation update themselves. The kind is detected
-automatically: a `.git` folder means a git clone, a `study-runner-release.json`
-in the install folder means an extracted release archive.
+automatically: a `.git` folder means a git clone; a `study-runner-release.json`
+in the install folder, or since 1.5.5 any recognisable Study Runner folder
+without `.git`, means an extracted release archive. The recommended download is
+the `study-runner-source` asset; since 1.5.5 an install from GitHub's automatic
+"Source code" archive updates itself too. The download is always checked
+against the SHA-256 of the published release, never against the old folder.
 
 **From the admin dashboard:** Update panel, Check, then Update now. The dialog
 lists what will be ended; an active session needs a second, red confirmation.
@@ -157,12 +161,13 @@ bash tools/update-macos.sh          # --check only reports
 This runs the same steps without the server; Ctrl+C during the install also
 restores the old version.
 
-**Once, from 1.1.x or older (or when an update cannot run):** these versions
-cannot update an archive install. Stop Study Runner, then:
+**Once, when the update says "not a git clone" or "neither a release archive
+nor a git clone":** the installed version is older than 1.5.5 and was either
+1.1.x or older, or installed from GitHub's automatic "Source code" archive.
+Its own code cannot update this folder. Stop Study Runner, then:
 
 1. Download `study-runner-source.zip` (Windows) or `study-runner-source.tar.gz`
-   (macOS) from the latest release -- not GitHub's automatic "Source code"
-   archive, which lacks `study-runner-release.json` and cannot update itself.
+   (macOS) from the latest release, under **Assets**.
 2. Extract it into a new folder (on Windows preferably a short path).
 3. Copy `software/study_content` and `software/saved_results` from the old
    folder into the new one, replacing the shipped ones. Optionally also copy
@@ -174,8 +179,9 @@ cannot update an archive install. Stop Study Runner, then:
 6. Keep the old folder until the studies and results are confirmed in the new
    one.
 
-A git clone just needs `git pull --ff-only` and the install script. From then
-on the new folder updates itself.
+If the data folder is on an external drive, link it again in the settings
+instead of copying `saved_results`. A git clone just needs `git pull --ff-only`
+and the install script. From then on the new folder updates itself.
 
 The installer reuses a compatible `.venv`, refreshes dependencies, and only
 replaces a missing or stale native core.

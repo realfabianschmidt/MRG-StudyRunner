@@ -124,8 +124,9 @@ def download_and_stage_update(app_config: dict[str, Any]) -> dict[str, Any]:
         if kind == "git":
             return _apply_source_update(app_config)
         raise UpdateError(
-            "This installation is neither a release archive nor a git clone, so it cannot update "
-            "itself. Download the latest release archive instead -- see docs/release-and-update.md."
+            "This folder is not a Study Runner installation that can update itself. Download "
+            "study-runner-source.tar.gz (macOS) or study-runner-source.zip (Windows) from the "
+            "release page and install it -- see docs/release-and-update.md."
         )
     _require_public_key()
     paths = resolve_update_paths(app_config)

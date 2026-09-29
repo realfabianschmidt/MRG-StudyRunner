@@ -114,7 +114,8 @@ nach einem Abbruch.
 
 ### Windows x64: erste Installation
 
-1. `study-runner-source.zip` herunterladen und entpacken.
+1. Auf der Release-Seite unter **Assets** `study-runner-source.zip`
+   herunterladen (nicht die automatischen "Source code"-Links) und entpacken.
 2. Den entpackten Study-Runner-Ordner nach **Dokumente** verschieben.
 3. Diesen Ordner im Explorer oeffnen, in die Adresszeile klicken,
    `powershell` eingeben und Enter druecken.
@@ -149,7 +150,8 @@ Server.
 
 ### macOS 13 oder neuer, Intel oder Apple Silicon: erste Installation
 
-1. `study-runner-source.tar.gz` herunterladen. Falls der Browser es nicht
+1. Auf der Release-Seite unter **Assets** `study-runner-source.tar.gz`
+   herunterladen (nicht die automatischen "Source code"-Links). Falls der Browser es nicht
    automatisch entpackt, die Datei im Finder doppelklicken.
 2. Den entpackten Study-Runner-Ordner nach **Dokumente** verschieben.
 3. Terminal oeffnen und `cd ` inklusive Leerzeichen eingeben. Den Ordner aus
@@ -477,17 +479,21 @@ bash tools/update-macos.sh --check   # nur pruefen
 Danach wie gewohnt starten. Ctrl+C waehrend der Installation stellt die alte
 Version wieder her.
 
-**Einmalig von 1.1.x oder aelter (oder wenn ein Update nicht laeuft):**
+**Einmalig, wenn das Update "not a git clone" oder "neither a release archive
+nor a git clone" meldet:** Die installierte Version ist aelter als 1.5.5 und
+war entweder 1.1.x oder aelter oder stammt aus GitHubs automatischem "Source
+code"-Archiv. Ihr eigener Code kann diesen Ordner nicht aktualisieren. Ab 1.5.5
+klappt das Update auch fuer solche Ordner.
 
 1. Study Runner beenden.
-2. Aus dem neuesten Release `study-runner-source.zip` (Windows) bzw.
-   `study-runner-source.tar.gz` (Mac) laden -- nicht GitHubs automatisches
-   "Source code"-Archiv, das kann sich spaeter nicht selbst aktualisieren.
+2. Aus dem neuesten Release unter **Assets** `study-runner-source.zip`
+   (Windows) bzw. `study-runner-source.tar.gz` (Mac) laden.
 3. In einen neuen Ordner entpacken (unter Windows am besten ein kurzer Pfad).
 4. `software/study_content` und `software/saved_results` aus dem alten Ordner in
    den neuen kopieren und die dortigen Ordner ersetzen. Optional auch
    `software/runtime` (Plugin-Logs, Emotionsmodell) und selbst hinzugefuegte
-   Plugins oder Schriften.
+   Plugins oder Schriften. Liegt der Datenordner auf einer externen Festplatte,
+   ihn stattdessen in den Einstellungen neu verknuepfen.
 5. `.venv` und `.tools` nicht kopieren -- sie zeigen auf den alten Ordner.
 6. `bash tools/install-macos.sh` bzw. `.\tools\install-windows.cmd` ausfuehren
    (braucht Internet, einige Minuten) und starten. Auf dem Mac die
