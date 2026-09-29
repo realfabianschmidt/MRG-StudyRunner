@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.5.6 - 2026-09-29
+
 ### Changed
 
 - Sensor tiles: the device list on the left, four round buttons beside it
