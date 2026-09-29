@@ -1,6 +1,7 @@
 """Persistent upload jobs: replay, backoff, migration, and route contracts."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -167,7 +168,9 @@ class UploadJobServiceTests(unittest.TestCase):
                     "notion": {"api_key": "legacy-secret"},
                     "nextcloud": {"password": "legacy-share-secret"},
                 },
-                "queued_at": "2026-07-01T10:00:00Z",
+                # Relative to today: a fixed date fell out of the 90-day
+                # status window below once enough time had passed.
+                "queued_at": (datetime.now(timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
             legacy.write_text(json.dumps(entry) + "\n", encoding="utf-8")
             service = UploadJobService(root)
