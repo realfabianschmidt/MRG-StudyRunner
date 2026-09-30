@@ -627,7 +627,7 @@ class PluginUiContractTests(unittest.TestCase):
         self.assertIn("body:not(:has(#screen-questions.active)) .q-nav", study_css)
         # `hidden` must win over `display: grid`, or the finish card keeps its navigation.
         self.assertIn(".q-nav[hidden] {\n  display: none;", study_css)
-        self.assertIn("nav.hidden = screenName !== 'questions'", participant)
+        self.assertIn("toggleAttribute('hidden', screenName !== 'questions')", participant)
         self.assertIn("body:has(#screen-questions.active) .study-preview-banner", study_css)
         self.assertIn("#study-toast {\n  position: fixed;", study_css)
         self.assertIn(".study-card-frame--off .q-card-study", main_css)

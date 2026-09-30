@@ -1,30 +1,35 @@
 {
   "api_version": 5,
   "plugin_key": "am_hub",
-  "version": "1.1.0",
+  "version": "3.0.0",
   "category": "biosignal",
   "config_key": "am_hub",
   "runtime": {
     "entrypoint": "driver.py",
     "protocol": "study-runner-stdio/v1",
     "interactive_stdin": true,
-    "modes": ["runtime", "diagnostics"],
+    "modes": [
+      "runtime",
+      "diagnostics"
+    ],
     "sample_delivery": "declared_transport",
-    "actions": ["start", "stop", "restart"],
-    "trial_events": ["start", "stop"],
-    "can_toggle": true,
-    "sidecar": {
-      "sensor": "am_hub",
-      "filename_suffix": "am_hub_signals",
-      "output_key": "am_hub_file"
-    }
+    "actions": [
+      "start",
+      "stop",
+      "restart"
+    ],
+    "trial_events": [
+      "start",
+      "stop"
+    ],
+    "can_toggle": true
   },
   "lifecycle": {
     "reinitialize_on_disable": true
   },
   "ui": {
     "label": "AM Hub",
-    "description": "Presence, position, movement, vitals, valve state and link quality/latency from the Parasite AM Hub.",
+    "description": "Radar, bio and valve frames from the Parasite AM Hub (one sample per real frame), plus the hub's own events.",
     "help_key": "pluginHelp.amHub.intro",
     "order": 120,
     "visibility": {
@@ -37,8 +42,17 @@
       "dashboard": "ui/dashboard.js"
     },
     "timeline": {
-      "lane_aliases": ["am_hub"],
-      "preferred_channels": ["presence", "moveEnergy", "personX", "personY"]
+      "lane_aliases": [
+        "am_hub"
+      ],
+      "preferred_channels": [
+        "presMoveEnergy",
+        "presStaticEnergy",
+        "heartBpm",
+        "breathRate",
+        "personX",
+        "personY"
+      ]
     }
   },
   "capabilities": {
@@ -53,7 +67,7 @@
     "lsl_stream_provider": {},
     "recording_source": {
       "artifact": "xdf",
-      "primary_stream": "presence"
+      "primary_stream": "radar"
     },
     "backup_projection": {
       "rate_hz": 1,
@@ -61,27 +75,27 @@
       "channels": [
         {
           "output": "presence",
-          "stream": "presence",
+          "stream": "radar",
           "channel": "presence"
         },
         {
-          "output": "movement_intensity",
-          "stream": "presence",
-          "channel": "moveEnergy"
+          "output": "movement_energy",
+          "stream": "radar",
+          "channel": "presMoveEnergy"
         },
         {
-          "output": "distance_mm",
-          "stream": "position",
+          "output": "person_distance_mm",
+          "stream": "radar",
           "channel": "personDist"
         },
         {
           "output": "heart_rate_bpm",
-          "stream": "vitals",
-          "channel": "heartRate"
+          "stream": "bio",
+          "channel": "heartBpm"
         },
         {
-          "output": "respiration_rate_bpm",
-          "stream": "vitals",
+          "output": "breath_rate_per_min",
+          "stream": "bio",
           "channel": "breathRate"
         }
       ]
@@ -103,82 +117,159 @@
           "role": "auto_reconnect",
           "label": "Auto-reconnect",
           "description": "Restore a lost AM Hub connection by itself.",
-          "payload_schema": {"enabled": {"type": "boolean", "required": true}}
+          "payload_schema": {
+            "enabled": {
+              "type": "boolean",
+              "required": true
+            }
+          }
         }
       ]
     }
   },
   "streams": [
     {
-      "key": "presence",
-      "source_id": "study_runner.am_hub.presence",
-      "type": "PRESENCE",
+      "key": "radar",
+      "source_id": "study_runner.am_hub.radar",
+      "type": "RADAR",
       "nominal_rate_hz": 10,
       "clock_domain": "lsl",
-      "channel_format": "float32",
-      "channels": ["presence", "presState", "presDist", "moveEnergy", "staticEnergy", "targetCount"],
-      "channel_units": ["boolean", "enum", "millimetre", "arbitrary_unit", "arbitrary_unit", "count"]
+      "channel_format": "double64",
+      "channels": [
+        "personDist",
+        "personX",
+        "personY",
+        "targetCount",
+        "t1x",
+        "t1y",
+        "t1speed",
+        "t1res",
+        "t2x",
+        "t2y",
+        "t2speed",
+        "t2res",
+        "t3x",
+        "t3y",
+        "t3speed",
+        "t3res",
+        "presence",
+        "presState",
+        "presDist",
+        "presMoveEnergy",
+        "presStaticEnergy",
+        "presDetDist",
+        "rssi",
+        "seq",
+        "hub_timestamp"
+      ],
+      "channel_units": [
+        "millimetre",
+        "millimetre",
+        "millimetre",
+        "count",
+        "millimetre",
+        "millimetre",
+        "centimetre_per_second",
+        "millimetre",
+        "millimetre",
+        "millimetre",
+        "centimetre_per_second",
+        "millimetre",
+        "millimetre",
+        "millimetre",
+        "centimetre_per_second",
+        "millimetre",
+        "boolean",
+        "enum",
+        "millimetre",
+        "arbitrary_unit",
+        "arbitrary_unit",
+        "millimetre",
+        "decibel_milliwatt",
+        "count",
+        "second"
+      ],
+      "sequence_channel": "seq"
     },
     {
-      "key": "position",
-      "source_id": "study_runner.am_hub.position",
-      "type": "POSITION",
+      "key": "bio",
+      "source_id": "study_runner.am_hub.bio",
+      "type": "BIO",
       "nominal_rate_hz": 10,
       "clock_domain": "lsl",
-      "channel_format": "float32",
-      "channels": ["personDist", "personX", "personY", "t1x", "t1y", "t1speed", "t2x", "t2y", "t2speed", "t3x", "t3y", "t3speed"],
-      "channel_units": ["millimetre", "millimetre", "millimetre", "millimetre", "millimetre", "millimetre_per_second", "millimetre", "millimetre", "millimetre_per_second", "millimetre", "millimetre", "millimetre_per_second"]
-    },
-    {
-      "key": "vitals",
-      "source_id": "study_runner.am_hub.vitals",
-      "type": "VITALS",
-      "nominal_rate_hz": 10,
-      "clock_domain": "lsl",
-      "channel_format": "float32",
-      "channels": ["heartRate", "breathRate", "bioDistance", "bioX", "bioY"],
-      "channel_units": ["beats_per_minute", "breaths_per_minute", "millimetre", "millimetre", "millimetre"]
-    },
-    {
-      "key": "radar_detail",
-      "source_id": "study_runner.am_hub.radar_detail",
-      "type": "RADAR_DETAIL",
-      "nominal_rate_hz": 10,
-      "clock_domain": "lsl",
-      "channel_format": "float32",
-      "channels": ["t1res", "t2res", "t3res", "presDetDist"],
-      "channel_units": ["millimetre", "millimetre", "millimetre", "millimetre"]
+      "channel_format": "double64",
+      "channels": [
+        "heartBpm",
+        "breathRate",
+        "bioDist",
+        "bioT1x",
+        "bioT1y",
+        "rssi",
+        "seq",
+        "hub_timestamp"
+      ],
+      "channel_units": [
+        "beats_per_minute",
+        "breaths_per_minute",
+        "centimetre",
+        "millimetre",
+        "millimetre",
+        "decibel_milliwatt",
+        "count",
+        "second"
+      ],
+      "sequence_channel": "seq"
     },
     {
       "key": "valves",
       "source_id": "study_runner.am_hub.valves",
       "type": "VALVES",
-      "nominal_rate_hz": 10,
+      "nominal_rate_hz": 0,
       "clock_domain": "lsl",
-      "channel_format": "float32",
-      "channels": ["ch0", "ch1", "ch2", "ch3", "ch4", "ch5", "ch6", "ch7", "sceneActive"],
-      "channel_units": ["boolean", "boolean", "boolean", "boolean", "boolean", "boolean", "boolean", "boolean", "boolean"]
-    },
-    {
-      "key": "hub_status",
-      "source_id": "study_runner.am_hub.hub_status",
-      "type": "HUB_STATUS",
-      "nominal_rate_hz": 10,
-      "clock_domain": "lsl",
-      "channel_format": "float32",
-      "channels": ["radarConnected", "radarTransport", "radarRssi", "radarRateHz", "radarLost", "radarLinkRttMs", "radarLatencyMs", "bioConnected", "bioTransport", "bioRssi", "bioRateHz", "bioLost", "bioLinkRttMs", "bioLatencyMs", "solenoidConnected", "solenoidTransport", "solenoidRssi", "solenoidRateHz", "solenoidLost", "solenoidLinkRttMs", "solenoidLatencyMs", "hubRttMs", "hubDroppedEvents"],
-      "channel_units": ["boolean", "enum", "decibel_milliwatt", "hertz", "count", "millisecond", "millisecond", "boolean", "enum", "decibel_milliwatt", "hertz", "count", "millisecond", "millisecond", "boolean", "enum", "decibel_milliwatt", "hertz", "count", "millisecond", "millisecond", "millisecond", "count"]
+      "channel_format": "double64",
+      "channels": [
+        "CH0",
+        "CH1",
+        "CH2",
+        "CH3",
+        "CH4",
+        "CH5",
+        "CH6",
+        "CH7",
+        "rssi",
+        "seq",
+        "hub_timestamp"
+      ],
+      "channel_units": [
+        "boolean",
+        "boolean",
+        "boolean",
+        "boolean",
+        "boolean",
+        "boolean",
+        "boolean",
+        "boolean",
+        "decibel_milliwatt",
+        "count",
+        "second"
+      ],
+      "sequence_channel": "seq",
+      "may_be_empty": true
     },
     {
       "key": "hub_events",
       "source_id": "study_runner.am_hub.hub_events",
       "type": "HUB_EVENTS",
       "nominal_rate_hz": 0,
-      "may_be_empty": true,
+      "estimated_bytes_per_second": 16384,
       "clock_domain": "lsl",
       "channel_format": "string",
-      "channels": ["event"],
-      "channel_units": ["json"]
+      "channels": [
+        "event"
+      ],
+      "channel_units": [
+        "json"
+      ]
     }
   ],
   "settings": {
@@ -203,18 +294,6 @@
         "apply": "restart",
         "scope": "machine",
         "help_key": "pluginHelp.amHub.dataTimeout"
-      },
-      "reconnect_delay_seconds": {
-        "type": "number",
-        "unit": "s",
-        "path": "reconnect_delay_seconds",
-        "default": 3,
-        "minimum": 1,
-        "maximum": 60,
-        "label_key": "pluginSettings.amHub.reconnectDelay",
-        "apply": "restart",
-        "scope": "machine",
-        "help_key": "pluginHelp.amHub.reconnectDelay"
       }
     },
     "study": {},
@@ -224,12 +303,9 @@
   "request_timeout_ms": 1500,
   "clock_domain": "lsl",
   "expected_data_rate": {
-    "presence_hz": 10,
-    "position_hz": 10,
-    "vitals_hz": 10,
-    "radar_detail_hz": 10,
-    "valves_hz": 10,
-    "hub_status_hz": 10
+    "radar_hz": 10,
+    "bio_hz": 10,
+    "backup_projection_hz": 1
   },
   "backpressure": {
     "max_in_flight": 1,

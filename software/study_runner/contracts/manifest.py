@@ -1293,6 +1293,14 @@ def _normalize_streams(value: Any) -> list[dict[str, Any]]:
             raise PluginManifestError(f"streams[{index}].nominal_rate_hz must be zero or positive")
         if not isinstance(raw_stream.get("may_be_empty", False), bool):
             raise PluginManifestError(f"streams[{index}].may_be_empty must be true or false")
+        estimated_rate = raw_stream.get("estimated_bytes_per_second")
+        if estimated_rate is not None and (
+            isinstance(estimated_rate, bool)
+            or not isinstance(estimated_rate, (int, float))
+            or not math.isfinite(float(estimated_rate))
+            or estimated_rate <= 0
+        ):
+            raise PluginManifestError(f"streams[{index}].estimated_bytes_per_second must be positive and finite")
         channels = raw_stream.get("channels", [])
         if not isinstance(channels, list) or not channels:
             raise PluginManifestError(f"streams[{index}].channels must be a non-empty list")

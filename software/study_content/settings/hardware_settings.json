@@ -4,8 +4,7 @@
     "auto_reconnect": true,
     "base_url": "",
     "data_timeout_seconds": 5,
-    "enabled": false,
-    "reconnect_delay_seconds": 3
+    "enabled": false
   },
   "brainbit": {
     "auto_reconnect": true,

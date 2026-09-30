@@ -25,9 +25,7 @@ def _initialize(context: PluginContext) -> None:
             _auto_reconnect_choice if _auto_reconnect_choice is not None
             else config.get("auto_reconnect", True)
         ),
-        reconnect_delay_seconds=config.get("reconnect_delay_seconds", 3),
         data_timeout_seconds=config.get("data_timeout_seconds", 5),
-        lsl_enabled=bool(config.get("enabled", False)),
         lsl_auto_install=lsl_config.get("auto_install", True),
         lsl_stream_prefix=lsl_config.get("stream_prefix", "AmHub"),
     )

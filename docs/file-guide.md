@@ -264,7 +264,8 @@ recording code now, not plugins: `data_core/host/markers.py` and
 | `mr60_mini_radar/plugin.py` | Plugin wrapper for the radar | careful |
 | `mr60_mini_radar/driver.py` | API-v5 process entry point (`run_plugin_driver("mini_radar")`) | no |
 | `mr60_mini_radar/tools/ble_mr60_receiver.py` | Standalone BLE test receiver for debugging | yes |
-| `am_hub/adapter.py` | Parasite AM Hub SSE client (API v2, v1 fallback): presence, position, movement, vitals, valves, per-board link quality and latency; converts firmware units and 0-for-no-value | careful |
+| `am_hub/adapter.py` | Parasite AM Hub API-v2 SSE client: one LSL sample per real board frame in `radar`/`bio`/`valves`, every other hub event verbatim in `hub_events`; connection watchdog, card summaries | careful |
+| `am_hub/monitor.py` | What the AM Hub dashboard shows (latest values, boards, person, bounded graphs), derived only from received events and cleared on every start/stop - like `brainbit/monitor.py` | careful |
 | `am_hub/plugin.py` | Plugin wrapper for the AM Hub adapter | careful |
 | `am_hub/driver.py` | API-v5 process entry point (`run_plugin_driver("am_hub")`) | no |
 | `camera_emotion/adapter.py` | Accepts tablet camera frames and publishes stable LSL streams | careful |

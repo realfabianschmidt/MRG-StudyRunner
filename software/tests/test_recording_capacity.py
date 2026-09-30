@@ -78,6 +78,11 @@ class PlannedDurationSecondsTests(unittest.TestCase):
 
 
 class EstimatedAcquisitionBytesPerSecondTests(unittest.TestCase):
+    def test_irregular_event_stream_uses_declared_nonzero_capacity(self) -> None:
+        streams = {"am_hub": [{"channels": ["event"], "channel_format": "string",
+                               "nominal_rate_hz": 0, "estimated_bytes_per_second": 65536}]}
+        self.assertEqual(estimated_acquisition_bytes_per_second(streams, {"mode": "none"}), 65536.0)
+
     def test_sums_channel_count_times_format_size_times_rate(self) -> None:
         # 4 channels * 4 bytes (float32) * 250 Hz = 4000; backup: 2 channels * 8 bytes * 1 Hz = 16.
         self.assertEqual(estimated_acquisition_bytes_per_second(STREAMS, BACKUP), 4016.0)

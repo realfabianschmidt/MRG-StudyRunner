@@ -72,7 +72,14 @@ def estimated_acquisition_bytes_per_second(
             if not math.isfinite(rate_hz) or rate_hz < 0:
                 raise ValueError("stream nominal_rate_hz must be a finite non-negative number")
             bytes_per_sample = BYTES_PER_SAMPLE.get(channel_format, ESTIMATED_STRING_CHANNEL_BYTES)
-            total += channel_count * bytes_per_sample * rate_hz
+            declared_bytes = (stream or {}).get("estimated_bytes_per_second")
+            if declared_bytes is not None:
+                declared_bytes = float(declared_bytes)
+                if not math.isfinite(declared_bytes) or declared_bytes <= 0:
+                    raise ValueError("stream estimated_bytes_per_second must be positive and finite")
+                total += declared_bytes
+            else:
+                total += channel_count * bytes_per_sample * rate_hz
 
     backup_channels = backup_contract.get("channel_names") if isinstance(backup_contract, Mapping) else None
     backup_channel_count = len(backup_channels) if isinstance(backup_channels, list) else 0

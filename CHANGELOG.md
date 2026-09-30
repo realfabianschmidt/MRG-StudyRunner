@@ -8,6 +8,8 @@ All notable Study Runner changes are documented here. Release tags use
 ### Changed
 
 - Participant navigation is anchored to the screen bottom and the optional progress bar to the top; study-specific card frames can be switched off. Mood Meter and Affect Map layouts adapt to narrow and short screens. Header logos are vertically centered.
+- **AM Hub records like BrainBit (data contract change).** One sample per real board frame in its own numeric stream -- `radar`, `bio`, `valves` -- with the hub's value names and the ESP's own units, plus `seq` and the hub timestamp; no 10 Hz tick, no conversion, nothing carried forward. Status, hello, gap and other hub events go verbatim to `hub_events`. The standard 1 Hz backup projection and per-card averages remain. The streams `presence`, `position`, `vitals`, `radar_detail`, `hub_status` of 1.5.x are gone, as is the v1 fallback.
+- AM Hub readiness needs fresh radar and bio frames; switching it off hides all live values. The unused "reconnect delay" setting is removed. Irregular string streams can declare a capacity estimate.
 
 ## 1.5.8 - 2026-09-30
 

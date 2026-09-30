@@ -32,7 +32,7 @@
       "path": "software/study_runner/apps/ui/scripts/participant/study-controller.js"
     },
     "apps.ui.settings": {
-      "lines": 660,
+      "lines": 662,
       "path": "software/study_runner/apps/ui/scripts/settings/study/study-settings-panel.js"
     },
     "apps.ui.shared": {
@@ -40,7 +40,7 @@
       "path": "software/study_runner/apps/ui/scripts/shared/qr-code.js"
     },
     "contracts": {
-      "lines": 1578,
+      "lines": 1586,
       "path": "software/study_runner/contracts/manifest.py"
     },
     "data_core": {
@@ -100,23 +100,23 @@
     "apps": 0,
     "apps.server": 4661,
     "apps.ui": 0,
-    "apps.ui.admin": 5699,
-    "apps.ui.cards": 4316,
+    "apps.ui.admin": 5700,
+    "apps.ui.cards": 4345,
     "apps.ui.participant": 2778,
-    "apps.ui.settings": 1884,
-    "apps.ui.shared": 2948,
-    "contracts": 2761,
+    "apps.ui.settings": 1886,
+    "apps.ui.shared": 2950,
+    "contracts": 2769,
     "data_core": 16,
     "data_core.contract": 1184,
-    "data_core.host": 6644,
+    "data_core.host": 6651,
     "data_core.worker": 2406,
     "plugin_framework": 3299,
     "plugins": 0,
     "plugins.cards": 1408,
     "plugins.destinations": 1894,
     "plugins.outputs": 154,
-    "plugins.sensors": 12011,
-    "runtime_core": 14849,
+    "plugins.sensors": 11772,
+    "runtime_core": 14850,
     "shared": 448,
     "updates": 696
   }

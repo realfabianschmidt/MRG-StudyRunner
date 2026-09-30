@@ -667,16 +667,11 @@ function showScreen(screenName) {
     screenElement.classList.remove('active');
     screenElement.style.animation = 'none';
   });
-
   const targetScreen = getElement(`screen-${screenName}`);
   targetScreen.style.animation = '';
   targetScreen.classList.add('active');
   setWaitingSlideChrome(screenName === 'waiting');
-  // The navigation sits outside the question screen (a transformed card would
-  // pin a fixed bar to itself), so it is shown with that screen only; each
-  // question then decides for itself (the finish card hides it).
-  const nav = document.querySelector('.q-nav');
-  if (nav) nav.hidden = screenName !== 'questions';
+  document.querySelector('.q-nav')?.toggleAttribute('hidden', screenName !== 'questions'); // page-level bar, see study.html
 }
 
 /**
