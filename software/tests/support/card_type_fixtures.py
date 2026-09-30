@@ -233,6 +233,17 @@ CARD_TYPE_FIXTURES: dict[str, dict[str, Any]] = {
         "answer": "None, thanks.",
         "expected_answer": "None, thanks.",
     },
+    "affect-map": {
+        "question": {"type": "affect-map", "prompt": "Locate your current feeling."},
+        "expected_question": {
+            "type": "affect-map", "prompt": "Locate your current feeling.",
+            "required": True, "variant": "field", "allow_multiple": True,
+            "word_lists": None, "colors_enabled": True,
+            "region_colors": {"red": "#B4402E", "yellow": "#BD7A1E", "green": "#2F7A4D", "blue": "#2A6FA0"},
+        },
+        "answer": {"words": ["Calm"], "pleasantness": 0.75, "energy": 0.25},
+        "expected_answer": {"words": ["Calm"], "pleasantness": 0.75, "energy": 0.25},
+    },
     "mood-meter": {
         "question": {
             "type": "mood-meter",

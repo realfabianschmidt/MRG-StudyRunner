@@ -291,7 +291,7 @@ mandatory bookends of every study, so a catalog with neither cannot author a
 *playable* study (see `tests/test_plugin_removability.py`'s module docstring
 for why that is accepted, not a regression).
 
-Thirteen folders, one per card (`choice` alone answers both `choice` and
+Fourteen folders, one per card (`choice` alone answers both `choice` and
 `single`); each one is the same four files:
 
 | File | Purpose | Edit? |
@@ -304,8 +304,12 @@ Thirteen folders, one per card (`choice` alone answers both `choice` and
 | `mood_meter/mood-core.js` | Mood Meter core: quadrants, each word's place on the energy x pleasantness plane (Brackett's 10 x 10 grid), colors, morphing shape, spring, animation loop | careful |
 | `mood_meter/word-space.js` | Mood Meter fullscreen word space (pan with momentum, zoom or circle reveal), shared by the classic and blob views | careful |
 | `mood_meter/view-classic.js`, `view-blobs.js`, `view-field.js`, `view-orbit.js` | The four Mood Meter views behind one small interface (`render`, `bind`, `onClick`, `refresh`, `records`); chosen by the card's `variant` setting | careful |
+| `affect_map/README.md` | Affect Map's independent Field/Orbit card, color controls, answer shapes and scientific context | careful |
+| `affect_map/mood-core.js` | Independent positional and color core, copied from Mood Meter for plugin removability | careful |
+| `affect_map/view-field.js`, `affect_map/view-orbit.js` | Affect Map's Field/Orbit views with per-card palette support | careful |
+| `affect_map/card.css` | Affect Map's self-contained visual styles | careful |
 
-Folders: `choice`, `finish`, `info`, `likert`, `mood_meter`, `multi_slider`,
+Folders: `affect_map`, `choice`, `finish`, `info`, `likert`, `mood_meter`, `multi_slider`,
 `participant_id`, `ranking`, `semantic`, `slider`, `stimulus`, `text`,
 `word_cloud` (folder, plugin key, and config key are the same string for every
 one, unlike the plugin table above).

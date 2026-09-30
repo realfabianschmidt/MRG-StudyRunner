@@ -88,9 +88,9 @@ test('every answerable registered type has an isAnswered hook; stimulus/finish/i
   assert.deepEqual(new Set(withoutHook), new Set(['stimulus', 'finish', 'info']));
 });
 
-test('ranking, word-cloud and mood-meter are the types with a bindInteractions hook', () => {
+test('interactive custom cards expose a bindInteractions hook', () => {
   const withHook = Object.entries(CARDS)
     .filter(([, cardModule]) => typeof cardModule.bindInteractions === 'function')
     .map(([type]) => type);
-  assert.deepEqual(new Set(withHook), new Set(['ranking', 'word-cloud', 'mood-meter']));
+  assert.deepEqual(new Set(withHook), new Set(['ranking', 'word-cloud', 'mood-meter', 'affect-map']));
 });

@@ -11,6 +11,7 @@ const pending = new Map();
 export const CARD_LABEL_KEYS = Object.freeze({
   choice: 'cardType.choice', single: 'cardType.single', finish: 'cardType.finish',
   info: 'cardType.info', likert: 'cardType.likert', 'mood-meter': 'cardType.moodMeter',
+  'affect-map': 'cardType.affectMap',
   'multi-slider': 'cardType.multiSlider', 'participant-id': 'cardType.participantId',
   ranking: 'cardType.ranking', semantic: 'cardType.semantic', slider: 'cardType.slider',
   stimulus: 'cardType.stimulus', text: 'cardType.text', 'word-cloud': 'cardType.wordCloud',

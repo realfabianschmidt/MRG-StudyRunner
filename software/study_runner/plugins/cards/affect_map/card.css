@@ -1,0 +1,431 @@
+/* Affect Map: Field and Orbit only. */
+.am-ed-colors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+.am-ed-color { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.am-ed-color-input { width: 3rem; height: 2.25rem; cursor: pointer; }
+.am-ed-enable-label { display: inline-flex; align-items: center; gap: .5rem; }
+.mm-ed-quads {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
+}
+.mm-ed-quad-field {
+  margin-bottom: 0;
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+}
+.mm-ed-quad-label {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: .75rem;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  margin-bottom: var(--s-1);
+  display: block;
+}
+
+/* ============================================================
+   MOOD METER – shared by the four views
+   ============================================================ */
+.mm-card {
+  margin: var(--s-4) 0 var(--s-2);
+}
+.mm-card .mm-grid {
+  margin: 0;
+}
+
+/* The chosen words under the field and the orbit; a tap removes one. */
+.mm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  min-height: 36px;
+  margin-top: var(--s-3);
+}
+.mm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-3);
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--ink);
+  color: var(--bg-elevated);
+  font-family: var(--font-body);
+  font-size: .85rem;
+  cursor: pointer;
+  animation: mm-pop .32s var(--fluid) both;
+}
+
+@keyframes mm-pop {
+  from { transform: scale(.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+
+.mm-field {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 62vh;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: #15151c;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: crosshair;
+}
+.mm-field-clouds {
+  position: absolute;
+  inset: 0;
+  filter: blur(34px) saturate(1.15);
+}
+.mm-cloud {
+  position: absolute;
+  width: 72%;
+  height: 78%;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--mm-cloud) 0%, transparent 68%);
+  opacity: .95;
+  animation: mm-drift 18s ease-in-out infinite alternate;
+}
+.mm-cloud--red { left: -18%; top: -22%; }
+.mm-cloud--yellow { right: -18%; top: -22%; animation-duration: 21s; animation-delay: -6s; }
+.mm-cloud--green { right: -18%; bottom: -22%; animation-duration: 24s; animation-delay: -11s; }
+.mm-cloud--blue { left: -18%; bottom: -22%; animation-duration: 19s; animation-delay: -3s; }
+
+@keyframes mm-drift {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(5%, 4%) scale(1.08); }
+  100% { transform: translate(-4%, 6%) scale(.96); }
+}
+
+/* A faint cross marks neutral. */
+.mm-field-cross {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(rgba(255,255,255,.14), rgba(255,255,255,.14)) center / 1px 100% no-repeat,
+    linear-gradient(rgba(255,255,255,.14), rgba(255,255,255,.14)) center / 100% 1px no-repeat;
+  pointer-events: none;
+}
+.mm-field-axis {
+  position: absolute;
+  font-family: var(--font-heading);
+  font-size: .6rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.62);
+  pointer-events: none;
+}
+.mm-field-axis--energy {
+  top: var(--s-3);
+  left: 50%;
+  transform: translateX(-50%);
+}
+.mm-field-axis--energy::before { content: "\2191  "; }
+.mm-field-axis--pleasant {
+  right: var(--s-3);
+  top: calc(50% + var(--s-2));
+}
+.mm-field-axis--pleasant::after { content: "  \2192"; }
+.mm-field-hint {
+  position: absolute;
+  left: 50%;
+  bottom: var(--s-4);
+  margin: 0;
+  transform: translateX(-50%);
+  padding: var(--s-2) var(--s-4);
+  border-radius: var(--r-pill);
+  background: rgba(0,0,0,.28);
+  color: rgba(255,255,255,.85);
+  font-size: .8rem;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity .4s ease;
+}
+.mm-field--dragging .mm-field-hint,
+.mm-field:has(.mm-bloom-word) .mm-field-hint {
+  opacity: 0;
+}
+
+.mm-orb {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(0 0 22px var(--mm-orb-glow, rgba(255,255,255,.6)));
+}
+.mm-orb-shape {
+  fill: rgba(255,255,255,.75);
+  stroke: rgba(255,255,255,.85);
+  stroke-width: 2;
+}
+.mm-orb--idle {
+  animation: mm-orb-pulse 2.4s ease-in-out infinite;
+}
+@keyframes mm-orb-pulse {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+
+.mm-field-words {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.mm-bloom-word {
+  position: absolute;
+  padding: var(--s-2) var(--s-4);
+  border: 1.5px solid rgba(255,255,255,.4);
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--mm-word-color) 72%, #000);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: .9rem;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  transition: transform .45s cubic-bezier(.2, 1.4, .4, 1), opacity .25s ease,
+              background .15s ease, color .15s ease;
+}
+.mm-bloom-word.is-in {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+.mm-bloom-word.is-selected {
+  background: #fff;
+  border-color: #fff;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* ── Orbit ─────────────────────────────────────────────────── */
+.mm-orbit {
+  position: relative;
+  width: min(100%, 62vh);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  border-radius: 50%;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.mm-orbit::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--bg-elevated) 0 18%, var(--bg-sunken) 72%);
+}
+.mm-orbit-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--mm-ring);
+  -webkit-mask: radial-gradient(circle, transparent 0 60%, #000 61% 100%);
+  mask: radial-gradient(circle, transparent 0 60%, #000 61% 100%);
+  opacity: .22;
+}
+.mm-orbit-orbits span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border: 1px dashed var(--ink-14);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+.mm-orbit-orbits span:nth-child(1) { width: 44%; height: 44%; }
+.mm-orbit-orbits span:nth-child(2) { width: 70%; height: 70%; }
+.mm-orbit-orbits span:nth-child(3) { width: 96%; height: 96%; }
+.mm-orbit-quadrant {
+  position: absolute;
+  max-width: 28%;
+  font-family: var(--font-heading);
+  font-size: .55rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--ink-55);
+  pointer-events: none;
+}
+.mm-orbit-quadrant--red { left: 0; top: 0; }
+.mm-orbit-quadrant--yellow { right: 0; top: 0; text-align: right; }
+.mm-orbit-quadrant--green { right: 0; bottom: 0; text-align: right; }
+.mm-orbit-quadrant--blue { left: 0; bottom: 0; }
+
+.mm-orbit-words {
+  position: absolute;
+  inset: 0;
+}
+.mm-orbit-word {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  min-height: 14px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--mm-word-color);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: .78rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transform: translate(-50%, -50%) scale(.6);
+  transition: padding .2s ease, opacity .2s ease, box-shadow .2s ease;
+  will-change: transform;
+}
+.mm-orbit-label {
+  display: none;
+}
+.mm-orbit-word.is-near {
+  padding: 3px 10px;
+  z-index: 2;
+}
+.mm-orbit-word.is-near .mm-orbit-label {
+  display: inline;
+}
+/* Chosen words keep a white ring; their label shows when the finger is near
+   (they are listed as chips below the wheel anyway). */
+.mm-orbit-word.is-selected {
+  box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--mm-word-color);
+}
+.mm-orbit-word.is-selected.is-near {
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
+  box-shadow: 0 0 0 2px var(--mm-word-color), 0 4px 14px rgba(0,0,0,.18);
+}
+.mm-orbit--active .mm-orbit-word:not(.is-near):not(.is-selected) {
+  opacity: .45;
+}
+.mm-orbit-dot {
+  position: absolute;
+  left: calc(50% - 14px);
+  top: calc(50% - 14px);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,.95) 0 30%, rgba(255,255,255,0) 70%);
+  box-shadow: 0 0 24px 8px rgba(255,255,255,.55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s ease;
+}
+.mm-orbit--active .mm-orbit-dot {
+  opacity: 1;
+}
+.mm-orbit-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 34%;
+  margin: 0;
+  transform: translate(-50%, -50%);
+  color: var(--ink-55);
+  font-size: .75rem;
+  text-align: center;
+  pointer-events: none;
+  transition: opacity .3s ease;
+}
+.mm-orbit--active .mm-orbit-hint {
+  opacity: 0;
+}
+
+/* Calm pages for people who asked their device for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .mm-cloud,
+  .mm-orb--idle,
+  .mm-chip {
+    animation: none;
+  }
+  .mm-bloom-word {
+    transition: opacity .2s ease;
+  }
+}
+
+/* ============================================================
+   MOOD METER – EDITOR (view choice)
+   ============================================================ */
+.mm-ed-variant-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.mm-ed-variant-head > label {
+  margin: 0;
+}
+.mm-ed-variants {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+/* The tiles are <label>s inside a .field, so they undo its caption style. */
+.field label.mm-ed-variant {
+  display: flex;
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+}
+.mm-ed-variant {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-2);
+  border: 1.5px solid var(--ink-14);
+  border-radius: var(--r-md);
+  background: var(--bg-elevated);
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--fluid), transform var(--t-fast) var(--fluid);
+}
+.mm-ed-variant:hover {
+  transform: translateY(-1px);
+}
+.mm-ed-variant:has(.am-ed-variant:checked) {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+.am-ed-variant {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.mm-ed-variant:has(.am-ed-variant:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.mm-ed-variant-preview {
+  width: 100%;
+  height: auto;
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+}
+.mm-ed-variant-name {
+  display: block;
+  font-weight: 600;
+  font-size: .85rem;
+}
+.mm-ed-variant-desc {
+  display: block;
+  font-size: .72rem;
+  color: var(--ink-55);
+  line-height: 1.35;
+}
+.mm-ed-records {
+  margin-top: var(--s-2);
+}

@@ -5,6 +5,10 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Added
+
+- Affect Map card with independent Field/Orbit views, four configurable region colors, and an all-gray display mode; Mood Meter remains unchanged.
+
 ## 1.5.7 - 2026-09-29
 
 ### Added

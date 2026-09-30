@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 478,
+  "cross_package_import_edges": 487,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -68,8 +68,8 @@
       "path": ""
     },
     "plugins.cards": {
-      "lines": 209,
-      "path": "software/study_runner/plugins/cards/mood_meter/plugin.py"
+      "lines": 221,
+      "path": "software/study_runner/plugins/cards/affect_map/plugin.py"
     },
     "plugins.destinations": {
       "lines": 1135,
@@ -101,7 +101,7 @@
     "apps.server": 4661,
     "apps.ui": 0,
     "apps.ui.admin": 5699,
-    "apps.ui.cards": 3511,
+    "apps.ui.cards": 4316,
     "apps.ui.participant": 2778,
     "apps.ui.settings": 1884,
     "apps.ui.shared": 2948,
@@ -112,7 +112,7 @@
     "data_core.worker": 2406,
     "plugin_framework": 3299,
     "plugins": 0,
-    "plugins.cards": 1181,
+    "plugins.cards": 1408,
     "plugins.destinations": 1894,
     "plugins.outputs": 154,
     "plugins.sensors": 12011,
