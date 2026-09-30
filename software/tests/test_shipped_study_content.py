@@ -101,6 +101,7 @@ class ShippedStudyContentTests(unittest.TestCase):
                 self.assertEqual(validate_and_normalize_config(config), config)
                 self.assertEqual(build_package(preset.parent, config), preset.read_bytes())
                 settings = config["study_settings"]
+                self.assertTrue(settings["card_frame_enabled"])
                 self.assertIn("cover_page", settings)
                 self.assertGreater(settings["planned_session_duration_minutes"], 0)
                 self.assertEqual(set(settings["plugins"]), supported_plugins)

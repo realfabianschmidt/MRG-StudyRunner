@@ -244,6 +244,7 @@ export function createAdminStudyEditor(context) {
   
   function rebuildPreview() {
     const preview = $('study-preview');
+    preview.classList.toggle('study-card-frame--off', state.config.study_settings?.card_frame_enabled === false);
     // A fresh preview: stop the old cards' animations and forget what was
     // tried out in them.
     resetAllCardState();

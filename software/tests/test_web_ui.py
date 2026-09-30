@@ -609,6 +609,41 @@ class PluginUiContractTests(unittest.TestCase):
         self.assertIn("{ mode: 'preview' }", editor)
         self.assertIn(".preview-card-wrap.selected .q-card-study {\n  pointer-events: auto;", admin_css)
 
+    def test_participant_layout_and_open_card_surface_are_shared_with_preview(self) -> None:
+        study_html = _read(WEB / "pages" / "study.html")
+        study_css = _read(WEB / "styles" / "study.css")
+        main_css = _read(WEB / "styles" / "main.css")
+        admin_css = _read(WEB / "styles" / "admin.css")
+        participant = _read(WEB / "scripts" / "participant" / "study-controller.js")
+        navigation = _read(WEB / "scripts" / "participant" / "participant-result-submission.js")
+        editor = _read(WEB / "scripts" / "admin" / "admin-study-editor.js")
+        panel = _read(WEB / "scripts" / "settings" / "study" / "study-settings-panel.js")
+
+        self.assertIn("grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr)", study_css)
+        self.assertRegex(study_html, r'id="screen-questions"[^>]*>\s*<div id="q-container"></div>\s*</div>\s*<div class="q-nav" hidden>')
+        self.assertIn("bottom: 0;", study_css)
+        self.assertIn(".study-progress-bar {\n  position: fixed;\n  left: 0;\n  right: 0;\n  top: 0;", study_css)
+        self.assertIn("nav.hidden = false", navigation)
+        self.assertIn("body:not(:has(#screen-questions.active)) .q-nav", study_css)
+        # `hidden` must win over `display: grid`, or the finish card keeps its navigation.
+        self.assertIn(".q-nav[hidden] {\n  display: none;", study_css)
+        self.assertIn("nav.hidden = screenName !== 'questions'", participant)
+        self.assertIn("body:has(#screen-questions.active) .study-preview-banner", study_css)
+        self.assertIn("#study-toast {\n  position: fixed;", study_css)
+        self.assertIn(".study-card-frame--off .q-card-study", main_css)
+        self.assertIn("#study-preview.study-card-frame--off .preview-card-wrap.selected", admin_css)
+        self.assertIn("document.body.classList.toggle('study-card-frame--off'", participant)
+        self.assertIn("preview.classList.toggle('study-card-frame--off'", editor)
+        self.assertIn("'study-card-frame-enabled'", panel)
+
+    def test_mood_and_affect_views_have_responsive_visuals(self) -> None:
+        for card_name in ("mood_meter", "affect_map"):
+            with self.subTest(card=card_name):
+                css = _read(WEB.parents[1] / "plugins" / "cards" / card_name / "card.css")
+                self.assertIn("62dvh", css)
+                self.assertIn(".mm-field-hint", css)
+                self.assertIn("overflow-wrap: anywhere;", css)
+
     def test_finalization_view_accepts_unknown_steps_and_is_accessible(self) -> None:
         view = _read(WEB / "scripts" / "admin" / "session-progress-rail.js")
         monitor = _read(WEB / "scripts" / "admin" / "upload-monitor.js")

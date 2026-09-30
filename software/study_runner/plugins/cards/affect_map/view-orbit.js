@@ -77,10 +77,15 @@ export function bind(cardElement, i, ctx) {
   let active = false;
   let down = null;
   let quadrant = null;
+  let measuredDiameter = 0;
 
   const draw = (time) => {
     const size = wheel.clientWidth / 2;
     if (!size) return;
+    if (measuredDiameter !== size * 2) {
+      measuredDiameter = size * 2;
+      words.forEach((word) => { word.nearSize = null; });
+    }
     const selected = ctx.state(i).selected;
     const focusX = focus.value.x * size;
     const focusY = focus.value.y * size;
@@ -116,9 +121,19 @@ export function bind(cardElement, i, ctx) {
       const isSelected = selected.has(word.element.dataset.word);
       const closeness = Number.isFinite(distance) ? Math.max(0, 1 - distance / (lens * 1.6)) : 0;
       const scale = near ? 1 : (isSelected ? 1 : 0.6 + 0.35 * closeness);
-      word.element.style.transform = `translate(calc(${x.toFixed(1)}px - 50%), calc(${y.toFixed(1)}px - 50%)) scale(${scale.toFixed(3)})`;
       word.element.classList.toggle('is-near', near);
       word.element.classList.toggle('is-selected', isSelected);
+      if (word.wasSelected !== isSelected) word.nearSize = null;
+      word.wasSelected = isSelected;
+      if (near && !word.nearSize) {
+        word.nearSize = { width: word.element.offsetWidth / 2, height: word.element.offsetHeight / 2 };
+      }
+      const halfWidth = near ? word.nearSize.width : 7;
+      const halfHeight = near ? word.nearSize.height : 7;
+      // Clamp only the displayed label; recorded pointer coordinates stay untouched.
+      const visibleX = Math.max(-size + halfWidth, Math.min(size - halfWidth, x));
+      const visibleY = Math.max(-size + halfHeight, Math.min(size - halfHeight, y));
+      word.element.style.transform = `translate(calc(${visibleX.toFixed(1)}px - 50%), calc(${visibleY.toFixed(1)}px - 50%)) scale(${scale.toFixed(3)})`;
     }
   };
 
@@ -187,4 +202,3 @@ export function refresh(i) {
   // The next frame redraws selection state; make sure one comes.
   document.getElementById(`mm-orbit-${i}`)?._cardAnimation?.wake();
 }
-

@@ -161,6 +161,7 @@ function fillFields() {
   renderSensorPlugins(settings);
   renderDestinationPlugins(settings);
   set('study-progress-bar-enabled', settings.progress_bar_enabled);
+  set('study-card-frame-enabled', settings.card_frame_enabled);
   const participantLanguage = byId('study-participant-language');
   if (participantLanguage) participantLanguage.value = settings.participant_language;
   fillCoverPage(settings.cover_page);
@@ -621,6 +622,7 @@ async function saveFromPanel() {
     sensors,
     plugins,
     progress_bar_enabled: Boolean(byId('study-progress-bar-enabled')?.checked),
+    card_frame_enabled: Boolean(byId('study-card-frame-enabled')?.checked),
     participant_language: byId('study-participant-language')?.value || 'en',
     planned_session_duration_minutes: plannedDuration,
     cover_page: collectCoverPage(),

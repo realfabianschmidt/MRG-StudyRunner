@@ -69,7 +69,8 @@
   position: relative;
   width: 100%;
   aspect-ratio: 4 / 3;
-  max-height: 62vh;
+  min-height: 280px;
+  max-height: 62dvh;
   overflow: hidden;
   border-radius: var(--r-lg);
   background: #15151c;
@@ -143,7 +144,9 @@
   background: rgba(0,0,0,.28);
   color: rgba(255,255,255,.85);
   font-size: .8rem;
-  white-space: nowrap;
+  max-width: calc(100% - var(--s-6));
+  white-space: normal;
+  text-align: center;
   pointer-events: none;
   transition: opacity .4s ease;
 }
@@ -187,7 +190,10 @@
   color: #fff;
   font-family: var(--font-body);
   font-size: .9rem;
-  white-space: nowrap;
+  max-width: calc(100% - var(--s-2));
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-align: center;
   cursor: pointer;
   pointer-events: auto;
   transform: translate(-50%, -50%) scale(0);
@@ -209,7 +215,7 @@
 /* ── Orbit ─────────────────────────────────────────────────── */
 .mm-orbit {
   position: relative;
-  width: min(100%, 62vh);
+  width: min(100%, max(280px, 62dvh));
   aspect-ratio: 1;
   margin: 0 auto;
   border-radius: 50%;
@@ -279,7 +285,10 @@
   color: #fff;
   font-family: var(--font-body);
   font-size: .78rem;
-  white-space: nowrap;
+  max-width: 44%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-align: center;
   cursor: pointer;
   transform: translate(-50%, -50%) scale(.6);
   transition: padding .2s ease, opacity .2s ease, box-shadow .2s ease;
@@ -329,7 +338,7 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 34%;
+  width: 46%;
   margin: 0;
   transform: translate(-50%, -50%);
   color: var(--ink-55);

@@ -29,6 +29,7 @@ export function defaultStudySettings() {
     sensors: defaultStudySensors(true),
     plugins: defaultStudyPlugins(true),
     progress_bar_enabled: false,
+    card_frame_enabled: true,
     participant_language: 'en',
     planned_session_duration_minutes: null,
     cover_page: normalizeCoverPage(null),
@@ -103,6 +104,7 @@ export function normalizeStudySettings(settings) {
     sensors: sensors,
     plugins: plugins,
     progress_bar_enabled: Boolean(source.progress_bar_enabled),
+    card_frame_enabled: source.card_frame_enabled === undefined ? true : Boolean(source.card_frame_enabled),
     participant_language: ['en', 'de'].includes(source.participant_language) ? source.participant_language : 'en',
     planned_session_duration_minutes: normalizePlannedSessionDurationMinutes(
       source.planned_session_duration_minutes,

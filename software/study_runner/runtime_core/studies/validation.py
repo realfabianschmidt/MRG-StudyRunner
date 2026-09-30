@@ -737,6 +737,7 @@ def _validate_study_settings(value: Any) -> dict[str, Any]:
         ),
         "plugins": plugins,
         "progress_bar_enabled": normalize_boolean(migrated.get("progress_bar_enabled", False)),
+        "card_frame_enabled": normalize_boolean(migrated.get("card_frame_enabled", True)),
         "participant_language": participant_language,
         "cover_page": _validate_cover_page(migrated.get("cover_page")),
         "planned_session_duration_minutes": _optional_positive_minutes(

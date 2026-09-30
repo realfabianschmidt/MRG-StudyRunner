@@ -133,23 +133,81 @@
 @keyframes enterRight { from { opacity:0; transform:translateX(36px); } to { opacity:1; transform:translateX(0); } }
 @keyframes enterLeft  { from { opacity:0; transform:translateX(-36px); } to { opacity:1; transform:translateX(0); } }
 
+/* Reserve the fixed controls below every question, including long cards.
+   The body can grow and scroll when a phone is short or the text is lengthy. */
+body:has(#screen-questions.active) {
+  --study-nav-height: calc(var(--control-lg) + var(--s-6) + env(safe-area-inset-bottom, 0px));
+  min-height: 100dvh;
+  padding-bottom: calc(var(--study-nav-height) + var(--s-5));
+}
+body:has(#screen-questions.active):has(.study-preview-banner) {
+  padding-bottom: calc(var(--study-nav-height) + var(--s-16));
+}
+body:has(#screen-questions.active) .study-preview-banner {
+  bottom: calc(var(--study-nav-height) + var(--s-3));
+}
+body:has(#screen-cover.active):has(.study-preview-banner) {
+  padding-bottom: var(--s-16);
+}
+/* Participant notices must not become flex items that shrink the question
+   screen, nor sit on top of its bottom controls. */
+#study-toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s-6);
+  z-index: 90;
+  max-width: min(520px, calc(100vw - var(--s-6)));
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-sm);
+  background: var(--ink);
+  color: #fff;
+  font-size: .875rem;
+  transform: translateX(-50%);
+  text-align: center;
+}
+#study-toast:not(.show) { display: none; }
+#study-toast.toast--error { background: var(--neg); }
+#study-toast.toast--warning { background: var(--warn); }
+body:has(#screen-questions.active) #study-toast {
+  bottom: calc(var(--study-nav-height) + var(--s-5));
+}
+body:has(#screen-questions.active):has(.study-preview-banner) #study-toast {
+  bottom: calc(var(--study-nav-height) + var(--s-18));
+}
+
 /* Questions screen: transparent shell, the cards float inside */
 #screen-questions {
   background: transparent;
   border: none;
   box-shadow: none;
   padding: var(--s-5) 0 var(--s-6);
-  width: min(80vw, 1000px);
+  width: min(100%, 1000px);
   max-width: none;
 }
 
-/* -- Q-NAV: navigation bar below the active question card -- */
+/* -- Q-NAV: viewport-bottom dock, with a mathematically centered counter -- */
 .q-nav {
-  display: flex;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: var(--s-4);
-  padding-top: var(--s-5);
+  padding: var(--s-3) max(var(--s-4), env(safe-area-inset-right, 0px))
+    calc(var(--s-3) + env(safe-area-inset-bottom, 0px))
+    max(var(--s-4), env(safe-area-inset-left, 0px));
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--ink-08);
+}
+body:not(:has(#screen-questions.active)) .q-nav,
+.q-nav[hidden] {
+  display: none;
+}
+.q-nav-btn--next {
+  justify-self: end;
 }
 
 /* Counter "01 / 07" - FI data-label style: mono, muted, wide tracking */
@@ -159,7 +217,6 @@
   letter-spacing: 0;
   text-transform: uppercase;
   color: var(--ink-30);
-  flex: 1;
   display: inline-flex;
   align-items: baseline;
   justify-content: center;
@@ -183,7 +240,7 @@
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: 0;
   z-index: 80;
   height: 5px;
   max-height: 5px;
@@ -245,6 +302,11 @@
 .q-nav-btn:disabled {
   opacity: .3;
   cursor: not-allowed;
+}
+@media (max-width: 380px) {
+  .q-nav { gap: var(--s-2); }
+  .q-nav-btn--next { padding-inline: var(--s-3); }
+  .q-counter { gap: var(--s-1); }
 }
 
 /* Cover page: wider than a question card so text and image can sit side by

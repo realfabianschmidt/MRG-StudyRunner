@@ -70,6 +70,7 @@ class StudySettingsContractTests(unittest.TestCase):
                 "sensors",
                 "plugins",
                 "progress_bar_enabled",
+                "card_frame_enabled",
                 "participant_language",
                 # Package 5b (docs/archive/architecture-1.0-umbau.md): preflight's
                 # capacity check needs this; no dedicated settings-panel UI
@@ -116,6 +117,11 @@ class StudySettingsContractTests(unittest.TestCase):
 
 
 class StudySettingsRoundTripTests(unittest.TestCase):
+    def test_card_frame_defaults_on_and_accepts_open_surface(self) -> None:
+        self.assertTrue(_validate_study_settings({})["card_frame_enabled"])
+        self.assertTrue(_validate_study_settings({"card_frame_enabled": True})["card_frame_enabled"])
+        self.assertFalse(_validate_study_settings({"card_frame_enabled": False})["card_frame_enabled"])
+
     def test_participant_language_defaults_and_validates(self) -> None:
         self.assertEqual(_validate_study_settings({})["participant_language"], "en")
         self.assertEqual(_validate_study_settings({"participant_language": "de"})["participant_language"], "de")

@@ -132,6 +132,7 @@ body.admin::before { display: none; }
   height: 24px;
   display: flex;
   align-items: center;
+  margin-bottom: 0;
 }
 .app-header-logo .hub-brand img {
   height: 100%;
@@ -918,6 +919,15 @@ body.admin::before { display: none; }
 .preview-card-wrap.selected .q-card-study {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-16);
+}
+#study-preview.study-card-frame--off .preview-card-wrap.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--r-lg);
+}
+#study-preview.study-card-frame--off .preview-card-wrap.selected .q-card-study {
+  border-color: transparent;
+  box-shadow: none;
 }
 .preview-card-overlay {
   position: absolute;

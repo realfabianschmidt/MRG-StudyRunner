@@ -140,7 +140,6 @@ async function init() {
     console.error('[study] Could not load configuration:', error);
     showStudyNotice(`${t('study.loadFailed', 'The study could not be loaded. Please tell the study supervisor.')} ${error.message}`);
   }
-
 }
 
 async function loadStudyConfig() {
@@ -156,6 +155,7 @@ async function loadStudyConfig() {
   document.body.classList.remove('i18n-loading');
   await loadCards({ types: [...new Set((config.questions || []).map(q => q.type))] });
   state.config = config;
+  document.body.classList.toggle('study-card-frame--off', config.study_settings?.card_frame_enabled === false);
   state.studyRunState = state.config._runtime?.study_run_state || null;
   state.sensorRuntime = state.config._runtime?.sensor_runtime || {};
   // Participant extensions are optional. Their asset loading/initialization may
@@ -672,6 +672,11 @@ function showScreen(screenName) {
   targetScreen.style.animation = '';
   targetScreen.classList.add('active');
   setWaitingSlideChrome(screenName === 'waiting');
+  // The navigation sits outside the question screen (a transformed card would
+  // pin a fixed bar to itself), so it is shown with that screen only; each
+  // question then decides for itself (the finish card hides it).
+  const nav = document.querySelector('.q-nav');
+  if (nav) nav.hidden = screenName !== 'questions';
 }
 
 /**

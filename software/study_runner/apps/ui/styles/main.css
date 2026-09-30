@@ -443,6 +443,15 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
   border-radius: var(--r-lg);
   padding: var(--s-7) var(--s-7) var(--s-6);
 }
+.study-card-frame--off .q-card-study {
+  background: transparent;
+  border-color: transparent;
+}
+@media (max-width: 620px) {
+  .q-card-study {
+    padding: var(--s-5) var(--s-4);
+  }
+}
 
 /* ============================================================
    SHARED FIELDS (used inside cards in both study & admin)

@@ -34,6 +34,8 @@ def study_settings(*, duration: int, cover_title: str, cover_text: str, progress
         "sensors": {key: False for key in SENSOR_KEYS},
         "plugins": plugin_settings(),
         "progress_bar_enabled": progress,
+        "card_frame_enabled": True,
+        "participant_language": "en",
         "planned_session_duration_minutes": duration,
         "cover_page": {
             "enabled": True,
@@ -128,6 +130,7 @@ def card_gallery_study() -> dict:
             {"type": "ranking", "prompt": "Order these activities by preference.", "options": ["Reading", "Walking", "Listening to music"], "required": True},
             {"type": "word-cloud", "prompt": "Which words describe your current mood?", "words": ["Calm", "Curious", "Focused", "Tired"], "allow_multiple": True, "required": True},
             {"type": "mood-meter", "prompt": "Where are you on the Mood Meter?", "variant": "field", "required": True},
+            {"type": "affect-map", "prompt": "Place yourself on the affect field and choose a nearby word.", "variant": "field", "required": True},
             {"type": "stimulus", "title": "Timed pause", "trigger_type": "timer", "warmup_duration_ms": 3000, "duration_ms": 10000, "plugin_actions": {"brainbit": {"to_touchdesigner": False}, "osc": {"forward_marker": False}}},
             finish,
         ],

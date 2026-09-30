@@ -5,6 +5,10 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Changed
+
+- Participant navigation is anchored to the screen bottom and the optional progress bar to the top; study-specific card frames can be switched off. Mood Meter and Affect Map layouts adapt to narrow and short screens. Header logos are vertically centered.
+
 ## 1.5.8 - 2026-09-30
 
 ### Added

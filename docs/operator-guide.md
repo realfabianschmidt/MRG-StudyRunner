@@ -61,6 +61,10 @@ saved in the study package; an older study defaults to English. The admin's
 language switch affects only the admin page. Question prompts, answer options,
 cover text, and custom Mood Meter words stay exactly as the study author wrote
 them. Write those in the language intended for participants.
+The same settings can show the progress bar at the top and choose whether
+question cards have a framed surface or sit directly on the study background.
+Navigation stays at the bottom of the participant screen in both a run and
+the non-recording preview; older studies keep framed cards by default.
 
 1. Start the Python server and open `/admin`.
 2. Load or edit the study. The loaded study decides which sensors run: the

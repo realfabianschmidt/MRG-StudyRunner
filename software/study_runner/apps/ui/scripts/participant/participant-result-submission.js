@@ -358,12 +358,12 @@ export function createParticipantResultSubmission(context) {
   
     const nav = document.querySelector('.q-nav');
     if (currentQuestion && currentQuestion.type === 'finish') {
-      if (nav) nav.style.display = 'none';
+      if (nav) nav.hidden = true;
       renderCounter(totalNormal, totalNormal);
       updateProgressBar(totalNormal, totalNormal);
       return;
     } else {
-      if (nav) nav.style.display = 'flex';
+      if (nav) nav.hidden = false;
     }
   
     const isFirst = currentIndex === 0;

@@ -78,6 +78,9 @@ assert.deepEqual(normalized.plugins.future_sensor, {
 });
 
 const catalogDefault = normalizeStudySettings({});
+assert.equal(catalogDefault.card_frame_enabled, true);
+assert.equal(normalizeStudySettings({ card_frame_enabled: false }).card_frame_enabled, false);
+assert.equal(normalizeStudySettings({ card_frame_enabled: true }).card_frame_enabled, true);
 assert.equal(catalogDefault.participant_language, 'en');
 assert.equal(normalizeStudySettings({ participant_language: 'de' }).participant_language, 'de');
 assert.equal(normalizeStudySettings({ participant_language: 'fr' }).participant_language, 'en');
