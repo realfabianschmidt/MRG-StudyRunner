@@ -55,6 +55,20 @@ test('the editor updates both previews when a region color or mode changes', () 
   assert.ok(!svg.innerHTML.includes('#123456'));
 });
 
+test('each region has one row with its name and color; names replace the default directions', () => {
+  const html = affect.renderEditor({ ...defaults, region_labels: { red: 'Tension' } });
+  assert.equal((html.match(/class="am-ed-region-row"/g) || []).length, 4);
+  assert.equal((html.match(/class="am-ed-region-name"/g) || []).length, 4);
+  assert.match(html, /value="Tension"/);
+  const collected = affect.collectConfig({
+    querySelector: () => null,
+    querySelectorAll: (selector) => (selector === '.am-ed-region-name'
+      ? [{ dataset: { region: 'red' }, value: ' Tension ' }, { dataset: { region: 'blue' }, value: '' }]
+      : []),
+  });
+  assert.deepEqual(collected.region_labels, { red: 'Tension', blue: '' });
+});
+
 test('Affect Map and Mood Meter keep answers in separate session stores', () => {
   const own = cardState('affect-map', 4, () => ({ selected: new Set(), position: null, question: null }));
   own.question = defaults;

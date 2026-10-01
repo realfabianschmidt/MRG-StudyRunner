@@ -41,8 +41,9 @@ setting.
 - **Backup:** the standard 1 Hz backup projection (presence, movement energy,
   person distance, heart and breathing rate) is a derived file for quality
   checks and as a fallback -- never a measurement.
-- **Card statistics** average the recorded frames of each card, zeros
-  included.
+- **Card statistics** average the recorded frames of each card. A heart or
+  breathing rate or a person distance of exactly 0 (the ESP's "no value") is
+  left out of the average and counted in `zero_frames`; the XDF keeps it.
 
 ## Timing
 

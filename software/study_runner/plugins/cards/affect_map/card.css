@@ -1,7 +1,14 @@
 /* Affect Map: Field and Orbit only. */
+/* One identical row per region: name field and color swatch, same height. */
 .am-ed-colors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
-.am-ed-color { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
-.am-ed-color-input { width: 3rem; height: 2.25rem; cursor: pointer; }
+.am-ed-region { margin: 0; }
+.am-ed-region-row { display: flex; align-items: stretch; gap: .5rem; }
+.am-ed-region-row .am-ed-region-name { flex: 1 1 auto; min-width: 0; }
+.field .am-ed-color-input {
+  flex: 0 0 2.5rem; width: 2.5rem; min-height: 2.5rem; padding: .25rem;
+  cursor: pointer; border-radius: var(--r-md);
+}
+@media (max-width: 620px) { .am-ed-colors { grid-template-columns: 1fr; } }
 .am-ed-enable-label { display: inline-flex; align-items: center; gap: .5rem; }
 .mm-ed-quads {
   display: grid;
@@ -133,6 +140,22 @@
   top: calc(50% + var(--s-2));
 }
 .mm-field-axis--pleasant::after { content: "  \2192"; }
+/* Author-named regions sit in their own corner (red = high energy, unpleasant). */
+.mm-field-region {
+  position: absolute;
+  max-width: 42%;
+  font-family: var(--font-heading);
+  font-size: .62rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+  color: rgba(255,255,255,.72);
+  pointer-events: none;
+}
+.mm-field-region--red { top: var(--s-3); left: var(--s-3); }
+.mm-field-region--yellow { top: var(--s-3); right: var(--s-3); text-align: right; }
+.mm-field-region--green { bottom: var(--s-3); right: var(--s-3); text-align: right; }
+.mm-field-region--blue { bottom: var(--s-3); left: var(--s-3); }
 .mm-field-hint {
   position: absolute;
   left: 50%;

@@ -30,6 +30,14 @@ class AffectMapTests(unittest.TestCase):
         answer = {"words": ["Calm"], "pleasantness": .7, "energy": .3}
         self.assertEqual(plugin.validate_card_answer("affect-map", normalized, answer, 1), answer)
 
+    def test_region_names_are_trimmed_bounded_and_default_to_empty(self):
+        normalized = question(region_labels={"red": "  Tension ", "green": "x" * 60, "extra": "ignored"})
+        self.assertEqual(normalized["region_labels"]["red"], "Tension")
+        self.assertEqual(len(normalized["region_labels"]["green"]), plugin.REGION_LABEL_MAX)
+        self.assertEqual(normalized["region_labels"]["blue"], "")
+        self.assertEqual(set(normalized["region_labels"]), set(plugin.DEFAULT_COLORS))
+        self.assertEqual(question()["region_labels"], {key: "" for key in plugin.DEFAULT_COLORS})
+
     def test_orbit_adds_intensity_and_requires_it(self):
         orbit = question(variant="orbit")
         answer = {"words": ["Calm"], "pleasantness": .7, "energy": .3, "intensity": .5}

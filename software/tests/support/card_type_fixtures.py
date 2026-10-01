@@ -240,6 +240,7 @@ CARD_TYPE_FIXTURES: dict[str, dict[str, Any]] = {
             "required": True, "variant": "field", "allow_multiple": True,
             "word_lists": None, "colors_enabled": True,
             "region_colors": {"red": "#B4402E", "yellow": "#BD7A1E", "green": "#2F7A4D", "blue": "#2A6FA0"},
+            "region_labels": {"red": "", "yellow": "", "green": "", "blue": ""},
         },
         "answer": {"words": ["Calm"], "pleasantness": 0.75, "energy": 0.25},
         "expected_answer": {"words": ["Calm"], "pleasantness": 0.75, "energy": 0.25},

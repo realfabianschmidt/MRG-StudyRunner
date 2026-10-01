@@ -48,8 +48,10 @@ export function render(_q, i, ctx) {
         <span class="mm-orbit-label">${escapeHtml(entry.word)}</span>
       </button>`;
   }).join('');
+  // The author's region names replace the default direction names.
+  const names = ctx?.regionLabels?.(i) || {};
   const quadrantLabels = localizedQuadrants(t).map((quadrant) => (
-    `<span class="mm-orbit-quadrant mm-orbit-quadrant--${quadrant.id}">${escapeHtml(quadrant.label)}</span>`
+    `<span class="mm-orbit-quadrant mm-orbit-quadrant--${quadrant.id}">${escapeHtml(names[quadrant.id] || quadrant.label)}</span>`
   )).join('');
   return `
     <div class="mm-orbit" id="mm-orbit-${i}" data-card-index="${i}">

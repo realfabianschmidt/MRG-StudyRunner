@@ -248,6 +248,16 @@ def test_card_summaries_average_the_recorded_frames():
     assert len(adapter.export_interval_samples(99.0, 102.0)) == 3
 
 
+def test_card_averages_skip_the_esp_zero_for_no_value_but_count_it():
+    outlets = active()
+    with mock.patch.object(adapter.time, "time", return_value=100.0):
+        for seq, bpm in enumerate((72, 0, 0, 74), start=1):
+            adapter._handle_sse_event(frame("bio", seq, {"/sensor/heartBpm": bpm}))
+    summary = adapter.get_interval_summary(99.0, 101.0)
+    assert summary["avg_heart_rate"] == 73 and summary["zero_frames"]["heartBpm"] == 2
+    assert [row("bio", r)["heartBpm"] for r in outlets["bio"].samples] == [72, 0, 0, 74]  # XDF keeps the zeros
+
+
 # --------------------------------------------------------------- connection
 
 def test_a_hub_without_v2_is_reported_without_trying_anything_else():

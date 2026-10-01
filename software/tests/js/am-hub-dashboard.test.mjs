@@ -113,19 +113,19 @@ test('a hub with WiFi power saving on gets a warning with the fix', () => {
   assert.doesNotMatch(off, /WiFi power saving/);
 });
 
-test('off mode hides old graph, value and age data', () => {
+test('off: the graphs stay in place, empty, like BrainBit - no old value, age or off notice', () => {
   const html = renderDashboard({ plugin: { enabled: false, running: false, status: 'stopped',
     latest: { heartBpm: 72 }, preview: { movement: [point(1, { presMoveEnergy: 10 })] },
     seconds_since_last_activity: 99 } }, ui);
-  assert.match(html, /AM Hub is off/);
-  assert.doesNotMatch(html, /72|Movement &amp; presence energy|99 s|<svg/);
+  assert.match(html, /Movement &amp; presence energy/);
+  assert.match(html, /<svg/);
+  assert.doesNotMatch(html, /AM Hub is off|>72<| 72 |99 s/);
 });
 
-test('unsupported v1 hub gets a clear localizable error, not stale values', () => {
+test('an unsupported hub keeps the empty graphs; the reason is shown by the connection panel', () => {
   const html = renderDashboard({ plugin: { enabled: true, running: false, status: 'failed',
     last_message: 'AM Hub API v2 is required; this hub only offers an older stream.',
-    api_unsupported: true,
-    latest: { heartBpm: 72 } } }, ui);
-  assert.match(html, /API v2 is required/);
-  assert.doesNotMatch(html, /72|<svg/);
+    api_unsupported: true, latest: { heartBpm: 72 } } }, ui);
+  assert.match(html, /<svg/);
+  assert.doesNotMatch(html, /API v2 is required|>72</);
 });

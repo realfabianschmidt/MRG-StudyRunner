@@ -52,7 +52,7 @@
       "path": "software/study_runner/data_core/contract/worker_protocol.py"
     },
     "data_core.host": {
-      "lines": 1332,
+      "lines": 1336,
       "path": "software/study_runner/data_core/host/recording_runtime.py"
     },
     "data_core.worker": {
@@ -68,7 +68,7 @@
       "path": ""
     },
     "plugins.cards": {
-      "lines": 221,
+      "lines": 233,
       "path": "software/study_runner/plugins/cards/affect_map/plugin.py"
     },
     "plugins.destinations": {
@@ -101,21 +101,21 @@
     "apps.server": 4661,
     "apps.ui": 0,
     "apps.ui.admin": 5700,
-    "apps.ui.cards": 4345,
+    "apps.ui.cards": 4374,
     "apps.ui.participant": 2778,
     "apps.ui.settings": 1886,
     "apps.ui.shared": 2950,
     "contracts": 2769,
     "data_core": 16,
     "data_core.contract": 1184,
-    "data_core.host": 6651,
+    "data_core.host": 6655,
     "data_core.worker": 2406,
     "plugin_framework": 3299,
     "plugins": 0,
-    "plugins.cards": 1408,
+    "plugins.cards": 1420,
     "plugins.destinations": 1894,
     "plugins.outputs": 154,
-    "plugins.sensors": 11772,
+    "plugins.sensors": 11784,
     "runtime_core": 14850,
     "shared": 448,
     "updates": 696

@@ -125,7 +125,13 @@ DEFAULTS = {'affect-map': {'type': 'affect-map',
                                         'Desolate',
                                         'Spent',
                                          'Drained']}}}
-DEFAULTS["affect-map"].update(colors_enabled=True, region_colors=DEFAULT_COLORS.copy())
+DEFAULTS["affect-map"].update(
+    colors_enabled=True,
+    region_colors=DEFAULT_COLORS.copy(),
+    # Empty = the default direction captions; a name replaces them in both views.
+    region_labels={key: "" for key in DEFAULT_COLORS},
+)
+REGION_LABEL_MAX = 40
 
 
 def _normalize_affect_map_question(question_data: dict[str, Any], question_index: int) -> dict[str, Any]:
@@ -148,7 +154,13 @@ def _normalize_affect_map_question(question_data: dict[str, Any], question_index
         "word_lists": word_lists,
         "colors_enabled": normalize_boolean(question_data.get("colors_enabled", True)),
         "region_colors": colors,
+        "region_labels": _region_labels(question_data.get("region_labels")),
     }
+
+
+def _region_labels(value: Any) -> dict[str, str]:
+    given = value if isinstance(value, dict) else {}
+    return {key: normalize_text(given.get(key))[:REGION_LABEL_MAX] for key in DEFAULT_COLORS}
 
 
 def _validate_words(*, question: dict[str, Any], words: Any, question_number: int) -> list[str]:

@@ -86,22 +86,23 @@ export function renderTrend(kind, plugin, ui, now = Date.now() / 1000) {
   return ui.graphSection({ title, svg, legend, info });
 }
 
-export function renderDashboard({ plugin: amHub }, ui) {
-  if (!amHub.enabled || !amHub.running) {
-    const message = amHub.status === 'failed'
-      ? (amHub.api_unsupported
-        ? ui.t('amHub.monitor.v2Required', 'AM Hub API v2 is required; this hub only offers an older stream.')
-        : amHub.last_message)
-      : ui.t('amHub.monitor.off', 'AM Hub is off. Live measurements are hidden.');
-    return `<p class="status-muted" role="status">${ui.escapeHtml(message)}</p>`;
-  }
+/**
+ * Like BrainBit: connection state and the switch come from the shared
+ * connection panel. The graphs stay in place when the plugin is off or no
+ * frame arrives - they are simply empty then.
+ */
+export function renderDashboard({ plugin }, ui) {
+  const live = Boolean(plugin.enabled && plugin.running);
+  // Off: the same empty graphs, never an old value or age.
+  const amHub = live ? plugin : { ...plugin, latest: {}, preview: {}, topics: {}, hub_boards: {}, link: {},
+    data_quality: {}, last_activity_at: null, seconds_since_last_activity: null };
   const latest = amHub.latest || {};
 
   // Status and the switch are drawn by the shared connection panel.
   return `
-    <p class="status-muted" role="status">${renderPerson(amHub, ui)}</p>
+    ${live ? `<p class="status-muted" role="status">${renderPerson(amHub, ui)}</p>` : ''}
     ${renderHostWarning(amHub, ui)}
-    ${renderBoardLine(amHub, ui)}
+    ${live ? renderBoardLine(amHub, ui) : ''}
     ${renderVitalTiles(amHub, ui)}
     ${renderTrend('movement', amHub, ui)}
     ${renderTrend('vitals', amHub, ui)}

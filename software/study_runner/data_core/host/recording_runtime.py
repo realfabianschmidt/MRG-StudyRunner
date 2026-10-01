@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 from study_runner.plugin_framework.registry import get_backup_projection_specs
 from study_runner.data_core.contract.lsl_dependency import lsl_version_info, require_pylsl
+from study_runner.version import __version__
 
 from study_runner.data_core.host.artifacts import ArtifactPaths, ArtifactStore, SessionIdentity
 from study_runner.data_core.contract.backup_projection import BackupSampler, projections_from_manifest
@@ -518,6 +519,9 @@ class RecordingRuntimeService:
                 "participant_id": identity.participant_id,
                 "status": "starting",
                 "started_at_epoch": self._clock(),
+                # Provenance for the methods section: which software recorded
+                # this session (plugin versions are in recording_contract).
+                "study_runner_version": __version__,
                 "recording_plugins": selected,
                 "required_source_keys": required,
                 "recording_contract": recording_contract,

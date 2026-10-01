@@ -601,7 +601,7 @@ function renderManifestActionInstances(action, manifest, pluginStatus) {
       return `<option value="${escapeHtml(JSON.stringify(payload))}">${escapeHtml(label)}</option>`;
     });
     return [`<div data-plugin-action-select><label for="${escapeHtml(id)}">${escapeHtml(t('dashboard.selectDevice', 'Select device'))}</label>
-      <select id="${escapeHtml(id)}" data-action-key="${escapeHtml(action.key)}"><option value="">${escapeHtml(t('dashboard.chooseDevice', 'Choose a device'))}</option>${options.join('')}</select>
+      <select class="dashboard-select" id="${escapeHtml(id)}" data-action-key="${escapeHtml(action.key)}"><option value="">${escapeHtml(t('dashboard.chooseDevice', 'Choose a device'))}</option>${options.join('')}</select>
       ${renderManifestActionButton(action, manifest, {}, '')}</div>`];
   }
   return instances

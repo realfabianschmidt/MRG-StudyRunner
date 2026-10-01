@@ -27,6 +27,16 @@ const ORB_RADIUS = 42;
 const BLOOM_COUNT = 8;
 const BLOOM_RADIUS = 112;
 
+/** The author's region names in the four corners, or the default direction captions. */
+function regionCaptions(labels) {
+  if (!labels) {
+    return `<span class="mm-field-axis mm-field-axis--energy">${escapeHtml(t('cards.moodMeter.axisEnergy', 'more energy'))}</span>
+      <span class="mm-field-axis mm-field-axis--pleasant">${escapeHtml(t('cards.moodMeter.axisPleasant', 'more pleasant'))}</span>`;
+  }
+  return Object.entries(labels).filter(([, label]) => label).map(([id, label]) =>
+    `<span class="mm-field-region mm-field-region--${id}">${escapeHtml(label)}</span>`).join('');
+}
+
 export function render(_q, i, ctx) {
   const clouds = (ctx?.quads?.(i) || QUADRANTS).map((quadrant) => (
     `<span class="mm-cloud mm-cloud--${quadrant.id}" style="--mm-cloud:${quadrant.color};"></span>`
@@ -35,8 +45,7 @@ export function render(_q, i, ctx) {
     <div class="mm-field" id="mm-field-${i}" data-card-index="${i}">
       <div class="mm-field-clouds" aria-hidden="true">${clouds}</div>
       <div class="mm-field-cross" aria-hidden="true"></div>
-      <span class="mm-field-axis mm-field-axis--energy">${escapeHtml(t('cards.moodMeter.axisEnergy', 'more energy'))}</span>
-      <span class="mm-field-axis mm-field-axis--pleasant">${escapeHtml(t('cards.moodMeter.axisPleasant', 'more pleasant'))}</span>
+      ${regionCaptions(ctx?.regionLabels?.(i))}
       <p class="mm-field-hint">${escapeHtml(t('cards.moodMeter.fieldHint', 'Drag the light to where you are right now'))}</p>
       <svg class="mm-orb mm-orb--idle" width="${ORB_BOX}" height="${ORB_BOX}" viewBox="0 0 ${ORB_BOX} ${ORB_BOX}" aria-hidden="true" focusable="false">
         <path class="mm-orb-shape" d="${blobPath(ORB_BOX / 2, ORB_BOX / 2, ORB_RADIUS, shapeAt(0.5, 0.5))}"></path>

@@ -55,6 +55,9 @@ SUMMARY_CHANNELS = {
     "avg_breath_rate": ("bio", "breathRate"),
 }
 
+# The ESP's "no value" for these is 0; card averages skip it (XDF keeps it).
+ZERO_MEANS_NO_VALUE = ("heartBpm", "breathRate", "personDist")
+
 # The connection: v2 sends a status event 10x per second, so a stream silent
 # for READ_TIMEOUT_SECONDS is dead and is replaced at once. The socket read
 # timeout IS the watchdog: closing a socket from another thread does not
@@ -446,17 +449,25 @@ def _initialize_lsl_outlets() -> None:
 # ---------------------------------------------------------- card summaries
 
 def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]:
-    """Averages over the frames recorded in one card interval, as recorded
-    (the ESP's 0 for "no value" included -- see README)."""
+    """Averages over the frames recorded in one card interval.
+
+    The ESP sends 0 for "no value" (its own timeout). A heart or breathing
+    rate or a distance of exactly 0 is therefore left out of the average and
+    counted in ``zero_frames`` instead; the recorded XDF keeps every 0.
+    """
     samples = samples_in_interval(_history, start_epoch, end_epoch)
     summary: dict[str, Any] = {
         "available": bool(samples),
         "sample_count": len(samples),
         "frame_counts": {stream: sum(1 for s in samples if s["stream"] == stream) for stream in BOARD_STREAMS.values()},
+        "zero_frames": {},
         **truncation_info(_history, start_epoch),
     }
     for output, (stream, channel) in SUMMARY_CHANNELS.items():
         numbers = [s[channel] for s in samples if s["stream"] == stream and _finite(s.get(channel))]
+        if channel in ZERO_MEANS_NO_VALUE:
+            summary["zero_frames"][channel] = sum(1 for number in numbers if number == 0)
+            numbers = [number for number in numbers if number != 0]
         summary[output] = round(sum(numbers) / len(numbers), 4) if numbers else None
     if samples:
         summary["max_gap_seconds"] = max_gap_seconds(samples)

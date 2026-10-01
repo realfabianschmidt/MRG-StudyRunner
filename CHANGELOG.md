@@ -5,6 +5,14 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Changed
+
+- AM Hub card averages leave out the ESP's 0 for "no value" (counted in `zero_frames`); the XDF keeps every value. Each session's recording plan names the Study Runner version. `docs/sensors-and-data.md` has a methods-and-limitations text per sensor and a hardware acceptance checklist.
+- AM Hub dashboard behaves like BrainBit: the graphs stay (empty) when it is off, without an extra off notice.
+- One dropdown style everywhere (text-field surface with a chevron, no grey fill), also for the device bars and the study settings; checkboxes in editor fields keep their native size.
+- Affect Map: each region has a name and a color in one uniform row; named regions replace the default directions in Field and Orbit.
+
+
 ## 1.6.0 - 2026-09-30
 
 ### Changed

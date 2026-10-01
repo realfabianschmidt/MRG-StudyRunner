@@ -253,6 +253,56 @@ Known boundaries include:
 - `completed_degraded` data must be interpreted with its quality warnings.
 - Full BIDS compliance is not claimed.
 
+## Methods And Limitations Per Sensor
+
+Text for a methods section. State the Study Runner version (`study_runner_version`
+in the session's `meta/recording-plan.json`) and the plugin version
+(`recording_contract.source_descriptors`).
+
+**BrainBit (EEG).** Raw EEG of four channels (O1, O2, T3, T4) at 250 Hz is
+recorded in the `eeg` stream; band powers and the attention/relaxation indices
+(`bands`, `mental`, 25 Hz) are computed by the manufacturer's NeuroSDK and its
+emotion/artifact library. Those indices are proprietary algorithms: report them
+as exploratory measures, not as validated constructs, and name the SDK versions
+(`pyneurosdk2`, `pyem-st-artifacts`) and the headband firmware, which are
+recorded in the `diagnostics` stream (`DEVICE` event). Timestamps are
+reconstructed on the host from the SDK's packet callbacks
+(`host_callback_reconstructed`), not taken from the headband's clock. Electrode
+contact, artifacts, calibration and packet discontinuities are recorded and
+must be considered in the analysis.
+
+**AM Hub (radar, bio, valves).** One sample is recorded per frame that the
+Parasite AM Hub forwarded (radar LD2450/LD2410B and bio MR60 at about 10 Hz,
+valves on change), with the values and units the ESP firmware sent; nothing is
+resampled, converted or carried forward. Timestamps are this computer's LSL
+time on arrival and include radio (BLE/WiFi), hub and network delay; the hub's
+own clock is kept in `hub_timestamp`, and `seq` makes losses countable. The ESP
+sends 0 when it has no value (its own 2 s timeout) and repeats its latest
+values, so a 0 or a repeated value is not necessarily a new measurement; card
+averages leave such zeros out, the XDF keeps them. Heart and breathing rate of
+the MR60 are radar estimates, not a clinical measurement. The hub's version is
+recorded in `hub_events` (`hello` event).
+
+**Both.** The 1 Hz backup file is derived (latest value per second) and is for
+quality control and as a fallback, not for analysis.
+
+### Hardware Acceptance Checklist
+
+Before data of a setup are used for analysis, record and keep once per setup
+(computer, hub/headband, firmware):
+
+1. **Latency:** a known physical event (for AM Hub a person stepping into the
+   field at a marked moment, for BrainBit an LSL marker together with a
+   blink or tap artifact) against its XDF timestamp; report mean and spread.
+2. **Losses:** a 60-minute recording; count `seq` gaps (AM Hub), packet
+   discontinuities (BrainBit) and reconnects.
+3. **Empty room / no headband contact:** the values the device reports when
+   there is nothing to measure (for AM Hub the ESP zeros).
+4. **Reference comparison:** AM Hub heart and breathing rate against a chest
+   strap or a pulse oximeter; BrainBit eyes-open/eyes-closed alpha.
+5. **Interruption:** unplug or switch off a board / the headband during a
+   recording and check that the gap is visible and the recording continues.
+
 ## Terms
 
 - **LSL**: Lab Streaming Layer, the common live stream and clock layer.
