@@ -116,7 +116,9 @@ not any one module's behaviour
 `test_import_boundaries.py`, `test_import_graph.py`,
 `test_measure_structure.py`, `test_file_guide.py` ("keeps
 `docs/file-guide.md` honest" — fails the build if the doc drifts from the
-real tree), `test_source_install_scripts.py`, `test_python_constraints.py`
+real tree), `test_plugin_versions.py` (fails when a plugin changed without a
+new version, so the versions a session records stay citable — see
+`CONTRIBUTING.md` section 11), `test_source_install_scripts.py`, `test_python_constraints.py`
 (`software/constraints/*.txt`), `conftest.py` (resets the plugin
 process-host singletons between tests so one test's driver process can't
 leak into the next).

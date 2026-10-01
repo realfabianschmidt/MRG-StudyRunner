@@ -9,6 +9,7 @@ import stat
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 from release_tools import build_source_release as release
@@ -336,6 +337,7 @@ class SourceReleaseTests(unittest.TestCase):
                     "linux_recording_supported": False,
                 },
                 "install": release.INSTALL_COMMANDS,
+                "plugins": {"brainbit": "1.0.0", "mood_meter": "1.1.0"},
                 "license": {
                     "identifier": "MIT",
                     "name": "MIT License",
@@ -377,6 +379,15 @@ class SourceReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(release.ReleaseError, "packaged-updater"):
                 release.verify_output(root)
             metadata["packaged_updater_compatible"] = False
+
+            # A release must say which plugin versions it ships, for citation.
+            for plugins in ({}, {"brainbit": "latest"}, None):
+                metadata["plugins"] = plugins
+                write_metadata()
+                with self.assertRaisesRegex(release.ReleaseError, "every plugin with its version"):
+                    release.verify_output(root)
+            metadata["plugins"] = {"brainbit": "1.0.0", "mood_meter": "1.1.0"}
+            write_metadata()
 
             # A swapped core must fail even though its own zip is well formed.
             write_core_asset(root / release.core_asset_name("macos-x64"), "macos-x64", b"other")
@@ -420,6 +431,54 @@ class SourceReleaseTests(unittest.TestCase):
         self.assertIn("no administrator rights, Xcode, Visual Studio", notes)
         self.assertIn("THIRD_PARTY_NOTICES.md", notes)
         self.assertIn("Canonical recording architecture", notes)
+
+    def test_release_notes_list_plugin_versions_and_what_changed(self) -> None:
+        table = release._plugin_versions_section(
+            {"am_hub": "3.0.1", "brainbit": "1.0.0", "new_card": "1.0.0"},
+            "app-v1.6.0",
+            {"am_hub": "3.0.0", "brainbit": "1.0.0", "old_sensor": "2.1.0"},
+        )
+        notes = release._release_notes(VERSION, "- Plugin versions.", table)
+
+        self.assertIn("## Plugin versions", notes)
+        self.assertIn("provenance.software", notes)
+        self.assertIn("| Plugin | Version | Since app-v1.6.0 |", notes)
+        self.assertIn("| am_hub | 3.0.1 | changed from 3.0.0 |", notes)
+        self.assertIn("| brainbit | 1.0.0 |  |", notes)
+        self.assertIn("| new_card | 1.0.0 | new |", notes)
+        self.assertIn("| old_sensor | - | removed |", notes)
+        self.assertLess(notes.index("## Changes"), notes.index("## Plugin versions"))
+
+        first = release._plugin_versions_section({"brainbit": "1.0.0"}, None, None)
+        self.assertIn("| Plugin | Version |\n| --- | --- |\n| brainbit | 1.0.0 |", first)
+
+    def test_plugin_versions_and_the_previous_release_come_from_git(self) -> None:
+        tree = "\n".join((
+            "software/study_runner/plugins/cards/mood_meter/manifest.json",
+            "software/study_runner/plugins/cards/mood_meter/card.js",
+            "software/study_runner/plugins/sensors/brainbit/manifest.json",
+            "software/study_runner/plugins/sensors/brainbit/fixtures/manifest.json",
+        ))
+        manifests = {
+            "software/study_runner/plugins/cards/mood_meter/manifest.json": {"plugin_key": "mood_meter", "version": "1.1.0"},
+            "software/study_runner/plugins/sensors/brainbit/manifest.json": {"plugin_key": "brainbit", "version": "1.0.0"},
+        }
+
+        def git_output(*args: str) -> str:
+            if args[0] == "ls-tree":
+                return tree
+            if args[0] == "tag":
+                return "app-v1.5.0\napp-v1.6.0\napp-v1.10.0\nnot-a-release\napp-v2.0.0-rc1\n"
+            raise AssertionError(args)
+
+        with mock.patch.object(release, "git_output", side_effect=git_output), mock.patch.object(
+            release, "git_text", side_effect=lambda _revision, path: json.dumps(manifests[path])
+        ):
+            self.assertEqual(release.plugin_versions("a" * 40), {"brainbit": "1.0.0", "mood_meter": "1.1.0"})
+            # Numeric, not alphabetical: 1.10.0 is newer than 1.6.0.
+            self.assertEqual(release.previous_release_tag("1.11.0"), "app-v1.10.0")
+            self.assertEqual(release.previous_release_tag("1.7.0"), "app-v1.6.0")
+            self.assertIsNone(release.previous_release_tag("1.5.0"))
 
     def test_workflow_publishes_only_source_release_assets(self) -> None:
         workflow = (release.REPOSITORY_ROOT / ".github/workflows/release.yml").read_text(

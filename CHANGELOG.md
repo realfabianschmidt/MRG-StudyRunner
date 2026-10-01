@@ -5,6 +5,11 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Added
+
+- **Citable software versions.** Every session records the Study Runner version and the version of each plugin that produced it (sensors as recorded, cards, upload destinations) in `meta/manifest.json` → `provenance.software`. The session view lists them and copies a sentence for the methods section, each plugin's settings page shows its version, and the release notes carry a plugin version table. Older sessions show what they recorded, marked as incomplete.
+- Plugin versions are kept up to date: a plugin whose files change needs a new semantic version (MAJOR when recorded data changes meaning, MINOR for a compatible feature, PATCH for a fix), recorded with `python tools/plugin_versions.py --update`; a test enforces it. The rules are in `CONTRIBUTING.md` (section 11), `AGENTS.md`, and `CLAUDE.md`.
+
 ### Changed
 
 - AM Hub card averages leave out the ESP's 0 for "no value" (counted in `zero_frames`); the XDF keeps every value. Each session's recording plan names the Study Runner version. `docs/sensors-and-data.md` has a methods-and-limitations text per sensor and a hardware acceptance checklist.

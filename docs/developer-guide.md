@@ -338,6 +338,27 @@ installs nothing automatically. `bash tools/install-macos.sh
 do the same inside the normal installer. Generated output belongs below `software/.build/` and
 must not be committed.
 
+## Plugin Versions
+
+Every plugin carries a semantic version in its `manifest.json`
+(`"version": "MAJOR.MINOR.PATCH"`). Each session records the Study Runner
+version and the versions of the plugins that produced it in
+`meta/manifest.json` → `provenance.software`, so researchers can cite them.
+When you change any file of a plugin, raise its version:
+
+- MAJOR: the recorded data changes meaning (stream, channel, unit, rate,
+  backup projection, answer format).
+- MINOR: a new feature that leaves existing data unchanged.
+- PATCH: a fix with no effect on recorded data.
+
+Then run `python tools/plugin_versions.py --update` and commit the updated
+`software/study_runner/plugins/plugin_versions.lock.json` with the change; a
+new plugin starts at `1.0.0` and is added the same way.
+`software/tests/test_plugin_versions.py`, part of the checks below, fails when
+a changed plugin kept its version or a changed data contract got less than a
+MAJOR step, and says what to do. `--list` prints every version. See
+`CONTRIBUTING.md` section 11.
+
 ## Required Checks
 
 ```bash

@@ -19,6 +19,8 @@ from study_runner.contracts.session_lifecycle import (
     derive_session_lifecycle,
 )
 
+from study_runner.runtime_core.delivery.software_provenance import legacy_software_provenance
+
 from .card_summary_service import CardSummaryError, PyXdfSampleReader
 from .session_quality_summary import summarize_session_quality
 
@@ -95,6 +97,7 @@ def load_session(
         # reads it -- the list view stays cheap, matching the existing split
         # where _read_merged_streams/_stream_metadata are also detail-only.
         "quality_summary": summarize_session_quality(session_root),
+        "software": _software(session_root),
     }
 
 
@@ -530,6 +533,22 @@ def _saved_at(session_root: Path, result_file: Path, payload: dict[str, Any]) ->
 
 def _identity(session_root: Path) -> dict[str, Any]:
     return _optional_json(session_root / "meta" / "session-identity.json")
+
+
+def _software(session_root: Path) -> dict[str, Any] | None:
+    """Which Study Runner and plugin versions produced the session.
+
+    The finalized manifest is authoritative and a job still running already
+    holds it; an older session shows what it recorded itself.
+    """
+    meta = session_root / "meta"
+    for software in (
+        (_optional_json(meta / "manifest.json").get("provenance") or {}).get("software"),
+        _optional_json(meta / "finalization-state.json").get("software"),
+    ):
+        if isinstance(software, dict):
+            return software
+    return legacy_software_provenance(_optional_json(meta / "recording-plan.json"))
 
 
 def _file_metadata(session_root: Path, path: Path) -> dict[str, Any]:

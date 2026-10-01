@@ -27,6 +27,7 @@ Edit-safety legend:
 | `tools/measure_structure.py` | Python/JavaScript structure ratchet: cross-area import edges, cycles, lines and largest files (including distinct frontend areas), checked against `tools/structure_baseline.json` | careful |
 | `tools/refresh_example_presets.py` | Rebuilds all shipped example study packages through the canonical validator/writer and makes the Basic example active | careful |
 | `tools/plugin_sdk.py` | Plugin SDK: scaffold (`new`), validate, and boot-test (`check-runtime`) a new plugin outside `plugins/`, plus a generated manifest reference (`schema`) — see `tools/plugin_templates/` | careful |
+| `tools/plugin_versions.py` | Keeps plugin versions citable: `--check` fails when a plugin changed without a new version (or its data contract without a MAJOR step), `--update` records the raised versions in `software/study_runner/plugins/plugin_versions.lock.json`, `--list` prints them | careful |
 | `tools/synthetic_lsl_source.py` | Pushes fake-but-plausible LSL samples for a sensor plugin's own declared stream, so it can be tested without real hardware | careful |
 | `tools/install-windows.cmd` / `tools/start-windows.cmd` | Primary Windows entry points; quote their adjacent scripts, use a process-local PowerShell execution-policy bypass, forward arguments, and preserve exit codes | careful |
 | `tools/install-windows.ps1` / `tools/install-macos.sh` | Idempotent first-install/repair implementations: pinned uv and Python in `.tools`, `.venv`, Python requirements, and the downloaded, locally re-tested XDF core; no admin rights or compiler | careful |
@@ -134,6 +135,7 @@ Edit-safety legend:
 | `software/study_runner/runtime_core/studies/card_summary_service.py` | Pure merged-XDF-to-card-statistics derivation | no |
 | `software/study_runner/runtime_core/delivery/finalization_runtime.py` | Wires the persistent finalizer to recording and upload adapters | no |
 | `software/study_runner/runtime_core/delivery/finalization_service.py` | Durable, idempotent session-finalization state machine and journal replay | no |
+| `software/study_runner/runtime_core/delivery/software_provenance.py` | Which Study Runner and plugin versions produced a session (recording, card, destination), fixed when its finalization job is created and written to `meta/manifest.json` → `provenance.software` | careful |
 | `software/study_runner/runtime_core/delivery/destination_plugin_service.py` | Converts upload-destination manifests into persisted finalization steps and recovery/purge policies | no |
 | `software/study_runner/data_core/host/plugin_health_poll_service.py` | Manifest-paced, non-blocking per-plugin health cache and bounded poll executor | careful |
 | `software/study_runner/data_core/host/recording_runtime.py` | Public compatibility facade plus session-level recording orchestration; contains no process-launch or scientific-validation implementation | no |
@@ -347,6 +349,7 @@ one, unlike the plugin table above).
 | `shared/dashboard-graph.js` | Shared graph markup and tooltip helpers for sensor dashboard extensions | careful |
 | `shared/deadline-timer.js` | Monotonic deadline timer whose UI ticks never define elapsed study time | no |
 | `shared/finalization-view-model.js` | Pure finalization status/progress view model | careful |
+| `shared/software-provenance-view-model.js` | Pure view model for a session's software versions: the rows of the session view and the methods sentence it copies | careful |
 | `shared/timeline-view-model.js` | Pure timeline model: stream grouping, waveform/line classification from the LSL header, zoom window maths | careful |
 | `shared/plugin-catalog.js` | Fetches and indexes manifest-derived plugin UI capabilities | careful |
 | `shared/participant-plugin-extensions.js` | Failure-isolated lifecycle manager for manifest-declared participant extensions | careful |
@@ -364,6 +367,7 @@ one, unlike the plugin table above).
 | `shared/ambient-bubbles.js` | Self-contained morphing background for the waiting slide; tune CONFIG at the top | no |
 | `shared/settings-page.js` | Shared navigation, setup-step state, and action feedback for settings pages | careful |
 | `shared/api-client.js` | Tiny fetch helpers (getJson/postJson) | careful |
+| `shared/clipboard.js` | Copies text to the clipboard, with a fallback for admin pages opened over plain http | careful |
 | `shared/i18n.js` | Translation loading and the `t()` helper | careful |
 | `plugins/sensors/camera_emotion/ui/participant.js` | Camera/emotion participant lifecycle extension for preview, stimuli, submit, and heartbeat status | careful |
 | `plugins/sensors/camera_emotion/ui/camera-capture.js` | Plugin-owned tablet camera capture and frame upload adapter | careful |

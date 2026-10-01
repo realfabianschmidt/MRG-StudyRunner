@@ -197,6 +197,35 @@ class SessionsRouteTests(unittest.TestCase):
         self.assertEqual(summary["findings"], [{"kind": "gap", "stream_key": "eeg", "count": 2}])
         self.assertTrue(summary["kept_up"])
 
+    def test_detail_names_the_software_that_produced_the_session(self) -> None:
+        def software():
+            with patch.object(sessions_index_service, "_read_merged_streams", side_effect=self._fixture_streams):
+                response = self.client.get(
+                    "/api/admin/sessions/study-a/p01",
+                    query_string={"session_folder": self.session_one.name},
+                )
+            return response.get_json()["software"]
+
+        self.assertIsNone(software())  # nothing recorded: nothing to cite
+
+        # Before version tracking only the recording contract knew a version: shown, marked partial.
+        self._write_json(
+            self.session_one / "meta" / "recording-plan.json",
+            {"recording_contract": {"source_descriptors": {"mr60": {"plugin_version": "1.0.0"}, "lsl": {"plugin_version": "1.0.0"}}}},
+        )
+        self.assertEqual(
+            software(),
+            {"study_runner_version": None, "plugins": {"mr60": {"version": "1.0.0", "role": "recording"}}, "partial": True},
+        )
+
+        recorded = {
+            "study_runner_version": "1.6.1",
+            "plugins": {"mr60": {"version": "1.0.0", "role": "recording"}, "likert": {"version": "1.2.0", "role": "card"}},
+        }
+        manifest = json.loads((self.session_one / "meta" / "manifest.json").read_text(encoding="utf-8"))
+        self._write_json(self.session_one / "meta" / "manifest.json", {**manifest, "provenance": {"software": recorded}})
+        self.assertEqual(software(), recorded)
+
     def test_withdraw_rejects_a_mismatched_confirmation(self) -> None:
         """The UI's own confirm step is not trusted as the validated boundary."""
         response = self.client.post(

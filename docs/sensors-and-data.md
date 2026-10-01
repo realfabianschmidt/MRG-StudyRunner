@@ -255,9 +255,13 @@ Known boundaries include:
 
 ## Methods And Limitations Per Sensor
 
-Text for a methods section. State the Study Runner version (`study_runner_version`
-in the session's `meta/recording-plan.json`) and the plugin version
-(`recording_contract.source_descriptors`).
+Text for a methods section. State the Study Runner version and the plugin
+versions: each session records both in `meta/manifest.json` →
+`provenance.software`, and the session view has a button that copies them as a
+sentence ("Data were recorded with Study Runner 1.7.0 (plugins: brainbit
+1.0.1, mood_meter 1.1.0)."). It names the plugins that produced data (sensors
+and cards); upload destinations only copy finished files and are listed in the
+session, not in the sentence.
 
 **BrainBit (EEG).** Raw EEG of four channels (O1, O2, T3, T4) at 250 Hz is
 recorded in the `eeg` stream; band powers and the attention/relaxation indices

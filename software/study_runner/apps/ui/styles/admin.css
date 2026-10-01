@@ -3132,6 +3132,12 @@ body.admin::before { display: none; }
 .plugin-card-title-with-help .plugin-help-button {
   margin-left: auto;
 }
+.plugin-version {
+  font-size: .813rem;
+  font-weight: 400;
+  color: var(--ink-55);
+  font-variant-numeric: tabular-nums;
+}
 .plugin-help-button {
   border-radius: 999px;
 }

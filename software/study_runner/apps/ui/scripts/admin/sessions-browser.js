@@ -8,7 +8,9 @@
 import { getJson, postJson } from '../shared/api-client.js';
 import { t } from '../shared/i18n.js';
 import { byId, escapeHtml, formatDateTime, formatFileSize, setHidden, setText } from '../shared/dom-utils.js';
+import { copyText } from '../shared/clipboard.js';
 import { createModal } from '../shared/modal.js';
+import { methodsText, softwareNote, softwareRows } from '../shared/software-provenance-view-model.js';
 import { bindTimelineMarkers, renderSessionTimeline, updateStreamPoints } from './session-timeline.js';
 import { renderSessionProgressRail } from './session-progress-rail.js';
 import {
@@ -36,6 +38,12 @@ export function initializeSessionsBrowser(options = {}) {
 
   byId('btn-session-withdraw')?.addEventListener('click', () => {
     if (currentSession) void openWithdrawalModal(currentSession);
+  });
+  byId('btn-session-copy-methods')?.addEventListener('click', async () => {
+    const text = methodsText(currentSession?.software, t);
+    if (!text) return;
+    await copyText(text);
+    callbacks.showToast?.(t('sessions.software.copied', 'Methods text copied: {text}').replace('{text}', text), 'success');
   });
   refreshTimer = window.setInterval(() => {
     if (!document.hidden && byId('view-hub')?.classList.contains('active')) {
@@ -150,6 +158,26 @@ function renderSessionSummary(session) {
 
   renderLifecycleBadge(session);
   renderQualitySummary(session);
+  renderSoftware(session);
+}
+
+// Study Runner and plugin versions, for the methods section.
+function renderSoftware(session) {
+  const list = byId('session-software-list');
+  if (list) {
+    list.innerHTML = softwareRows(session.software, t)
+      .map((row) => `<dt>${escapeHtml(row.label)}</dt><dd>${escapeHtml(row.value)}</dd>`)
+      .join('');
+  }
+  const note = softwareNote(session.software, t);
+  setText('session-software-note', note);
+  setHidden('session-software-note', !note);
+  const button = byId('btn-session-copy-methods');
+  if (button) {
+    const available = Boolean(methodsText(session.software, t));
+    button.disabled = !available;
+    button.title = available ? '' : t('sessions.software.noVersion', 'The Study Runner version was not recorded for this session.');
+  }
 }
 
 // Package A1/A2: session.lifecycle (5a) and session.quality_summary

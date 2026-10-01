@@ -103,6 +103,23 @@ It keeps only the rules that are useful for this small Study Runner project. The
 - No abstract names copied from unrelated projects
 - No documents that only specialists can understand
 
+## 11. Give every changed plugin a new version
+
+Each session records which Study Runner version and which plugin versions produced its data (`meta/manifest.json`, `provenance.software`), and researchers cite them in their methods section. That only works if a plugin's version changes whenever its files change.
+
+- Required: A plugin's version lives in one place: `"version"` in its `manifest.json`, written as `MAJOR.MINOR.PATCH` (for example `1.2.0`).
+- Required: When you change any file of a plugin, raise its version:
+
+| Change to the plugin | Raise | Example |
+| --- | --- | --- |
+| The recorded data changes meaning: a stream, channel, unit, rate, backup projection, or answer format | MAJOR: `1.4.2` → `2.0.0` | AM Hub records new channels |
+| A new feature that leaves existing data unchanged | MINOR: `1.4.2` → `1.5.0` | Affect Map regions get names |
+| A fix with no effect on recorded data | PATCH: `1.4.2` → `1.4.3` | dashboard layout, help text |
+
+- Required: Then run `python tools/plugin_versions.py --update` and commit the updated `software/study_runner/plugins/plugin_versions.lock.json` together with the change. A new plugin starts at `1.0.0` and is added the same way.
+- Note: `software/tests/test_plugin_versions.py` fails when a plugin changed but kept its version, or when its data contract (manifest `streams`, `recording_source`, `backup_projection`, `card_contract`) changed without a MAJOR step. The message says what to do. `python tools/plugin_versions.py --list` prints every version.
+- Note: Study Runner itself keeps its version in `software/study_runner/version.py`; the release script raises it.
+
 ## When a change is really done
 
 A change is done when:
@@ -112,6 +129,7 @@ A change is done when:
 - important terms are explained
 - relevant error cases were considered
 - the docs still match reality
+- every changed plugin has a new version (section 11)
 - a short verification pass happened
 
 

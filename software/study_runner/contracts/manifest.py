@@ -85,6 +85,9 @@ _CANONICAL_RECORDING_DISABLE_TOKENS = {
     "tolsl",
 }
 _KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+# A plugin's version is a semantic version: it is cited in methods sections and
+# compared by tools/plugin_versions.py, so free text is not allowed.
+_SEMVER_PATTERN = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 _LSL_CHANNEL_FORMATS = {
     "int8",
     "int16",
@@ -121,6 +124,8 @@ def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dic
     plugin_key = _required_key(payload, "plugin_key")
     config_key = _required_key(payload, "config_key")
     version = _required_text(payload, "version")
+    if not _SEMVER_PATTERN.fullmatch(version):
+        raise PluginManifestError("version must be MAJOR.MINOR.PATCH, for example 1.2.0")
     category = _required_text(payload, "category")
     ui = payload.get("ui")
     if not isinstance(ui, dict):

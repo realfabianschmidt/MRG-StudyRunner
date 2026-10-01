@@ -29,6 +29,7 @@ from .artifact_manifest_service import ArtifactManifestError, ArtifactManifestSt
 from study_runner.shared.atomic_io import atomic_write_json
 from ..studies.card_summary_service import CardSummaryBuilder
 from .csv_export_service import CsvExportError, write_backup_csv
+from .software_provenance import capture_session_software, installed_plugin_manifests, recorded_session_software
 from .destination_plugin_service import (
     DestinationPluginDefinition,
     definitions_from_state,
@@ -304,6 +305,7 @@ class FinalizationService:
         card_summary_builder: CardSummaryBuilder | None = None,
         manifest_store: ArtifactManifestStore | None = None,
         session_journal_store: SessionJournalStore | None = None,
+        plugin_manifests: Callable[[], Mapping[str, Mapping[str, Any]]] | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.data_dir = Path(data_dir).resolve()
@@ -317,6 +319,7 @@ class FinalizationService:
         )
         self.card_summary_builder = card_summary_builder or CardSummaryBuilder()
         self.manifest_store = manifest_store or ArtifactManifestStore()
+        self._plugin_manifests = plugin_manifests or installed_plugin_manifests
         self._clock = clock
         self.session_journals = session_journal_store or SessionJournalStore(
             self.data_dir,
@@ -409,6 +412,14 @@ class FinalizationService:
             job_id = _job_id(study_id, participant_id, submission_id)
             now = self._clock()
             settings = (config_data or {}).get("study_settings") or {}
+            # Fixed now, like the destination definitions: what produced this
+            # session must not change with a later update or restart.
+            software = capture_session_software(
+                recording_plan_file=paths.recording_plan_file,
+                config_data=config_data or {},
+                destination_keys=[d.plugin_key for d in self.destination_definitions if d.enabled_for(settings)],
+                manifests=self._plugin_manifests,
+            )
             state = {
                 "schema": FINALIZATION_SCHEMA,
                 "revision": 1,
@@ -437,6 +448,7 @@ class FinalizationService:
                     "recording_expected": bool(recording_expected),
                 },
                 "runtime": {},
+                "software": software,
                 "publication_generation": 1,
             }
             commit = {
@@ -1196,6 +1208,8 @@ class FinalizationService:
                 "finalization_schema": FINALIZATION_SCHEMA,
                 "card_summary_schema": "study-runner/card-summary/v1",
                 "native_rates_preserved": bool(context.state["runtime"].get("merge_parity")),
+                # Jobs created before version tracking: only what the session recorded.
+                "software": context.state.get("software") or recorded_session_software(context.paths.recording_plan_file),
             },
             warnings=context.state.get("warnings") or [],
         )

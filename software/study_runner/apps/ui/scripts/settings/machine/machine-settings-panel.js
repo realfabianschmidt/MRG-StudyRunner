@@ -324,6 +324,7 @@ function settingsHubPlugins() {
         ...status,
         key: manifest.plugin_key,
         label: status.label || manifest.ui?.label || manifest.plugin_key,
+        version: manifest.version,
         category: status.category || manifest.category,
         manifest: status.manifest || manifest,
       };
@@ -336,7 +337,7 @@ function renderPluginSettingsPanel(plugin) {
   // same numbers appear in two places with different refresh rates.
   return `
     <div class="settings-hub-plugin">
-      <div class="dashboard-card-title plugin-card-title-with-help"><i class="${escapeHtml(pluginIcon(plugin))}"></i> <span>${escapeHtml(plugin.label || plugin.key)}</span>${renderPluginHelpButton(plugin.manifest)}</div>
+      <div class="dashboard-card-title plugin-card-title-with-help"><i class="${escapeHtml(pluginIcon(plugin))}"></i> <span>${escapeHtml(plugin.label || plugin.key)}</span>${plugin.version ? `<span class="plugin-version" title="${escapeHtml(t('settingsHub.pluginVersion', 'Plugin version'))}">v${escapeHtml(plugin.version)}</span>` : ''}${renderPluginHelpButton(plugin.manifest)}</div>
       ${plugin.manifest?.ui?.description ? `<p class="settings-hint">${escapeHtml(plugin.manifest.ui.description)}</p>` : ''}
       ${renderPluginSettingsForm(plugin.key)}
       ${renderPluginCredentialForm(plugin)}

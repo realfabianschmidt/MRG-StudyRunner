@@ -36,6 +36,7 @@ import {
 } from '../cards/card-info.js';
 import { initI18n, preloadLanguage, setLanguage, getLanguage, t, withLanguage } from '../shared/i18n.js';
 import { createQrSvg } from '../shared/qr-code.js';
+import { copyText } from '../shared/clipboard.js';
 import { byId, escapeHtml, setHidden, setText } from '../shared/dom-utils.js';
 import { loadPluginCatalog, pluginByKey } from '../shared/plugin-catalog.js';
 import { createAdminRunControl } from './admin-run-control.js';
@@ -619,30 +620,8 @@ async function copyAccessUrl(kind) {
     return;
   }
 
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value);
-    } else {
-      copyTextWithFallback(value);
-    }
-    showToast(t('toast.linkCopied'), 'success');
-  } catch (error) {
-    console.error('[admin] Could not copy link:', error);
-    copyTextWithFallback(value);
-    showToast(t('toast.linkCopied'), 'success');
-  }
-}
-
-function copyTextWithFallback(value) {
-  const input = document.createElement('textarea');
-  input.value = value;
-  input.setAttribute('readonly', '');
-  input.style.position = 'fixed';
-  input.style.opacity = '0';
-  document.body.appendChild(input);
-  input.select();
-  document.execCommand('copy');
-  input.remove();
+  await copyText(value);
+  showToast(t('toast.linkCopied'), 'success');
 }
 
 const {

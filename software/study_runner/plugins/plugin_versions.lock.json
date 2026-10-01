@@ -1,0 +1,132 @@
+{
+  "schema": "study-runner/plugin-versions-lock/v1",
+  "note": "Written by tools/plugin_versions.py --update; see CONTRIBUTING.md section 11.",
+  "plugins": {
+    "affect_map": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/affect_map",
+      "content_sha256": "10c39d54446fe8edc1b2e7e4d6866aafac4c2427c34605b419665a72d9437f15",
+      "contract_sha256": "89f20ed4b47fe8c9d324fc08de5a5a722ee8720d222876d1ed9079e198ef46f8"
+    },
+    "am_hub": {
+      "version": "3.0.0",
+      "path": "software/study_runner/plugins/sensors/am_hub",
+      "content_sha256": "354c225a11ed6d3458d4be5b40edaf0c3636dcaab9a32ce2138ee05cc229efca",
+      "contract_sha256": "d662e4cd6aa720826c4018c67b428ef67cfa3b034e7e66d159907cca214c7b20"
+    },
+    "brainbit": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/sensors/brainbit",
+      "content_sha256": "1517e28e84de9811e9db7f252faf87eb50ef1b25d0fb54c57aed3a5df0c2275d",
+      "contract_sha256": "aff026c14ccd71726eb9ef240d7eb8e26302c6e2212d947d89a9df26853bbadd"
+    },
+    "camera_emotion": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/sensors/camera_emotion",
+      "content_sha256": "504c685664a3222c7c90f0da08e20a9a54cd5f26f47061e6440f16df4e53e430",
+      "contract_sha256": "9b001377f05825d46be9fec2c6098eecd8a4f5e82bdbb85a645b192734d66abc"
+    },
+    "choice": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/choice",
+      "content_sha256": "5500c1f250378bae92d3bf1ae09c3e8ffbae4ed9aa7fe926e87780e0857aa6e6",
+      "contract_sha256": "768351476aea33863e618f2107f748bb3116b4a879b1ca450770541535b78612"
+    },
+    "finish": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/finish",
+      "content_sha256": "860ece8f25ec272813c2217c8d494181358067506572601ad3702f29f64a184b",
+      "contract_sha256": "96a646a69e77d35e584879de79b8e7b3893206bf053af379ec0e103731c48deb"
+    },
+    "info": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/info",
+      "content_sha256": "c155da2bdc1985cc54d03966e9262f0e61163c1b0d6e4247ea1d51ccc44dc3e3",
+      "contract_sha256": "cb929f33b652d7d2ce41e656582beb6f4a01ad264ef617ba1b3e29d3b89b49f9"
+    },
+    "likert": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/likert",
+      "content_sha256": "588e685e728b4d9f7c9f70334c96312434804e622b1e3e6b1ae5e4b2d1ff68b9",
+      "contract_sha256": "9c1e17976e6e4705ead5caefb90cf4bfdfb7cceaacb81f850c6d1810ae4c0eba"
+    },
+    "mini_radar": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/sensors/mr60_mini_radar",
+      "content_sha256": "f6c6cc6ffd442ce33ca503c7e6a368a6bb99493a3b49803e875762e1a5c6bdad",
+      "contract_sha256": "6f838f894838b341e0c95188dcdff33f06ea5d52c9207d18a87398e2433b8dc7"
+    },
+    "mood_meter": {
+      "version": "1.1.0",
+      "path": "software/study_runner/plugins/cards/mood_meter",
+      "content_sha256": "3efea83aea623e34966bc8a66659b03f2c592452429f4bdd4fd27f3a4444839f",
+      "contract_sha256": "a22bb6eb0ba97bc7a8e7c7ba8c07d4229984002a4a08d433fd83518942034011"
+    },
+    "multi_slider": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/multi_slider",
+      "content_sha256": "78db6040f35ef1e946fc3d7f19c51b8652e2910e7dcd35a3a7d92f710487a577",
+      "contract_sha256": "edbf1a5eb1341da231294bdf214689d415f9ea8c78b31f06c61ff315369fdba7"
+    },
+    "nextcloud": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/destinations/nextcloud_upload",
+      "content_sha256": "868bc062a1479ef5de305c6b911a30db26d3f58da6045c91d284ec8011aa82a4",
+      "contract_sha256": "1aa2b4f4f583229552b8dc07021ab1a63385ed37f1efd1ccd71cbfc7467f6b60"
+    },
+    "notion": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/destinations/notion_upload",
+      "content_sha256": "87a07cd1b182d632affc27c42559d3eb2db66e1b2425c2dc623eb4f9493213db",
+      "contract_sha256": "1aa2b4f4f583229552b8dc07021ab1a63385ed37f1efd1ccd71cbfc7467f6b60"
+    },
+    "osc": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/outputs/osc_touchdesigner",
+      "content_sha256": "4177fd65c3c09b94f03dfb7be36693b8cbc88cd5d74b3065c551aa5ea5f200d7",
+      "contract_sha256": "1aa2b4f4f583229552b8dc07021ab1a63385ed37f1efd1ccd71cbfc7467f6b60"
+    },
+    "participant_id": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/participant_id",
+      "content_sha256": "725cce18949492f23ec8aa4b1c10ee03daaf6e5101e93f1caceaf914d7f1bcf3",
+      "contract_sha256": "3fd9291a02ff954b1fdccb852a4698d8444ade0c448db61128eb1dc8e81ca9d1"
+    },
+    "ranking": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/ranking",
+      "content_sha256": "54d05640e2ae71989e85d7478a7eb8e863a48f77b3479ef0770adb97104e7514",
+      "contract_sha256": "88b96476f57bef2b565710df9c5e344bdc9514a3df1b848b40ec7e3a11f1e2e4"
+    },
+    "semantic": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/semantic",
+      "content_sha256": "b8cfda5722f8aeff259be98c98badc943117e2bd268f91a8542fa86f19147d6e",
+      "contract_sha256": "738d92a1ab9254a237f127857b6b44724623ce691fa831534b7865ec81b655d0"
+    },
+    "slider": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/slider",
+      "content_sha256": "371ff07769fa0c784fbe1089aa9cb7d005d2aa17354e8b44d508426343207986",
+      "contract_sha256": "08eb237e1ea81d486d1c1e890b800eb6841fc31246d4aadd2be92714b8bdfefe"
+    },
+    "stimulus": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/stimulus",
+      "content_sha256": "47e0f07ed818fb01e5f491eed95ac30b4b3b2988f5f4df727165462efcedcb47",
+      "contract_sha256": "3de9bb3a701315f0fb5c3d2856e1eb4d9a8b18b485e9c186c1c97b304cc848f5"
+    },
+    "text": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/text",
+      "content_sha256": "eaa35684f8ff77709298cca2e7f3e3527095637efb3649859230520943a95b2e",
+      "contract_sha256": "6b8f19975dfc6d4d45776526c48d77b562996ac31c2e1bf880854437ab35359c"
+    },
+    "word_cloud": {
+      "version": "1.0.0",
+      "path": "software/study_runner/plugins/cards/word_cloud",
+      "content_sha256": "7f51d2d60bf6fe3185ddd0733163adf9b92ceb64e469dc85a560713e0338391f",
+      "contract_sha256": "626be1398de4f5032a5184e4dcf9dd208e3ae4e290ac8668f4659bd69c37f698"
+    }
+  }
+}

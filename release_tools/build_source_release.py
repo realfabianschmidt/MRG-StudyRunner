@@ -122,6 +122,8 @@ LICENSED_FONT_SUFFIXES = (".ttf", ".woff2")
 CURATED_DEMO_RESULT_DIRECTORY = "/software/saved_results/demo_completed_study/"
 SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
+RELEASE_TAG = re.compile(r"^app-v([0-9]+)\.([0-9]+)\.([0-9]+)$")
+PLUGINS_TREE = "software/study_runner/plugins"
 SUPPORTED_RECORDING_TARGETS = ("windows-x64", "macos-x64", "macos-arm64")
 INSTALL_COMMANDS = {
     "windows_first_install": ".\\tools\\install-windows.cmd",
@@ -445,6 +447,48 @@ def git_text(commit: str, relative_path: str) -> str:
     return result.stdout
 
 
+def git_output(*args: str) -> str:
+    result = subprocess.run(
+        ("git", *args),
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ReleaseError(f"git {args[0]} failed: {result.stderr.strip() or result.stdout.strip()}")
+    return result.stdout
+
+
+def plugin_versions(revision: str) -> dict[str, str]:
+    """plugin_key -> version from every plugin manifest at ``revision``.
+
+    The manifests are the single source; tools/plugin_versions.py makes sure a
+    changed plugin got a new version before it can be released.
+    """
+    versions: dict[str, str] = {}
+    for path in git_output("ls-tree", "-r", "--name-only", revision, "--", PLUGINS_TREE).splitlines():
+        # software/study_runner/plugins/<category>/<plugin>/manifest.json
+        if path.count("/") == 5 and path.endswith("/manifest.json"):
+            manifest = json.loads(git_text(revision, path))
+            versions[str(manifest["plugin_key"])] = str(manifest["version"])
+    if not versions:
+        raise ReleaseError(f"no plugin manifests found at {revision}")
+    return dict(sorted(versions.items()))
+
+
+def previous_release_tag(version: str) -> str | None:
+    """The newest app-v tag before ``version``; None for the first release."""
+    current = tuple(int(part) for part in version.split("."))
+    earlier = [
+        (number, tag)
+        for tag in git_output("tag", "--list", "app-v*").split()
+        if (match := RELEASE_TAG.fullmatch(tag)) and (number := tuple(map(int, match.groups()))) < current
+    ]
+    return max(earlier)[1] if earlier else None
+
+
 def changelog_section(changelog: str, version: str) -> str:
     heading = re.compile(
         rf"^##[ \t]+{re.escape(version)}(?:[ \t]+-[ \t]+[^\n]+)?[ \t]*$",
@@ -548,6 +592,11 @@ def build_release(
     for relative_path in THIRD_PARTY_NOTICE_FILES[1:]:
         validate_third_party_license(relative_path, git_text(commit, relative_path))
     changes = changelog_section(git_text(commit, "CHANGELOG.md"), version)
+    plugins = plugin_versions(commit)
+    previous_tag = previous_release_tag(version)
+    plugin_table = _plugin_versions_section(
+        plugins, previous_tag, plugin_versions(previous_tag) if previous_tag else None
+    )
     cores = collect_core_assets(Path(core_assets_dir).resolve(), expected_source=expected_native_source)
 
     output_dir = output_dir.resolve()
@@ -607,6 +656,7 @@ def build_release(
         },
         "packaged_updater_compatible": False,
         "install": INSTALL_COMMANDS,
+        "plugins": plugins,
     }
     metadata_path = output_dir / "study-runner-source-release.json"
     metadata_path.write_text(f"{json.dumps(metadata, indent=2, sort_keys=True)}\n", encoding="utf-8")
@@ -621,7 +671,7 @@ def build_release(
         _verification_script(checksum_targets), encoding="utf-8"
     )
     (output_dir / "RELEASE_NOTES.md").write_text(
-        _release_notes(version, changes), encoding="utf-8"
+        _release_notes(version, changes, plugin_table), encoding="utf-8"
     )
     verify_output(output_dir)
     return metadata
@@ -641,8 +691,36 @@ def _verification_script(expected: dict[str, str]) -> str:
     )
 
 
-def _release_notes(version: str, changes: str) -> str:
-    return f"""# Study Runner {version}
+def _plugin_versions_section(
+    plugins: dict[str, str], previous_tag: str | None, previous: dict[str, str] | None
+) -> str:
+    lines = [
+        "## Plugin versions",
+        "",
+        "Every session records the Study Runner and plugin versions that produced it "
+        "(`meta/manifest.json`, `provenance.software`); the session view copies them "
+        "as a sentence for the methods section.",
+        "",
+    ]
+    if previous is None:
+        lines += ["| Plugin | Version |", "| --- | --- |"]
+        lines += [f"| {key} | {version} |" for key, version in sorted(plugins.items())]
+    else:
+        lines += [f"| Plugin | Version | Since {previous_tag} |", "| --- | --- | --- |"]
+        for key in sorted({*plugins, *previous}):
+            now, before = plugins.get(key), previous.get(key)
+            change = (
+                "" if now == before
+                else "new" if before is None
+                else "removed" if now is None
+                else f"changed from {before}"
+            )
+            lines.append(f"| {key} | {now or '-'} | {change} |")
+    return "\n".join(lines) + "\n"
+
+
+def _release_notes(version: str, changes: str, plugin_table: str = "") -> str:
+    notes = f"""# Study Runner {version}
 
 This is the MIT-licensed source-server release for Windows x64, macOS Intel, and macOS Apple Silicon; see `LICENSE`. Third-party provenance and upstream license texts are listed in `THIRD_PARTY_NOTICES.md`.
 
@@ -672,6 +750,7 @@ This is not a packaged-updater release and does not require Apple signing, notar
 
 {changes}
 """
+    return f"{notes}\n{plugin_table}" if plugin_table else notes
 
 
 def verify_output(output_dir: Path) -> dict[str, object]:
@@ -715,6 +794,11 @@ def verify_output(output_dir: Path) -> dict[str, object]:
         raise ReleaseError("release metadata does not match the prebuilt core assets")
     if metadata.get("install") != INSTALL_COMMANDS:
         raise ReleaseError("release metadata has an invalid install/start command contract")
+    plugins = metadata.get("plugins")
+    if not isinstance(plugins, dict) or not plugins or not all(
+        isinstance(value, str) and SEMVER.fullmatch(value) for value in plugins.values()
+    ):
+        raise ReleaseError("release metadata must list every plugin with its version")
     license_info = metadata.get("license")
     if (
         not isinstance(license_info, dict)

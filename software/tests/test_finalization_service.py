@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 from pathlib import Path
 import sys
@@ -12,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.data_core.host.artifacts import sha256_file
+from study_runner.data_core.host.artifacts import ArtifactStore, SessionIdentity, sha256_file
 from study_runner.runtime_core.delivery.artifact_manifest_service import ArtifactManifestStore
 from study_runner.runtime_core.studies.card_summary_service import CardSummaryBuilder
 from study_runner.runtime_core.studies.sessions_index_service import list_sessions
@@ -192,8 +193,20 @@ class FinalizationServiceTests(unittest.TestCase):
             destination_handler=kwargs.get("destination_handler"),
             destination_definitions=kwargs.get("destination_definitions"),
             card_summary_builder=CardSummaryBuilder(OneStreamReader()),
+            plugin_manifests=kwargs.get("plugin_manifests"),
             clock=kwargs.get("clock", MutableClock()),
         )
+
+    @staticmethod
+    def _recording_plan(root: Path, plan: dict) -> None:
+        """What the recording runtime writes at session start, before the submission."""
+        identity = SessionIdentity(
+            study_id="Study A",
+            participant_id="p01",
+            session_id="session-1",
+            started_at=dt.datetime(2026, 7, 31, 10, tzinfo=dt.timezone.utc),
+        )
+        ArtifactStore(root).reserve(identity).recording_plan_file.write_text(json.dumps(plan), encoding="utf-8")
 
     def test_commit_is_idempotent_and_processing_publishes_complete_session(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -225,6 +238,87 @@ class FinalizationServiceTests(unittest.TestCase):
             restarted = self._service(root)
             self.assertEqual(restarted.get(created["job_id"])["status"], "completed")
             self.assertEqual(restarted.process_due_jobs_once(), 0)
+
+    SOFTWARE_PLAN = {
+        "study_runner_version": "1.6.1",
+        "recording_contract": {
+            "source_descriptors": {
+                "fixture": {"plugin_version": "2.0.0"},
+                # A core source: covered by the Study Runner version.
+                "lsl": {"plugin_version": "1.0.0"},
+            }
+        },
+    }
+
+    def test_the_manifest_names_the_software_that_produced_the_session(self) -> None:
+        manifests = {
+            "fixture": {"version": "2.1.0"},
+            "slider_card": {"version": "1.2.0", "capability_config": {"card_contract": {"question_types": ["slider"]}}},
+            "unused_card": {"version": "4.0.0", "capability_config": {"card_contract": {"question_types": ["affect-map"]}}},
+            "fixture_export": {"version": "1.0.3"},
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._recording_plan(root, self.SOFTWARE_PLAN)
+            service = self._service(
+                root,
+                destination_handler=RecordingDestinationHandler(),
+                destination_definitions=(
+                    DestinationPluginDefinition(
+                        plugin_key="fixture_export", destination="fixture_export", label="Fixture export", default_enabled=True,
+                    ),
+                ),
+                plugin_manifests=lambda: manifests,
+            )
+            job = service.commit_submission(
+                SUBMISSION,
+                config_data={"study_settings": {}, "questions": [{"type": "slider"}]},
+                recording_expected=True,
+            )
+            # Installed after the submission: does not change what produced it.
+            manifests["slider_card"] = {**manifests["slider_card"], "version": "1.3.0"}
+            service.process_due_jobs_once()
+
+            manifest = json.loads((root / job["session_path"] / "meta" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                manifest["provenance"]["software"],
+                {
+                    "study_runner_version": "1.6.1",
+                    "plugins": {
+                        # The version that recorded, from the recording contract.
+                        "fixture": {"version": "2.0.0", "role": "recording"},
+                        "slider_card": {"version": "1.2.0", "role": "card"},
+                        "fixture_export": {"version": "1.0.3", "role": "destination"},
+                    },
+                },
+            )
+
+    def test_a_job_from_before_version_tracking_reports_only_what_the_session_recorded(self) -> None:
+        manifests = {"slider_card": {"version": "1.3.0", "capability_config": {"card_contract": {"question_types": ["slider"]}}}}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._recording_plan(root, self.SOFTWARE_PLAN)
+            job = self._service(root, plugin_manifests=lambda: manifests).commit_submission(
+                SUBMISSION,
+                config_data={"study_settings": {}, "questions": [{"type": "slider"}]},
+                recording_expected=True,
+            )
+            state_file = root / job["session_path"] / "meta" / "finalization-state.json"
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+            del state["software"]  # as written before version tracking
+            state_file.write_text(json.dumps(state), encoding="utf-8")
+
+            self._service(root, plugin_manifests=lambda: manifests).process_due_jobs_once()
+
+            manifest = json.loads((root / job["session_path"] / "meta" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                manifest["provenance"]["software"],
+                {
+                    "study_runner_version": "1.6.1",
+                    "plugins": {"fixture": {"version": "2.0.0", "role": "recording"}},
+                    "partial": True,
+                },
+            )
 
     def test_journal_xdf_event_id_mismatch_surfaces_as_a_warning_not_a_failure(self) -> None:
         """Package 5e end to end: the durable "trial" journal is read from

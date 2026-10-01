@@ -39,6 +39,16 @@ folder; card plugins are described by their manifest and
 `docs/developer-guide.md`. The operator-visible configuration and answer
 contracts for every question type are in [`docs/card-catalog.md`](../../../docs/card-catalog.md).
 
+## Versions
+
+A plugin's `version` in `manifest.json` (`MAJOR.MINOR.PATCH`) is what each
+session records and a methods section cites. Raise it with every change to the
+plugin's folder (which step: `CONTRIBUTING.md` section 11), then run
+`python tools/plugin_versions.py --update`. That writes
+`plugin_versions.lock.json` in this folder: each plugin's version plus a
+fingerprint of its files and data contract, which the tests compare. Never
+edit the lock by hand.
+
 ## Manifest contract
 
 Every current manifest uses `api_version: 5` and declares identity, plugin version,

@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 487,
+  "cross_package_import_edges": 492,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -40,7 +40,7 @@
       "path": "software/study_runner/apps/ui/scripts/shared/qr-code.js"
     },
     "contracts": {
-      "lines": 1586,
+      "lines": 1591,
       "path": "software/study_runner/contracts/manifest.py"
     },
     "data_core": {
@@ -84,7 +84,7 @@
       "path": "software/study_runner/plugins/sensors/brainbit/adapter.py"
     },
     "runtime_core": {
-      "lines": 1931,
+      "lines": 1945,
       "path": "software/study_runner/runtime_core/delivery/finalization_service.py"
     },
     "shared": {
@@ -100,12 +100,12 @@
     "apps": 0,
     "apps.server": 4661,
     "apps.ui": 0,
-    "apps.ui.admin": 5700,
+    "apps.ui.admin": 5707,
     "apps.ui.cards": 4374,
     "apps.ui.participant": 2778,
-    "apps.ui.settings": 1886,
-    "apps.ui.shared": 2950,
-    "contracts": 2769,
+    "apps.ui.settings": 1887,
+    "apps.ui.shared": 3035,
+    "contracts": 2774,
     "data_core": 16,
     "data_core.contract": 1184,
     "data_core.host": 6655,
@@ -116,7 +116,7 @@
     "plugins.destinations": 1894,
     "plugins.outputs": 154,
     "plugins.sensors": 11784,
-    "runtime_core": 14850,
+    "runtime_core": 15015,
     "shared": 448,
     "updates": 696
   }
