@@ -17,6 +17,10 @@ All notable Study Runner changes are documented here. Release tags use
 - One dropdown style everywhere (text-field surface with a chevron, no grey fill), also for the device bars and the study settings; checkboxes in editor fields keep their native size.
 - Affect Map: each region has a name and a color in one uniform row; named regions replace the default directions in Field and Orbit.
 
+### Fixed
+
+- AM Hub is back in the 60 s flush and crash-recovery sidecars (its manifest had lost `runtime.sidecar`). A plugin that declares `sidecar_export` must now name its sidecar in the manifest, the only place the host reads it from.
+
 
 ## 1.6.0 - 2026-09-30
 

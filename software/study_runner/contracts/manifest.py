@@ -40,6 +40,7 @@ RETIRED_CAPABILITIES = {
 }
 
 
+SIDECAR_FIELDS = ("sensor", "filename_suffix", "output_key")
 DEFAULT_POLL_INTERVAL_MS = 2_000
 DEFAULT_REQUEST_TIMEOUT_MS = 1_000
 MAX_PUBLISH_TIMEOUT_MS = 30 * 60 * 1000
@@ -163,6 +164,12 @@ def validate_and_normalize_manifest(payload: Any, *, directory_name: str) -> dic
     _validate_capability_contracts(capability_config, streams, settings)
     lifecycle = _normalize_lifecycle(payload.get("lifecycle"))
     runtime = _normalize_process_runtime(payload.get("runtime"), api_version=int(api_version))
+    # The host builds a sensor's sidecar export from runtime.sidecar alone, so
+    # declaring the capability without it would silently export nothing.
+    if "sidecar_export" in capability_config and set(runtime.get("sidecar") or {}) != set(SIDECAR_FIELDS):
+        raise PluginManifestError(
+            "sidecar_export requires runtime.sidecar with " + ", ".join(SIDECAR_FIELDS)
+        )
 
     poll_interval_ms = _positive_int(
         payload.get("poll_interval_ms", DEFAULT_POLL_INTERVAL_MS),
@@ -415,14 +422,14 @@ def _normalize_process_runtime(value: Any, *, api_version: int) -> dict[str, Any
     sidecar = value.get("sidecar", {})
     if not isinstance(sidecar, dict):
         raise PluginManifestError("runtime.sidecar must be a JSON object")
-    unexpected_sidecar = sorted(set(sidecar) - {"sensor", "filename_suffix", "output_key"})
+    unexpected_sidecar = sorted(set(sidecar) - set(SIDECAR_FIELDS))
     if unexpected_sidecar:
         raise PluginManifestError(
             "runtime.sidecar contains unsupported fields: " + ", ".join(unexpected_sidecar)
         )
     normalized_sidecar = {
         name: _optional_text(sidecar.get(name))
-        for name in ("sensor", "filename_suffix", "output_key")
+        for name in SIDECAR_FIELDS
         if _optional_text(sidecar.get(name))
     }
     return {

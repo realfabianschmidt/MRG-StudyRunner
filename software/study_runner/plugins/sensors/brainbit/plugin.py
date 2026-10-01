@@ -515,7 +515,4 @@ PLUGIN = Plugin(
     get_interval_summary=_interval,
     export_interval_samples=_export,
     handle_console_line=_handle_console_line,
-    sidecar_sensor="brainbit",
-    sidecar_filename_suffix="brainbit_signals",
-    sidecar_output_key="brainbit_file",
 )

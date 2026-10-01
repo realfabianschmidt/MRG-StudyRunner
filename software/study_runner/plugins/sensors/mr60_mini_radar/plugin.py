@@ -145,7 +145,4 @@ PLUGIN = Plugin(
     on_trial_stop=_trial_stop,
     get_interval_summary=_interval,
     export_interval_samples=_export,
-    sidecar_sensor="mr60",
-    sidecar_filename_suffix="mr60_signals",
-    sidecar_output_key="mr60_file",
 )

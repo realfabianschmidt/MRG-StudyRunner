@@ -164,7 +164,4 @@ PLUGIN = Plugin(
     ingest_participant=_ingest_participant,
     get_interval_summary=_interval,
     export_interval_samples=_export,
-    sidecar_sensor="camera_emotion",
-    sidecar_filename_suffix="camera_emotion_signals",
-    sidecar_output_key="camera_emotion_file",
 )

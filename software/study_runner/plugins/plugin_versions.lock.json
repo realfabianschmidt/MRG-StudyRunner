@@ -9,21 +9,21 @@
       "contract_sha256": "89f20ed4b47fe8c9d324fc08de5a5a722ee8720d222876d1ed9079e198ef46f8"
     },
     "am_hub": {
-      "version": "3.0.0",
+      "version": "3.0.1",
       "path": "software/study_runner/plugins/sensors/am_hub",
-      "content_sha256": "354c225a11ed6d3458d4be5b40edaf0c3636dcaab9a32ce2138ee05cc229efca",
+      "content_sha256": "98aff18b66f92d843edef23735050ed7e2200d8e60dababdcf27aaf06bd18d28",
       "contract_sha256": "d662e4cd6aa720826c4018c67b428ef67cfa3b034e7e66d159907cca214c7b20"
     },
     "brainbit": {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "path": "software/study_runner/plugins/sensors/brainbit",
-      "content_sha256": "1517e28e84de9811e9db7f252faf87eb50ef1b25d0fb54c57aed3a5df0c2275d",
+      "content_sha256": "2a1279c45cb6f8eb4453d177dfa306ad4166dc5eebaf400d9ba0c49dee3d12ec",
       "contract_sha256": "aff026c14ccd71726eb9ef240d7eb8e26302c6e2212d947d89a9df26853bbadd"
     },
     "camera_emotion": {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "path": "software/study_runner/plugins/sensors/camera_emotion",
-      "content_sha256": "504c685664a3222c7c90f0da08e20a9a54cd5f26f47061e6440f16df4e53e430",
+      "content_sha256": "6c4ee37f4dd5391a6a443033719c298ff10b28bae40432e0716178cd791571e0",
       "contract_sha256": "9b001377f05825d46be9fec2c6098eecd8a4f5e82bdbb85a645b192734d66abc"
     },
     "choice": {
@@ -51,9 +51,9 @@
       "contract_sha256": "9c1e17976e6e4705ead5caefb90cf4bfdfb7cceaacb81f850c6d1810ae4c0eba"
     },
     "mini_radar": {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "path": "software/study_runner/plugins/sensors/mr60_mini_radar",
-      "content_sha256": "f6c6cc6ffd442ce33ca503c7e6a368a6bb99493a3b49803e875762e1a5c6bdad",
+      "content_sha256": "b7feeb6e48d89decf5fdfb4cb5065ff3d804c1083ad2048dc14f6cc45fddc7b6",
       "contract_sha256": "6f838f894838b341e0c95188dcdff33f06ea5d52c9207d18a87398e2433b8dc7"
     },
     "mood_meter": {

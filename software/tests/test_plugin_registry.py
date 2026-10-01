@@ -156,6 +156,19 @@ class PluginRegistryContractTests(unittest.TestCase):
                     },
                 )
 
+    def test_every_sidecar_export_plugin_reaches_the_sidecar_export(self) -> None:
+        # registry.export_interval_sidecars skips a plugin without
+        # sidecar_sensor, so the manifest's runtime.sidecar must reach it.
+        for plugin in PLUGINS:
+            manifest = get_plugin_manifest(plugin.key)
+            if "sidecar_export" not in manifest["capabilities"]:
+                continue
+            with self.subTest(plugin=plugin.key):
+                self.assertIsNotNone(plugin.export_interval_samples)
+                self.assertEqual(plugin.sidecar_sensor, manifest["runtime"]["sidecar"]["sensor"])
+                self.assertEqual(plugin.sidecar_filename_suffix, manifest["runtime"]["sidecar"]["filename_suffix"])
+                self.assertEqual(plugin.sidecar_output_key, manifest["runtime"]["sidecar"]["output_key"])
+
     def test_sample_metadata_model_has_required_timing_fields(self) -> None:
         fields = set(get_sample_metadata_model())
         self.assertTrue(

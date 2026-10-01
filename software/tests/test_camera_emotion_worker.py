@@ -17,6 +17,7 @@ from study_runner.plugins.sensors.camera_emotion.worker import server as worker_
 from study_runner.contracts.plugin_api import PluginContext
 from study_runner.plugins.sensors.camera_emotion import adapter as camera_adapter
 from study_runner.plugins.sensors.camera_emotion.plugin import PLUGIN as CAMERA_EMOTION_PLUGIN
+from study_runner.plugin_framework.registry import get_plugin_manifest
 
 
 class FakeWorkerProcess:
@@ -173,12 +174,15 @@ class CameraEmotionWorkerTests(unittest.TestCase):
         samples = CAMERA_EMOTION_PLUGIN.export_interval_samples(context, 15.0, 25.0)
 
         self.assertEqual(samples, [{"_epoch": 20.0, "analysis": {"emotion": "happy"}}])
-        self.assertEqual(CAMERA_EMOTION_PLUGIN.sidecar_sensor, "camera_emotion")
+        # The host exports the sidecar; its names come from the manifest only.
         self.assertEqual(
-            CAMERA_EMOTION_PLUGIN.sidecar_filename_suffix,
-            "camera_emotion_signals",
+            get_plugin_manifest("camera_emotion")["runtime"]["sidecar"],
+            {
+                "sensor": "camera_emotion",
+                "filename_suffix": "camera_emotion_signals",
+                "output_key": "camera_emotion_file",
+            },
         )
-        self.assertEqual(CAMERA_EMOTION_PLUGIN.sidecar_output_key, "camera_emotion_file")
 
     def test_worker_plugin_start_stop_with_mocked_process(self) -> None:
         context = _context(

@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "am_hub",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "category": "biosignal",
   "config_key": "am_hub",
   "runtime": {
@@ -22,7 +22,12 @@
       "start",
       "stop"
     ],
-    "can_toggle": true
+    "can_toggle": true,
+    "sidecar": {
+      "sensor": "am_hub",
+      "filename_suffix": "am_hub_signals",
+      "output_key": "am_hub_file"
+    }
   },
   "lifecycle": {
     "reinitialize_on_disable": true

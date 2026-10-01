@@ -212,6 +212,25 @@ class PluginManifestTests(unittest.TestCase):
         with self.assertRaises(PluginManifestError):
             validate_and_normalize_manifest(payload, directory_name="fixture")
 
+    def test_sidecar_export_requires_a_complete_runtime_sidecar(self) -> None:
+        # The host exports a sidecar from runtime.sidecar alone (am_hub lost
+        # its block once and silently dropped out of crash recovery).
+        payload = _manifest("fixture")
+        payload["capabilities"]["sidecar_export"] = {}
+        with self.assertRaisesRegex(PluginManifestError, "sidecar_export requires runtime.sidecar"):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
+        payload["runtime"]["sidecar"] = {"sensor": "fixture", "filename_suffix": "fixture_signals"}
+        with self.assertRaisesRegex(PluginManifestError, "sidecar_export requires runtime.sidecar"):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
+        payload["runtime"]["sidecar"]["output_key"] = "fixture_file"
+        manifest = validate_and_normalize_manifest(payload, directory_name="fixture")
+        self.assertEqual(
+            manifest["runtime"]["sidecar"],
+            {"sensor": "fixture", "filename_suffix": "fixture_signals", "output_key": "fixture_file"},
+        )
+
     def test_lsl_stream_channels_and_format_are_strict(self) -> None:
         payload = _manifest("fixture", source_id="fixture.stream")
         payload["streams"][0]["channel_format"] = "complex128"

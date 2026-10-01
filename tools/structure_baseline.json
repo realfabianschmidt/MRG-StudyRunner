@@ -40,7 +40,7 @@
       "path": "software/study_runner/apps/ui/scripts/shared/qr-code.js"
     },
     "contracts": {
-      "lines": 1591,
+      "lines": 1598,
       "path": "software/study_runner/contracts/manifest.py"
     },
     "data_core": {
@@ -105,7 +105,7 @@
     "apps.ui.participant": 2778,
     "apps.ui.settings": 1887,
     "apps.ui.shared": 3035,
-    "contracts": 2774,
+    "contracts": 2781,
     "data_core": 16,
     "data_core.contract": 1184,
     "data_core.host": 6655,
@@ -115,7 +115,7 @@
     "plugins.cards": 1420,
     "plugins.destinations": 1894,
     "plugins.outputs": 154,
-    "plugins.sensors": 11784,
+    "plugins.sensors": 11772,
     "runtime_core": 15015,
     "shared": 448,
     "updates": 696

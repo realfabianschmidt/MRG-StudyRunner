@@ -125,7 +125,4 @@ PLUGIN = Plugin(
     on_trial_stop=_trial_stop,
     get_interval_summary=_interval,
     export_interval_samples=_export,
-    sidecar_sensor="am_hub",
-    sidecar_filename_suffix="am_hub_signals",
-    sidecar_output_key="am_hub_file",
 )
