@@ -23,6 +23,11 @@ from neurosdk.cmn_types import (
 )
 
 from study_runner.plugins.sensors.brainbit import adapter
+TESTS_ROOT = Path(__file__).resolve().parent
+if str(TESTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TESTS_ROOT))
+
+from support.fake_lsl import FakePylsl  # noqa: E402
 from study_runner.plugins.sensors.brainbit import brainbit_realtime_cli as cli
 from study_runner.plugins.sensors.brainbit import diagnose_backends
 from study_runner.plugins.sensors.brainbit import driver
@@ -247,14 +252,14 @@ class EmotionalMathContractTests(unittest.TestCase):
 class TimingAndLslTests(unittest.TestCase):
     def setUp(self) -> None:
         adapter._lsl_epoch_offset = None
-        adapter._lsl_outlets = {}
-        adapter._lsl_local_clock = None
+        self.lsl = FakePylsl(clock=500.0)
+        adapter._streams.use_backend(self.lsl)
         adapter._eeg_lsl_channels = ()
         adapter._lsl_stream_health = {}
 
     def tearDown(self) -> None:
-        adapter._lsl_outlets = {}
-        adapter._lsl_local_clock = None
+        adapter._streams.close()
+        adapter._lsl_epoch_offset = None
         adapter._eeg_lsl_channels = ()
         adapter._lsl_stream_health = {}
 
@@ -299,17 +304,8 @@ class TimingAndLslTests(unittest.TestCase):
         self.assertEqual(estimator.packet_gap_frames_total, 0)
 
     def test_eeg_batch_is_pushed_as_chunk_with_explicit_lsl_timestamps(self) -> None:
-        class Outlet:
-            def __init__(self) -> None:
-                self.chunks = []
-
-            def push_chunk(self, values, timestamps) -> None:
-                self.chunks.append((values, timestamps))
-
-        outlet = Outlet()
-        adapter._lsl_outlets = {"EEG": outlet}
+        adapter._streams.open("eeg", channels=["T4", "O1", "T3", "O2"], channel_units=["microvolt"] * 4)
         adapter._eeg_lsl_channels = ("T4", "O1", "T3", "O2")
-        adapter._lsl_local_clock = lambda: 500.0
         payload = {
             "channels": ["T4", "O1", "T3", "O2"],
             "samples": [[4.0, 1.0, 3.0, 2.0], [8.0, 5.0, 7.0, 6.0]],
@@ -319,22 +315,15 @@ class TimingAndLslTests(unittest.TestCase):
         with mock.patch.object(adapter.time, "time", return_value=1_780_000_000.004):
             adapter._mirror_line_to_lsl(f"EEG_BATCH {json.dumps(payload)}")
 
-        values, timestamps = outlet.chunks[0]
+        outlet = self.lsl.outlet("study_runner.brainbit.eeg")
+        self.assertEqual(outlet.info.channel_labels(), ["T4", "O1", "T3", "O2"])
+        values, timestamps = outlet.rows, outlet.timestamps
         self.assertEqual(values, [[4.0, 1.0, 3.0, 2.0], [8.0, 5.0, 7.0, 6.0]])
         self.assertAlmostEqual(timestamps[0], 499.996, places=6)
         self.assertAlmostEqual(timestamps[1], 500.0, places=6)
 
     def test_derived_batch_is_pushed_as_chunk_without_losing_backlog(self) -> None:
-        class Outlet:
-            def __init__(self) -> None:
-                self.chunks = []
-
-            def push_chunk(self, values, timestamps) -> None:
-                self.chunks.append((values, timestamps))
-
-        outlet = Outlet()
-        adapter._lsl_outlets = {"BANDS": outlet}
-        adapter._lsl_local_clock = lambda: 500.0
+        adapter._streams.open("bands", nominal_rate_hz=25.0)
         payload = {
             "channels": ["delta", "theta", "alpha", "beta", "gamma"],
             "samples": [[0.1, 0.2, 0.3, 0.25, 0.15], [0.2, 0.2, 0.2, 0.2, 0.2]],
@@ -345,8 +334,9 @@ class TimingAndLslTests(unittest.TestCase):
         with mock.patch.object(adapter.time, "time", return_value=1_780_000_000.040):
             adapter._mirror_line_to_lsl(f"BANDS_BATCH {json.dumps(payload)}")
 
-        self.assertEqual(outlet.chunks[0][0], payload["samples"])
-        self.assertAlmostEqual(outlet.chunks[0][1][-1], 500.0, places=6)
+        outlet = self.lsl.outlet("study_runner.brainbit.bands")
+        self.assertEqual(outlet.rows, payload["samples"])
+        self.assertAlmostEqual(outlet.timestamps[-1], 500.0, places=6)
 
 
 class HealthAndLoggingTests(unittest.TestCase):
@@ -534,13 +524,13 @@ class HealthAndLoggingTests(unittest.TestCase):
         self.assertIn("2 packet-counter", status["last_message"])
 
     def test_lsl_push_failure_is_visible_in_recording_health(self) -> None:
-        class BrokenOutlet:
-            def push_chunk(self, values, timestamps):
-                raise RuntimeError("outlet closed")
-
+        lsl = FakePylsl()
+        adapter._streams.use_backend(lsl)
+        self.addCleanup(adapter._streams.close)
+        adapter._streams.open("eeg")
+        lsl.outlet("study_runner.brainbit.eeg").fail = RuntimeError("outlet closed")
         adapter._config["lsl_enabled"] = True
         adapter._eeg_lsl_channels = ("O1", "O2", "T3", "T4")
-        adapter._lsl_outlets = {"EEG": BrokenOutlet()}
         payload = {
             "channels": ["O1", "O2", "T3", "T4"],
             "samples": [[1.0, 2.0, 3.0, 4.0]],

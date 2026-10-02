@@ -13,13 +13,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from study_runner.plugins.sensors.brainbit import adapter, brainbit_realtime_cli
 
+TESTS_ROOT = Path(__file__).resolve().parent
+if str(TESTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TESTS_ROOT))
 
-class FakeOutlet:
-    def __init__(self) -> None:
-        self.samples: list[list[float]] = []
-
-    def push_sample(self, values) -> None:
-        self.samples.append(list(values))
+from support.fake_lsl import FakePylsl  # noqa: E402
 
 
 class FakeProcess:
@@ -55,20 +53,21 @@ class BrainBitAdapterTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         adapter._auto_reconnect_active = False
-        adapter._lsl_outlets = {}
+        adapter._streams.close()
         adapter._routing_state["forward_to_lsl"] = False
         adapter._routing_state["forward_to_touchdesigner"] = False
         adapter._process = None
 
     def test_lsl_mirror_is_continuous_when_outlet_exists(self) -> None:
-        outlet = FakeOutlet()
-        adapter._lsl_outlets = {"EEG": outlet}
+        lsl = FakePylsl()
+        adapter._streams.use_backend(lsl)
+        adapter._streams.open("eeg")
         adapter._eeg_lsl_channels = ("O1", "O2", "T3", "T4")
         adapter._routing_state["forward_to_lsl"] = False
 
         adapter._mirror_line_to_lsl('EEG {"O1": 1, "O2": 2, "T3": 3, "T4": 4}')
 
-        self.assertEqual(outlet.samples, [[1.0, 2.0, 3.0, 4.0]])
+        self.assertEqual(lsl.outlet("study_runner.brainbit.eeg").rows, [[1.0, 2.0, 3.0, 4.0]])
 
     def test_quality_updates_contact_state_without_stale(self) -> None:
         adapter._update_state_from_line('QUALITY {"O1": 0.0, "O2": 0.18, "T3": 0.4, "T4": 0.3}')

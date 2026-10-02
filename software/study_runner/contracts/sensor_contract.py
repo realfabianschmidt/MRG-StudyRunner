@@ -272,11 +272,21 @@ def normalize_live_view(config: Any, streams: list[dict[str, Any]]) -> dict[str,
 # -------------------------------------------------------------- contract
 
 def validate_sensor_contract(capabilities: dict[str, dict[str, Any]], streams: list[dict[str, Any]]) -> None:
-    """Cross-checks for a recording sensor (manifest-level, after normalization)."""
+    """What every recording sensor must declare (manifest-level, after normalization).
+
+    A study sensor that records shows a live view and says, for every
+    stream, where its timestamps come from.
+    """
     if "study_sensor" not in capabilities or "recording_source" not in capabilities:
         return
+    if "live_view" not in capabilities:
+        raise SensorContractError("a recording study sensor must declare live_view (sensor data contract)")
     for stream in streams:
         timing = stream.get("timing") or {}
+        if timing.get("timestamp_source") not in TIMESTAMP_SOURCES:
+            raise SensorContractError(
+                f"stream {stream['key']!r} must declare timing.timestamp_source (sensor data contract)"
+            )
         if timing.get("timestamp_source") == "host_arrival_corrected" and stream.get("channel_format") == "string":
             raise SensorContractError(
                 f"stream {stream['key']!r}: a corrected timestamp needs a numeric correction channel"

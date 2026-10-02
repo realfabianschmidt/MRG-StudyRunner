@@ -1,75 +1,10 @@
 /** Optional trusted dashboard renderer for the BrainBit plugin. */
 /**
- * Mental-index series get an explanation in the graph's (i) (Instant vs.
- * Relative isn't self-evident); band-power series (delta/theta/...) don't.
- */
-const MENTAL_HELP_KEYS = {
-  Inst_Attention: ['brainbitMentalInstAttention', "Instant attention: the SDK attention index for the current analysis window. This preview updates at most once per second."],
-  Inst_Relaxation: ['brainbitMentalInstRelaxation', "Instant relaxation: the SDK relaxation index for the current analysis window. This preview updates at most once per second."],
-  Rel_Attention: ['brainbitMentalRelAttention', "Relative attention: the SDK attention index relative to calibration. An algorithmic index, not a direct measurement of attention."],
-  Rel_Relaxation: ['brainbitMentalRelRelaxation', "Relative relaxation: the SDK relaxation index relative to calibration. An algorithmic index, not a direct measurement of relaxation."],
-};
-
-// Scale against the whole visible window so older peaks remain accurate.
-const HEADROOM_FACTOR = 1.15;
-const MIN_DISPLAY_MAX = 0.05;
-
-function computeDisplayMax(points, end, names) {
-  let recentMax = 0;
-  for (const point of points) {
-    if (point.at < end - 60 || point.at > end || point.validity !== 'valid') continue;
-    for (const name of names) {
-      const value = point.values?.[name];
-      if (Number.isFinite(value) && value > recentMax) recentMax = value;
-    }
-  }
-  return Math.max(MIN_DISPLAY_MAX, Math.ceil(recentMax * HEADROOM_FACTOR / MIN_DISPLAY_MAX) * MIN_DISPLAY_MAX);
-}
-
-export function renderTrend(kind, plugin, ui, now = Date.now() / 1000) {
-  const names = kind === 'bands' ? ['delta', 'theta', 'alpha', 'beta', 'gamma']
-    : ['Inst_Attention', 'Inst_Relaxation', 'Rel_Attention', 'Rel_Relaxation'];
-  const colors = ['#2166ac', '#b2182b', '#008060', '#7950a3', '#936000'];
-  const points = (plugin.preview?.[kind] || []).filter((p) => p.connection_id === plugin.connection_id);
-  const last = points.at(-1);
-  const end = last ? last.at + Math.max(0, now - last.received_at) : now;
-  const title = ui.t(`brainbit.monitor.${kind}`, kind === 'bands' ? 'Band power' : 'SDK attention / relaxation indices');
-  const displayMax = computeDisplayMax(points, end, names);
-  const paths = names.map((name, index) => {
-    let d = '', previous = null;
-    for (const point of points) {
-      const value = point.values?.[name];
-      if (point.at < end - 60 || point.at > end || point.validity !== 'valid' || !Number.isFinite(value) || value < 0) { previous = null; continue; }
-      const x = 32 + (point.at - (end - 60)) / 60 * 306;
-      const y = 110 - value / displayMax * 92;
-      d += `${previous !== null && point.at - previous < 1.6 ? 'L' : 'M'}${x.toFixed(2)},${y.toFixed(2)} `;
-      previous = point.at;
-    }
-    return `<path d="${d}" fill="none" stroke="${colors[index]}" stroke-width="2" stroke-dasharray="${index % 2 ? '5 2' : 'none'}" />`;
-  }).join('');
-  const legend = names
-    .map((name, index) => `<span style="color:${colors[index]}">${ui.escapeHtml(ui.t(`brainbit.channel.${name}`, name))}</span>`)
-    .join(' · ');
-  // Everything explanatory goes into the (i): what the indices mean, how the
-  // preview works and how old the newest point is.
-  const info = [
-    ...names.filter((name) => MENTAL_HELP_KEYS[name])
-      .map((name) => ui.t(`dashboard.help.${MENTAL_HELP_KEYS[name][0]}`, MENTAL_HELP_KEYS[name][1])),
-    ui.t('brainbit.monitor.previewNote', "60-second preview, at most 1 Hz. The scale follows the visible values; gaps indicate unavailable or uncertain data."),
-    last ? `${ui.t('brainbit.monitor.age', 'Age')}: ${Math.max(0, now - last.received_at).toFixed(0)} s` : '',
-  ].filter(Boolean).join('\n');
-  const svg = `<svg viewBox="0 0 360 140" width="100%" role="img" aria-label="${ui.escapeHtml(title)}">
-      <path d="M32 18V110H338" fill="none" stroke="currentColor" opacity=".4" />
-      <g fill="currentColor" font-size="10"><text x="2" y="22">${Math.round(displayMax * 100)}%</text><text x="12" y="114">0%</text>
-      <text x="32" y="130">−60 s</text><text x="318" y="130">0 s</text></g>${paths}</svg>`;
-  return ui.graphSection({ title, svg, legend, info });
-}
-
-/**
  * Connection, electrode contact, calibration, the switch and the guided
  * buttons are drawn by the shared connection panel for every sensor
  * (apps/ui/scripts/admin/sensor-connection-panel.js). This tile adds only
- * what is specific to BrainBit: notes, the two previews and the details.
+ * what is specific to BrainBit: notes and the details. The band-power and
+ * index graphs are the core's live view (manifest live_view).
  */
 export function renderDashboard({ plugin: brainbit, manifest }, ui) {
   const latest = brainbit.latest || {};
@@ -89,8 +24,6 @@ export function renderDashboard({ plugin: brainbit, manifest }, ui) {
 
   return `
     ${notes ? `<p class="status-muted" role="status">${notes}</p>` : ''}
-    ${renderTrend('bands', brainbit, ui)}
-    ${renderTrend('mental', brainbit, ui)}
     <details><summary>${ui.escapeHtml(ui.t('brainbit.monitor.details', 'Acquisition details'))}</summary>
     <dl class="status-list">
       <dt>${ui.fieldLabel('scanWindow', 'Scan window')}</dt><dd>${ui.formatValue(brainbit.scan_timeout_seconds, ' s')}</dd>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import struct
 import math
 from pathlib import Path
 import sys
@@ -13,7 +14,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.plugins.sensors.mr60_mini_radar import adapter
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from support.fake_lsl import FakePylsl  # noqa: E402
+from study_runner.plugins.sensors.mr60_mini_radar import adapter  # noqa: E402
 
 
 class MR60BleDecoderTests(unittest.TestCase):
@@ -89,7 +94,7 @@ def _reset_adapter() -> None:
     adapter._generation = 0
     adapter._reader_thread = None
     adapter._serial_connection = None
-    adapter._lsl_outlets = {}
+    adapter._streams.use_backend(FakePylsl())
     adapter._history.clear()
     adapter._stop_event.clear()
     adapter._latest_state = {"status": "not_configured", "latest": {}, "last_message": ""}
@@ -187,29 +192,49 @@ class MR60RecordingTests(unittest.TestCase):
         _reset_adapter()
         self.addCleanup(_reset_adapter)
 
-    def test_a_missing_value_reaches_lsl_as_nan_never_as_zero(self) -> None:
-        pushed: dict[str, list] = {}
-
-        class Outlet:
-            def __init__(self, key: str) -> None:
-                self.key = key
-
-            def push_sample(self, values) -> None:
-                pushed[self.key] = values
-
-        adapter._lsl_outlets = {"VITALS": Outlet("VITALS"), "PHASES": Outlet("PHASES")}
+    def _open(self) -> FakePylsl:
+        lsl = FakePylsl(clock=500.0)
+        adapter._streams.use_backend(lsl)
         adapter._config = {"lsl_enabled": True}
-        adapter.ingest_sample({"heartRate": 70, "breathRate": None})
-        self.assertEqual(pushed["VITALS"][0], 70.0)
-        self.assertTrue(math.isnan(pushed["VITALS"][1]))
-        self.assertTrue(all(math.isnan(value) for value in pushed["PHASES"]))
+        self.assertTrue(adapter._streams.open_all())
+        return lsl
 
-    def test_lsl_channels_match_the_manifest(self) -> None:
+    def _rows(self, lsl: FakePylsl, key: str) -> list[dict]:
+        contract = adapter.STREAM_CONTRACTS[key]
+        return [dict(zip(contract["channels"], row)) for row in lsl.outlet(contract["source_id"]).rows]
+
+    def test_a_missing_value_reaches_lsl_as_nan_never_as_zero(self) -> None:
+        lsl = self._open()
+        adapter.ingest_sample({"heartRate": 70, "breathRate": None})
+        vitals = self._rows(lsl, "vitals")[0]
+        self.assertEqual(vitals["heartRate"], 70.0)
+        self.assertTrue(math.isnan(vitals["breathRate"]))
+        phases = self._rows(lsl, "phases")[0]
+        self.assertTrue(all(math.isnan(phases[name]) for name in ("heartPhase", "breathPhase", "totalPhase")))
+
+    def test_a_ble_packet_records_its_flags_counter_and_device_clock_at_arrival(self) -> None:
+        lsl = self._open()
+        packet = struct.pack("<BBHIhhhhhh", 1, 0x07, 42, 123456, 721, 155, 1234, 10, 20, 30)
+        lsl.clock = 777.5
+        adapter._handle_ble_notification(None, bytearray(packet))
+        vitals = self._rows(lsl, "vitals")[0]
+        self.assertEqual((vitals["flags"], vitals["seq"], vitals["device_ms"]), (7.0, 42.0, 123456.0))
+        self.assertEqual(vitals["distance"], 123.4)  # centimetres, as the firmware sends them
+        phases = self._rows(lsl, "phases")[0]
+        self.assertEqual((phases["seq"], phases["device_ms"]), (42.0, 123456.0))
+        stamps = lsl.outlet("study_runner.mr60.vitals").timestamps
+        self.assertEqual(stamps, [777.5])
+
+    def test_the_streams_follow_the_manifest_and_the_contract(self) -> None:
+        vitals = adapter.STREAM_CONTRACTS["vitals"]
+        self.assertEqual(vitals["channel_format"], "double64")  # u32 millis and u16 counters stay exact
+        self.assertEqual(vitals["channel_units"][vitals["channels"].index("distance")], "centimetre")
+        self.assertEqual(vitals["sequence_channel"], "seq")
+        self.assertEqual(vitals["timing"]["timestamp_source"], "host_arrival")
         manifest = json.loads((Path(adapter.__file__).parent / "manifest.json").read_text(encoding="utf-8"))
-        for stream in manifest["streams"]:
-            with self.subTest(stream=stream["key"]):
-                self.assertEqual(tuple(stream["channel_units"]), adapter.LSL_CHANNEL_UNITS[stream["key"]])
-                self.assertEqual(stream["source_id"], adapter.LSL_SOURCE_IDS[stream["key"]])
+        outputs = [channel["output"] for channel in manifest["capabilities"]["backup_projection"]["channels"]]
+        self.assertIn("distance_cm", outputs)
+        self.assertNotIn("distance_m", outputs)
 
     def test_interval_summary_reports_losses_inside_the_window(self) -> None:
         for epoch, dropped in ((10.0, 2), (11.0, 3), (12.0, 7)):

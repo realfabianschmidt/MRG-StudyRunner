@@ -390,6 +390,11 @@ class SensorStreams:
             health.last_push_epoch = time.time()
             return rows, list(entry.contract["channels"])
 
+    def last_error(self, key: str) -> str:
+        """The last publication error of one stream ("" when none since the last reset)."""
+        with self._lock:
+            return self._health[self._key(key)].last_error
+
     def reject(self, key: str, reason: str) -> None:
         """Count a sample the adapter refused to publish (not a failure)."""
         with self._lock:

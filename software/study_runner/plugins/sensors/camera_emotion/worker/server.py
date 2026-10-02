@@ -5,7 +5,10 @@ Run on Windows, macOS, or Linux alongside Study Runner. The tablet study page se
 selfie-camera frames to Study Runner, and Study Runner forwards enabled frames here.
 
 Usage:
-    python server.py [--port 3001] [--lsl] [--lsl-stream CameraEmotion]
+    python server.py [--port 3001]
+
+Study Runner publishes the results to LSL itself (sensor data contract); the
+worker only analyses.
 
 Endpoints:
     GET  /status         Health check, returns {"ready": true, "worker_mode": "local_worker"}
@@ -55,14 +58,11 @@ MODEL_STATE = {
 }
 
 
-def create_app(lsl: bool = False, lsl_stream: str = "CameraEmotion") -> Flask:
+def create_app() -> Flask:
     try:
-        from .analyzer import analyze_frame, init_lsl
+        from .analyzer import analyze_frame
     except ImportError:
-        from analyzer import analyze_frame, init_lsl
-
-    if lsl:
-        init_lsl(stream_name=lsl_stream)
+        from analyzer import analyze_frame
 
     app = Flask(__name__)
 
@@ -72,8 +72,6 @@ def create_app(lsl: bool = False, lsl_stream: str = "CameraEmotion") -> Flask:
         return jsonify({
             "ready": True,
             "worker_mode": "local_worker",
-            "lsl_enabled": lsl,
-            "lsl_stream": lsl_stream if lsl else None,
             "model_checked": bool(MODEL_STATE.get("model_checked")),
             "model_ready": bool(MODEL_STATE.get("model_ready")),
             "model_error": model_error,
@@ -107,18 +105,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="MRG Study Runner - local Emotion Worker")
     parser.add_argument("--port", type=int, default=3001, help="Port to listen on (default: 3001)")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
-    parser.add_argument("--lsl", action="store_true", help="Publish emotion scores as LSL stream")
-    parser.add_argument("--lsl-stream", default="CameraEmotion", help="LSL stream name (default: CameraEmotion)")
     args = parser.parse_args(argv)
 
     print(f"[EmotionWorker] Starting on {args.host}:{args.port}")
-    print(f"[EmotionWorker] LSL: {'enabled - stream: ' + args.lsl_stream if args.lsl else 'disabled'}")
     print(f"[EmotionWorker] Study Runner should forward frames to: http://{args.host}:{args.port}/analyze")
 
     _prepare_deepface_runtime()
     _warmup_deepface()
 
-    app = create_app(lsl=args.lsl, lsl_stream=args.lsl_stream)
+    app = create_app()
     app.run(host=args.host, port=args.port, threaded=True)
     return 0
 

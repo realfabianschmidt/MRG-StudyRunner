@@ -7,40 +7,12 @@ analysis dict compatible with camera_affect_adapter's expected shape.
 from __future__ import annotations
 
 import base64
-import threading
 from typing import Any
 
 import cv2
 import numpy as np
 
 _EMOTIONS = ("angry", "disgust", "fear", "happy", "sad", "surprise", "neutral", "unknown")
-
-_lsl_outlet: Any = None
-_lsl_lock = threading.Lock()
-
-
-def init_lsl(stream_name: str = "CameraEmotion") -> None:
-    """Create an LSL outlet for emotion scores."""
-    global _lsl_outlet
-    try:
-        from pylsl import StreamInfo, StreamOutlet
-        info = StreamInfo(
-            name=stream_name,
-            type="CameraEmotion",
-            channel_count=len(_EMOTIONS) + 2,
-            nominal_srate=0,
-            channel_format="float32",
-            source_id="emotion_worker",
-        )
-        channels = info.desc().append_child("channels")
-        for label in (*_EMOTIONS, "confidence", "face_detected"):
-            channel = channels.append_child("channel")
-            channel.append_child_value("label", label)
-        _lsl_outlet = StreamOutlet(info)
-        print(f"[EmotionWorker] LSL outlet '{stream_name}' ready")
-    except Exception as exc:
-        print(f"[EmotionWorker] LSL init failed: {exc}")
-
 
 def analyze_frame(payload: dict[str, Any]) -> dict[str, Any]:
     """Decode JPEG from payload, run DeepFace, and return an analysis dict."""
@@ -95,7 +67,6 @@ def analyze_frame(payload: dict[str, Any]) -> dict[str, Any]:
         } if region else {},
     }
 
-    _push_lsl(analysis)
     return analysis
 
 
@@ -124,17 +95,3 @@ def _empty_result(reason: str) -> dict[str, Any]:
         "overlay": {},
         "error": reason,
     }
-
-
-def _push_lsl(result: dict[str, Any]) -> None:
-    with _lsl_lock:
-        if _lsl_outlet is None:
-            return
-    scores = result.get("scores", {})
-    sample = [float(scores.get(name, 0.0)) for name in _EMOTIONS]
-    sample.append(float(result.get("confidence", 0.0)))
-    sample.append(1.0 if result.get("face_detected") else 0.0)
-    try:
-        _lsl_outlet.push_sample(sample)
-    except Exception as exc:
-        print(f"[EmotionWorker] LSL push failed: {exc}")

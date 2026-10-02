@@ -14,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from study_runner.plugins.sensors.brainbit import adapter, brainbit_realtime_cli as cli
 from study_runner.plugin_framework import driver_runtime
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from support.fake_lsl import FakePylsl  # noqa: E402
+
 
 def acquisition_lines(*, init_failure=False, processing_failure=False, packets=(1,2,3,4)):
     captured = io.StringIO()
@@ -78,14 +81,20 @@ class StreamingTests(unittest.TestCase):
 
     def test_sdk_values_and_timestamps_survive_adapter_publication(self):
         lines = acquisition_lines()
-        outlet = Mock()
-        with patch.object(adapter, '_lsl_outlets', {'EEG':outlet}), patch.object(adapter, '_lsl_epoch_offset', -1_700_000_000), patch.object(adapter, '_lsl_local_clock', return_value=1), patch.object(adapter, '_eeg_lsl_channels', cli.EEG_CHANNELS), patch.object(adapter, '_set_state'):
-            for tag,payload in lines:
-                if tag == 'EEG_BATCH':
-                    adapter._mirror_line_to_lsl(tag + ' ' + json.dumps(payload))
-        rows = [row for call in outlet.push_chunk.call_args_list for row in call.args[0]]
+        lsl = FakePylsl(clock=1.0)
+        adapter._streams.use_backend(lsl)
+        adapter._streams.open('eeg', channels=list(cli.EEG_CHANNELS), channel_units=['microvolt'] * len(cli.EEG_CHANNELS))
+        try:
+            with patch.object(adapter, '_lsl_epoch_offset', -1_700_000_000), patch.object(adapter, '_eeg_lsl_channels', cli.EEG_CHANNELS), patch.object(adapter, '_set_state'):
+                for tag,payload in lines:
+                    if tag == 'EEG_BATCH':
+                        adapter._mirror_line_to_lsl(tag + ' ' + json.dumps(payload))
+        finally:
+            adapter._streams.close()
+        outlet = lsl.outlet('study_runner.brainbit.eeg')
+        rows = outlet.rows
         self.assertEqual(rows, [[1.,2.,3.,4.]] * 4)
-        stamps = [ts for call in outlet.push_chunk.call_args_list for ts in call.args[1]]
+        stamps = outlet.timestamps
         self.assertAlmostEqual(stamps[-1] - stamps[0], .012, places=6)
         self.assertTrue(any(tag == 'BANDS_BATCH' and value['validity'] == 'valid' for tag,value in lines))
 

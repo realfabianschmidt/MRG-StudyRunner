@@ -12,6 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from study_runner.plugins.sensors.brainbit import adapter, brainbit_realtime_cli as cli, plugin
 from study_runner.plugins.sensors.brainbit.monitor import BrainBitMonitor
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from support.fake_lsl import FakePylsl  # noqa: E402
+
 
 class MonitorTests(unittest.TestCase):
     def test_reconnect_clears_values_and_has_a_new_identity(self):
@@ -24,7 +27,8 @@ class MonitorTests(unittest.TestCase):
         self.assertNotIn('QUALITY', monitor.snapshot()['diagnostic_state'])
         monitor.observe('CONNECTING', {})
         self.assertNotEqual(first, monitor.connection_id)
-        self.assertEqual(monitor.snapshot()['preview']['bands'], [])
+        # The graphs are the core's live view; the monitor keeps none of its own.
+        self.assertNotIn('preview', monitor.snapshot())
 
     def test_battery_hysteresis_and_expiry(self):
         monitor = BrainBitMonitor()
@@ -34,15 +38,31 @@ class MonitorTests(unittest.TestCase):
         self.assertTrue(monitor.snapshot(now=221)['battery_stale'])
         self.assertFalse(monitor.snapshot(now=221)['low_battery'])
 
-    def test_preview_is_bounded_and_retains_short_invalid_intervals(self):
-        monitor = BrainBitMonitor()
-        for second in range(100):
-            monitor.observe('BANDS_BATCH', {'timestamps': [second], 'samples': [[0.2]],
-                            'channels': ['alpha'], 'validity': 'valid'})
-        self.assertEqual(len(monitor.snapshot()['preview']['bands']), 60)
-        monitor.observe('BANDS_BATCH', {'timestamps': [99.1], 'samples': [[0.2]],
-                        'channels': ['alpha'], 'validity': 'uncertain'})
-        self.assertEqual(monitor.snapshot()['preview']['bands'][-1]['validity'], 'uncertain')
+    def test_band_power_reaches_the_live_view_with_its_validity(self):
+        lsl = FakePylsl(clock=500.0)
+        adapter._streams.use_backend(lsl)
+        adapter._streams.reset()
+        clock = [100.2]
+        original_clock = adapter._streams._live._clock
+        adapter._streams._live._clock = lambda: clock[0]
+        try:
+            adapter._streams.open('bands', nominal_rate_hz=25.0)
+            payload = {'channels': ['delta', 'theta', 'alpha', 'beta', 'gamma'], 'samples': [[0.1, 0.2, 0.3, 0.25, 0.15]],
+                       'timestamps': [1_780_000_000.0], 'sample_count': 1, 'validity': 'uncertain'}
+            with patch.object(adapter, '_lsl_epoch_offset', None), patch.object(adapter.time, 'time', return_value=1_780_000_000.04):
+                adapter._mirror_line_to_lsl('BANDS_BATCH ' + json.dumps(payload))
+            clock[0] = 100.6
+            bands = adapter._streams.status_blocks()['live']['series']['bands']
+            self.assertEqual(bands['channels']['alpha'][-1], 0.3)
+            self.assertIs(bands['valid'][-1], False)
+            # A calibration breaks the current point of the derived graphs.
+            adapter._mirror_line_to_lsl('CALIB {"event": "START"}')
+            clock[0] = 101.1
+            self.assertIs(adapter._streams.status_blocks()['live']['series']['mental']['valid'][-1], False)
+        finally:
+            adapter._streams._live._clock = original_clock
+            adapter._streams.close()
+            adapter._streams.reset()
 
     def test_multiple_devices_require_selection_and_index_is_ignored(self):
         bands = [SimpleNamespace(Name='BrainBit', SerialNumber=s, Address=s) for s in ('A', 'B')]
@@ -62,10 +82,15 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(events[-1]['gap_before'], 1)
 
     def test_stable_lsl_mapping_survives_wall_clock_jump(self):
-        with patch.object(adapter, '_lsl_epoch_offset', None), patch.object(adapter, '_lsl_local_clock', return_value=100), patch.object(adapter.time, 'time', return_value=1_800_000_000):
-            first = adapter._epoch_timestamps_to_lsl([1_800_000_000])[0]
-            with patch.object(adapter.time, 'time', return_value=1_900_000_000):
-                second = adapter._epoch_timestamps_to_lsl([1_800_000_000.004])[0]
+        adapter._streams.use_backend(FakePylsl(clock=100.0))
+        adapter._streams.open('diagnostics')
+        try:
+            with patch.object(adapter, '_lsl_epoch_offset', None), patch.object(adapter.time, 'time', return_value=1_800_000_000):
+                first = adapter._epoch_timestamps_to_lsl([1_800_000_000])[0]
+                with patch.object(adapter.time, 'time', return_value=1_900_000_000):
+                    second = adapter._epoch_timestamps_to_lsl([1_800_000_000.004])[0]
+        finally:
+            adapter._streams.close()
         self.assertAlmostEqual(second - first, .004, places=6)
 
     def test_recovery_clears_error_keys_and_previous_samples(self):
@@ -77,12 +102,17 @@ class MonitorTests(unittest.TestCase):
             self.assertIsNone(adapter._latest_state['bands'])
 
     def test_diagnostic_transitions_are_not_throttled(self):
-        outlet = Mock()
-        with patch.object(adapter, '_lsl_outlets', {'DIAGNOSTICS':outlet}), patch.object(adapter, '_lsl_local_clock', return_value=10), patch.object(adapter, '_last_diagnostic_snapshot', float('inf')):
-            adapter._mirror_line_to_lsl('ARTIFACT {"both_now":1}')
-            adapter._mirror_line_to_lsl('ARTIFACT {"both_now":0}')
-        self.assertEqual(outlet.push_sample.call_count, 2)
-        self.assertEqual([json.loads(call.args[0][0])['payload']['both_now'] for call in outlet.push_sample.call_args_list], [1,0])
+        lsl = FakePylsl(clock=10.0)
+        adapter._streams.use_backend(lsl)
+        adapter._streams.open('diagnostics')
+        try:
+            with patch.object(adapter, '_last_diagnostic_snapshot', float('inf')):
+                adapter._mirror_line_to_lsl('ARTIFACT {"both_now":1}')
+                adapter._mirror_line_to_lsl('ARTIFACT {"both_now":0}')
+        finally:
+            adapter._streams.close()
+        events = [json.loads(row[0]) for row in lsl.outlet('study_runner.brainbit.diagnostics').rows]
+        self.assertEqual([event['payload']['both_now'] for event in events if event['event'] == 'ARTIFACT'], [1, 0])
 
     def test_windows_console_interrupt_is_not_an_access_violation(self):
         self.assertEqual(adapter._exit_reason(3221225786)['detail_key'], 'brainbit.error.consoleInterrupted')
@@ -95,10 +125,8 @@ class MonitorTests(unittest.TestCase):
             with patch.object(adapter, '_config', {}), patch.object(adapter, '_process', None), patch.object(adapter, '_set_state'), patch.object(adapter, '_registered_shutdown', True), patch.object(adapter, 'start') as start, patch.object(adapter, 'stop') as stop, patch.object(adapter, '_initialize_lsl_outlets') as lsl, patch.object(adapter, '_initialize_touchdesigner_client'):
                 options = dict(script_path=str(script), lsl_enabled=True)
                 adapter.initialize(**options)
-                outlet = object()
-                with patch.object(adapter, '_process', SimpleNamespace(poll=lambda:None)), patch.object(adapter, '_lsl_outlets', {'EEG':outlet}):
+                with patch.object(adapter, '_process', SimpleNamespace(poll=lambda:None)):
                     adapter.initialize(**options)
-                    self.assertIs(adapter._lsl_outlets['EEG'], outlet)
                 self.assertEqual(lsl.call_count, 1)
                 self.assertEqual(start.call_count, 1)
                 stop.assert_not_called()

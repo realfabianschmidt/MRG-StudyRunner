@@ -6,9 +6,8 @@ Backup: the manifest's ``backup_projection`` at the core's fixed 1 Hz.
 Live: the manifest's ``live_view`` series (2 Hz, 60 s), fed by the same pushes.
 Every stream says where its timestamps come from.
 
-A sensor not yet on the contract is listed in NOT_YET_ON_CONTRACT. The list
-may only shrink: a listed plugin that already passes fails this test until it
-is removed (the same ratchet as test_import_boundaries.py).
+Manifest validation itself rejects a recording sensor without a live view or
+without a timestamp source; this test also holds the code to the contract.
 """
 from __future__ import annotations
 
@@ -30,7 +29,7 @@ for root in (PROJECT_ROOT, SOFTWARE_ROOT):
 
 from tools import plugin_sdk as sdk  # noqa: E402
 
-from study_runner.contracts.manifest import validate_and_normalize_manifest  # noqa: E402
+from study_runner.contracts.manifest import PluginManifestError, validate_and_normalize_manifest  # noqa: E402
 from study_runner.contracts.sensor_contract import (  # noqa: E402
     BACKUP_PROJECTION_RATE_HZ,
     DEFAULT_BACKUP_STALE_AFTER_MS,
@@ -39,7 +38,6 @@ from study_runner.contracts.sensor_contract import (  # noqa: E402
 
 SENSORS_ROOT = SOFTWARE_ROOT / "study_runner" / "plugins" / "sensors"
 TEMPLATE = sdk.TEMPLATES_DIR / "sensors"
-NOT_YET_ON_CONTRACT = {"brainbit", "camera_emotion", "mr60_mini_radar"}
 # Names only the shared publishing path may use.
 FORBIDDEN_NAMES = {"StreamOutlet", "StreamInfo"}
 FORBIDDEN_CALLS = {"push_sample"}
@@ -99,22 +97,22 @@ def _publishing_problems(folder: Path) -> list[str]:
 
 class SensorDataContractTests(unittest.TestCase):
     def test_every_sensor_plugin_follows_the_contract(self) -> None:
-        for folder in _sensor_folders():
-            if folder.name in NOT_YET_ON_CONTRACT:
-                continue
+        folders = _sensor_folders()
+        self.assertGreaterEqual(len(folders), 4, "sensor discovery appears to be broken")
+        for folder in folders:
             with self.subTest(plugin=folder.name):
                 self.assertEqual(_contract_problems(folder), [])
 
-    def test_the_not_yet_list_only_names_plugins_that_still_need_it(self) -> None:
-        folders = {folder.name for folder in _sensor_folders()}
-        self.assertLessEqual(NOT_YET_ON_CONTRACT, folders, "remove plugins that no longer exist")
-        for name in sorted(NOT_YET_ON_CONTRACT):
-            with self.subTest(plugin=name):
-                self.assertNotEqual(
-                    _contract_problems(SENSORS_ROOT / name),
-                    [],
-                    f"{name} follows the contract now: remove it from NOT_YET_ON_CONTRACT",
-                )
+    def test_manifest_validation_requires_the_contract(self) -> None:
+        raw = json.loads((TEMPLATE / "manifest.json").read_text(encoding="utf-8"))
+        without_live = json.loads(json.dumps(raw))
+        del without_live["capabilities"]["live_view"]
+        with self.assertRaisesRegex(PluginManifestError, "live_view"):
+            validate_and_normalize_manifest(without_live, directory_name="example_sensor")
+        without_source = json.loads(json.dumps(raw))
+        del without_source["streams"][0]["timing"]
+        with self.assertRaisesRegex(PluginManifestError, "timestamp_source"):
+            validate_and_normalize_manifest(without_source, directory_name="example_sensor")
 
     def test_the_sensor_template_follows_the_contract(self) -> None:
         self.assertEqual(_contract_problems(TEMPLATE), [])

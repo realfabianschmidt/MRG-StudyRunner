@@ -54,7 +54,12 @@ Python modules directly — it only ever starts `driver.py` as a subprocess
 - `plugin.py` — the single public plugin: config, lifecycle, participant
   actions, and admin actions (`repair_runtime`, `install_dependencies`).
 - `adapter.py` — accepts tablet camera frames and publishes the stable LSL
-  streams.
+  streams `CameraEmotion` and `CameraFaceQuality` through the shared
+  `SensorStreams` (sensor data contract). A frame's timestamp is its arrival
+  time here, dated back to the tablet's capture time (`source_epoch_ms`) when
+  that is 0-60 s earlier; `correction_ms` records how far, so the arrival
+  time can always be rebuilt. The dashboard draws live graphs of the emotion
+  scores and the face detection; the worker itself publishes nothing.
 - `worker/` — the internal DeepFace analysis process (`server.py`), its
   supervisor (`worker/plugin.py`), the per-frame analyzer
   (`worker/analyzer.py`), and shared error classification

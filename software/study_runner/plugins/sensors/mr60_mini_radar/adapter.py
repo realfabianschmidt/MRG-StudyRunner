@@ -1,8 +1,13 @@
 ﻿"""
-Mini-radar adapter for pulse and breathing values.
+Mini-radar adapter for pulse and breathing values (sensor data contract).
 
 The adapter can read sensor-near values either from a serial/USB JSON stream or
-from the ESP32C6 BLE notification packet used by the MR60BHA2 firmware.
+from the ESP32C6 BLE notification packet used by the MR60BHA2 firmware. Every
+sample becomes one sample in ``vitals`` and one in ``phases``, published
+through the shared ``SensorStreams`` and stamped with its arrival time here.
+What the board sends about itself -- its flags, its packet counter (``seq``)
+and its own millisecond clock (``device_ms``) -- is recorded too, so losses
+and the board's timing can be checked in the XDF.
 """
 from __future__ import annotations
 
@@ -10,7 +15,6 @@ import atexit
 import asyncio
 import contextlib
 import json
-import math
 import struct
 import threading
 import time
@@ -21,8 +25,8 @@ from typing import Any
 from study_runner.plugin_framework.adapter_utils import set_state, timestamp
 from study_runner.shared.dependency_utils import ensure_requirements
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
-from study_runner.contracts.stream_contract import apply_stream_contract_desc, load_own_stream_contracts
 from study_runner.plugin_framework.sensor_connection import presence_sensor_connection
+from study_runner.plugin_framework.sensor_streams import SensorStreams
 
 
 BLE_SERVICE_UUID = "9d6f0001-7d2a-4c6b-9f4e-5c2b1f4a6e10"
@@ -30,19 +34,9 @@ BLE_CHARACTERISTIC_UUID = "9d6f0002-7d2a-4c6b-9f4e-5c2b1f4a6e10"
 BLE_DEVICE_NAME = "MR60_BLE"
 BLE_PACKET = struct.Struct("<BBHIhhhhhh")
 MISSING_INT16 = -32768
-LSL_SOURCE_IDS = {
-    "vitals": "study_runner.mr60.vitals",
-    "phases": "study_runner.mr60.phases",
-}
-LSL_CHANNEL_UNITS = {
-    "vitals": ("beats_per_minute", "breaths_per_minute", "arbitrary_unit", "metre"),
-    "phases": ("radian", "radian", "radian"),
-}
-# Package 5d (docs/archive/architecture-1.0-umbau.md): this plugin's own frozen
-# stream contract, for the desc/study_runner XDF header block only -- the
-# LSL_SOURCE_IDS/LSL_CHANNEL_UNITS constants above remain the source of
-# truth for outlet creation itself, unchanged.
-STREAM_CONTRACTS = load_own_stream_contracts(__file__)
+# Streams, channels and units come from manifest.json only.
+_streams = SensorStreams.for_plugin(__file__)
+STREAM_CONTRACTS = _streams.declared_contracts()
 
 _lock = threading.Lock()
 _state_lock = threading.Lock()
@@ -56,7 +50,6 @@ _generation = 0
 _stop_event = threading.Event()
 _recording_enabled = False
 _registered_shutdown = False
-_lsl_outlets: dict[str, Any] = {}
 # Radar reports at ~10 Hz; sized to hold a full study session.
 _history: deque[dict[str, Any]] = deque(maxlen=history_maxlen(10.0))
 _latest_state: dict[str, Any] = {
@@ -128,8 +121,9 @@ def initialize(
         }
     )
 
+    _streams.configure(name_prefix=lsl_stream_prefix, auto_install=bool(lsl_auto_install))
     if _config["enabled"] and _config["lsl_enabled"]:
-        _initialize_lsl_outlets()
+        _streams.open_all()
 
     if not _registered_shutdown:
         atexit.register(stop)
@@ -224,8 +218,14 @@ def set_auto_reconnect(enabled: bool) -> None:
         _config["auto_reconnect"] = bool(enabled)
 
 
-def ingest_sample(payload: dict[str, Any], *, source: str = "manual") -> dict[str, Any]:
-    """Ingest one radar sample from serial parsing, BLE parsing, or a direct API path."""
+def ingest_sample(payload: dict[str, Any], *, source: str = "manual", arrival: float | None = None) -> dict[str, Any]:
+    """Ingest one radar sample from serial parsing, BLE parsing, or a direct API path.
+
+    ``arrival`` is the LSL time the bytes arrived, taken by the reader before
+    any parsing; without it the sample is stamped now.
+    """
+    if arrival is None:
+        arrival = _streams.now()
     sample = _normalize_sample(payload)
     sample["source"] = source
     sample["connection_type"] = _connection_type()
@@ -243,7 +243,7 @@ def ingest_sample(payload: dict[str, Any], *, source: str = "manual") -> dict[st
         }
     )
     if _config.get("lsl_enabled"):
-        _push_lsl_sample(sample)
+        _publish(sample, arrival)
     return sample
 
 
@@ -272,7 +272,7 @@ def get_status() -> dict[str, Any]:
     status["connection_type"] = _connection_type()
     status["port"] = _config.get("port", "")
     status["ble_device_name"] = _config.get("ble_device_name", BLE_DEVICE_NAME)
-    status["streams"] = list(_lsl_outlets.keys())
+    status["streams"] = [contract["key"] for contract in _streams.contracts()]
     status["scan_timeout_seconds"] = _config.get("ble_scan_timeout_seconds")
     status["auto_reconnect"] = bool(_config.get("auto_reconnect", True))
     if last_activity:
@@ -365,6 +365,7 @@ def _read_loop(generation: int) -> None:
 
         try:
             raw_line = _serial_connection.readline()
+            arrival = _streams.now()
         except Exception as error:
             _set_state({"status": "failed", "last_message": f"Mini-radar read failed: {error}"})
             _close_serial_connection()
@@ -388,7 +389,7 @@ def _read_loop(generation: int) -> None:
             _set_state({"last_message": f"Mini-radar line ignored: {line[:120]}"})
             continue
 
-        ingest_sample(payload, source="serial")
+        ingest_sample(payload, source="serial", arrival=arrival)
 
     with _lock:
         if generation == _generation:
@@ -513,10 +514,11 @@ async def _ble_delay(seconds: float, generation: int) -> None:
 
 
 def _handle_ble_notification(_: Any, data: bytearray) -> None:
+    arrival = _streams.now()
     payload = _decode_ble_packet(bytes(data))
     if payload is None:
         return
-    ingest_sample(payload, source="ble")
+    ingest_sample(payload, source="ble", arrival=arrival)
 
 
 def _decode_ble_packet(data: bytes) -> dict[str, Any] | None:
@@ -668,68 +670,15 @@ def _normalize_sample(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _initialize_lsl_outlets() -> None:
-    global _lsl_outlets
-
-    if not ensure_requirements(
-        [("pylsl", "pylsl")],
-        auto_install=bool(_config.get("lsl_auto_install", True)),
-        label="Mini-radar LSL",
-    ):
-        _lsl_outlets = {}
-        return
-
-    from pylsl import StreamInfo, StreamOutlet
-
-    prefix = _config.get("lsl_stream_prefix", "MiniRadar")
-
-    def create_outlet(suffix: str, labels: tuple[str, ...]) -> Any:
-        info = StreamInfo(
-            name=f"{prefix}_{suffix}",
-            type=suffix,
-            channel_count=len(labels),
-            nominal_srate=10.0,
-            channel_format="float32",
-            source_id=LSL_SOURCE_IDS[suffix.lower()],
-        )
-        channels = info.desc().append_child("channels")
-        units = LSL_CHANNEL_UNITS[suffix.lower()]
-        for label, unit in zip(labels, units, strict=True):
-            channel = channels.append_child("channel")
-            channel.append_child_value("label", label)
-            channel.append_child_value("unit", unit)
-        apply_stream_contract_desc(info, STREAM_CONTRACTS[suffix.lower()])
-        return StreamOutlet(info)
-
-    _lsl_outlets = {
-        "VITALS": create_outlet("VITALS", ("heartRate", "breathRate", "quality", "distance")),
-        "PHASES": create_outlet("PHASES", ("heartPhase", "breathPhase", "totalPhase")),
+def _publish(sample: dict[str, Any], arrival: float) -> None:
+    """One sample of each stream; a missing value is NaN, never a 0 reading."""
+    bookkeeping = {
+        "flags": sample.get("flags"),
+        "seq": sample.get("sequence_number"),
+        "device_ms": sample.get("timestamp_ms"),
     }
-    print("[MiniRadar] LSL outlets ready.")
-
-
-def _push_lsl_sample(sample: dict[str, Any]) -> None:
-    if not _lsl_outlets:
-        return
-
-    _push_lsl_values("VITALS", sample, ("heartRate", "breathRate", "quality", "distance"))
-    _push_lsl_values("PHASES", sample, ("heartPhase", "breathPhase", "totalPhase"))
-
-
-def _push_lsl_values(stream_key: str, sample: dict[str, Any], fields: tuple[str, ...]) -> None:
-    outlet = _lsl_outlets.get(stream_key)
-    if outlet is None:
-        return
-
-    values = []
-    for field in fields:
-        value = sample.get(field)
-        values.append(float(value) if value is not None else math.nan)  # missing is NaN, never a 0 reading
-
-    try:
-        outlet.push_sample(values)
-    except Exception as error:
-        print(f"[MiniRadar] Could not push {stream_key} sample to LSL: {error}")
+    for key in ("vitals", "phases"):
+        _streams.push(key, _streams.row(key, {**sample, **bookkeeping}), arrival)
 
 
 def _set_state(values: dict[str, Any]) -> None:

@@ -1,17 +1,27 @@
 {
   "api_version": 5,
   "plugin_key": "mini_radar",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "category": "biosignal",
   "config_key": "mini_radar",
   "runtime": {
     "entrypoint": "driver.py",
     "protocol": "study-runner-stdio/v1",
     "interactive_stdin": true,
-    "modes": ["runtime", "diagnostics"],
+    "modes": [
+      "runtime",
+      "diagnostics"
+    ],
     "sample_delivery": "declared_transport",
-    "actions": ["start", "stop", "restart"],
-    "trial_events": ["start", "stop"],
+    "actions": [
+      "start",
+      "stop",
+      "restart"
+    ],
+    "trial_events": [
+      "start",
+      "stop"
+    ],
     "can_toggle": true,
     "sidecar": {
       "sensor": "mr60",
@@ -63,7 +73,6 @@
       "primary_stream": "vitals"
     },
     "backup_projection": {
-      "rate_hz": 1,
       "stale_after_ms": 2500,
       "channels": [
         {
@@ -82,9 +91,37 @@
           "channel": "quality"
         },
         {
-          "output": "distance_m",
+          "output": "distance_cm",
           "stream": "vitals",
           "channel": "distance"
+        }
+      ]
+    },
+    "live_view": {
+      "channel_key_prefix": "miniRadar.channel",
+      "series": [
+        {
+          "key": "vitals",
+          "stream": "vitals",
+          "channels": [
+            "heartRate",
+            "breathRate"
+          ],
+          "label_key": "miniRadar.live.vitals",
+          "label": "Heart & breathing rate",
+          "min_span": 10,
+          "unit_label": " /min"
+        },
+        {
+          "key": "distance",
+          "stream": "vitals",
+          "channels": [
+            "distance"
+          ],
+          "label_key": "miniRadar.live.distance",
+          "label": "Distance to the radar",
+          "min_span": 50,
+          "unit_label": " cm"
         }
       ]
     },
@@ -105,7 +142,12 @@
           "role": "auto_reconnect",
           "label": "Auto-reconnect",
           "description": "Restore a lost radar connection by itself.",
-          "payload_schema": {"enabled": {"type": "boolean", "required": true}}
+          "payload_schema": {
+            "enabled": {
+              "type": "boolean",
+              "required": true
+            }
+          }
         }
       ]
     }
@@ -117,19 +159,29 @@
       "type": "VITALS",
       "nominal_rate_hz": 10,
       "clock_domain": "lsl",
-      "channel_format": "float32",
+      "channel_format": "double64",
       "channels": [
         "heartRate",
         "breathRate",
         "quality",
-        "distance"
+        "distance",
+        "flags",
+        "seq",
+        "device_ms"
       ],
       "channel_units": [
         "beats_per_minute",
         "breaths_per_minute",
         "arbitrary_unit",
-        "metre"
-      ]
+        "centimetre",
+        "bitmask",
+        "count",
+        "millisecond"
+      ],
+      "timing": {
+        "timestamp_source": "host_arrival"
+      },
+      "sequence_channel": "seq"
     },
     {
       "key": "phases",
@@ -137,17 +189,25 @@
       "type": "PHASES",
       "nominal_rate_hz": 10,
       "clock_domain": "lsl",
-      "channel_format": "float32",
+      "channel_format": "double64",
       "channels": [
         "heartPhase",
         "breathPhase",
-        "totalPhase"
+        "totalPhase",
+        "seq",
+        "device_ms"
       ],
       "channel_units": [
         "radian",
         "radian",
-        "radian"
-      ]
+        "radian",
+        "count",
+        "millisecond"
+      ],
+      "timing": {
+        "timestamp_source": "host_arrival"
+      },
+      "sequence_channel": "seq"
     }
   ],
   "settings": {

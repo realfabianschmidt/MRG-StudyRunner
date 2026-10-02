@@ -420,6 +420,9 @@ class FixturePluginBlueprintAcceptanceTests(FixturePluginRootMixin, unittest.Tes
                         }
                     ],
                 },
+                "live_view": {
+                    "series": [{"key": "value", "stream": "measurements", "channels": ["value"]}],
+                },
                 "health": {},
                 "machine_settings": {},
                 "study_settings": {},
@@ -436,6 +439,7 @@ class FixturePluginBlueprintAcceptanceTests(FixturePluginRootMixin, unittest.Tes
                     "channels": ["value", "active", "sequence"],
                     "channel_units": ["arbitrary_unit", "boolean", "count"],
                     "sequence_channel": "sequence",
+                    "timing": {"timestamp_source": "host_arrival"},
                 }
             ],
             "settings": {

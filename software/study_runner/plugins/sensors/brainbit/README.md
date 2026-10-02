@@ -127,16 +127,24 @@ choosing a different headset. While an action is running, the device controls
 are disabled; the same controls respect the active study's runtime lock.
 
 Two 60-second graphs show band power and SDK attention/relaxation indices.
-They refresh from an at-most-1-Hz preview; full-rate data stays in LSL/XDF.
-Each percentage axis covers all valid values in the visible window, with
-headroom rounded up in five-percentage-point steps. Low values remain readable
+They are the core's live view of the recorded `bands` and `mental` samples
+(the sensor data contract: the mean of every 0.5 s over the last 60 s);
+full-rate data stays in LSL/XDF. Each percentage axis covers all valid values
+in the visible window, with headroom rounded up in five-percentage-point steps. Low values remain readable
 without clipping older peaks. The displayed axis can change as peaks leave the
 window; compare values against the labels, not just the height of a line.
 Gaps mean unavailable or uncertain data. Derived indices require completed
 calibration and carry artifact validity. They are algorithmic outputs, not
 independently validated measurements of a participant's mental state.
 "Instant" refers to the SDK's current analysis window, not each raw EEG sample;
-"relative" refers to calibration. The preview updates at most once per second.
+"relative" refers to calibration. A calibration or an artifact breaks the live
+graph at that point; the recorded samples stay as they are.
+
+All streams are published through the shared `SensorStreams`, built from
+`manifest.json` only; EEG and quality take the device's channel list from its
+CHANNEL_MAP. Every stream's header says its timestamps are
+`host_callback_reconstructed` (diagnostics: `host_arrival`), and EEG says
+`processing: unit_scale_only`.
 
 Repeated initialization with unchanged acquisition settings reuses the live
 process and LSL outlets. Raw EEG is only scaled to its output unit, never

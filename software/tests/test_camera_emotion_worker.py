@@ -19,6 +19,12 @@ from study_runner.plugins.sensors.camera_emotion import adapter as camera_adapte
 from study_runner.plugins.sensors.camera_emotion.plugin import PLUGIN as CAMERA_EMOTION_PLUGIN
 from study_runner.plugin_framework.registry import get_plugin_manifest
 
+TESTS_ROOT = Path(__file__).resolve().parent
+if str(TESTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TESTS_ROOT))
+
+from support.fake_lsl import FakePylsl  # noqa: E402
+
 
 class FakeWorkerProcess:
     pid = 24680
@@ -160,6 +166,55 @@ class CameraEmotionWorkerTests(unittest.TestCase):
         status = camera_adapter.get_status()
         self.assertEqual(status["status"], "degraded")
         self.assertIn("rejected", status["last_message"].lower())
+
+    def _published(self, source_epoch_ms, *, arrival=500.0, arrival_epoch=1_000.0):
+        lsl = FakePylsl(clock=arrival)
+        camera_adapter._streams.use_backend(lsl)
+        camera_adapter.initialize(enabled=True, worker_mode="local_worker", emotion_worker_url="", lsl_enabled=True)
+        with patch.object(camera_adapter.time, "time", return_value=arrival_epoch):
+            camera_adapter.process_frame({"image": "", "sequence_number": 1, "source_epoch_ms": source_epoch_ms,
+                                          "source_instance_id": "tablet-a"})
+        outlets = {}
+        for key, contract in camera_adapter.STREAM_CONTRACTS.items():
+            outlet = lsl.outlet(contract["source_id"])
+            outlets[key] = [(dict(zip(contract["channels"], row)), stamp) for row, stamp in outlet.samples]
+        return outlets
+
+    def test_a_frame_is_dated_back_to_the_tablet_capture_reversibly(self) -> None:
+        outlets = self._published(998_000.0)  # captured 2 s before it arrived here
+        (emotion, stamp), = outlets["emotion"]
+        self.assertAlmostEqual(stamp, 498.0)
+        self.assertAlmostEqual(emotion["correction_ms"], 2000.0, places=3)
+        self.assertAlmostEqual(stamp + emotion["correction_ms"] / 1000.0, 500.0)  # the arrival
+        (quality, quality_stamp), = outlets["face_quality"]
+        self.assertEqual(quality_stamp, stamp)
+        self.assertEqual(quality["sequence"], 1.0)
+
+    def test_an_implausible_capture_time_keeps_the_arrival_time(self) -> None:
+        for source_epoch_ms in (1_005_000.0, 900_000.0, None):  # future, 100 s old, missing
+            with self.subTest(source=source_epoch_ms):
+                camera_adapter._sequence_state.clear()
+                (emotion, stamp), = self._published(source_epoch_ms)["emotion"]
+                self.assertEqual(stamp, 500.0)
+                self.assertEqual(emotion["correction_ms"], 0.0)
+
+    def test_the_camera_streams_keep_their_lsl_names(self) -> None:
+        lsl = FakePylsl()
+        camera_adapter._streams.use_backend(lsl)
+        self.assertTrue(camera_adapter._streams.open_all())
+        names = {outlet.info.source_id: outlet.info.name for outlet in lsl.outlets}
+        self.assertEqual(names, {
+            "study_runner.tablet_camera.emotion": "CameraEmotion",
+            "study_runner.tablet_camera.face_quality": "CameraFaceQuality",
+        })
+
+    def test_start_and_stop_forget_the_frame_counters_of_the_last_run(self) -> None:
+        camera_adapter._sequence_state["tablet-a"] = {"last": 7}
+        camera_adapter.start()
+        self.assertEqual(camera_adapter._sequence_state, {})
+        camera_adapter._sequence_state["tablet-a"] = {"last": 7}
+        camera_adapter.stop()
+        self.assertEqual(camera_adapter._sequence_state, {})
 
     def test_recorded_emotion_samples_are_exported_through_sidecar_plugin(self) -> None:
         camera_adapter._history.extend(

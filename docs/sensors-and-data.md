@@ -295,7 +295,16 @@ averages leave such zeros out, the XDF keeps them. Heart and breathing rate of
 the MR60 are radar estimates, not a clinical measurement. The hub's version is
 recorded in `hub_events` (`hello` event).
 
-**Both.** The 1 Hz backup file is derived (latest value per second) and is for
+**MR60 mini radar (heart rate, breathing, distance).** One sample per packet
+the MR60 board sends (about 10 Hz over BLE or serial) in `vitals` and
+`phases`, with the board's flags, its packet counter (`seq`) and its own
+millisecond clock (`device_ms`). Heart and breathing rate are the radar's
+estimates, not a clinical measurement; distance is in centimetres. Timestamps
+are this computer's LSL time on arrival and include the BLE delay; compare
+them with `device_ms` for the board's own timing. Over BLE no quality value is
+sent (NaN).
+
+**All sensors.** The 1 Hz backup file is derived (latest value per second) and is for
 quality control and as a fallback, not for analysis.
 
 ### Hardware Acceptance Checklist

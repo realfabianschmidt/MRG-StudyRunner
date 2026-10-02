@@ -370,25 +370,8 @@ class PluginRegistryContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not declare participant ingest"):
             ingest_participant_payload("camera_emotion", "commands", context, {})
 
-    def test_declared_lsl_source_ids_match_adapter_constants(self) -> None:
-        adapter_modules = {
-            "brainbit": "brainbit.adapter",
-            "mini_radar": "mr60_mini_radar.adapter",
-            "camera_emotion": "camera_emotion.adapter",
-        }
-        for plugin_key, module_suffix in adapter_modules.items():
-            with self.subTest(plugin=plugin_key):
-                adapter = importlib.import_module(f"study_runner.plugins.sensors.{module_suffix}")
-                manifest_ids = {
-                    stream["key"]: stream["source_id"]
-                    for stream in get_plugin_manifest(plugin_key)["streams"]
-                }
-                self.assertEqual(manifest_ids, adapter.LSL_SOURCE_IDS)
-                manifest_units = {
-                    stream["key"]: tuple(stream["channel_units"])
-                    for stream in get_plugin_manifest(plugin_key)["streams"]
-                }
-                self.assertEqual(manifest_units, adapter.LSL_CHANNEL_UNITS)
+    # Every sensor builds its outlets from its manifest alone, through
+    # SensorStreams; test_sensor_data_contract.py holds them to it.
 
 
 class BuiltInRecordingSourceTests(unittest.TestCase):

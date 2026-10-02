@@ -131,8 +131,8 @@ to the stable output names above.
 
 Derived arrays are emitted and forwarded to LSL as timestamped batches. The SDK
 is drained after each input frame so the last artifact flag of a callback does
-not get assigned to its entire output backlog. The dashboard keeps a bounded 60-second, 1-Hz preview;
-the full-rate rows remain in LSL/XDF and the sidecar is an explicit 1 Hz backup.
+not get assigned to its entire output backlog. The dashboard draws the core's live view of these
+rows (mean per 0.5 s over 60 s); the full-rate rows remain in LSL/XDF and the backup is the 1 Hz grid.
 
 EmotionalMath has no force-finish function. A stalled calibration is reported
 honestly while raw EEG continues:

@@ -1,7 +1,6 @@
-"""Connection-scoped operator facts and a bounded, non-recording preview."""
+"""Connection-scoped operator facts; the graphs are the core's live view of the recorded metrics."""
 from __future__ import annotations
 
-from collections import deque
 from copy import deepcopy
 import math
 import threading
@@ -16,7 +15,6 @@ class BrainBitMonitor:
         self.connection_state = "stopped"
         self.last_event = None
         self.facts = {}
-        self.preview = {key: deque(maxlen=60) for key in ("bands", "mental")}
         self.low_battery = False
         self.battery_seen = None
         self.started = time.monotonic()
@@ -38,8 +36,6 @@ class BrainBitMonitor:
                 self.artifact_started = None
                 self.artifact_seconds = 0.0
                 self.started = now
-                for points in self.preview.values():
-                    points.clear()
             if tag == "CONNECTING":
                 self.connection_id = uuid.uuid4().hex
             if tag in states:
@@ -70,24 +66,6 @@ class BrainBitMonitor:
                 elif not active and self.artifact_started is not None:
                     self.artifact_seconds += now - self.artifact_started
                     self.artifact_started = None
-            if tag in {"BANDS_BATCH", "MENTAL_BATCH"}:
-                points = self.preview[tag.split("_")[0].lower()]
-                stamps, samples = payload.get("timestamps", []), payload.get("samples", [])
-                if stamps and samples and len(stamps) == len(samples):
-                    point = {"at": stamps[-1], "received_at": time.time(),
-                             "connection_id": self.connection_id,
-                             "values": dict(zip(payload.get("channels", []), samples[-1])),
-                             "validity": payload.get("validity", "unknown")}
-                    if not points or point["at"] - points[-1]["at"] >= 1:
-                        points.append(point)
-                    elif point["validity"] != "valid":
-                        # An invalid window must not disappear in the 1 Hz preview.
-                        points[-1]["validity"] = point["validity"]
-            if tag in {"CALIB", "ARTIFACT", "DERIVED_DISABLED", "EMO_INIT_FAIL"}:
-                # Break any previously valid segment immediately, before new metrics arrive.
-                for points in self.preview.values():
-                    if points and (tag != "ARTIFACT" or payload.get("both_now") or payload.get("sequence")):
-                        points[-1]["validity"] = "uncertain"
 
     def snapshot(self, *, now=None):
         now = time.monotonic() if now is None else now
@@ -97,7 +75,6 @@ class BrainBitMonitor:
             return deepcopy({
                 "connection_id": self.connection_id, "connection_state": self.connection_state,
                 "last_event": self.last_event, "diagnostic_state": self.facts,
-                "preview": {key: list(points) for key, points in self.preview.items()},
                 "battery_age_seconds": age, "battery_stale": age is None or age > 120,
                 "low_battery": self.low_battery and age is not None and age <= 120,
                 "artifact_fraction": seconds / max(1, now - self.started) if "ARTIFACT" in self.facts else None,

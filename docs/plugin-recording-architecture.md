@@ -367,8 +367,11 @@ device -> adapter.py: connect, decode, take the arrival time (streams.now())
 - **No data across runs.** The core empties the live view and the counters
   before every start, stop and restart.
 
+Manifest validation rejects a recording study sensor without a `live_view` or
+with a stream that does not declare its timestamp source, and
 `software/tests/test_sensor_data_contract.py` holds every sensor folder and
-the template in `tools/plugin_templates/sensors/` to these rules.
+the template in `tools/plugin_templates/sensors/` to these rules, including
+that no sensor builds an LSL outlet itself.
 
 ## Raw And Backup Recording
 

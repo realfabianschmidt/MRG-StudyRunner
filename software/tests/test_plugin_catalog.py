@@ -493,8 +493,10 @@ class PluginManifestTests(unittest.TestCase):
                         {"output": "value", "stream": "values", "channel": "value"}
                     ],
                 },
+                "live_view": {"series": [{"key": "value", "stream": "values", "channels": ["value"]}]},
             }
         )
+        payload["streams"][0]["timing"] = {"timestamp_source": "host_arrival"}
         with self.assertRaisesRegex(PluginManifestError, "primary_stream"):
             validate_and_normalize_manifest(payload, directory_name="fixture")
 

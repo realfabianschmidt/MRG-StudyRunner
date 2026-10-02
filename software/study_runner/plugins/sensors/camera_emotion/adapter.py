@@ -1,9 +1,16 @@
 ﻿"""
-Camera affect adapter for tablet selfie-camera snapshots.
+Camera affect adapter for tablet selfie-camera snapshots (sensor data contract).
 
 Browser snapshots are forwarded to the Emotion Worker (local or remote), which
 returns the face/emotion analysis. Without a reachable worker the result says
 so (emotion "unknown", confidence 0 and an error) -- nothing is guessed.
+
+Each analysed frame is one sample in ``emotion`` and one in ``face_quality``,
+published through the shared ``SensorStreams``. The arrival time is taken the
+moment a frame arrives, before the analysis. The timestamp goes back to the
+tablet's capture time (``source_epoch_ms``) when that is plausible (0-60 s
+earlier); ``correction_ms`` records how far, so the arrival time can always be
+rebuilt from the XDF.
 """
 from __future__ import annotations
 
@@ -15,14 +22,12 @@ from threading import Lock
 from typing import Any
 
 from study_runner.plugin_framework.adapter_utils import set_state, timestamp
-from study_runner.shared.dependency_utils import ensure_requirements
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
-from study_runner.contracts.stream_contract import apply_stream_contract_desc, load_own_stream_contracts
+from study_runner.plugin_framework.sensor_streams import SensorStreams
 
 
 _state_lock = Lock()
 _config: dict[str, Any] = {}
-_lsl_outlets: dict[str, Any] = {}
 # Browser capture is intentionally throttled to 1 Hz by default to avoid tablet
 # and network backpressure during live runs.
 MIN_SNAPSHOT_INTERVAL_MS = 1000
@@ -42,19 +47,12 @@ _latest_state: dict[str, Any] = {
 }
 
 _EMOTIONS = ("angry", "disgust", "fear", "happy", "sad", "surprise", "neutral", "unknown")
-LSL_SOURCE_IDS = {
-    "emotion": "study_runner.tablet_camera.emotion",
-    "face_quality": "study_runner.tablet_camera.face_quality",
-}
-LSL_CHANNEL_UNITS = {
-    "emotion": ("probability",) * len(_EMOTIONS) + ("probability", "boolean", "count"),
-    "face_quality": ("boolean", "probability", "pixel", "pixel", "count"),
-}
-# Package 5d (docs/archive/architecture-1.0-umbau.md): this plugin's own frozen
-# stream contract, for the desc/study_runner XDF header block only -- the
-# LSL_SOURCE_IDS/LSL_CHANNEL_UNITS constants above remain the source of
-# truth for outlet creation itself, unchanged.
-STREAM_CONTRACTS = load_own_stream_contracts(__file__)
+# Streams, channels, units and the LSL names come from manifest.json only.
+_streams = SensorStreams.for_plugin(__file__)
+STREAM_CONTRACTS = _streams.declared_contracts()
+# The tablet's capture time is used when it is at most this much earlier than
+# the arrival here; anything else is not plausible and keeps the arrival time.
+MAX_CAPTURE_AGE_SECONDS = 60.0
 
 
 def initialize(
@@ -71,6 +69,8 @@ def initialize(
     lsl_auto_install: bool = True,
     lsl_stream_name: str = "CameraEmotion",
 ) -> None:
+    # lsl_stream_name is kept for old configurations; the stream names are
+    # fixed in the manifest so the recording and TouchDesigner find them.
     """Configure camera affect analysis and optional LSL output."""
     global _config
 
@@ -96,13 +96,15 @@ def initialize(
         }
     )
 
+    _streams.configure(auto_install=bool(lsl_auto_install))
     if _config["enabled"] and _config["lsl_enabled"]:
-        _initialize_lsl_outlets()
+        _streams.open_all()
 
 
 def start() -> dict[str, Any]:
-    # A new run starts with no samples from an earlier participant.
+    # A new run starts with no samples or frame counters from an earlier participant.
     _history.clear()
+    _sequence_state.clear()
     if not _config:
         _set_state({"status": "not_configured", "last_message": "Camera affect adapter is not configured."})
     elif not _config.get("enabled"):
@@ -114,6 +116,7 @@ def start() -> dict[str, Any]:
 
 def stop() -> dict[str, Any]:
     set_preview_active(False)
+    _sequence_state.clear()
     _set_state({"status": "stopped", "last_message": "Camera affect analysis stopped."})
     return get_status()
 
@@ -124,6 +127,8 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
         _set_state({"status": "disabled", "last_message": "Camera affect frame ignored because analysis is disabled."})
         return {"accepted": False, "reason": "disabled", **get_status()}
 
+    arrival = _streams.now()
+    arrival_epoch = time.time()
     received_at = timestamp()
     sequence_diagnostics = _sequence_diagnostics(payload)
     if sequence_diagnostics["sequence_status"] in {"duplicate", "out_of_order"}:
@@ -210,7 +215,8 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
             "last_message": message,
         }
     )
-    _push_lsl_result(result)
+    if _config.get("lsl_enabled"):
+        _publish(result, arrival, arrival_epoch)
     return result
 
 
@@ -227,7 +233,7 @@ def get_status() -> dict[str, Any]:
     status["worker_mode"] = _config.get("worker_mode", "local_worker")
     status["snapshot_interval_ms"] = _config.get("snapshot_interval_ms", DEFAULT_SNAPSHOT_INTERVAL_MS)
     status["emotion_worker_url"] = _config.get("emotion_worker_url", "")
-    status["streams"] = list(_lsl_outlets.keys())
+    status["streams"] = [contract["key"] for contract in _streams.contracts()]
     return status
 
 
@@ -462,103 +468,39 @@ def _worker_error_result(reason: str) -> dict[str, Any]:
     }
 
 
-def _initialize_lsl_outlets() -> None:
-    global _lsl_outlets
-
-    if not ensure_requirements(
-        [("pylsl", "pylsl")],
-        auto_install=bool(_config.get("lsl_auto_install", True)),
-        label="Camera emotion LSL",
-    ):
-        _lsl_outlets = {}
-        return
-
-    from pylsl import StreamInfo, StreamOutlet
-
-    info = StreamInfo(
-        name=_config.get("lsl_stream_name", "CameraEmotion"),
-        type="CameraEmotion",
-        channel_count=len(_EMOTIONS) + 3,
-        nominal_srate=0,
-        channel_format="float32",
-        source_id=LSL_SOURCE_IDS["emotion"],
-    )
-    channels = info.desc().append_child("channels")
-    for label, unit in zip(
-        (*_EMOTIONS, "confidence", "face_detected", "sequence"),
-        LSL_CHANNEL_UNITS["emotion"],
-        strict=True,
-    ):
-        channel = channels.append_child("channel")
-        channel.append_child_value("label", label)
-        channel.append_child_value("unit", unit)
-    apply_stream_contract_desc(info, STREAM_CONTRACTS["emotion"])
-
-    quality_info = StreamInfo(
-        name="CameraFaceQuality",
-        type="CameraFaceQuality",
-        channel_count=5,
-        nominal_srate=0,
-        channel_format="float32",
-        source_id=LSL_SOURCE_IDS["face_quality"],
-    )
-    quality_channels = quality_info.desc().append_child("channels")
-    for label, unit in zip(
-        ("face_detected", "face_confidence", "width", "height", "sequence"),
-        LSL_CHANNEL_UNITS["face_quality"],
-        strict=True,
-    ):
-        channel = quality_channels.append_child("channel")
-        channel.append_child_value("label", label)
-        channel.append_child_value("unit", unit)
-    apply_stream_contract_desc(quality_info, STREAM_CONTRACTS["face_quality"])
-
-    _lsl_outlets = {
-        "CameraEmotion": StreamOutlet(info),
-        "CameraFaceQuality": StreamOutlet(quality_info),
-    }
-    print("[CameraEmotion] LSL outlets ready.")
-
-
-def _push_lsl_result(result: dict[str, Any]) -> None:
-    if not _lsl_outlets:
-        return
-
+def _publish(result: dict[str, Any], arrival: float, arrival_epoch: float) -> None:
+    """One sample in each stream, dated back to the tablet's capture time when plausible."""
     analysis = result.get("analysis") or {}
     scores = analysis.get("scores") or {}
-    emotion_values = [float(scores.get(name, 0.0)) for name in _EMOTIONS]
-    emotion_values.append(float(analysis.get("confidence") or 0.0))
-    emotion_values.append(1.0 if analysis.get("face_detected") else 0.0)
-    sequence = result.get("sequence_number")
-    try:
-        sequence_value = float(sequence)
-    except (TypeError, ValueError):
-        sequence_value = math.nan
-    emotion_values.append(sequence_value)
-
     frame = result.get("frame") or {}
-    quality_values = [
-        1.0 if analysis.get("face_detected") else 0.0,
-        float(analysis.get("face_confidence") or 0.0),
-        float(frame.get("width") or 0.0),
-        float(frame.get("height") or 0.0),
-        sequence_value,
-    ]
+    face = 1.0 if analysis.get("face_detected") else 0.0
+    emotion = {name: float(scores.get(name, 0.0)) for name in _EMOTIONS}
+    emotion.update({
+        "confidence": float(analysis.get("confidence") or 0.0),
+        "face_detected": face,
+        "sequence": result.get("sequence_number"),
+    })
+    quality = {
+        "face_detected": face,
+        "face_confidence": float(analysis.get("face_confidence") or 0.0),
+        "width": float(frame.get("width") or 0.0),
+        "height": float(frame.get("height") or 0.0),
+        "sequence": result.get("sequence_number"),
+    }
+    stamp = _capture_timestamp(result.get("source_epoch_ms"), arrival, arrival_epoch)
+    _streams.push("emotion", _streams.row("emotion", emotion), stamp, arrival=arrival)
+    _streams.push("face_quality", _streams.row("face_quality", quality), stamp, arrival=arrival)
 
+
+def _capture_timestamp(source_epoch_ms: Any, arrival: float, arrival_epoch: float) -> float:
+    """The tablet's capture time on this computer's LSL clock, or the arrival time."""
     try:
-        from pylsl import local_clock
-
-        lsl_timestamp = local_clock()
-        try:
-            source_epoch = float(result.get("source_epoch_ms")) / 1000.0
-            if abs(source_epoch - time.time()) <= 60.0:
-                lsl_timestamp += source_epoch - time.time()
-        except (TypeError, ValueError):
-            pass
-        _lsl_outlets["CameraEmotion"].push_sample(emotion_values, timestamp=lsl_timestamp)
-        _lsl_outlets["CameraFaceQuality"].push_sample(quality_values, timestamp=lsl_timestamp)
-    except Exception as error:
-        print(f"[CameraEmotion] Could not push LSL sample: {error}")
+        age = arrival_epoch - float(source_epoch_ms) / 1000.0
+    except (TypeError, ValueError):
+        return arrival
+    if not math.isfinite(age) or not 0.0 <= age <= MAX_CAPTURE_AGE_SECONDS:
+        return arrival
+    return arrival - age
 
 
 def _set_state(values: dict[str, Any]) -> None:

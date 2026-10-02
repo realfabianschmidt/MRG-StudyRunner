@@ -138,6 +138,23 @@ the first source recording on a computer, the platform installer
 (`tools/install-windows.cmd` or `tools/install-macos.sh`) has already
 installed and tested the recording core; run it again to repair it.
 
+What is recorded (sensor data contract, `docs/plugin-recording-architecture.md`):
+
+| Stream | One sample per | Channels |
+| --- | --- | --- |
+| `vitals` | radar packet (~10 Hz) | `heartRate` (bpm), `breathRate` (/min), `quality`, `distance` (centimetres, as the firmware sends it), `flags` (valid/stabilized/present bits), `seq` (the board's packet counter), `device_ms` (the board's own millisecond clock) |
+| `phases` | radar packet | `heartPhase`, `breathPhase`, `totalPhase` (radian), `seq`, `device_ms` |
+
+Both streams are `double64` so the counter and the board clock stay exact,
+and `seq` is the sequence channel, so losses show up in the quality review.
+Timestamps are this computer's LSL time when the packet arrived
+(`host_arrival`); `device_ms` lets an analysis compare it with the board's
+clock. Every sample is published through the shared `SensorStreams`, which
+also feeds the dashboard's live graphs (heart and breathing rate, distance;
+mean per 0.5 s over the last 60 s). The 1 Hz backup holds heart and breathing
+rate, quality and `distance_cm`. Over BLE the packet has no quality field, so
+`quality` is NaN there.
+
 Radar LSL output is continuous while the BLE reader and outlets are running. It
 is not gated by stimulus activity. The stimulus flag
 the plugin's manifest-driven card action marks the active phase for Study

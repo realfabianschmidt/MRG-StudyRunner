@@ -34,7 +34,7 @@ from .monitor import BrainBitMonitor
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 
 from study_runner.shared.dependency_utils import ensure_requirements
-from study_runner.contracts.stream_contract import apply_stream_contract_desc, load_own_stream_contracts
+from study_runner.plugin_framework.sensor_streams import SensorStreams
 from .brainbit_realtime_cli import (
     EXIT_BLE_UNAVAILABLE,
     EXIT_CALLBACK_FAILURE,
@@ -46,27 +46,13 @@ from .brainbit_realtime_cli import (
 )
 
 
-LSL_SOURCE_IDS = {
-    "eeg": "study_runner.brainbit.eeg",
-    "bands": "study_runner.brainbit.bands",
-    "mental": "study_runner.brainbit.mental",
-    "quality": "study_runner.brainbit.quality",
-    "battery": "study_runner.brainbit.battery",
-    "diagnostics": "study_runner.brainbit.diagnostics",
-}
-LSL_CHANNEL_UNITS = {
-    "eeg": ("microvolt",) * 4,
-    "bands": ("relative_power",) * 5,
-    "mental": ("ratio",) * 4,
-    "quality": ("ratio",) * 4,
-    "battery": ("percent",),
-    "diagnostics": ("json",),
-}
-# Package 5d (docs/archive/architecture-1.0-umbau.md): this plugin's own frozen
-# stream contract, for the desc/study_runner XDF header block only -- the
-# LSL_SOURCE_IDS/LSL_CHANNEL_UNITS constants above remain the source of
-# truth for outlet creation itself, unchanged.
-STREAM_CONTRACTS = load_own_stream_contracts(__file__)
+# The sensor data contract: every stream is published through SensorStreams,
+# built from manifest.json only. EEG and quality get the device's own channel
+# list at runtime (CHANNEL_MAP); identity, format and units never change.
+_streams = SensorStreams.for_plugin(__file__)
+STREAM_CONTRACTS = _streams.declared_contracts()
+# Live-view series that a calibration or an artifact makes untrustworthy.
+_DERIVED_LIVE_SERIES = ("bands", "mental")
 
 
 # How the CLI's exit codes translate for the operator. "retry" means a restart
@@ -133,7 +119,6 @@ _reader_thread: threading.Thread | None = None
 _watchdog_thread: threading.Thread | None = None
 _registered_shutdown = False
 _config: dict[str, Any] = {}
-_lsl_outlets: dict[str, Any] = {}
 _td_client: Any = None
 _latest_state: dict[str, Any] = {}
 _last_state_write = 0.0
@@ -153,8 +138,6 @@ _connected_at = 0.0
 _log_handle: Any = None
 _log_write_error = ""
 _last_log_flush_at = 0.0
-_lsl_local_clock: Any = None
-_lsl_create_outlet: Any = None
 _eeg_lsl_channels: tuple[str, ...] = ()
 _lsl_stream_health: dict[str, dict[str, Any]] = {}
 _stream_contract_ready = threading.Event()
@@ -499,7 +482,7 @@ def start() -> None:
         _history_last_epoch_by_tag.clear()
         _stream_contract_ready.clear()
         _eeg_lsl_channels = ()
-        _lsl_outlets.pop("EEG", None)
+        _streams.close("eeg")
         _lsl_stream_health = {}
 
         creationflags = 0
@@ -1079,7 +1062,7 @@ def wait_for_stream_contract(timeout_seconds: float | None = None) -> dict[str, 
     if status.get("connection_state") == "selection_required":
         return status
     if status.get("actual_streams"):
-        if _config.get("lsl_enabled", False) and "EEG" not in _lsl_outlets:
+        if _config.get("lsl_enabled", False) and not _streams.is_open("eeg"):
             _set_state(
                 {
                     "status": "failed",
@@ -1271,73 +1254,20 @@ def _actual_stream_contracts(
     derived_rate_hz: float,
     derived_enabled: bool,
 ) -> list[dict[str, Any]]:
+    """The streams this device publishes: the manifest's, with its own channels and rates."""
+    labels = list(channel_labels)
+
+    def stream(key: str, **runtime: Any) -> dict[str, Any]:
+        return {**STREAM_CONTRACTS[key], **runtime}
+
     streams = [
-        {"key": "diagnostics", "source_id": LSL_SOURCE_IDS["diagnostics"],
-         "type": "DIAGNOSTICS", "nominal_rate_hz": 0.0, "clock_domain": "lsl",
-         "channel_format": "string", "channels": ["event"], "channel_units": ["json"]},
-        {
-            "key": "eeg",
-            "source_id": LSL_SOURCE_IDS["eeg"],
-            "type": "EEG",
-            "nominal_rate_hz": nominal_rate_hz,
-            "clock_domain": "lsl",
-            "channel_format": "float32",
-            "channels": list(channel_labels),
-            "channel_units": ["microvolt"] * len(channel_labels),
-            "timestamp_source": "host_callback_reconstructed",
-            "processing": "unit_scale_only",
-        },
-        {
-            "key": "quality",
-            "source_id": LSL_SOURCE_IDS["quality"],
-            "type": "QUALITY",
-            "nominal_rate_hz": 0.0, "may_be_empty": True,  # reported before recording only
-            "clock_domain": "lsl",
-            "channel_format": "float32",
-            "channels": list(channel_labels),
-            "channel_units": ["ratio"] * len(channel_labels),
-        },
-        {
-            "key": "battery",
-            "source_id": LSL_SOURCE_IDS["battery"],
-            "type": "BATTERY",
-            "nominal_rate_hz": 0.0, "may_be_empty": True,  # reported before recording only
-            "clock_domain": "lsl",
-            "channel_format": "float32",
-            "channels": ["percent"],
-            "channel_units": ["percent"],
-        },
+        stream("diagnostics"),
+        stream("eeg", channels=labels, channel_units=["microvolt"] * len(labels), nominal_rate_hz=nominal_rate_hz),
+        stream("quality", channels=labels, channel_units=["ratio"] * len(labels)),
+        stream("battery"),
     ]
     if derived_enabled:
-        streams.extend(
-            [
-                {
-                    "key": "bands",
-                    "source_id": LSL_SOURCE_IDS["bands"],
-                    "type": "BANDS",
-                    "nominal_rate_hz": derived_rate_hz,
-                    "clock_domain": "lsl",
-                    "channel_format": "float32",
-                    "channels": ["delta", "theta", "alpha", "beta", "gamma"],
-                    "channel_units": ["relative_power"] * 5,
-                },
-                {
-                    "key": "mental",
-                    "source_id": LSL_SOURCE_IDS["mental"],
-                    "type": "MENTAL",
-                    "nominal_rate_hz": derived_rate_hz,
-                    "clock_domain": "lsl",
-                    "channel_format": "float32",
-                    "channels": [
-                        "Inst_Attention",
-                        "Inst_Relaxation",
-                        "Rel_Attention",
-                        "Rel_Relaxation",
-                    ],
-                    "channel_units": ["ratio"] * 4,
-                },
-            ]
-        )
+        streams.extend([stream("bands", nominal_rate_hz=derived_rate_hz), stream("mental", nominal_rate_hz=derived_rate_hz)])
     return streams
 
 
@@ -1500,8 +1430,8 @@ def _update_state_from_line(line: str) -> bool:
                 state_update.update(status_detail_key=None, status_detail_hint_key=None)
             if tag == "CONNECTED":
                 state_update.update(retry_attempt=None, next_retry_at=None)
-            if tag == "CLOCK" and callable(_lsl_local_clock):
-                _lsl_epoch_offset = (float(_lsl_local_clock()) - time.monotonic()
+            if tag == "CLOCK" and _streams.is_open("diagnostics"):
+                _lsl_epoch_offset = (float(_streams.now()) - time.monotonic()
                                      + float(payload["monotonic_anchor"]) - float(payload["epoch_anchor"]))
             if tag == "SCANNING":
                 state_update.update(status="scanning", scan_candidates=[], next_retry_at=None,
@@ -1966,7 +1896,7 @@ def _close_log_handle() -> None:
 #  4. FORWARDING - LSL / TouchDesigner mirrors
 # ============================================================
 def _mirror_line_to_lsl(line: str) -> None:
-    if not _config.get("lsl_enabled", False) and not _lsl_outlets:
+    if not _config.get("lsl_enabled", False) and not _streams.contracts():
         return
 
     parsed = _parse_json_line(line)
@@ -1974,6 +1904,11 @@ def _mirror_line_to_lsl(line: str) -> None:
         return
 
     tag, payload = parsed
+    if tag in {"CALIB", "DERIVED_DISABLED", "EMO_INIT_FAIL"} or (
+        tag == "ARTIFACT" and (payload.get("both_now") or payload.get("sequence"))
+    ):
+        # Recorded as they are; only the live graph shows a gap here.
+        _streams.invalidate_live(_DERIVED_LIVE_SERIES)
     if tag == "CLOCK":
         payload = {**payload, "lsl_epoch_offset": _lsl_epoch_offset}
     if tag in _DIAGNOSTIC_TAGS:
@@ -2010,8 +1945,8 @@ def _mirror_line_to_lsl(line: str) -> None:
 
 
 def _push_sample(stream_key: str, payload: dict[str, Any], fields: tuple[str, ...]) -> None:
-    outlet = _lsl_outlets.get(stream_key)
-    if outlet is None:
+    key = stream_key.lower()
+    if not _streams.is_open(key):
         if _config.get("lsl_enabled", False):
             _record_lsl_failure(stream_key, "declared outlet is unavailable")
         return
@@ -2019,30 +1954,24 @@ def _push_sample(stream_key: str, payload: dict[str, Any], fields: tuple[str, ..
     try:
         values = [float(payload[field]) for field in fields]
     except (KeyError, TypeError, ValueError):
+        _streams.reject(key, "sample payload is missing valid numeric channels")
         _record_lsl_failure(stream_key, "sample payload is missing valid numeric channels")
         return
 
-    try:
-        timestamp = _payload_timestamp_to_lsl(payload.get("ts"))
-        if timestamp is None:
-            outlet.push_sample(values)
-        else:
-            outlet.push_sample(values, timestamp)
-        _record_lsl_success(stream_key)
-    except Exception as error:
-        _record_lsl_failure(stream_key, str(error))
-        print(f"[BrainBit] Could not push {stream_key} sample to LSL: {error}")
+    timestamp = _payload_timestamp_to_lsl(payload.get("ts"))
+    valid = _validity_flag(payload) if key in _DERIVED_LIVE_SERIES else None
+    _record_push(stream_key, _streams.push(key, values, _streams.now() if timestamp is None else timestamp, valid=valid))
 
 
 def _push_eeg_chunk(payload: dict[str, Any]) -> None:
-    outlet = _lsl_outlets.get("EEG")
-    if outlet is None:
+    if not _streams.is_open("eeg"):
         if _config.get("lsl_enabled", False):
             _record_lsl_failure("EEG", "device EEG outlet is unavailable")
         return
     try:
         values, timestamps, _ = _validated_eeg_batch(payload)
     except ValueError as error:
+        _streams.reject("eeg", f"invalid batch: {error}")
         _record_lsl_failure("EEG", f"invalid batch: {error}")
         print(f"[BrainBit] Could not push invalid EEG batch to LSL: {error}")
         return
@@ -2052,34 +1981,23 @@ def _push_eeg_chunk(payload: dict[str, Any]) -> None:
             f"batch channels {payload_channels!r} do not match outlet contract "
             f"{_eeg_lsl_channels!r}"
         )
+        _streams.reject("eeg", message)
         _record_lsl_failure("EEG", message)
         print(f"[BrainBit] Could not push EEG chunk to LSL: {message}")
         return
 
-    lsl_timestamps: list[float] | None = None
-    if timestamps is not None:
+    if timestamps is None:
+        # No source times: the newest sample is now, the others one nominal
+        # period apart before it (as LSL itself dates an unstamped chunk).
+        period = 1.0 / float(_streams.declared("eeg").get("nominal_rate_hz") or 250.0)
+        now = _streams.now()
+        lsl_timestamps = [now - (len(values) - 1 - index) * period for index in range(len(values))]
+    else:
         lsl_timestamps = _epoch_timestamps_to_lsl(timestamps)
         if lsl_timestamps is None:
             _record_lsl_failure("EEG", "source timestamps could not be converted to the LSL clock")
             return
-    try:
-        push_chunk = getattr(outlet, "push_chunk", None)
-        if callable(push_chunk):
-            if lsl_timestamps is None:
-                push_chunk(values)
-            else:
-                push_chunk(values, lsl_timestamps)
-            _record_lsl_success("EEG")
-            return
-        for index, sample in enumerate(values):
-            if lsl_timestamps is None:
-                outlet.push_sample(sample)
-            else:
-                outlet.push_sample(sample, lsl_timestamps[index])
-        _record_lsl_success("EEG")
-    except Exception as error:
-        _record_lsl_failure("EEG", str(error))
-        print(f"[BrainBit] Could not push EEG chunk to LSL: {error}")
+    _record_push("EEG", _streams.push_chunk("eeg", values, lsl_timestamps))
 
 
 def _push_metric_chunk(
@@ -2087,31 +2005,37 @@ def _push_metric_chunk(
     payload: dict[str, Any],
     fields: tuple[str, ...],
 ) -> None:
-    outlet = _lsl_outlets.get(stream_key)
-    if outlet is None:
+    key = stream_key.lower()
+    if not _streams.is_open(key):
         if _config.get("lsl_enabled", False):
             _record_lsl_failure(stream_key, "declared outlet is unavailable")
         return
     try:
         values, timestamps, _ = _validated_metric_batch(payload, fields)
     except ValueError as error:
+        _streams.reject(key, f"invalid batch: {error}")
         _record_lsl_failure(stream_key, f"invalid batch: {error}")
         return
     lsl_timestamps = _epoch_timestamps_to_lsl(timestamps)
     if lsl_timestamps is None:
         _record_lsl_failure(stream_key, "source timestamps could not be converted to the LSL clock")
         return
-    try:
-        push_chunk = getattr(outlet, "push_chunk", None)
-        if callable(push_chunk):
-            push_chunk(values, lsl_timestamps)
-        else:
-            for sample, timestamp in zip(values, lsl_timestamps, strict=True):
-                outlet.push_sample(sample, timestamp)
+    _record_push(stream_key, _streams.push_chunk(key, values, lsl_timestamps, valid=_validity_flag(payload)))
+
+
+def _validity_flag(payload: dict[str, Any]) -> bool | None:
+    """The SDK's own judgement of a metric window, for the live graph only."""
+    validity = payload.get("validity")
+    return None if validity is None else validity == "valid"
+
+
+def _record_push(stream_key: str, published: bool) -> None:
+    if published:
         _record_lsl_success(stream_key)
-    except Exception as error:
-        _record_lsl_failure(stream_key, str(error))
-        print(f"[BrainBit] Could not push {stream_key} chunk to LSL: {error}")
+    else:
+        error = _streams.last_error(stream_key.lower()) or "publication failed"
+        _record_lsl_failure(stream_key, error)
+        print(f"[BrainBit] Could not push {stream_key} to LSL: {error}")
 
 
 def _record_lsl_success(stream_key: str) -> None:
@@ -2175,34 +2099,34 @@ def _epoch_timestamps_to_lsl(values: list[Any]) -> list[float] | None:
     # the host. Already-local timestamps are passed through unchanged.
     if max(timestamps) < 100_000_000:
         return timestamps
-    if not callable(_lsl_local_clock):
+    if not _streams.contracts():
         return None
     if _lsl_epoch_offset is None:
-        _lsl_epoch_offset = float(_lsl_local_clock()) - time.time()
+        _lsl_epoch_offset = float(_streams.now()) - time.time()
     return [timestamp + _lsl_epoch_offset for timestamp in timestamps]
 
 
 def _publish_diagnostic(tag: str, payload: dict[str, Any]) -> None:
-    outlet = _lsl_outlets.get("DIAGNOSTICS")
-    if outlet is None:
+    if not _streams.is_open("diagnostics"):
         return
     try:
         event = {"schema_version": 1, "event": tag,
                  "connection_id": _monitor.snapshot()["connection_id"], "payload": payload}
-        outlet.push_sample([json.dumps(event, ensure_ascii=True, allow_nan=False)], float(_lsl_local_clock()))
+        text = json.dumps(event, ensure_ascii=True, allow_nan=False)
     except Exception as error:
         _record_lsl_failure("DIAGNOSTICS", str(error))
+        return
+    if not _streams.push("diagnostics", [text], _streams.now()):
+        _record_lsl_failure("DIAGNOSTICS", _streams.last_error("diagnostics") or "publication failed")
 
 
 def _publish_diagnostic_snapshot() -> None:
     global _last_diagnostic_snapshot
     now = time.monotonic()
-    if now - _last_diagnostic_snapshot < 1 or "DIAGNOSTICS" not in _lsl_outlets:
+    if now - _last_diagnostic_snapshot < 1 or not _streams.is_open("diagnostics"):
         return
     _last_diagnostic_snapshot = now
-    state = _monitor.snapshot()
-    state.pop("preview", None)
-    _publish_diagnostic("SNAPSHOT", state)
+    _publish_diagnostic("SNAPSHOT", _monitor.snapshot())
 
 
 def set_routing(
@@ -2354,63 +2278,18 @@ def _parse_json_line(line: str) -> tuple[str, dict[str, Any]] | None:
 
 
 def _initialize_lsl_outlets() -> None:
-    global _lsl_outlets, _lsl_local_clock, _lsl_create_outlet, _eeg_lsl_channels
+    """Battery and diagnostics now; EEG, quality and metrics after the device's CHANNEL_MAP.
 
-    if not ensure_requirements(
-        [("pylsl", "pylsl")],
+    Publishing a guessed four-channel EEG outlet would freeze the wrong XDF
+    contract for Pro/Flex devices before discovery has completed.
+    """
+    _streams.configure(
+        name_prefix=_config.get("lsl_stream_prefix", "BrainBit"),
         auto_install=bool(_config.get("lsl_auto_install", True)),
-        label="BrainBit LSL",
-    ):
+    )
+    if not (_streams.open("battery") and _streams.open("diagnostics")):
         print("[BrainBit] LSL mirror disabled because pylsl is unavailable.")
-        _lsl_outlets = {}
-        _lsl_create_outlet = None
         return
-
-    from pylsl import StreamInfo, StreamOutlet, local_clock
-
-    _lsl_local_clock = local_clock
-
-    def create_outlet(
-        stream_suffix: str,
-        channel_labels: tuple[str, ...],
-        *,
-        nominal_rate_hz: float = 0.0,
-    ) -> Any:
-        stream_prefix = _config.get("lsl_stream_prefix", "BrainBit")
-        info = StreamInfo(
-            name=f"{stream_prefix}_{stream_suffix}",
-            type=stream_suffix,
-            channel_count=len(channel_labels),
-            nominal_srate=float(nominal_rate_hz),
-            channel_format="string" if stream_suffix == "DIAGNOSTICS" else "float32",
-            source_id=LSL_SOURCE_IDS[stream_suffix.lower()],
-        )
-        channels = info.desc().append_child("channels")
-        if stream_suffix == "EEG":
-            units = ("microvolt",) * len(channel_labels)
-        elif stream_suffix == "QUALITY":
-            units = ("ratio",) * len(channel_labels)
-        else:
-            units = LSL_CHANNEL_UNITS[stream_suffix.lower()]
-        for label, unit in zip(channel_labels, units, strict=True):
-            channel = channels.append_child("channel")
-            channel.append_child_value("label", label)
-            channel.append_child_value("unit", unit)
-        acquisition = info.desc().append_child("acquisition")
-        acquisition.append_child_value("timestamp_source", "host_callback_reconstructed")
-        acquisition.append_child_value("raw_processing", "unit_scale_only")
-        stream_contract = STREAM_CONTRACTS.get(stream_suffix.lower())
-        if stream_contract is not None:
-            apply_stream_contract_desc(info, stream_contract)
-        return StreamOutlet(info)
-
-    _lsl_create_outlet = create_outlet
-    _eeg_lsl_channels = ()
-    # Device-dependent outlets are created only after CHANNEL_MAP. Publishing a
-    # guessed four-channel EEG outlet would freeze the wrong XDF contract for
-    # Pro/Flex devices before discovery has completed.
-    _lsl_outlets = {"BATTERY": create_outlet("BATTERY", ("percent",)),
-                    "DIAGNOSTICS": create_outlet("DIAGNOSTICS", ("event",))}
     print("[BrainBit] Base LSL outlet ready; waiting for the device channel map.")
 
 
@@ -2425,36 +2304,22 @@ def _configure_device_lsl_outlets(
     if not _config.get("lsl_enabled", False):
         _eeg_lsl_channels = channel_labels
         return
-    if not callable(_lsl_create_outlet):
-        raise RuntimeError("pylsl is unavailable; the mandatory EEG outlet cannot be created")
     if not channel_labels:
         raise ValueError("the device channel map is empty")
 
-    if _eeg_lsl_channels != channel_labels or "EEG" not in _lsl_outlets:
-        _lsl_outlets["EEG"] = _lsl_create_outlet(
-            "EEG",
-            channel_labels,
-            nominal_rate_hz=nominal_rate_hz,
-        )
-        _lsl_outlets["QUALITY"] = _lsl_create_outlet("QUALITY", channel_labels)
-        _eeg_lsl_channels = channel_labels
+    labels = list(channel_labels)
+    # Opening again with the same channels keeps the running outlet.
+    if not _streams.open("eeg", channels=labels, channel_units=["microvolt"] * len(labels), nominal_rate_hz=nominal_rate_hz):
+        raise RuntimeError("pylsl is unavailable; the mandatory EEG outlet cannot be created")
+    _streams.open("quality", channels=labels, channel_units=["ratio"] * len(labels))
+    _eeg_lsl_channels = channel_labels
 
     if derived_enabled:
-        if "BANDS" not in _lsl_outlets:
-            _lsl_outlets["BANDS"] = _lsl_create_outlet(
-                "BANDS",
-                ("delta", "theta", "alpha", "beta", "gamma"),
-                nominal_rate_hz=derived_rate_hz,
-            )
-        if "MENTAL" not in _lsl_outlets:
-            _lsl_outlets["MENTAL"] = _lsl_create_outlet(
-                "MENTAL",
-                ("Inst_Attention", "Inst_Relaxation", "Rel_Attention", "Rel_Relaxation"),
-                nominal_rate_hz=derived_rate_hz,
-            )
+        _streams.open("bands", nominal_rate_hz=derived_rate_hz)
+        _streams.open("mental", nominal_rate_hz=derived_rate_hz)
     else:
-        _lsl_outlets.pop("BANDS", None)
-        _lsl_outlets.pop("MENTAL", None)
+        _streams.close("bands")
+        _streams.close("mental")
 
 
 def _derive_status(latest: dict[str, Any], running: bool) -> str:
@@ -2594,7 +2459,7 @@ def _build_health(latest: dict[str, Any], running: bool, contact_state: str) -> 
         recording_state = "failed"
     elif _has_recent_raw_lsl(latest):
         recording_state = "recording"
-    elif "EEG" in _lsl_outlets:
+    elif _streams.is_open("eeg"):
         recording_state = "waiting" if not latest.get("last_raw_lsl_success_epoch") else "stale"
     else:
         recording_state = "waiting"
