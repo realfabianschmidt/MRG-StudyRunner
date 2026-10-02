@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "am_hub",
-  "version": "3.0.1",
+  "version": "4.0.0",
   "category": "biosignal",
   "config_key": "am_hub",
   "runtime": {
@@ -34,7 +34,7 @@
   },
   "ui": {
     "label": "AM Hub",
-    "description": "Radar, bio and valve frames from the Parasite AM Hub (one sample per real frame), plus the hub's own events.",
+    "description": "Radar, bio and valve frames from the Parasite AM Hub (one sample per real frame) with the measured board-to-Study-Runner latency, the hub's own events, and the hub clock from a ping every second.",
     "help_key": "pluginHelp.amHub.intro",
     "order": 120,
     "visibility": {
@@ -75,7 +75,6 @@
       "primary_stream": "radar"
     },
     "backup_projection": {
-      "rate_hz": 1,
       "stale_after_ms": 2500,
       "channels": [
         {
@@ -102,6 +101,47 @@
           "output": "breath_rate_per_min",
           "stream": "bio",
           "channel": "breathRate"
+        }
+      ]
+    },
+    "live_view": {
+      "channel_key_prefix": "amHub.channel",
+      "series": [
+        {
+          "key": "movement",
+          "stream": "radar",
+          "channels": [
+            "presMoveEnergy",
+            "presStaticEnergy"
+          ],
+          "label_key": "amHub.monitor.movement",
+          "label": "Movement & presence energy",
+          "min_span": 5
+        },
+        {
+          "key": "vitals",
+          "stream": "bio",
+          "channels": [
+            "heartBpm",
+            "breathRate"
+          ],
+          "label_key": "amHub.monitor.vitals",
+          "label": "Heart & breathing rate",
+          "min_span": 10,
+          "unit_label": " /min"
+        },
+        {
+          "key": "position",
+          "stream": "radar",
+          "channels": [
+            "personX",
+            "personY"
+          ],
+          "label_key": "amHub.monitor.position",
+          "label": "Position (relative to the sensor)",
+          "axis": "signed",
+          "min_span": 100,
+          "unit_label": " mm"
         }
       ]
     },
@@ -165,7 +205,9 @@
         "presDetDist",
         "rssi",
         "seq",
-        "hub_timestamp"
+        "hub_timestamp",
+        "latency_ms",
+        "correction_ms"
       ],
       "channel_units": [
         "millimetre",
@@ -192,9 +234,15 @@
         "millimetre",
         "decibel_milliwatt",
         "count",
-        "second"
+        "second",
+        "millisecond",
+        "millisecond"
       ],
-      "sequence_channel": "seq"
+      "sequence_channel": "seq",
+      "timing": {
+        "timestamp_source": "host_arrival_corrected",
+        "correction_channel": "correction_ms"
+      }
     },
     {
       "key": "bio",
@@ -211,7 +259,9 @@
         "bioT1y",
         "rssi",
         "seq",
-        "hub_timestamp"
+        "hub_timestamp",
+        "latency_ms",
+        "correction_ms"
       ],
       "channel_units": [
         "beats_per_minute",
@@ -221,9 +271,15 @@
         "millimetre",
         "decibel_milliwatt",
         "count",
-        "second"
+        "second",
+        "millisecond",
+        "millisecond"
       ],
-      "sequence_channel": "seq"
+      "sequence_channel": "seq",
+      "timing": {
+        "timestamp_source": "host_arrival_corrected",
+        "correction_channel": "correction_ms"
+      }
     },
     {
       "key": "valves",
@@ -243,7 +299,9 @@
         "CH7",
         "rssi",
         "seq",
-        "hub_timestamp"
+        "hub_timestamp",
+        "latency_ms",
+        "correction_ms"
       ],
       "channel_units": [
         "boolean",
@@ -256,10 +314,16 @@
         "boolean",
         "decibel_milliwatt",
         "count",
-        "second"
+        "second",
+        "millisecond",
+        "millisecond"
       ],
       "sequence_channel": "seq",
-      "may_be_empty": true
+      "may_be_empty": true,
+      "timing": {
+        "timestamp_source": "host_arrival_corrected",
+        "correction_channel": "correction_ms"
+      }
     },
     {
       "key": "hub_events",
@@ -274,7 +338,41 @@
       ],
       "channel_units": [
         "json"
-      ]
+      ],
+      "timing": {
+        "timestamp_source": "host_arrival"
+      }
+    },
+    {
+      "key": "hub_clock",
+      "source_id": "study_runner.am_hub.hub_clock",
+      "type": "HUB_CLOCK",
+      "nominal_rate_hz": 0,
+      "clock_domain": "lsl",
+      "channel_format": "double64",
+      "channels": [
+        "hub_clock_s",
+        "rtt_ms",
+        "exchange_offset_s",
+        "clock_offset_s",
+        "offset_uncertainty_ms",
+        "offset_valid",
+        "offset_steps",
+        "correction_enabled"
+      ],
+      "channel_units": [
+        "second",
+        "millisecond",
+        "second",
+        "second",
+        "millisecond",
+        "boolean",
+        "count",
+        "boolean"
+      ],
+      "timing": {
+        "timestamp_source": "host_arrival"
+      }
     }
   ],
   "settings": {
@@ -299,6 +397,15 @@
         "apply": "restart",
         "scope": "machine",
         "help_key": "pluginHelp.amHub.dataTimeout"
+      },
+      "timestamp_correction": {
+        "type": "boolean",
+        "path": "timestamp_correction",
+        "default": false,
+        "label_key": "pluginSettings.amHub.timestampCorrection",
+        "apply": "restart",
+        "scope": "machine",
+        "help_key": "pluginHelp.amHub.timestampCorrection"
       }
     },
     "study": {},

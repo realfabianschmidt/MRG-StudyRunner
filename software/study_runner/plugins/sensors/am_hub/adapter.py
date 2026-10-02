@@ -1,19 +1,31 @@
-"""AM Hub acquisition: one LSL sample per real board frame, like BrainBit.
+"""AM Hub acquisition: one LSL sample per real board frame (sensor data contract).
 
 The adapter holds the connection to the hub's ``/api/v2/stream`` (SSE) and
-records what arrives:
+records what arrives, through the shared ``SensorStreams``:
 
 - a ``frame`` from the radar, bio or solenoid board -> exactly one sample in
-  that board's numeric stream (``radar``, ``bio``, ``valves``), stamped when it
-  arrives here. The values are the ones the ESP sent: no tick, no unit
-  conversion, nothing carried forward; a value missing from the frame is NaN.
-  ``seq`` and the hub's own ``t`` travel along as bookkeeping channels.
+  that board's numeric stream (``radar``, ``bio``, ``valves``), stamped with
+  the time it arrived here. The values are the ones the ESP sent: no tick, no
+  unit conversion, nothing carried forward; a value missing from the frame is
+  NaN. ``seq``, the hub's own ``t``, the measured latency and the applied
+  correction travel along as bookkeeping channels.
 - every other hub event (status, hello, valves, scene, gap, ...) -> verbatim
   JSON in ``hub_events``, like BrainBit's ``diagnostics``. A frame with a value
   its board stream does not declare goes there as well, so nothing is lost.
+- once per second a ping to the hub -> one sample in ``hub_clock``: the hub's
+  clock, the round trip and the clock offset estimated from it.
 
-What the dashboard shows is ``monitor.py``'s job; this module never derives a
-recorded value from it.
+Latency (board -> Study Runner) has two measured parts:
+``(arrival - t on our clock) + link_rtt_ms / 2``. The hub stamps ``t`` when a
+board's packet reaches it; the pings' clock offset maps ``t`` onto this
+computer's LSL clock. The hub pings each board itself and reports the radio
+round trip as ``link_rtt_ms``. By default the timestamp stays the arrival
+time and the latency is only recorded. With the machine setting
+``timestamp_correction`` the timestamp becomes ``arrival - latency``; the
+``correction_ms`` channel keeps it reversible.
+
+What the dashboard shows is ``monitor.py``'s job and the core's live view;
+this module never derives a recorded value from them.
 """
 from __future__ import annotations
 
@@ -30,16 +42,18 @@ from typing import Any
 from study_runner.plugin_framework.adapter_utils import set_state, timestamp
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 from study_runner.plugin_framework.sensor_connection import presence_sensor_connection
-from study_runner.shared.dependency_utils import ensure_requirements
-from study_runner.contracts.stream_contract import apply_stream_contract_desc, load_own_stream_contracts
+from study_runner.plugin_framework.sensor_streams import SensorStreams
+from study_runner.shared.clock_offset import ClockExchange, RoundTripOffsetEstimator
 from .monitor import AmHubMonitor, channel_name
 
-STREAM_CONTRACTS = load_own_stream_contracts(__file__)
+_streams = SensorStreams.for_plugin(__file__)
+STREAM_CONTRACTS = _streams.declared_contracts()
 # The hub names its boards by role; each role has its own recorded stream.
 BOARD_STREAMS = {"radar": "radar", "bio": "bio", "solenoid": "valves"}
 EVENTS_STREAM = "hub_events"
+CLOCK_STREAM = "hub_clock"
 # Channels every board stream carries besides the board's own values.
-BOOKKEEPING_CHANNELS = ("rssi", "seq", "hub_timestamp")
+BOOKKEEPING_CHANNELS = ("rssi", "seq", "hub_timestamp", "latency_ms", "correction_ms")
 # Over WiFi each board appends its signal strength under its own address.
 RSSI_ADDRESSES = {"/sensor/rssiRadar", "/sensor/rssiBio", "/solenoid/rssi"}
 BOARD_CHANNELS = {
@@ -67,6 +81,16 @@ CONNECT_TIMEOUT_SECONDS = 3.0
 # Reconnect at once, then back off briefly; never longer than 2 s.
 RECONNECT_BACKOFF_SECONDS = (0.0, 0.5, 1.0, 2.0)
 PING_INTERVAL_SECONDS = 1.0
+PING_TIMEOUT_SECONDS = 2.0
+# The first pings come faster, so the hub clock is known about a second after
+# the start instead of after four (the estimate needs four exchanges).
+QUICK_PINGS = 4
+QUICK_PING_INTERVAL_SECONDS = 0.25
+# A correction is applied only to a plausible latency; anything else is
+# recorded as measured but leaves the timestamp at the arrival time.
+MAX_CORRECTION_MS = 1000.0
+# Recent latencies per board stream, for the dashboard's medians.
+LATENCY_WINDOW = 50
 
 
 class HubApiUnsupported(RuntimeError):
@@ -85,10 +109,13 @@ _registered_shutdown = False
 _reader_thread: threading.Thread | None = None
 _ping_thread: threading.Thread | None = None
 _active_response: Any = None
-_lsl_outlets: dict[str, Any] = {}
-_publication_error: str | None = None
 _api_unsupported = False
 _hub_rtts: deque[float] = deque(maxlen=5)
+# The hub's clock seen from here, from the pings; reset on every start.
+_clock = RoundTripOffsetEstimator()
+# Frozen in start(): a run never switches between corrected and arrival times.
+_correction_active = False
+_latencies: dict[str, deque[float]] = {stream: deque(maxlen=LATENCY_WINDOW) for stream in BOARD_STREAMS.values()}
 # Recorded board samples for per-card summaries; sized for a full session.
 _history: deque[dict[str, Any]] = deque(maxlen=history_maxlen(20.0))
 _monitor = AmHubMonitor()
@@ -128,6 +155,7 @@ def initialize(
     data_timeout_seconds: float = 5.0,
     lsl_auto_install: bool = True,
     lsl_stream_prefix: str = "AmHub",
+    timestamp_correction: bool = False,
 ) -> None:
     """Configure the AM Hub adapter and start it if enabled."""
     global _config, _registered_shutdown
@@ -139,7 +167,9 @@ def initialize(
         "data_timeout_seconds": max(1.0, float(data_timeout_seconds)),
         "lsl_auto_install": bool(lsl_auto_install),
         "lsl_stream_prefix": lsl_stream_prefix,
+        "timestamp_correction": bool(timestamp_correction),
     }
+    _streams.configure(name_prefix=lsl_stream_prefix, auto_install=bool(lsl_auto_install))
     if not enabled and _running:
         stop()
     _set_state({
@@ -149,7 +179,7 @@ def initialize(
         "last_message": "AM Hub adapter configured.",
     })
     if enabled:
-        _initialize_lsl_outlets()
+        _streams.open_all()
     if not _registered_shutdown:
         atexit.register(stop)
         _registered_shutdown = True
@@ -159,7 +189,7 @@ def initialize(
 
 def start() -> dict[str, Any]:
     """Open the hub stream; every event is recorded once as it arrives."""
-    global _running, _generation, _reader_thread, _ping_thread, _publication_error, _api_unsupported
+    global _running, _generation, _reader_thread, _ping_thread, _api_unsupported, _correction_active
 
     if not _config:
         _set_state({"status": "not_configured", "last_message": "AM Hub adapter is not configured."})
@@ -170,9 +200,7 @@ def start() -> dict[str, Any]:
     if not _config.get("base_url"):
         _set_state({"status": "waiting", "last_message": "AM Hub base URL is not configured."})
         return get_status()
-    if not _lsl_outlets:
-        _initialize_lsl_outlets()
-    if not _lsl_outlets:
+    if not _streams.open_all():
         _set_state({"status": "failed", "last_message": "AM Hub LSL outlets are unavailable."})
         return get_status()
 
@@ -190,8 +218,8 @@ def start() -> dict[str, Any]:
         if _running:
             return get_status()
         _running = True
-        _publication_error = None
         _api_unsupported = False
+        _correction_active = bool(_config.get("timestamp_correction"))
         _generation += 1
         generation = _generation
         _stop_event.clear()
@@ -199,6 +227,9 @@ def start() -> dict[str, Any]:
         _monitor.reset()
         _history.clear()
         _hub_rtts.clear()
+        _clock.reset()
+        for latencies in _latencies.values():
+            latencies.clear()
         _reset_link()
         _reader_thread = threading.Thread(target=_sse_loop, args=(generation,), daemon=True)
         _ping_thread = threading.Thread(target=_ping_loop, args=(generation,), daemon=True)
@@ -265,10 +296,10 @@ def get_status() -> dict[str, Any]:
         status = dict(_latest_state)
     status.update({
         "enabled": bool(_config.get("enabled", False)),
-        "lsl_enabled": bool(_lsl_outlets),
+        "lsl_enabled": _streams.is_open("radar"),
         "recording_enabled": bool(_recording_enabled),
         "base_url": _config.get("base_url", ""),
-        "streams": list(_lsl_outlets.keys()),
+        "streams": [contract["key"] for contract in _streams.contracts()],
         "auto_reconnect": bool(_config.get("auto_reconnect", True)),
         "api_unsupported": _api_unsupported,
         "running": bool(_running),
@@ -276,9 +307,9 @@ def get_status() -> dict[str, Any]:
     if not _running:
         # Off: no live values, graphs or age counters -- only the reason.
         status.update({
-            "latest": {}, "preview": {}, "topics": {}, "boards": {}, "hub_boards": {}, "hub_host": {},
+            "latest": {}, "topics": {}, "boards": {}, "hub_boards": {}, "hub_host": {},
             "person": {"detected": False, "sources": []}, "data_quality": {}, "unknown_topics": [],
-            "hub_rtt_ms": None, "last_activity_at": None, "seconds_since_last_activity": None,
+            "hub_rtt_ms": None, "timing": {}, "last_activity_at": None, "seconds_since_last_activity": None,
         })
         status["connection"] = presence_sensor_connection(
             str(status.get("status") or "off"), running=False,
@@ -289,7 +320,11 @@ def get_status() -> dict[str, Any]:
     now = time.time()
     fresh_seconds = float(_config.get("data_timeout_seconds", 5.0))
     view = _monitor.snapshot(now, fresh_seconds=fresh_seconds, hub_rtt_ms=_hub_rtt_ms())
+    timing = _timing_status()
+    for role, board in view["hub_boards"].items():
+        board["latency_ms"] = timing["latency_ms"].get(BOARD_STREAMS.get(role, ""))
     status.update(view)
+    status["timing"] = timing
     status["unknown_topics"] = sorted(address for address in view["topics"] if not _is_recorded_address(address))
     if view["last_frame_at"] is not None:
         status["last_activity_epoch"] = view["last_frame_at"]
@@ -297,8 +332,6 @@ def get_status() -> dict[str, Any]:
         status["seconds_since_last_activity"] = round(max(0.0, now - view["last_frame_at"]), 3)
     status["link"] = _link_status(now)
     status.update(_live_status(status["link"], view["person"], _monitor.boards_ready(now, fresh_seconds)))
-    if _publication_error:
-        status.update({"status": "failed", "last_message": _publication_error})
     status["connection"] = presence_sensor_connection(
         str(status.get("status") or ""),
         running=True,
@@ -347,9 +380,10 @@ def _device_label(hub_boards: dict[str, Any]) -> str:
 def _handle_sse_event(data: str) -> None:
     """Record one hub event, then let the monitor see it.
 
-    Freshness is judged on this computer's clock: a value counts as received
-    when it arrives here. The hub's ``t`` is recorded, never used for timing.
+    The arrival time is taken first, before anything is parsed. Freshness is
+    judged on this computer's clock; the hub's ``t`` only enters the latency.
     """
+    arrival = _streams.now()
     received = time.time()
     _link_heard(received)
     try:
@@ -357,26 +391,59 @@ def _handle_sse_event(data: str) -> None:
     except json.JSONDecodeError:
         event = None
     if not isinstance(event, dict):
-        _push(EVENTS_STREAM, [data])  # not ours to judge: kept verbatim
+        _streams.push(EVENTS_STREAM, [data], arrival)  # not ours to judge: kept verbatim
         return
-    stream = BOARD_STREAMS.get(str(event.get("role") or "")) if event.get("type") == "frame" else None
+    role = str(event.get("role") or "")
+    stream = BOARD_STREAMS.get(role) if event.get("type") == "frame" else None
     values = event.get("values") if isinstance(event.get("values"), dict) else None
     if stream and values is not None:
-        row, complete = _board_row(stream, event, values)
-        _push(stream, row)
+        latency_ms = _latency_ms(event, role, arrival)
+        row, complete = _board_row(stream, event, values, latency_ms)
+        _streams.push(stream, row, _frame_timestamp(arrival, latency_ms), arrival=arrival)
+        if math.isfinite(latency_ms):
+            _latencies[stream].append(latency_ms)
         _history.append({"_epoch": received, "stream": stream, **dict(zip(STREAM_CONTRACTS[stream]["channels"], row))})
         if not complete:
-            _push(EVENTS_STREAM, [data])
+            _streams.push(EVENTS_STREAM, [data], arrival)
     else:
-        _push(EVENTS_STREAM, [data])
+        _streams.push(EVENTS_STREAM, [data], arrival)
     _monitor.observe(event, received)
 
 
-def _board_row(stream: str, event: dict[str, Any], values: dict[str, Any]) -> tuple[list[float], bool]:
+def _latency_ms(event: dict[str, Any], role: str, arrival: float) -> float:
+    """Board -> Study Runner latency of one frame; NaN when a part is unknown.
+
+    ``arrival - t`` (both on this computer's LSL clock, through the pings'
+    clock offset) is the time from the hub to here, including the hub's own
+    handling; ``link_rtt_ms / 2`` is the radio part from the board to the
+    hub, measured by the hub's own pings (older board firmware has none).
+    """
+    hub_time = event.get("t")
+    link_rtt = _monitor.link_rtt_ms(role)
+    estimate = _clock.estimate(arrival)
+    if not estimate.valid or link_rtt is None or isinstance(hub_time, bool) or not isinstance(hub_time, (int, float)):
+        return math.nan
+    local_hub_time = estimate.to_local(float(hub_time))
+    if local_hub_time is None:
+        return math.nan
+    return (arrival - local_hub_time) * 1000.0 + link_rtt / 2.0
+
+
+def _frame_timestamp(arrival: float, latency_ms: float) -> float:
+    """The arrival time, or with the correction on, the estimated sending time."""
+    if _correction_active and math.isfinite(latency_ms) and 0.0 <= latency_ms <= MAX_CORRECTION_MS:
+        return arrival - latency_ms / 1000.0
+    return arrival
+
+
+def _board_row(
+    stream: str, event: dict[str, Any], values: dict[str, Any], latency_ms: float = math.nan,
+) -> tuple[list[float], bool]:
     """The frame's values in the stream's channel order; NaN where the frame has none.
 
     ``complete`` is False when the frame carries a value this stream does not
     declare -- the caller then also keeps the whole frame in ``hub_events``.
+    ``correction_ms`` is filled in by ``SensorStreams`` when it publishes.
     """
     by_name: dict[str, Any] = {}
     complete = True
@@ -389,61 +456,12 @@ def _board_row(stream: str, event: dict[str, Any], values: dict[str, Any]) -> tu
             complete = False
     by_name["seq"] = event.get("seq")
     by_name["hub_timestamp"] = event.get("t")
+    by_name["latency_ms"] = latency_ms
     return [_number(by_name.get(channel)) for channel in STREAM_CONTRACTS[stream]["channels"]], complete
 
 
 def _is_recorded_address(address: str) -> bool:
     return address in RSSI_ADDRESSES or any(channel_name(address) in names for names in BOARD_CHANNELS.values())
-
-
-def _push(stream: str, row: list[Any]) -> None:
-    """One sample to one outlet. A failed push is an acquisition error, not a sample."""
-    global _publication_error
-    outlet = _lsl_outlets.get(stream)
-    if outlet is None:
-        return
-    try:
-        outlet.push_sample(row)
-    except Exception as error:
-        _publication_error = f"AM Hub {stream} publication failed: {error}"
-        _set_state({"status": "failed", "last_message": _publication_error})
-        # Stops the reader: the run is failed until the next start().
-        raise RuntimeError(_publication_error) from error
-
-
-def _initialize_lsl_outlets() -> None:
-    """One outlet per manifest stream, with its channels, units and contract."""
-    global _lsl_outlets
-
-    if not ensure_requirements(
-        [("pylsl", "pylsl")],
-        auto_install=bool(_config.get("lsl_auto_install", True)),
-        label="AM Hub LSL",
-    ):
-        _lsl_outlets = {}
-        return
-    from pylsl import StreamInfo, StreamOutlet
-
-    prefix = _config.get("lsl_stream_prefix", "AmHub")
-    outlets = {}
-    for key, stream in STREAM_CONTRACTS.items():
-        info = StreamInfo(
-            name=f"{prefix}_{stream['type']}",
-            type=stream["type"],
-            channel_count=len(stream["channels"]),
-            nominal_srate=float(stream["nominal_rate_hz"]),
-            channel_format=stream["channel_format"],
-            source_id=stream["source_id"],
-        )
-        channels = info.desc().append_child("channels")
-        for label, unit in zip(stream["channels"], stream["channel_units"], strict=True):
-            channel = channels.append_child("channel")
-            channel.append_child_value("label", label)
-            channel.append_child_value("unit", unit)
-        apply_stream_contract_desc(info, stream)
-        outlets[key] = StreamOutlet(info)
-    _lsl_outlets = outlets
-    print("[AmHub] LSL outlets ready.")
 
 
 # ---------------------------------------------------------- card summaries
@@ -541,7 +559,7 @@ def _sse_loop(generation: int) -> None:
                 break
             _link_lost(reason)
             failures = 0 if delivered else failures + 1
-            if _publication_error or _api_unsupported or not _config.get("auto_reconnect", True):
+            if _api_unsupported or not _config.get("auto_reconnect", True):
                 break
     finally:
         with contextlib.suppress(Exception):
@@ -709,27 +727,89 @@ def _link_status(now: float) -> dict[str, Any]:
 
 
 def _ping_loop(generation: int) -> None:
-    """This computer's HTTP round trip to the hub, once per second (diagnostic only)."""
+    """Ping the hub once per second: round trip and the hub's clock, recorded.
+
+    ``/api/v2/ping`` answers with ``server_now``, the hub's wall clock. With
+    the send and receive times on this computer's LSL clock, each answer is
+    one exchange for the clock-offset estimate (``shared/clock_offset.py``)
+    and one ``hub_clock`` sample.
+    """
     import requests
 
     session = requests.Session()
+    answered = 0
     while _alive(generation):
-        started = time.perf_counter()
+        sent = _streams.now()
         try:
-            ok = session.get(f"{_config['base_url']}/api/v2/ping", timeout=2.0).ok
+            response = session.get(f"{_config['base_url']}/api/v2/ping", timeout=PING_TIMEOUT_SECONDS)
+            received = _streams.now()
+            server_now = _ping_server_now(response) if response.ok else None
+            ok = response.ok
         except Exception:
-            ok = False
-        if ok:
-            _hub_rtts.append((time.perf_counter() - started) * 1000.0)
-        else:
+            received, server_now, ok = _streams.now(), None, False
+        if ok and _alive(generation):
+            _record_ping(sent, received, server_now)
+            answered += 1
+        elif not ok:
             _hub_rtts.clear()  # an old round trip must not stand in for a failing one
-        _stop_event.wait(PING_INTERVAL_SECONDS)
+        _stop_event.wait(QUICK_PING_INTERVAL_SECONDS if answered < QUICK_PINGS else PING_INTERVAL_SECONDS)
     session.close()
+
+
+def _ping_server_now(response: Any) -> float | None:
+    try:
+        value = response.json().get("server_now")
+    except Exception:
+        return None
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) else None
+
+
+def _record_ping(sent: float, received: float, server_now: float | None) -> None:
+    """One answered ping: the round trip, the offset estimate, one hub_clock sample."""
+    rtt_ms = (received - sent) * 1000.0
+    _hub_rtts.append(rtt_ms)
+    exchange_offset = math.nan
+    if server_now is not None:
+        exchange = ClockExchange(sent=sent, received=received, remote=server_now)
+        exchange_offset = exchange.offset
+        estimate = _clock.add(exchange)
+    else:
+        estimate = _clock.estimate(received)
+    row = _streams.row(CLOCK_STREAM, {
+        "hub_clock_s": server_now,
+        "rtt_ms": rtt_ms,
+        "exchange_offset_s": exchange_offset,
+        "clock_offset_s": estimate.offset_s,
+        "offset_uncertainty_ms": estimate.uncertainty_ms,
+        "offset_valid": 1.0 if estimate.valid else 0.0,
+        "offset_steps": estimate.steps,
+        "correction_enabled": 1.0 if _correction_active else 0.0,
+    })
+    _streams.push(CLOCK_STREAM, row, received)
 
 
 def _hub_rtt_ms() -> float | None:
     values = sorted(_hub_rtts)
     return round(values[len(values) // 2], 2) if values else None
+
+
+def _timing_status() -> dict[str, Any]:
+    """What the dashboard shows about timing: offset, round trip, latencies, correction."""
+    estimate = _clock.estimate()
+    return {
+        "hub_rtt_ms": _hub_rtt_ms(),
+        "clock_offset_valid": estimate.valid,
+        "offset_uncertainty_ms": estimate.uncertainty_ms,
+        "offset_steps": estimate.steps,
+        "latency_ms": {stream: _median(values) for stream, values in _latencies.items()},
+        "correction_enabled": bool(_correction_active),
+        "correction_configured": bool(_config.get("timestamp_correction")),
+    }
+
+
+def _median(values: deque[float]) -> float | None:
+    ordered = sorted(values)
+    return round(ordered[len(ordered) // 2], 1) if ordered else None
 
 
 # ------------------------------------------------------------------ helpers

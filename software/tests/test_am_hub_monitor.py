@@ -23,7 +23,7 @@ def test_reset_forgets_every_value_graph_and_counter():
     monitor.observe({"type": "gap", "dropped": 2}, 10.0)
     monitor.reset()
     view = monitor.snapshot(10.0, fresh_seconds=5, hub_rtt_ms=None)
-    assert view["latest"] == {} and view["preview"]["movement"] == []
+    assert view["latest"] == {} and view["topics"] == {} and "preview" not in view
     assert view["data_quality"] == {"frames": {}, "seq_gaps": {}, "hub_dropped_events": 0}
 
 
@@ -36,11 +36,16 @@ def test_lost_packets_count_from_this_connection_and_survive_a_hub_restart():
     assert monitor.snapshot(2.0, fresh_seconds=5, hub_rtt_ms=None)["hub_boards"]["radar"]["lost"] == 2
 
 
-def test_latency_is_radio_half_plus_hub_plus_own_half_round_trip():
+def test_the_radio_round_trip_is_known_only_for_a_connected_board():
+    # The latency itself is measured per frame by the adapter.
     monitor = AmHubMonitor()
+    assert monitor.link_rtt_ms("bio") is None
     monitor.observe(status("bio", connected=True, link_rtt_ms=20.0, hub_latency_ms=1.5), 1.0)
-    view = monitor.snapshot(1.0, fresh_seconds=5, hub_rtt_ms=4.0)
-    assert view["hub_boards"]["bio"]["latency_ms"] == 13.5
+    assert monitor.link_rtt_ms("bio") == 20.0
+    monitor.observe(status("bio", connected=False, link_rtt_ms=20.0), 2.0)
+    assert monitor.link_rtt_ms("bio") is None
+    monitor.observe(status("radar", connected=True), 2.0)  # older firmware: no ping
+    assert monitor.link_rtt_ms("radar") is None
 
 
 def test_a_person_is_seen_by_any_fresh_source_and_old_values_do_not_count():

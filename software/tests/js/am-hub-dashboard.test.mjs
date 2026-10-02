@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { renderTrend, renderDashboard } from '../../study_runner/plugins/sensors/am_hub/ui/dashboard.js';
+import { formatTiming, renderDashboard } from '../../study_runner/plugins/sensors/am_hub/ui/dashboard.js';
 import { graphSection, infoTip } from '../../study_runner/apps/ui/scripts/shared/dashboard-graph.js';
 
 const ui = {
@@ -13,48 +13,18 @@ const ui = {
 
   graphSection, infoTip,
 };
-const point = (at, values, validity = 'valid') => ({ at, received_at: at, values, validity });
-
-test('an unsigned trend (movement) never dips below its minimum step', () => {
-  const html = renderTrend('movement', { preview: { movement: [] } }, ui, 10);
-  assert.match(html, />5</); // MIN step for movement is 5, no unit suffix.
-});
-
-test('an unsigned trend zooms to the peak of the visible window plus headroom', () => {
-  const points = [point(1, { presMoveEnergy: 18, presStaticEnergy: 2 })];
-  const html = renderTrend('movement', { preview: { movement: points } }, ui, 1);
-  // 18 * 1.15 = 20.7, rounded up to the next multiple of 5 -> 25.
-  assert.match(html, />25</);
-});
-
-test('a signed trend (position) is centered on zero with a plus/minus label', () => {
-  const points = [point(1, { personX: 240, personY: -50 })];
-  const html = renderTrend('position', { preview: { position: points } }, ui, 1);
-  // max(|240|,|50|) * 1.15 = 276, rounded up to the next 100mm step -> 300.
-  assert.match(html, />\+300 mm</);
-  assert.match(html, />−300 mm</);
-});
-
-test('a missing frame leaves a gap rather than adding a point', () => {
-  const points = [point(1, { presMoveEnergy: 10 }), point(3, { presMoveEnergy: 10 })];
-  const html = renderTrend('movement', { preview: { movement: points } }, ui, 3);
-  const d = html.match(/<path d="([ML0-9., ]+)" fill="none" stroke="#b2182b"/)[1];
-  assert.equal((d.match(/M/g) || []).length, 2);
-});
-
-test('dashboard renders the trend graphs and details without its own switch', () => {
+test('dashboard renders the hub facts and details, never its own graphs or switch', () => {
   const html = renderDashboard({
     plugin: {
       status: 'connected', enabled: true, running: true, can_start: false, can_stop: true, can_restart: true,
       base_url: 'http://hub:8000', last_message: 'AM Hub sample received.',
       latest: { presence: 1, personX: 10, personY: -5, presMoveEnergy: 12 },
-      preview: { movement: [], position: [] },
     },
   }, ui);
   assert.doesNotMatch(html, /data-runtime-toggle|data-runtime-switch/);
+  // The trend graphs are the core's live view (manifest live_view).
+  assert.doesNotMatch(html, /<svg/);
   assert.match(html, /No person detected by any sensor\./);
-  assert.match(html, /Movement &amp; presence energy/);
-  assert.match(html, /Position \(relative to the sensor\)/);
   assert.match(html, /<details>/);
   assert.match(html, /http:\/\/hub:8000/);
 });
@@ -113,19 +83,40 @@ test('a hub with WiFi power saving on gets a warning with the fix', () => {
   assert.doesNotMatch(off, /WiFi power saving/);
 });
 
-test('off: the graphs stay in place, empty, like BrainBit - no old value, age or off notice', () => {
+test('off: no old value, age, timing or off notice', () => {
   const html = renderDashboard({ plugin: { enabled: false, running: false, status: 'stopped',
-    latest: { heartBpm: 72 }, preview: { movement: [point(1, { presMoveEnergy: 10 })] },
-    seconds_since_last_activity: 99 } }, ui);
-  assert.match(html, /Movement &amp; presence energy/);
-  assert.match(html, /<svg/);
-  assert.doesNotMatch(html, /AM Hub is off|>72<| 72 |99 s/);
+    latest: { heartBpm: 72 }, seconds_since_last_activity: 99,
+    timing: { clock_offset_valid: true, offset_uncertainty_ms: 2, latency_ms: { radar: 45 } } } }, ui);
+  assert.doesNotMatch(html, /AM Hub is off|>72<| 72 |99 s|45/);
 });
 
-test('an unsupported hub keeps the empty graphs; the reason is shown by the connection panel', () => {
+test('an unsupported hub shows no old value; the reason is shown by the connection panel', () => {
   const html = renderDashboard({ plugin: { enabled: true, running: false, status: 'failed',
     last_message: 'AM Hub API v2 is required; this hub only offers an older stream.',
     api_unsupported: true, latest: { heartBpm: 72 } } }, ui);
-  assert.match(html, /<svg/);
   assert.doesNotMatch(html, /API v2 is required|>72</);
+});
+
+test('timing: the hub clock, the latency per board and whether timestamps are corrected', () => {
+  const timing = {
+    hub_rtt_ms: 3.2, clock_offset_valid: true, offset_uncertainty_ms: 1.6, offset_steps: 0,
+    latency_ms: { radar: 45.2, bio: 38, valves: null }, correction_enabled: false, correction_configured: false,
+  };
+  const measured = formatTiming({ timing }, ui);
+  assert.match(measured, /hub clock known ± 1\.6 ms/);
+  assert.match(measured, /latency: Radar 45\.2 ms, Vital signs 38 ms/);
+  assert.match(measured, /timestamps = arrival time \(latency recorded only\)/);
+  assert.doesNotMatch(measured, /clock steps|restart/);
+
+  const corrected = formatTiming({ timing: { ...timing, correction_enabled: true, correction_configured: true, offset_steps: 1 } }, ui);
+  assert.match(corrected, /timestamps corrected by the latency/);
+  assert.match(corrected, /clock steps 1/);
+
+  const pending = formatTiming({ timing: { ...timing, correction_configured: true } }, ui);
+  assert.match(pending, /restart the AM Hub to apply the setting/);
+
+  const unknown = formatTiming({ timing: { ...timing, clock_offset_valid: false, latency_ms: {} } }, ui);
+  assert.match(unknown, /hub clock not known yet/);
+  assert.match(unknown, /latency: -/);
+  assert.equal(formatTiming({ timing: {} }, ui), '-');
 });

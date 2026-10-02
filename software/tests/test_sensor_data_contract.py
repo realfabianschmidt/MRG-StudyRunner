@@ -39,7 +39,7 @@ from study_runner.contracts.sensor_contract import (  # noqa: E402
 
 SENSORS_ROOT = SOFTWARE_ROOT / "study_runner" / "plugins" / "sensors"
 TEMPLATE = sdk.TEMPLATES_DIR / "sensors"
-NOT_YET_ON_CONTRACT = {"am_hub", "brainbit", "camera_emotion", "mr60_mini_radar"}
+NOT_YET_ON_CONTRACT = {"brainbit", "camera_emotion", "mr60_mini_radar"}
 # Names only the shared publishing path may use.
 FORBIDDEN_NAMES = {"StreamOutlet", "StreamInfo"}
 FORBIDDEN_CALLS = {"push_sample"}

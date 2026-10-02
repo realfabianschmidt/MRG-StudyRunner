@@ -4,7 +4,8 @@ Like ``brainbit/monitor.py``: the adapter hands every hub event to
 ``AmHubMonitor.observe`` and the dashboard reads ``snapshot``. Everything here
 is bounded, derived from events that actually arrived, and cleared by
 ``reset`` whenever the adapter starts or stops, so no value outlives its
-connection or reaches the next session.
+connection or reaches the next session. The trend graphs are the core's live
+view (manifest ``live_view``), fed by the recorded samples themselves.
 """
 from __future__ import annotations
 
@@ -20,13 +21,6 @@ PERSON_TARGETS = "targetCount"
 PERSON_VITALS = ("bioDist", "heartBpm", "breathRate")
 # A value older than this no longer counts as "now" for person detection.
 PERSON_STALE_SECONDS = 2.5
-TREND_CHANNELS = {
-    "movement": ("presMoveEnergy", "presStaticEnergy"),
-    "position": ("personX", "personY"),
-    "vitals": ("heartBpm", "breathRate"),
-}
-# One minute of real frames at the boards' ~10 Hz.
-PREVIEW_POINTS = 1200
 HUB_ROLES = ("radar", "bio", "solenoid")
 
 
@@ -54,7 +48,6 @@ class AmHubMonitor:
             self.hub_dropped_events = 0
             self.scene_active: bool | None = None
             self.last_frame_at: float | None = None
-            self.preview = {group: deque(maxlen=PREVIEW_POINTS) for group in TREND_CHANNELS}
 
     # ------------------------------------------------------------ observe
 
@@ -92,11 +85,6 @@ class AmHubMonitor:
         self.last_frame_at = received
         for address, value in values.items():
             self.values[str(address)] = {"value": _number(value), "received_at": received}
-        names = {channel_name(address): _number(value) for address, value in values.items()}
-        for group, channels in TREND_CHANNELS.items():
-            shown = {name: names[name] for name in channels if name in names}
-            if shown:
-                self.preview[group].append({"at": received, "received_at": received, "values": shown})
 
     def _boards(self, devices: Any) -> None:
         if not isinstance(devices, dict):
@@ -115,6 +103,12 @@ class AmHubMonitor:
                 "hub_latency_ms": _number(info.get("hub_latency_ms")),
                 "detail": info.get("detail"),
             }
+
+    def link_rtt_ms(self, role: str) -> float | None:
+        """The radio round trip hub <-> board the hub measured last (None: unknown)."""
+        with self.lock:
+            board = self.hub_boards.get(role) or {}
+            return board.get("link_rtt_ms") if board.get("connected") else None
 
     def _lost_this_session(self, role: str, gap_count: float | None) -> float | None:
         """The hub counts lost packets since it started; show only this connection's."""
@@ -145,12 +139,8 @@ class AmHubMonitor:
                     "frames": self.frame_counts.get(board, 0),
                     "live": age <= fresh_seconds,
                 }
-            hub_boards = {}
-            for role, info in self.hub_boards.items():
-                latency = None
-                if info["connected"] and None not in (info["link_rtt_ms"], info["hub_latency_ms"], hub_rtt_ms):
-                    latency = round(info["link_rtt_ms"] / 2 + info["hub_latency_ms"] + hub_rtt_ms / 2, 2)
-                hub_boards[role] = {**info, "latency_ms": latency}
+            # The latency per board is measured per frame by the adapter.
+            hub_boards = {role: dict(info) for role, info in self.hub_boards.items()}
             return deepcopy({
                 "latest": {channel_name(address): value for address, value in fresh.items()},
                 "topics": {
@@ -168,7 +158,6 @@ class AmHubMonitor:
                     "seq_gaps": dict(self.seq_gaps),
                     "hub_dropped_events": self.hub_dropped_events,
                 },
-                "preview": {group: list(points) for group, points in self.preview.items()},
                 "last_frame_at": self.last_frame_at,
             })
 

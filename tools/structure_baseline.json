@@ -88,8 +88,8 @@
       "path": "software/study_runner/runtime_core/delivery/finalization_service.py"
     },
     "shared": {
-      "lines": 144,
-      "path": "software/study_runner/shared/system_clock_probe.py"
+      "lines": 158,
+      "path": "software/study_runner/shared/clock_offset.py"
     },
     "updates": {
       "lines": 297,
@@ -110,14 +110,14 @@
     "data_core.contract": 1184,
     "data_core.host": 6655,
     "data_core.worker": 2406,
-    "plugin_framework": 4008,
+    "plugin_framework": 4014,
     "plugins": 0,
     "plugins.cards": 1420,
     "plugins.destinations": 1894,
     "plugins.outputs": 154,
-    "plugins.sensors": 11772,
+    "plugins.sensors": 11795,
     "runtime_core": 15015,
-    "shared": 448,
+    "shared": 606,
     "updates": 696
   }
 }

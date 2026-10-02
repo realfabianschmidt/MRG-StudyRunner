@@ -210,6 +210,25 @@ is not accurate to 12 ms — it is accurate to an amount nobody has
 established. The label is what lets you see that before you build an
 analysis on it.
 
+### Where a timestamp comes from
+
+Every stream also says how its timestamps were made
+(`timing.timestamp_source`, written into the XDF header):
+
+| Source | Meaning |
+|---|---|
+| `host_arrival` | This computer's LSL clock the moment the sample arrived. |
+| `host_arrival_corrected` | The arrival time minus a measured delay. The stream's `correction_channel` holds, per sample, how many milliseconds were taken off. |
+| `host_callback_reconstructed` | A timeline rebuilt from the device driver's callbacks (sample index times the nominal period), as for BrainBit. |
+
+A corrected timestamp is the one place where a computed time is stored, so
+it is stored only together with the correction: `arrival = timestamp +
+correction_ms / 1000` gives the raw arrival back for every sample, and the
+measurements behind the correction are recorded in their own channels and
+streams (for AM Hub: `latency_ms` and the `hub_clock` stream). The AM Hub
+measures by default and corrects only when the operator switches the
+correction on; a correction of 0 means nothing was taken off.
+
 ---
 
 ## 5. Where a session is, overall

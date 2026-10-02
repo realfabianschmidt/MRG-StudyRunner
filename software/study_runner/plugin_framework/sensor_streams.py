@@ -127,11 +127,13 @@ class SensorStreams:
             self._backend_missing = False
 
     def use_backend(self, backend: Any) -> None:
-        """Replace pylsl (tests); closes every outlet."""
+        """Replace pylsl (tests); closes every outlet. A new backend is a new
+        clock, so the last timestamps of the old one are forgotten."""
         with self._lock:
             self.close()
             self._backend = backend
             self._backend_missing = False
+            self._last_timestamp.clear()
 
     def _pylsl(self) -> Any | None:
         if self._backend is not None:
@@ -161,6 +163,10 @@ class SensorStreams:
 
     def declared(self, key: str) -> dict[str, Any]:
         return dict(self._contract(key))
+
+    def declared_contracts(self) -> dict[str, dict[str, Any]]:
+        """Every stream the manifest declares, by key (manifest order)."""
+        return {key: dict(contract) for key, contract in self._contracts.items()}
 
     def _contract(self, key: str) -> dict[str, Any]:
         try:

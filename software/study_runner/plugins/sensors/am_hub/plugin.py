@@ -28,6 +28,7 @@ def _initialize(context: PluginContext) -> None:
         data_timeout_seconds=config.get("data_timeout_seconds", 5),
         lsl_auto_install=lsl_config.get("auto_install", True),
         lsl_stream_prefix=lsl_config.get("stream_prefix", "AmHub"),
+        timestamp_correction=bool(config.get("timestamp_correction", False)),
     )
 
 

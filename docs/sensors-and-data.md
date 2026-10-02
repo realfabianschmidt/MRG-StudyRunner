@@ -279,8 +279,16 @@ must be considered in the analysis.
 Parasite AM Hub forwarded (radar LD2450/LD2410B and bio MR60 at about 10 Hz,
 valves on change), with the values and units the ESP firmware sent; nothing is
 resampled, converted or carried forward. Timestamps are this computer's LSL
-time on arrival and include radio (BLE/WiFi), hub and network delay; the hub's
-own clock is kept in `hub_timestamp`, and `seq` makes losses countable. The ESP
+time on arrival and include radio (BLE/WiFi), hub and network delay. That
+delay is measured per frame and recorded in `latency_ms`: half the radio round
+trip the hub measures to each board, plus the time from the hub to this
+computer, using the hub's clock (`hub_timestamp`) mapped onto this computer's
+clock by a ping every second (the `hub_clock` stream holds every ping, its
+round trip and the clock-offset estimate). With the AM Hub setting "Correct
+timestamps by the measured latency" (off by default), a frame's timestamp is
+its arrival time minus that latency, and `correction_ms` records what was
+taken off, so the arrival time can always be rebuilt. `seq` makes losses
+countable. The ESP
 sends 0 when it has no value (its own 2 s timeout) and repeats its latest
 values, so a 0 or a repeated value is not necessarily a new measurement; card
 averages leave such zeros out, the XDF keeps them. Heart and breathing rate of
@@ -298,6 +306,9 @@ Before data of a setup are used for analysis, record and keep once per setup
 1. **Latency:** a known physical event (for AM Hub a person stepping into the
    field at a marked moment, for BrainBit an LSL marker together with a
    blink or tap artifact) against its XDF timestamp; report mean and spread.
+   For AM Hub also report the recorded `latency_ms` and whether timestamps
+   were corrected (`correction_ms` non-zero), and check that `hub_clock`
+   shows a valid offset with a small uncertainty.
 2. **Losses:** a 60-minute recording; count `seq` gaps (AM Hub), packet
    discontinuities (BrainBit) and reconnects.
 3. **Empty room / no headband contact:** the values the device reports when

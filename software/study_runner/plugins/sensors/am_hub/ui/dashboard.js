@@ -1,34 +1,7 @@
 /** Optional trusted dashboard renderer for the AM Hub plugin. */
 
 // Shows monitor.py's view of the frames that actually arrived; never adds XDF samples.
-const HEADROOM_FACTOR = 1.15;
-
-const TREND_CONFIG = {
-  movement: {
-    names: ['presMoveEnergy', 'presStaticEnergy'],
-    colors: ['#b2182b', '#2166ac'],
-    signed: false,
-    minStep: 5,
-    unit: '',
-    titleFallback: 'Movement & presence energy',
-  },
-  position: {
-    names: ['personX', 'personY'],
-    colors: ['#2166ac', '#b2182b'],
-    signed: true,
-    minStep: 100,
-    unit: ' mm',
-    titleFallback: 'Position (relative to the sensor)',
-  },
-  vitals: {
-    names: ['heartBpm', 'breathRate'],
-    colors: ['#b2182b', '#2166ac'],
-    signed: false,
-    minStep: 10,
-    unit: ' /min',
-    titleFallback: 'Heart & breathing rate',
-  },
-};
+// The trend graphs are the core's live view (manifest live_view), drawn above this part.
 
 // Headline values: [channel, i18n key, fallback label, unit].
 const VITAL_TILES = [
@@ -37,64 +10,15 @@ const VITAL_TILES = [
   ['heartBpm', 'heartRate', 'Heart rate', ' BPM'],
 ];
 
-function computeDisplayMax(points, end, names, minStep) {
-  let recentMax = 0;
-  for (const point of points) {
-    if (point.at < end - 60 || point.at > end) continue;
-    for (const name of names) {
-      const value = point.values?.[name];
-      if (Number.isFinite(value) && Math.abs(value) > recentMax) recentMax = Math.abs(value);
-    }
-  }
-  return Math.max(minStep, Math.ceil(recentMax * HEADROOM_FACTOR / minStep) * minStep);
-}
-
-export function renderTrend(kind, plugin, ui, now = Date.now() / 1000) {
-  const { names, colors, signed, minStep, unit, titleFallback } = TREND_CONFIG[kind];
-  const points = plugin.preview?.[kind] || [];
-  const last = points.at(-1);
-  const end = now;
-  const title = ui.t(`amHub.monitor.${kind}`, titleFallback);
-  const displayMax = computeDisplayMax(points, end, names, minStep);
-  const paths = names.map((name, index) => {
-    let d = '', previous = null;
-    for (const point of points) {
-      const value = point.values?.[name];
-      if (point.at < end - 60 || point.at > end || !Number.isFinite(value)) { previous = null; continue; }
-      const x = 32 + (point.at - (end - 60)) / 60 * 306;
-      const y = signed ? 64 - (value / displayMax) * 46 : 110 - Math.max(0, value) / displayMax * 92;
-      d += `${previous !== null && point.at - previous < 0.5 ? 'L' : 'M'}${x.toFixed(2)},${y.toFixed(2)} `;
-      previous = point.at;
-    }
-    return `<path d="${d}" fill="none" stroke="${colors[index]}" stroke-width="2" stroke-dasharray="${index % 2 ? '5 2' : 'none'}" />`;
-  }).join('');
-  const legend = names.map((name, index) => `<span style="color:${colors[index]}">${ui.escapeHtml(ui.t(`amHub.channel.${name}`, name))}</span>`).join(' · ');
-  const topLabel = `${signed ? '+' : ''}${Math.round(displayMax)}${unit}`;
-  const bottomLabel = signed ? `−${Math.round(displayMax)}${unit}` : `0${unit}`;
-  const axisLine = signed
-    ? '<path d="M32 64H338" fill="none" stroke="currentColor" opacity=".4" />'
-    : '<path d="M32 18V110H338" fill="none" stroke="currentColor" opacity=".4" />';
-  const svg = `<svg viewBox="0 0 360 140" width="100%" role="img" aria-label="${ui.escapeHtml(title)}">
-      ${axisLine}
-      <g fill="currentColor" font-size="10"><text x="2" y="22">${topLabel}</text><text x="2" y="114">${bottomLabel}</text>
-      <text x="32" y="130">−60 s</text><text x="318" y="130">0 s</text></g>${paths}</svg>`;
-  // How the preview works and how old it is: in the (i), not under the graph.
-  const info = [
-    ui.t('amHub.monitor.previewNote', '60-second display of received board frames; no generated samples.'),
-    last ? `${ui.t('amHub.monitor.age', 'Age')}: ${Math.max(0, now - last.received_at).toFixed(0)} s` : '',
-  ].filter(Boolean).join('\n');
-  return ui.graphSection({ title, svg, legend, info });
-}
-
 /**
  * Like BrainBit: connection state and the switch come from the shared
- * connection panel. The graphs stay in place when the plugin is off or no
- * frame arrives - they are simply empty then.
+ * connection panel, the graphs from the core's live view. This part adds the
+ * hub's own facts: who is detected, the boards, the latest values, timing.
  */
 export function renderDashboard({ plugin }, ui) {
   const live = Boolean(plugin.enabled && plugin.running);
-  // Off: the same empty graphs, never an old value or age.
-  const amHub = live ? plugin : { ...plugin, latest: {}, preview: {}, topics: {}, hub_boards: {}, link: {},
+  // Off: never an old value or age.
+  const amHub = live ? plugin : { ...plugin, latest: {}, topics: {}, hub_boards: {}, link: {}, timing: {},
     data_quality: {}, last_activity_at: null, seconds_since_last_activity: null };
   const latest = amHub.latest || {};
 
@@ -104,9 +28,6 @@ export function renderDashboard({ plugin }, ui) {
     ${renderHostWarning(amHub, ui)}
     ${live ? renderBoardLine(amHub, ui) : ''}
     ${renderVitalTiles(amHub, ui)}
-    ${renderTrend('movement', amHub, ui)}
-    ${renderTrend('vitals', amHub, ui)}
-    ${renderTrend('position', amHub, ui)}
     <details><summary>${ui.escapeHtml(ui.t('amHub.monitor.details', 'Acquisition details'))}</summary>
     <dl class="status-list">
       <dt>${ui.fieldLabel('baseUrl', 'AM Hub URL')}</dt><dd>${ui.escapeHtml(amHub.base_url || '-')}</dd>
@@ -119,6 +40,7 @@ export function renderDashboard({ plugin }, ui) {
       <dt>${ui.fieldLabel('vitals', 'Vitals (heart / breath)')}</dt><dd>${ui.formatSensorChannels(latest, ['heartBpm', 'breathRate'])}</dd>
       <dt>${ui.fieldLabel('amHubBoards', 'Boards (link, rate, latency, lost)')}</dt><dd>${formatBoards(amHub, ui)}</dd>
       <dt>${ui.fieldLabel('amHubLink', 'Hub round trip / losses')}</dt><dd>${formatHubLink(amHub, ui)}</dd>
+      <dt>${ui.fieldLabel('amHubTiming', 'Timing (clock, latency, correction)')}</dt><dd>${formatTiming(amHub, ui)}</dd>
       <dt>${ui.fieldLabel('amHubConnection', 'Connection to the hub')}</dt><dd>${formatConnection(amHub, ui)}</dd>
       <dt>${ui.fieldLabel('lastActive', 'Last active')}</dt><dd>${ui.formatTimestampAge(amHub.last_activity_at, amHub.seconds_since_last_activity)}</dd>
       <dt>${ui.fieldLabel('amHubDataLsl', 'AM Hub data LSL')}</dt><dd>${ui.formatEnabled(amHub.lsl_enabled)}</dd>
@@ -250,6 +172,37 @@ function formatBoards(amHub, ui) {
       + `${ui.formatValue(board.latency_ms, ' ms')}, ${ui.escapeHtml(ui.t('amHub.board.lost', 'lost'))} ${ui.formatValue(board.lost)}`;
   });
   return rows.length ? rows.join('<br>') : '-';
+}
+
+/**
+ * The hub clock seen from here and what it means for the timestamps:
+ * whether the offset is trusted (and how exactly), the median latency per
+ * board, and whether timestamps are corrected in this run.
+ */
+export function formatTiming(amHub, ui) {
+  const timing = amHub.timing || {};
+  if (!Object.keys(timing).length) return '-';
+  const clock = timing.clock_offset_valid
+    ? `${ui.escapeHtml(ui.t('amHub.timing.clockOk', 'hub clock known'))} ± ${ui.formatValue(timing.offset_uncertainty_ms, ' ms')}`
+    : ui.escapeHtml(ui.t('amHub.timing.clockUnknown', 'hub clock not known yet'));
+  const steps = Number(timing.offset_steps) > 0
+    ? ` · ${ui.escapeHtml(ui.t('amHub.timing.steps', 'clock steps'))} ${ui.formatValue(timing.offset_steps)}`
+    : '';
+  const latencies = Object.entries(BOARD_LABELS)
+    .map(([role, label]) => {
+      const stream = role === 'solenoid' ? 'valves' : role;
+      const value = timing.latency_ms?.[stream];
+      return value === null || value === undefined ? null : `${ui.escapeHtml(ui.t(...label))} ${ui.formatValue(value, ' ms')}`;
+    })
+    .filter(Boolean);
+  const latency = `${ui.escapeHtml(ui.t('amHub.timing.latency', 'latency'))}: ${latencies.length ? latencies.join(', ') : '-'}`;
+  const correction = timing.correction_enabled
+    ? ui.escapeHtml(ui.t('amHub.timing.corrected', 'timestamps corrected by the latency'))
+    : ui.escapeHtml(ui.t('amHub.timing.measured', 'timestamps = arrival time (latency recorded only)'));
+  const pending = timing.correction_configured !== timing.correction_enabled
+    ? ` (${ui.escapeHtml(ui.t('amHub.timing.restartToApply', 'restart the AM Hub to apply the setting'))})`
+    : '';
+  return `${clock}${steps}<br>${latency}<br>${correction}${pending}`;
 }
 
 function formatHubLink(amHub, ui) {
