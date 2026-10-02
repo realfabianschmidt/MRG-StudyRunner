@@ -18,7 +18,9 @@ The rule (CONTRIBUTING.md section 11):
     PATCH  a fix without effect on the recorded data
 
 ``--update`` refuses a plugin whose files changed while its version did not, and
-a plugin whose data contract changed without a MAJOR step.
+a plugin whose data contract changed without a MAJOR step. Both are measured
+against the lock as last committed, so ``--update`` can be run again while a
+change is still in progress.
 
 Which files count: in a git checkout, the plugin folder's files that git tracks
 or would track (ignored logs, caches and runtime data never count). Text line
@@ -174,12 +176,44 @@ def read_lock(lock_file: Path = LOCK_FILE) -> dict[str, dict[str, Any]]:
         payload = json.loads(lock_file.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {}
+    return _lock_plugins(payload)
+
+
+def committed_lock(lock_file: Path = LOCK_FILE, repo_root: Path = REPO_ROOT) -> dict[str, dict[str, Any]] | None:
+    """The lock as last committed; None outside git or before it was committed.
+
+    Version steps are measured against it, so --update can be run again while
+    a change is still in progress: it re-records the version already raised
+    for this change instead of asking for another one.
+    """
+    if not is_git_checkout(repo_root):
+        return None
+    try:
+        relative = Path(lock_file).resolve().relative_to(Path(repo_root).resolve()).as_posix()
+        shown = subprocess.run(
+            ["git", "show", f"HEAD:{relative}"], cwd=str(repo_root), capture_output=True, check=True,
+        ).stdout
+        return _lock_plugins(json.loads(shown.decode("utf-8")))
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        return None
+
+
+def _lock_plugins(payload: Any) -> dict[str, dict[str, Any]]:
     plugins = payload.get("plugins") if isinstance(payload, dict) else None
     return plugins if isinstance(plugins, dict) else {}
 
 
-def problems(current: dict[str, dict[str, Any]], lock: dict[str, dict[str, Any]]) -> list[str]:
-    """Every way the lock no longer describes the plugins, with what to do."""
+def problems(
+    current: dict[str, dict[str, Any]],
+    lock: dict[str, dict[str, Any]],
+    committed: dict[str, dict[str, Any]] | None = None,
+) -> list[str]:
+    """Every way the lock no longer describes the plugins, with what to do.
+
+    Version steps are judged against ``committed`` (the lock as last
+    committed) when there is one, otherwise against ``lock`` itself.
+    """
+    reference = lock if committed is None else committed
     found: list[str] = []
     for key, now in sorted(current.items()):
         manifest = f"{now['path']}/manifest.json"
@@ -188,13 +222,13 @@ def problems(current: dict[str, dict[str, Any]], lock: dict[str, dict[str, Any]]
         except PluginVersionError as error:
             found.append(f"{key}: version {error} in {manifest}.")
             continue
+        missing_step = _step_problems(key, now, reference[key], manifest) if key in reference else []
+        if missing_step:
+            found.extend(missing_step)
+            continue
         recorded = lock.get(key)
         if recorded is None:
             found.append(f"{key}: new plugin. Record it with: python tools/plugin_versions.py --update")
-            continue
-        missing_step = _step_problems(key, now, recorded, manifest)
-        if missing_step:
-            found.extend(missing_step)
             continue
         content_differs = now["content_sha256"] is not None and now["content_sha256"] != recorded.get("content_sha256")
         if (
@@ -238,12 +272,13 @@ def update(lock_file: Path = LOCK_FILE, plugins_root: Path = PLUGINS_ROOT, repo_
     current = current_state(plugins_root, repo_root)
     if any(now["content_sha256"] is None for now in current.values()):
         raise PluginVersionError("--update needs a git checkout (it fingerprints the files git tracks).")
-    lock = read_lock(lock_file)
+    committed = committed_lock(lock_file, repo_root)
+    reference = read_lock(lock_file) if committed is None else committed
     refused = [
         message
         for key, now in sorted(current.items())
-        if key in lock
-        for message in _step_problems(key, now, lock[key], f"{now['path']}/manifest.json")
+        if key in reference
+        for message in _step_problems(key, now, reference[key], f"{now['path']}/manifest.json")
     ]
     if refused:
         raise PluginVersionError("\n".join(refused))
@@ -253,16 +288,19 @@ def update(lock_file: Path = LOCK_FILE, plugins_root: Path = PLUGINS_ROOT, repo_
         "plugins": {key: current[key] for key in sorted(current)},
     }
     lock_file.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
+    # Reported against the last commit: everything this change records.
     changed = [
-        f"{key} {lock.get(key, {}).get('version', '(new)')} -> {now['version']}"
+        f"{key} {reference.get(key, {}).get('version', '(new)')} -> {now['version']}"
         for key, now in sorted(current.items())
-        if lock.get(key) != now
+        if reference.get(key) != now
     ]
-    return changed + [f"{key} removed" for key in sorted(set(lock) - set(current))]
+    return changed + [f"{key} removed" for key in sorted(set(reference) - set(current))]
 
 
 def check(lock_file: Path = LOCK_FILE, plugins_root: Path = PLUGINS_ROOT, repo_root: Path = REPO_ROOT) -> list[str]:
-    return problems(current_state(plugins_root, repo_root), read_lock(lock_file))
+    return problems(
+        current_state(plugins_root, repo_root), read_lock(lock_file), committed_lock(lock_file, repo_root),
+    )
 
 
 def installed_versions(plugins_root: Path = PLUGINS_ROOT) -> dict[str, str]:

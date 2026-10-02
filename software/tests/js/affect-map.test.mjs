@@ -53,13 +53,24 @@ test('the editor updates both previews when a region color or mode changes', () 
   callbacks.get('mode')();
   assert.match(svg.innerHTML, /#777777/);
   assert.ok(!svg.innerHTML.includes('#123456'));
+  // Without colors the pickers do nothing, so they are switched off too.
+  assert.ok(colors.every((input) => input.disabled === true));
+  enabled.checked = true;
+  callbacks.get('mode')();
+  assert.ok(colors.every((input) => input.disabled === false));
 });
 
-test('each region has one row with its name and color; names replace the default directions', () => {
+test("each region is one block (color, name, words), in the card's reading order", () => {
   const html = affect.renderEditor({ ...defaults, region_labels: { red: 'Tension' } });
+  assert.equal((html.match(/class="mm-ed-quad-field am-ed-region"/g) || []).length, 4);
   assert.equal((html.match(/class="am-ed-region-row"/g) || []).length, 4);
   assert.equal((html.match(/class="am-ed-region-name"/g) || []).length, 4);
   assert.match(html, /value="Tension"/);
+  // Top row high energy, left unpleasant: red, yellow, then blue, green.
+  assert.deepEqual([...html.matchAll(/data-quadrant="(\w+)"/g)].map((match) => match[1]), ['red', 'yellow', 'blue', 'green']);
+  assert.match(html, /class="am-ed-colors-enabled"/);
+  assert.match(html, /class="editor-toggle"/);
+  assert.equal((affect.renderEditor({ ...defaults, colors_enabled: false }).match(/ disabled>/g) || []).length, 4);
   const collected = affect.collectConfig({
     querySelector: () => null,
     querySelectorAll: (selector) => (selector === '.am-ed-region-name'
@@ -67,6 +78,22 @@ test('each region has one row with its name and color; names replace the default
       : []),
   });
   assert.deepEqual(collected.region_labels, { red: 'Tension', blue: '' });
+});
+
+test('a region left empty has no caption once any region is named, in both views', () => {
+  const named = { ...defaults, region_labels: { red: 'Tension', yellow: '', green: '', blue: '' } };
+  const field = affect.renderStudy(named, 7);
+  assert.match(field, /mm-field-region--red">Tension</);
+  assert.ok(!/mm-field-region--(yellow|green|blue)/.test(field));
+  assert.ok(!field.includes('mm-field-axis'), 'named regions replace the default directions');
+  const orbit = affect.renderStudy({ ...named, variant: 'orbit' }, 8);
+  assert.match(orbit, /mm-orbit-quadrant--red">Tension</);
+  assert.ok(!/mm-orbit-quadrant--(yellow|green|blue)/.test(orbit));
+
+  // No names at all: both views show their default directions.
+  assert.match(affect.renderStudy(defaults, 9), /mm-field-axis--energy/);
+  assert.equal((affect.renderStudy({ ...defaults, variant: 'orbit' }, 10).match(/class="mm-orbit-quadrant /g) || []).length, 4);
+  resetAllCardState();
 });
 
 test('Affect Map and Mood Meter keep answers in separate session stores', () => {

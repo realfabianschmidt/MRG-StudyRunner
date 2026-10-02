@@ -82,6 +82,31 @@ class ToolTests(unittest.TestCase):
     def _check(self) -> list[str]:
         return pv.check(self.lock, self.plugins, self.repo)
 
+    def _commit(self) -> None:
+        # The throw-away fixture repository only; it needs an identity to commit.
+        git = ["git", "-C", str(self.repo), "-c", "user.name=Plugin versions test",
+               "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false"]
+        subprocess.run([*git, "add", "-A"], check=True, capture_output=True)
+        subprocess.run([*git, "commit", "-q", "-m", "fixture"], check=True, capture_output=True)
+
+    def test_update_can_run_again_until_the_change_is_committed(self) -> None:
+        self._commit()
+        (self.card / "code.js").write_text("export const a = 2;\n", encoding="utf-8")
+        self._set_version(self.card, "1.1.0")
+        pv.update(self.lock, self.plugins, self.repo)
+        # Still the same change: no second version step, just record it again.
+        (self.card / "code.js").write_text("export const a = 3;\n", encoding="utf-8")
+        [problem] = self._check()
+        self.assertIn("demo_card: version 1.1.0 is not recorded yet", problem)
+        self.assertEqual(pv.update(self.lock, self.plugins, self.repo), ["demo_card 1.0.0 -> 1.1.0"])
+        self.assertEqual(self._check(), [])
+        # Once committed, the next change needs its own version again.
+        self._commit()
+        (self.card / "code.js").write_text("export const a = 4;\n", encoding="utf-8")
+        self.assertIn("Raise the version", self._check()[0])
+        with self.assertRaises(pv.PluginVersionError):
+            pv.update(self.lock, self.plugins, self.repo)
+
     def test_an_unchanged_checkout_passes_and_ignored_files_do_not_count(self) -> None:
         self.assertEqual(self._check(), [])
         (self.plugins / "sensors" / "demo_sensor" / "logs" / "run.log").write_text("more", encoding="utf-8")

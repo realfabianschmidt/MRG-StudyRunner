@@ -3,7 +3,7 @@ import { t } from '/static/scripts/shared/i18n.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
 import { notifyCardChanged, renderEditorToggle, renderStudyHeader } from '/static/scripts/cards/card-info.js';
 import { cardState } from '/static/scripts/cards/session-state.js';
-import { QUADRANTS, colorAt, wordLists } from './mood-core.js';
+import { QUADRANTS, colorAt, inCardOrder, wordLists } from './mood-core.js';
 import * as field from './view-field.js';
 import * as orbit from './view-orbit.js';
 
@@ -31,7 +31,10 @@ export function effectiveColors(q) {
   }));
 }
 
-/** The author's region names; empty means the default direction captions. */
+/**
+ * The author's region names. Once any region is named, a region left empty
+ * has no caption; with no names at all the card shows the default directions.
+ */
 function regionLabel(q, id) {
   return String(q?.region_labels?.[id] || '').trim();
 }
@@ -125,38 +128,45 @@ export function renderEditor(q) {
     <span class="mm-ed-variant-desc">${escapeHtml(t(`cards.moodMeter.variant.${name}Hint`, name))}</span>
   </label>`).join('');
   const enabled = q?.colors_enabled !== false;
-  // One identical row per region: its name, then its color.
-  const colorInputs = QUADRANTS.map((quad) => `<div class="field am-ed-region">
-    <label for="am-ed-name-${group}-${quad.id}">${escapeHtml(t(`cards.moodMeter.quadrant.${quad.id}`, quad.label))}</label>
+  // One block per region, in the card's reading order (top left first): its
+  // color, its name and its words together.
+  const regions = inCardOrder(wordLists(q, defaultQuestion, t)).map((quad) => `<div class="mm-ed-quad-field am-ed-region">
+    <label class="mm-ed-quad-label" for="am-ed-name-${group}-${quad.id}">${escapeHtml(quad.label)}</label>
     <div class="am-ed-region-row">
-      <input type="text" id="am-ed-name-${group}-${quad.id}" class="am-ed-region-name" data-region="${quad.id}" maxlength="40"
-        value="${escapeHtml(regionLabel(q, quad.id))}" placeholder="${escapeHtml(t('cards.affectMap.regionNamePlaceholder', 'Region name (optional)'))}">
       <input type="color" class="am-ed-color-input" data-region="${quad.id}" aria-label="${escapeHtml(t('cards.affectMap.regionColor', 'Color'))}"
-        value="${escapeHtml(q?.region_colors?.[quad.id] || DEFAULT_COLORS[quad.id])}">
+        value="${escapeHtml(q?.region_colors?.[quad.id] || DEFAULT_COLORS[quad.id])}"${enabled ? '' : ' disabled'}>
+      <input type="text" id="am-ed-name-${group}-${quad.id}" class="am-ed-region-name" data-region="${quad.id}" maxlength="40"
+        value="${escapeHtml(regionLabel(q, quad.id))}" placeholder="${escapeHtml(t('cards.affectMap.regionNamePlaceholder', 'Name (optional)'))}">
     </div>
-  </div>`).join('');
-  const wordInputs = wordLists(q, defaultQuestion, t).map((quad) => `<div class="field mm-ed-quad-field">
-    <label class="mm-ed-quad-label">${escapeHtml(quad.label)}</label>
-    <textarea class="mm-ed-words fi-textarea" data-quadrant="${quad.id}" placeholder="${escapeHtml(t('editor.oneWordPerLine', 'One word per line'))}">${escapeHtml(quad.words.join('\n'))}</textarea>
+    <textarea class="mm-ed-words fi-textarea" data-quadrant="${quad.id}" aria-label="${escapeHtml(t('cards.affectMap.regionWords', 'Words'))}"
+      placeholder="${escapeHtml(t('editor.oneWordPerLine', 'One word per line'))}">${escapeHtml(quad.words.join('\n'))}</textarea>
   </div>`).join('');
   return `<div class="field mm-ed-variant-field">
     <label>${escapeHtml(t('cards.moodMeter.variantLabel', 'View'))}</label>
     <div class="mm-ed-variants" role="radiogroup">${views}</div>
     <p class="settings-hint">${escapeHtml(t('cards.affectMap.answerHint', 'Records chosen words and position; Orbit also records intensity.'))}</p>
   </div>
-  <div class="field"><label class="am-ed-enable-label"><input type="checkbox" class="am-ed-colors-enabled" ${enabled ? 'checked' : ''}> ${escapeHtml(t('cards.affectMap.showColors', 'Show colors'))}</label>
-    <p class="settings-hint">${escapeHtml(t('cards.affectMap.colorHint', 'When off, all regions, words and the light are neutral gray.'))}</p>
-  </div>
-  <p class="settings-hint">${escapeHtml(t('cards.affectMap.regionHint', 'Named regions replace the default directions (more energy, more pleasant) in both views.'))}</p>
-  <div class="am-ed-colors">${colorInputs}</div>
-  <div class="mm-ed-quads">${wordInputs}</div>`;
+  <div class="field am-ed-regions-field">
+    <label>${escapeHtml(t('cards.affectMap.regionsLabel', 'Regions'))}</label>
+    ${renderEditorToggle({
+      className: 'am-ed-colors-enabled', checked: enabled,
+      label: t('cards.affectMap.showColors', 'Show colors'),
+      title: t('cards.affectMap.colorHint', 'When off, all regions, words and the light are neutral gray.'),
+    })}
+    <div class="am-ed-regions">${regions}</div>
+    <p class="settings-hint">${escapeHtml(t('cards.affectMap.regionHint', 'A name appears in its region; leave it empty for no caption. Without any names, the card shows the default directions.'))}</p>
+  </div>`;
 }
 
 export function bindEditorEvents(el) {
   const update = () => {
+    const enabled = el.querySelector('.am-ed-colors-enabled')?.checked;
+    const colorInputs = [...el.querySelectorAll('.am-ed-color-input')];
+    // Without colors the pickers have no effect; they keep their value.
+    colorInputs.forEach((input) => { input.disabled = enabled === false; });
     const colors = effectiveColors({
-      colors_enabled: el.querySelector('.am-ed-colors-enabled')?.checked,
-      region_colors: Object.fromEntries([...el.querySelectorAll('.am-ed-color-input')].map((input) => [input.dataset.region, input.value])),
+      colors_enabled: enabled,
+      region_colors: Object.fromEntries(colorInputs.map((input) => [input.dataset.region, input.value])),
     });
     el.querySelectorAll('.am-ed-variant').forEach((input) => {
       const svg = input.closest('label')?.querySelector('svg');

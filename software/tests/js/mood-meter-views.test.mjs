@@ -95,4 +95,6 @@ test('the editor offers four views and keeps the chosen one', () => {
   assert.equal((html.match(/class="mm-ed-variant-input"/g) || []).length, 4);
   assert.match(html, /value="orbit" checked/);
   assert.match(html, /mm-ed-help/);
+  // The word lists sit where their quadrant sits on the card.
+  assert.deepEqual([...html.matchAll(/data-quadrant="(\w+)"/g)].map((match) => match[1]), ['red', 'yellow', 'blue', 'green']);
 });

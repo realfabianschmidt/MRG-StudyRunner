@@ -11,7 +11,7 @@ import { notifyCardChanged, renderEditorToggle, renderStudyHeader } from '/stati
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
 import { cardState, onSessionReset } from '/static/scripts/cards/session-state.js';
 import { openHelpModal } from '/static/scripts/shared/plugin-help.js';
-import { QUADRANTS, QUADRANT_SHAPES, blobPath, colorAt, shapeAt, wordLists } from './mood-core.js';
+import { QUADRANTS, QUADRANT_SHAPES, blobPath, colorAt, inCardOrder, shapeAt, wordLists } from './mood-core.js';
 import { closeWordSpace } from './word-space.js';
 import * as classic from './view-classic.js';
 import * as blobs from './view-blobs.js';
@@ -202,7 +202,7 @@ export function renderEditor(q) {
       <span class="mm-ed-variant-desc">${escapeHtml(t(`cards.moodMeter.variant.${variant}Hint`, VARIANT_TEXT[variant][1]))}</span>
     </label>`).join('');
 
-  const quadSections = wordLists(q, defaultQuestion, t).map((quad) => `
+  const quadSections = inCardOrder(wordLists(q, defaultQuestion, t)).map((quad) => `
     <div class="field mm-ed-quad-field">
       <label class="mm-ed-quad-label" style="color:${quad.colorDark};">
         <span style="width:10px;height:10px;border-radius:50%;background:${quad.color};flex-shrink:0;"></span>

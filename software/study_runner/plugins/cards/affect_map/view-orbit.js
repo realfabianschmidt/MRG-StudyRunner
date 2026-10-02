@@ -48,11 +48,14 @@ export function render(_q, i, ctx) {
         <span class="mm-orbit-label">${escapeHtml(entry.word)}</span>
       </button>`;
   }).join('');
-  // The author's region names replace the default direction names.
-  const names = ctx?.regionLabels?.(i) || {};
-  const quadrantLabels = localizedQuadrants(t).map((quadrant) => (
-    `<span class="mm-orbit-quadrant mm-orbit-quadrant--${quadrant.id}">${escapeHtml(names[quadrant.id] || quadrant.label)}</span>`
-  )).join('');
+  // The author's region names replace the default direction names; a region
+  // left empty then has no caption, as in the Field view.
+  const names = ctx?.regionLabels?.(i);
+  const quadrantLabels = localizedQuadrants(t)
+    .map((quadrant) => [quadrant.id, names ? names[quadrant.id] : quadrant.label])
+    .filter(([, label]) => label)
+    .map(([id, label]) => `<span class="mm-orbit-quadrant mm-orbit-quadrant--${id}">${escapeHtml(label)}</span>`)
+    .join('');
   return `
     <div class="mm-orbit" id="mm-orbit-${i}" data-card-index="${i}">
       <div class="mm-orbit-ring" style="--mm-ring:${ringGradient(color)};" aria-hidden="true"></div>

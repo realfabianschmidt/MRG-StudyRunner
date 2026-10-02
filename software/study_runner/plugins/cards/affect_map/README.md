@@ -13,6 +13,12 @@ colors off makes regions, light, words, and the editor preview neutral gray;
 the saved colors are retained and return when the switch is turned on. These
 settings affect presentation only and are never included in an answer.
 
+Each region can also have a name (`region_labels.<id>`, at most 40
+characters), shown in that region in both views. Once any region is named, a
+region left empty has no caption; with no names at all, the card shows the
+default directions. Names, like colors, are presentation only. The editor
+shows one block per region (color, name, words) in the card's reading order.
+
 The two views and their core are copied into this plugin so it can be removed
 independently of Mood Meter. Per-session state is keyed by `affect-map`, not
 `mood-meter`, preventing one card from carrying an answer into the other.

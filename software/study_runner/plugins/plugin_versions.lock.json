@@ -3,9 +3,9 @@
   "note": "Written by tools/plugin_versions.py --update; see CONTRIBUTING.md section 11.",
   "plugins": {
     "affect_map": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/cards/affect_map",
-      "content_sha256": "10c39d54446fe8edc1b2e7e4d6866aafac4c2427c34605b419665a72d9437f15",
+      "content_sha256": "d8c4b7a149dfb029d671f88de31962d3fcd21fd312d08405a9b263599f06a273",
       "contract_sha256": "89f20ed4b47fe8c9d324fc08de5a5a722ee8720d222876d1ed9079e198ef46f8"
     },
     "am_hub": {
@@ -57,9 +57,9 @@
       "contract_sha256": "6f838f894838b341e0c95188dcdff33f06ea5d52c9207d18a87398e2433b8dc7"
     },
     "mood_meter": {
-      "version": "1.1.0",
+      "version": "1.1.1",
       "path": "software/study_runner/plugins/cards/mood_meter",
-      "content_sha256": "3efea83aea623e34966bc8a66659b03f2c592452429f4bdd4fd27f3a4444839f",
+      "content_sha256": "e22ac605c3231e11e05493e3a0306b3a8381ebe68dcdcd3f10186727c774ef4e",
       "contract_sha256": "a22bb6eb0ba97bc7a8e7c7ba8c07d4229984002a4a08d433fd83518942034011"
     },
     "multi_slider": {

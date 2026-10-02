@@ -475,7 +475,8 @@ label.field > span:first-child {
   color: var(--ink-30); margin-bottom: var(--s-1);
 }
 /* A switch row is a sentence, so it opts out of the caption treatment. */
-.field label.switch-row {
+.field label.switch-row,
+.field label.editor-toggle {
   display: flex;
   font-family: var(--font-body);
   font-size: .875rem;
@@ -484,7 +485,8 @@ label.field > span:first-child {
   color: var(--ink-70);
   margin-bottom: 0;
 }
-.field label.switch-row {
+.field label.switch-row,
+.field label.editor-toggle {
   align-items: center;
   justify-content: space-between;
 }

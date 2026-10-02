@@ -190,10 +190,11 @@
 
 /* ============================================================
    MOOD METER – EDITOR (per-quadrant word lists)
+   One column in the card's reading order: the editor sidebar is narrow.
    ============================================================ */
 .mm-ed-quads {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--s-3);
 }
 .mm-ed-quad-field {

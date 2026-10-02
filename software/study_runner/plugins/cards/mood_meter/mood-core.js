@@ -52,6 +52,11 @@ export function wordLists(question, defaults, t = (_key, fallback) => fallback) 
   }));
 }
 
+/** Quadrants as the card shows them: top row first, left before right. */
+export function inCardOrder(quadrants) {
+  return [...quadrants].sort((a, b) => a.dirY - b.dirY || a.dirX - b.dirX);
+}
+
 const COLUMNS_PER_QUADRANT = 5;
 
 /**

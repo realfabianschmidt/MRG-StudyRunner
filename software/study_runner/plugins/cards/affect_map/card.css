@@ -1,20 +1,17 @@
 /* Affect Map: Field and Orbit only. */
-/* One identical row per region: name field and color swatch, same height. */
-.am-ed-colors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
-.am-ed-region { margin: 0; }
+/* One block per region, in the card's reading order: color and name in one
+   row, the words below. One column: the editor sidebar is narrow. */
+.am-ed-regions { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-3); margin-top: var(--s-2); }
+.am-ed-region { display: flex; flex-direction: column; gap: var(--s-2); }
+.am-ed-region .mm-ed-quad-label { margin-bottom: 0; }
 .am-ed-region-row { display: flex; align-items: stretch; gap: .5rem; }
 .am-ed-region-row .am-ed-region-name { flex: 1 1 auto; min-width: 0; }
 .field .am-ed-color-input {
   flex: 0 0 2.5rem; width: 2.5rem; min-height: 2.5rem; padding: .25rem;
   cursor: pointer; border-radius: var(--r-md);
 }
-@media (max-width: 620px) { .am-ed-colors { grid-template-columns: 1fr; } }
-.am-ed-enable-label { display: inline-flex; align-items: center; gap: .5rem; }
-.mm-ed-quads {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--s-3);
-}
+.field .am-ed-color-input:disabled { opacity: .35; cursor: not-allowed; }
+.am-ed-region .mm-ed-words { min-height: 7.5rem; }
 .mm-ed-quad-field {
   margin-bottom: 0;
   padding: var(--s-3);
