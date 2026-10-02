@@ -91,6 +91,7 @@ Edit-safety legend:
 | `software/study_runner/data_core/contract/native_core_probe.py` | `CoreProbe`/`probe_core_library` lets the host validate a build without depending on the worker | careful |
 | `software/study_runner/data_core/contract/lsl_dependency.py` | `require_pylsl`/`lsl_version_info` shared by host preflight and worker inlet setup | no |
 | `software/study_runner/shared/system_clock_probe.py` | Package 5b preflight: system-clock plausibility bounds plus a per-platform time-sync-service check; no network access | careful |
+| `software/study_runner/runtime_core/settings/dashboard_layout_service.py` | The operator's dashboard tile order for this computer (`settings/dashboard_layout.local.json`): validate, store, reset | no |
 | `software/study_runner/shared/clock_offset.py` | Estimates another computer's clock from ping round trips (the NTP method): trusts the fastest recent round trip, follows drift and accepts a clock step only after three agreeing exchanges; used by the AM Hub's hub-clock pings | careful |
 | `software/study_runner/data_core/host/recording_capacity.py` | Package 5b preflight: predicts required storage from the negotiated recording contract's declared stream rates (never disk throughput) against the study's planned duration | careful |
 | `software/study_runner/runtime_core/studies/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
@@ -337,6 +338,8 @@ one, unlike the plugin table above).
 | `admin/dashboard-ui-helpers.js` | Formatting helpers for sensor tiles and the `ui` object handed to plugin dashboard extensions | careful |
 | `admin/live-trend.js` | Draws every sensor's declared live-view series the same way (2 Hz points over 60 s) | careful |
 | `admin/sensor-columns.js` | Sensor dashboard column layout and tile placement | careful |
+| `admin/sensor-tile-order.js` | The operator's tile arrangement as two columns of plugin keys: default order, saved order applied to the plugins there are, moving a tile | careful |
+| `admin/sensor-tile-drag.js` | Moving a tile by its title bar with the mouse, touch or the arrow keys; reports only the drop | careful |
 | `admin/runtime-switch-input.js` | Accessible Off/On/Restart switch behavior for live sensors | careful |
 | `admin/sensor-connection-panel.js` | The connection panel on every sensor tile: status line, Ready badge, switch, device list and guided steps; also the study bar's state | careful |
 | `settings/machine/machine-settings-panel.js` | Machine settings shell: nav, generated sensor forms, tablet links | careful |

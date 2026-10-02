@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 498,
+  "cross_package_import_edges": 500,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -20,7 +20,7 @@
       "path": ""
     },
     "apps.ui.admin": {
-      "lines": 856,
+      "lines": 931,
       "path": "software/study_runner/apps/ui/scripts/admin/admin-dashboard-controller.js"
     },
     "apps.ui.cards": {
@@ -98,9 +98,9 @@
   },
   "lines_per_package": {
     "apps": 0,
-    "apps.server": 4661,
+    "apps.server": 4686,
     "apps.ui": 0,
-    "apps.ui.admin": 5858,
+    "apps.ui.admin": 6123,
     "apps.ui.cards": 4397,
     "apps.ui.participant": 2778,
     "apps.ui.settings": 1887,
@@ -116,7 +116,7 @@
     "plugins.destinations": 1894,
     "plugins.outputs": 154,
     "plugins.sensors": 11413,
-    "runtime_core": 15015,
+    "runtime_core": 15098,
     "shared": 606,
     "updates": 696
   }

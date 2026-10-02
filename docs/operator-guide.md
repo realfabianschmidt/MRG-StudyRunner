@@ -170,6 +170,18 @@ infrastructure and have no separate user menu.
 Camera capture and emotion analysis are one `camera_emotion` plugin. Its local
 and remote workers are operating modes, not additional plugins.
 
+Every sensor tile on the dashboard shows the same live graphs of what is
+being recorded (the mean of every 0.5 s over the last minute), right below
+its connection panel. The graphs are a view only; the recording itself keeps
+every sample.
+
+To arrange the tiles, drag a tile by its title bar into the other column or
+to another place; with the keyboard, focus the title and use the arrow keys.
+This computer remembers the order for every browser and after a restart
+(`settings/dashboard_layout.local.json`). "Reset tile order" in the
+integration controls goes back to the default order. On a narrow window the
+tiles stand in one column and cannot be dragged.
+
 ## Camera And HTTPS
 
 The tablet camera requires HTTPS and trust in the local Study Runner Root CA.

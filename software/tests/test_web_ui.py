@@ -541,7 +541,9 @@ class PluginUiContractTests(unittest.TestCase):
         )
 
         # The core modules that draw sensor tiles never name a sensor.
-        core_modules = ("dashboard-ui-helpers.js", "live-trend.js", "sensor-columns.js")
+        core_modules = (
+            "dashboard-ui-helpers.js", "live-trend.js", "sensor-columns.js", "sensor-tile-order.js", "sensor-tile-drag.js",
+        )
         core_sources = [dashboard] + [_read(WEB / "scripts" / "admin" / name).lower() for name in core_modules]
         for sensor_key in ("brainbit", "mini_radar", "camera_emotion", "am_hub"):
             for source in core_sources:

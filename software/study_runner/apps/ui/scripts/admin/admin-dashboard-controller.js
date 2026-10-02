@@ -1,4 +1,4 @@
-﻿﻿import { getJson, postJson } from '../shared/api-client.js';
+﻿import { getJson, postJson, requestJson } from '../shared/api-client.js';
 
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
@@ -6,7 +6,9 @@ import { openPluginConsole } from './plugin-console.js';
 import { renderSensorConnectionPanel, studyBarState } from './sensor-connection-panel.js';
 import { bindRuntimeSwitch } from './runtime-switch-input.js';
 import { renderLiveTrends } from './live-trend.js';
-import { placeInColumn, sensorColumns, updateMarquees } from './sensor-columns.js';
+import { placeTile, sensorColumns, updateMarquees } from './sensor-columns.js';
+import { bindSensorTileDrag } from './sensor-tile-drag.js';
+import { isDefaultLayout, mergeLayout, moveTile, rowMajorOrder } from './sensor-tile-order.js';
 import {
   dashboardUiHelpers,
   fieldLabel,
@@ -39,6 +41,14 @@ const pendingRuntime = new Map();
 // Plugins restarting right now: their switch knob stays on Restart until done.
 const pendingRestart = new Set();
 let latestStatus = null;
+// The operator's tile arrangement for this computer (server-side), and the
+// one in effect on screen (the saved one applied to the plugins there are).
+let savedTileLayout = null;
+let tileLayout = null;
+let tileDrag = null;
+let tileLayoutSaving = 0;
+// The tile arrangement is dragged only where there are two columns.
+const WIDE_DASHBOARD = '(min-width: 861px)';
 
 export function initializeAdminDashboard(options = {}) {
   callbacks = options;
@@ -79,6 +89,13 @@ export function initializeAdminDashboard(options = {}) {
   bindRuntimeSwitch(elements.dashboard, (pluginKey, target) => {
     void moveRuntimeSwitch(pluginKey, target, elements, showToast);
   });
+  if (elements.sensorTiles) {
+    tileDrag = bindSensorTileDrag(elements.sensorTiles, {
+      getLayout: () => tileLayout,
+      enabled: () => window.matchMedia(WIDE_DASHBOARD).matches,
+      onMove: (key, column, position) => void moveSensorTile(key, column, position, elements, showToast),
+    });
+  }
 
   const refresh = () => {
     void refreshAdminStatus(elements, showToast);
@@ -97,6 +114,10 @@ async function runDashboardAction(actionSource, elements, showToast) {
   }
   if (action === 'reset_sensor_overrides') {
     await resetSensorOverrides(elements, showToast);
+    return;
+  }
+  if (action === 'reset_tile_order') {
+    await saveTileLayout(null, elements, showToast);
     return;
   }
   if (action === 'open_settings') {
@@ -172,6 +193,49 @@ async function switchPluginRuntime(pluginKey, wantRunning, elements, showToast) 
     pendingRuntime.delete(pluginKey);
     statusGeneration += 1;
     await refreshAdminStatus(elements, showToast);
+  }
+}
+
+/** A dropped (or arrow-key moved) tile: show it there at once, then remember it. */
+async function moveSensorTile(key, column, position, elements, showToast) {
+  if (!tileLayout) return;
+  const handleFocused = document.activeElement?.closest?.('[data-tile-handle]');
+  await saveTileLayout(moveTile(tileLayout, key, column, position), elements, showToast);
+  if (handleFocused) {
+    [...elements.sensorTiles.querySelectorAll('[data-plugin-tile]')]
+      .find((tile) => tile.dataset.pluginTile === key)
+      ?.querySelector('[data-tile-handle]')
+      ?.focus({ preventScroll: true });
+  }
+}
+
+/** Store the arrangement for this computer; ``null`` goes back to the default order. */
+async function saveTileLayout(layout, elements, showToast) {
+  const previous = savedTileLayout;
+  savedTileLayout = layout;
+  tileLayoutSaving += 1;
+  statusGeneration += 1;  // a poll from before this change must not undo it
+  if (latestStatus) renderSensorTiles(elements.sensorTiles, latestStatus);
+  try {
+    const response = layout
+      ? await requestJson('/api/admin/dashboard-layout', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(layout),
+      })
+      : await requestJson('/api/admin/dashboard-layout', { method: 'DELETE' });
+    savedTileLayout = response?.layout?.columns ? response.layout : null;
+    if (!layout) showToast?.(t('dashboard.tiles.resetDone', 'Tile order reset'), 'success');
+  } catch (error) {
+    console.error('[admin] Tile order could not be saved:', error);
+    savedTileLayout = previous;
+    showToast?.(`${t('dashboard.tiles.saveFailed', 'Could not save the tile order')}: ${error?.message || error}`, 'error');
+  } finally {
+    tileLayoutSaving -= 1;
+    statusGeneration += 1;
+    if (latestStatus) {
+      latestStatus.dashboard_layout = savedTileLayout || { columns: null };
+      renderSensorTiles(elements.sensorTiles, latestStatus);
+      renderPluginControls(elements.controls, latestStatus.plugins || {}, latestStatus);
+    }
   }
 }
 
@@ -355,6 +419,7 @@ async function refreshAdminStatus(elements, showToast) {
 
 function renderAdminStatus(elements, status) {
   latestStatus = status;
+  if (!tileLayoutSaving) savedTileLayout = status.dashboard_layout?.columns ? status.dashboard_layout : null;
   const clients = status.study_clients || {};
   elements.dashboardButton.hidden = false;
 
@@ -434,7 +499,9 @@ export function renderSensorTiles(target, status) {
     if (!keys.has(tile.dataset.pluginTile)) tile.remove();
   });
   const columns = sensorColumns(target);
-  items.forEach((item, index) => {
+  tileLayout = mergeLayout(savedTileLayout, items.map((item) => item.key));
+  const singleColumnOrder = rowMajorOrder(tileLayout);
+  items.forEach((item) => {
     const detail = renderPluginDashboardDetail(item, status);
     const icon = pluginUiIcon(item.manifest);
     let tile = [...target.querySelectorAll('[data-plugin-tile]')].find((node) => node.dataset.pluginTile === item.key);
@@ -442,12 +509,16 @@ export function renderSensorTiles(target, status) {
       const template = document.createElement('template');
       template.innerHTML = `
       <article class="dashboard-card sensor-tile" data-plugin-tile="${escapeHtml(item.key)}">
-        <div class="dashboard-card-title"><i class="${escapeHtml(icon)}"></i> <span>${escapeHtml(item.label || item.key)}</span></div>
+        <div class="dashboard-card-title" data-tile-handle tabindex="0" role="group" title="${escapeHtml(t('dashboard.tiles.handle', 'Drag to move this tile; on the keyboard the arrow keys move it'))}"><i class="iconoir-menu-scale tile-grip" aria-hidden="true"></i><i class="${escapeHtml(icon)}"></i> <span>${escapeHtml(item.label || item.key)}</span></div>
         <div class="dashboard-card-body"><div data-plugin-inline-controls></div><div data-plugin-live></div><div data-plugin-detail></div><div data-plugin-actions></div>${renderPluginConsoleButton(item.manifest)}</div>
       </article>`.trim();
       tile = template.content.firstElementChild;
     }
-    placeInColumn(columns, tile, items.map((entry) => entry.key), index);
+    // While a tile is being dragged, polling must not move tiles under the pointer.
+    if (!tileDrag?.isDragging()) {
+      const column = tileLayout.columns.findIndex((keysInColumn) => keysInColumn.includes(item.key));
+      placeTile(columns[column], tile, tileLayout.columns[column].indexOf(item.key), singleColumnOrder.indexOf(item.key));
+    }
     const locked = Boolean(item.runtime_locked || status.active_study_session);
     tile.dataset.runtimeLocked = String(locked);
     const template = document.createElement('template');
@@ -732,11 +803,15 @@ function renderPluginControls(target, plugins, status = {}) {
   const resetButton = hasOverrides
     ? `<button type="button" class="btn-secondary btn-xs" data-dashboard-action="reset_sensor_overrides">${escapeHtml(t('dashboard.overrideReset', 'Reset to study settings'))}</button>`
     : '';
+  const tileKeys = rows.filter((row) => isPluginVisible(row.manifest, PLUGIN_UI_SURFACES.DASHBOARD)).map((row) => row.key);
+  const tileOrderButton = savedTileLayout && !isDefaultLayout(mergeLayout(savedTileLayout, tileKeys), tileKeys)
+    ? `<button type="button" class="btn-secondary btn-xs" data-dashboard-action="reset_tile_order"><i class="iconoir-menu-scale"></i> ${escapeHtml(t('dashboard.tiles.reset', 'Reset tile order'))}</button>`
+    : '';
   const settingsButton = `<button type="button" class="btn-secondary btn-xs" data-dashboard-action="open_settings"><i class="iconoir-settings"></i> ${escapeHtml(t('dashboard.openSettings', 'Open settings'))}</button>`;
   target.innerHTML = `<div class="plugin-controls">
     <div class="plugin-control-warning plugin-control-warning--info">${escapeHtml(t('dashboard.settingsHint', 'Plugin setup lives in Settings. This dashboard focuses on live status, start, stop, and recovery.'))}</div>
     ${warning}
-    <div class="plugin-control-reset">${settingsButton}${resetButton}</div>
+    <div class="plugin-control-reset">${settingsButton}${resetButton}${tileOrderButton}</div>
     ${rows.map((row) => renderPluginControlRow(row, sensorRuntime)).join('')}
   </div>`;
 }

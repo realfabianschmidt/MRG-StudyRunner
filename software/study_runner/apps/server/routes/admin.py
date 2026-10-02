@@ -11,7 +11,7 @@ from study_runner.runtime_core.studies.live_sensor_readiness import live_sensor_
 from study_runner.runtime_core.studies.study_run_abort import StudyRunAbortError, abort_study_run
 from study_runner.runtime_core.settings.admin_status_service import build_admin_status
 from study_runner.runtime_core.settings.runtime_config import build_runtime_info
-from study_runner.runtime_core.settings import data_folder
+from study_runner.runtime_core.settings import dashboard_layout_service, data_folder
 from study_runner.runtime_core.settings.shortcut_service import ShortcutError, create_desktop_shortcut
 from study_runner.runtime_core.studies.study_client_service import get_client_status
 from study_runner.runtime_core.settings.secrets_service import update_local_secrets
@@ -346,7 +346,32 @@ def admin_status():
     payload["recording_worker"] = (
         recording_runtime.current_status() if recording_runtime is not None else None
     )
+    # Every open dashboard shows the operator's tile order for this computer.
+    payload["dashboard_layout"] = dashboard_layout_service.load_layout(_settings_dir())
     return jsonify(payload)
+
+
+def _settings_dir() -> Path:
+    return Path(current_app.config["SETTINGS_DIR"])
+
+
+@bp.route("/api/admin/dashboard-layout", methods=["GET"])
+def dashboard_layout():
+    return jsonify({"ok": True, "layout": dashboard_layout_service.load_layout(_settings_dir())})
+
+
+@bp.route("/api/admin/dashboard-layout", methods=["PUT"])
+def save_dashboard_layout():
+    try:
+        layout = dashboard_layout_service.save_layout(_settings_dir(), request.get_json(silent=True))
+    except dashboard_layout_service.DashboardLayoutError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return jsonify({"ok": True, "layout": layout})
+
+
+@bp.route("/api/admin/dashboard-layout", methods=["DELETE"])
+def reset_dashboard_layout():
+    return jsonify({"ok": True, "layout": dashboard_layout_service.reset_layout(_settings_dir())})
 
 
 @bp.route("/api/admin/study-run", methods=["GET"])
