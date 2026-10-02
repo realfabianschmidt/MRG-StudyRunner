@@ -87,8 +87,8 @@ class FixturePluginBlueprintAcceptanceTests(FixturePluginRootMixin, unittest.Tes
             for entry in original_catalog.entries
             if entry.status == "valid" and entry.plugin_key == REFERENCE_SLOW_PLUGIN
         )
-        # The shipped 1 Hz radar projection gives this fixture's 4 Hz projection
-        # a genuine slower peer; no second synthetic plugin is needed.
+        # The fixture records at 4 Hz beside the shipped radar; both backups
+        # share the core's fixed 1 Hz grid (sensor data contract).
         catalog = PluginCatalog(entries=(reference_entry, *fixture_catalog.entries))
         sensor_keys = (REFERENCE_SLOW_PLUGIN, PLUGIN_KEY)
         sensor_defaults = {REFERENCE_SLOW_PLUGIN: True, PLUGIN_KEY: False}
@@ -411,7 +411,6 @@ class FixturePluginBlueprintAcceptanceTests(FixturePluginRootMixin, unittest.Tes
                     "primary_stream": "measurements",
                 },
                 "backup_projection": {
-                    "rate_hz": 4,
                     "stale_after_ms": 750,
                     "channels": [
                         {

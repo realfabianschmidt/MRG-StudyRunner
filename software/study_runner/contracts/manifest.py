@@ -11,6 +11,14 @@ from pathlib import PurePosixPath
 import re
 from typing import Any
 
+from study_runner.contracts.sensor_contract import (
+    SensorContractError,
+    normalize_backup_projection,
+    normalize_live_view,
+    normalize_stream_timing,
+    validate_sensor_contract,
+)
+
 
 PLUGIN_API_VERSION = 5
 # The in-process v3 import path was removed in Phase 3.1. Every shipped manifest
@@ -1338,7 +1346,12 @@ def _normalize_streams(value: Any) -> list[dict[str, Any]]:
             )
         if any(not isinstance(unit, str) or not unit.strip() for unit in channel_units):
             raise PluginManifestError(f"streams[{index}].channel_units must contain strings")
-        timing = _normalize_stream_timing(raw_stream.get("timing"), index=index)
+        try:
+            timing = normalize_stream_timing(
+                raw_stream.get("timing"), index=index, channels=channels, channel_units=channel_units,
+            )
+        except SensorContractError as error:
+            raise PluginManifestError(str(error)) from error
         streams.append(
             {
                 **deepcopy(raw_stream),
@@ -1354,71 +1367,6 @@ def _normalize_streams(value: Any) -> list[dict[str, Any]]:
             }
         )
     return streams
-
-
-_CAPTURE_DELAY_SOURCES = {"measured", "datasheet", "estimated", "unknown"}
-_UNKNOWN_CAPTURE_DELAY: dict[str, Any] = {
-    "source": "unknown",
-    "min_ns": None,
-    "max_ns": None,
-    "reference": None,
-}
-
-
-def _normalize_stream_timing(value: Any, *, index: int) -> dict[str, Any]:
-    """Capture-delay provenance for one stream (Package 5d, target doc §6).
-
-    Defaults to an honest ``source: "unknown"`` rather than a fabricated
-    number: no adapter has a real measured/datasheet delay yet, and
-    claiming precision nobody has is worse than admitting it is unknown --
-    "unknown ist ein zulässiges und ehrliches Ergebnis" (target doc §6).
-    Declaring anything other than "unknown" requires the bounds and a
-    reference for where the number came from, so a future real measurement
-    cannot be entered without also saying how it was obtained.
-    """
-    if value is None:
-        return {"capture_delay_ns": deepcopy(_UNKNOWN_CAPTURE_DELAY)}
-    if not isinstance(value, dict):
-        raise PluginManifestError(f"streams[{index}].timing must be a JSON object")
-    unexpected = sorted(set(value) - {"capture_delay_ns"})
-    if unexpected:
-        raise PluginManifestError(
-            f"streams[{index}].timing contains unsupported fields: " + ", ".join(unexpected)
-        )
-    raw_delay = value.get("capture_delay_ns")
-    if raw_delay is None:
-        return {"capture_delay_ns": deepcopy(_UNKNOWN_CAPTURE_DELAY)}
-    if not isinstance(raw_delay, dict):
-        raise PluginManifestError(f"streams[{index}].timing.capture_delay_ns must be a JSON object")
-    unexpected_delay = sorted(set(raw_delay) - {"source", "min_ns", "max_ns", "reference"})
-    if unexpected_delay:
-        raise PluginManifestError(
-            f"streams[{index}].timing.capture_delay_ns contains unsupported fields: "
-            + ", ".join(unexpected_delay)
-        )
-    source = _optional_text(raw_delay.get("source")) or "unknown"
-    if source not in _CAPTURE_DELAY_SOURCES:
-        raise PluginManifestError(
-            f"streams[{index}].timing.capture_delay_ns.source must be one of: "
-            + ", ".join(sorted(_CAPTURE_DELAY_SOURCES))
-        )
-    if source == "unknown":
-        return {"capture_delay_ns": deepcopy(_UNKNOWN_CAPTURE_DELAY)}
-    min_ns = _non_negative_int(raw_delay.get("min_ns"), f"streams[{index}].timing.capture_delay_ns.min_ns")
-    max_ns = _non_negative_int(raw_delay.get("max_ns"), f"streams[{index}].timing.capture_delay_ns.max_ns")
-    if max_ns < min_ns:
-        raise PluginManifestError(
-            f"streams[{index}].timing.capture_delay_ns.max_ns must be >= min_ns"
-        )
-    reference = _required_text(raw_delay, "reference", prefix=f"streams[{index}].timing.capture_delay_ns.")
-    return {
-        "capture_delay_ns": {
-            "source": source,
-            "min_ns": min_ns,
-            "max_ns": max_ns,
-            "reference": reference,
-        }
-    }
 
 
 def _validate_capability_contracts(
@@ -1463,58 +1411,16 @@ def _validate_capability_contracts(
                 "study_sensor recording sources require capabilities: "
                 + ", ".join(missing)
             )
-    projection = capabilities.get("backup_projection")
-    if projection is not None:
-        rate_hz = projection.get("rate_hz")
-        if isinstance(rate_hz, bool) or not isinstance(rate_hz, (int, float)) or rate_hz <= 0:
-            raise PluginManifestError("backup_projection.rate_hz must be positive")
-        stale_after_ms = projection.get("stale_after_ms")
-        if stale_after_ms is not None and (
-            isinstance(stale_after_ms, bool)
-            or not isinstance(stale_after_ms, (int, float))
-            or stale_after_ms <= 0
-        ):
-            raise PluginManifestError("backup_projection.stale_after_ms must be positive")
-        raw_channels = projection.get("channels")
-        if not isinstance(raw_channels, list) or not raw_channels:
-            raise PluginManifestError("backup_projection.channels must be a non-empty list")
-        streams_by_key = {stream["key"]: stream for stream in streams}
-        channels: list[dict[str, str]] = []
-        outputs: set[str] = set()
-        for index, raw_channel in enumerate(raw_channels, start=1):
-            if not isinstance(raw_channel, dict):
-                raise PluginManifestError(
-                    f"backup_projection.channels[{index}] must be a JSON object"
-                )
-            output = _required_key(
-                raw_channel,
-                "output",
-                prefix=f"backup_projection.channels[{index}].",
+    try:
+        if "backup_projection" in capabilities:
+            capabilities["backup_projection"] = normalize_backup_projection(
+                capabilities["backup_projection"], streams,
             )
-            stream_id = _required_key(
-                raw_channel,
-                "stream",
-                prefix=f"backup_projection.channels[{index}].",
-            )
-            channel = _required_text(
-                raw_channel,
-                "channel",
-                prefix=f"backup_projection.channels[{index}].",
-            )
-            if output in outputs:
-                raise PluginManifestError(f"duplicate backup projection output: {output}")
-            outputs.add(output)
-            source_stream = streams_by_key.get(stream_id)
-            if source_stream is None:
-                raise PluginManifestError(
-                    f"backup projection stream is not declared: {stream_id}"
-                )
-            if channel not in set(source_stream.get("channels") or []):
-                raise PluginManifestError(
-                    f"backup projection channel {channel!r} is absent from stream {stream_id!r}"
-                )
-            channels.append({"output": output, "stream": stream_id, "channel": channel})
-        projection["channels"] = channels
+        if "live_view" in capabilities:
+            capabilities["live_view"] = normalize_live_view(capabilities["live_view"], streams)
+        validate_sensor_contract(capabilities, streams)
+    except SensorContractError as error:
+        raise PluginManifestError(str(error)) from error
     study_sensor = capabilities.get("study_sensor")
     if study_sensor is not None:
         for key in ("default_enabled", "default_required"):

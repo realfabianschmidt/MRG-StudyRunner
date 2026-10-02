@@ -324,6 +324,52 @@ The core writes a boundary around every ten seconds and performs a durable
 flush at least every five seconds. A crash never resumes an existing segment.
 Recovery starts the next monotonically numbered file.
 
+## Sensor Data Contract
+
+Every sensor plugin publishes its data the same way, so recording, backup and
+the dashboard never depend on which sensor it is. One sample path, three
+outputs:
+
+```text
+device -> adapter.py: connect, decode, take the arrival time (streams.now())
+            -> SensorStreams.push(stream, row, timestamp, arrival=...)
+                 1 raw     LSL outlet built from the manifest -> worker -> raw/plugins/<key>/part-*.xdf
+                 2 backup  worker samples the backup_projection channels at 1 Hz -> raw/backup/slowest-grid_1hz.xdf
+                 3 live    mean per 0.5 s, last 60 s -> status.live -> the dashboard's graphs
+```
+
+- **Raw.** Each real device sample is exactly one LSL sample.
+  `plugin_framework/sensor_streams.py` is the only code that builds outlets:
+  name, type, rate, format, channels, units, `source_id` and the
+  `desc/study_runner` block all come from the manifest. A runtime channel
+  list (a device's own channels) can replace the declared list; the
+  identity never changes. A failed push is counted, never raised; the core
+  then reports the plugin as failed until its next start (`stream_health`).
+- **Backup.** The grid is fixed at 1 Hz for every sensor; a manifest declares
+  only the channels (`rate_hz`, if present, must be 1). `stale_after_ms`
+  defaults to 2500.
+- **Live.** `live_view` declares up to four series of 1-6 numeric channels.
+  The plugin process averages every pushed row per 0.5 s and keeps 60 s; the
+  host standardizes the block (NaN becomes null, nothing while the plugin is
+  off) and the dashboard draws it in the same place on every tile. The live
+  view is never recorded and never feeds a recorded value. It is not a third
+  LSL stream on purpose: every LSL tool on the network would see that stream,
+  and a recorder could save it by mistake.
+- **Time.** Every stream declares `timing.timestamp_source`:
+  `host_arrival` (this computer's LSL clock when the sample arrived),
+  `host_arrival_corrected` (the arrival time minus a measured delay), or
+  `host_callback_reconstructed` (a timeline rebuilt from the device driver's
+  callbacks). Timestamps never go backwards within a stream. A corrected
+  stream declares a `correction_channel` in milliseconds; the helper writes
+  `arrival - timestamp` into it, so `arrival = timestamp + correction_ms /
+  1000` rebuilds the arrival time from the XDF. What the device sends about
+  itself (sequence number, device or hub time) is recorded as channels.
+- **No data across runs.** The core empties the live view and the counters
+  before every start, stop and restart.
+
+`software/tests/test_sensor_data_contract.py` holds every sensor folder and
+the template in `tools/plugin_templates/sensors/` to these rules.
+
 ## Raw And Backup Recording
 
 Each active recording plugin receives independent segments:
@@ -333,9 +379,10 @@ raw/plugins/<plugin-key>/part-0001.xdf
 raw/plugins/<plugin-key>/part-0002.xdf
 ```
 
-Native rates and raw timestamps are retained. The backup grid is calculated
-once at session start as the smallest positive `backup_projection.rate_hz` of
-all active sensor plugins:
+Native rates and raw timestamps are retained. The backup grid is the fixed
+1 Hz of the sensor data contract (formally the smallest
+`backup_projection.rate_hz` of all active sensor plugins, which is 1 Hz for
+every one of them):
 
 ```text
 raw/backup/slowest-grid_<rate>hz.xdf

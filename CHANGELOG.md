@@ -9,6 +9,7 @@ All notable Study Runner changes are documented here. Release tags use
 
 - **Citable software versions.** Every session records the Study Runner version and the version of each plugin that produced it (sensors as recorded, cards, upload destinations) in `meta/manifest.json` → `provenance.software`. The session view lists them and copies a sentence for the methods section, each plugin's settings page shows its version, and the release notes carry a plugin version table. Older sessions show what they recorded, marked as incomplete.
 - Plugin versions are kept up to date: a plugin whose files change needs a new semantic version (MAJOR when recorded data changes meaning, MINOR for a compatible feature, PATCH for a fix), recorded with `python tools/plugin_versions.py --update`; a test enforces it. The rules are in `CONTRIBUTING.md` (section 11), `AGENTS.md`, and `CLAUDE.md`.
+- **One data contract for every sensor.** Each real sample is one LSL sample, published only through the shared `SensorStreams` helper: outlets come from the manifest, timestamps are explicit and never go backwards, a failed push is counted and shown instead of stopping acquisition. The backup is fixed at 1 Hz. A manifest-declared `live_view` gives every sensor the same live graphs (mean per 0.5 s over the last 60 s). Every stream states where its timestamps come from, and a corrected timestamp stays reversible. The sensor template follows the contract and a test holds every sensor to it.
 
 ### Changed
 

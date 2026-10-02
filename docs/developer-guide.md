@@ -243,16 +243,35 @@ not block the aggregate dashboard status request.
 
 ## Adding A Recording Sensor
 
-`tools/plugin_sdk.py new sensors <key>` scaffolds a starting manifest and
-plugin.py that already pass `validate`/`check-runtime`; steps 2-8 below still
-need real, sensor-specific work.
+`tools/plugin_sdk.py new sensors <key>` scaffolds a starting manifest,
+plugin.py and adapter.py that already pass `validate`/`check-runtime`; steps
+2-8 below still need real, sensor-specific work.
+
+Every sensor follows one data contract (see
+[plugin-recording-architecture.md](plugin-recording-architecture.md#sensor-data-contract)):
+
+- **Raw.** Each real device sample becomes exactly one LSL sample. The adapter
+  publishes it through `SensorStreams.for_plugin(__file__)`
+  (`plugin_framework/sensor_streams.py`), never through its own pylsl outlet.
+  Outlets are built from the manifest only. Take the arrival time with
+  `_streams.now()` the moment a sample arrives, push with an explicit
+  timestamp, and record what the device sends about itself (sequence number,
+  device time) as channels.
+- **Backup.** Declare the numeric channels of `backup_projection`; the core
+  samples them at its fixed 1 Hz. Leave `rate_hz` out.
+- **Live.** Declare up to four `live_view` series (1-6 channels each); the
+  dashboard draws them at 2 Hz over the last 60 s from the same pushes. A
+  plugin's own `ui/dashboard.js` shows device facts, not trend graphs.
+- **Time.** Every stream declares `timing.timestamp_source`. A corrected
+  timestamp (`host_arrival_corrected`) names a `correction_channel` in
+  milliseconds, which the helper fills so the arrival time can be rebuilt.
 
 1. Add the package, manifest, adapter, and tests.
 2. Choose the transport/delivery pair from the transport matrix.
 3. Publish stable LSL streams with explicit channels, units, format, rate, and
-   clock domain.
-4. Declare `recording_source` and at least one numerical
-   `backup_projection` when a central QC projection is meaningful.
+   clock domain, through `SensorStreams` as above.
+4. Declare `recording_source`, the numerical `backup_projection` and the
+   `live_view` series.
 5. Implement readiness so a required sensor proves connection and a fresh
    primary sample before participant release.
 6. Add manifest-driven machine/study/card settings; never add a sensor-key

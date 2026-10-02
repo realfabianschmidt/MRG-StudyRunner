@@ -1,12 +1,22 @@
-﻿import { getJson, postJson } from '../shared/api-client.js';
+﻿﻿import { getJson, postJson } from '../shared/api-client.js';
 
 import { t } from '../shared/i18n.js';
 import { escapeHtml } from '../shared/dom-utils.js';
-import { graphSection, infoTip } from '../shared/dashboard-graph.js';
 import { openPluginConsole } from './plugin-console.js';
 import { renderSensorConnectionPanel, studyBarState } from './sensor-connection-panel.js';
 import { bindRuntimeSwitch } from './runtime-switch-input.js';
+import { renderLiveTrends } from './live-trend.js';
 import { placeInColumn, sensorColumns, updateMarquees } from './sensor-columns.js';
+import {
+  dashboardUiHelpers,
+  fieldLabel,
+  formatEnabled,
+  formatOnOff,
+  formatPluginName,
+  formatTimestampAge,
+  renderRuntimeButtons,
+  statusLabel,
+} from './dashboard-ui-helpers.js';
 import {
   getPluginCatalog,
   getPluginUiExtension,
@@ -433,7 +443,7 @@ export function renderSensorTiles(target, status) {
       template.innerHTML = `
       <article class="dashboard-card sensor-tile" data-plugin-tile="${escapeHtml(item.key)}">
         <div class="dashboard-card-title"><i class="${escapeHtml(icon)}"></i> <span>${escapeHtml(item.label || item.key)}</span></div>
-        <div class="dashboard-card-body"><div data-plugin-inline-controls></div><div data-plugin-detail></div><div data-plugin-actions></div>${renderPluginConsoleButton(item.manifest)}</div>
+        <div class="dashboard-card-body"><div data-plugin-inline-controls></div><div data-plugin-live></div><div data-plugin-detail></div><div data-plugin-actions></div>${renderPluginConsoleButton(item.manifest)}</div>
       </article>`.trim();
       tile = template.content.firstElementChild;
     }
@@ -454,6 +464,14 @@ export function renderSensorTiles(target, status) {
     });
     renderPluginActionControls(tile.querySelector('[data-plugin-inline-controls]'), panel || inlineControls?.outerHTML || '');
     inlineControls?.remove();
+    // The live view of the sensor data contract: the same graphs for every
+    // sensor that declares one, always in place (empty while it is off).
+    const liveSlot = tile.querySelector('[data-plugin-live]');
+    const liveHtml = renderLiveTrends({ manifest: item.manifest, live: item.live }, dashboardUiHelpers());
+    if (liveSlot && liveSlot._rendered !== liveHtml) {
+      liveSlot.innerHTML = liveHtml;
+      liveSlot._rendered = liveHtml;
+    }
     const body = tile.querySelector('[data-plugin-detail]');
     const focusable = 'button, input, select, textarea, summary, [tabindex]';
     const focused = body.contains(document.activeElement) ? document.activeElement : null;
@@ -547,25 +565,6 @@ function renderPluginDashboardDetail(item, status) {
     console.warn(`[admin] ${item.key} dashboard extension failed:`, error);
     return genericSensorDetail(item);
   }
-}
-
-function dashboardUiHelpers() {
-  return {
-    escapeHtml,
-    t,
-    statusLabel,
-    fieldLabel,
-    formatEnabled,
-    formatValue,
-    formatBoolean,
-    formatHealthValue,
-    formatSensorChannels,
-    formatTimestampAge,
-    formatObjectBrief,
-    renderRuntimeButtons,
-    graphSection,
-    infoTip,
-  };
 }
 
 function renderPluginAdminActions(manifest, pluginStatus) {
@@ -766,19 +765,6 @@ function renderPluginControlRow(item, sensorRuntime = {}) {
     </div>`;
 }
 
-function renderRuntimeButtons(item, compact = false) {
-  const buttons = [];
-  if (item.can_start) buttons.push(['start', t('dashboard.action.start', 'Start')]);
-  if (item.can_restart) buttons.push(['restart', t('dashboard.action.restart', 'Restart')]);
-  if (item.can_stop) buttons.push(['stop', t('dashboard.action.stop', 'Stop')]);
-  if (!buttons.length) return compact ? '' : '<div class="dashboard-actions"></div>';
-  const className = compact ? 'btn-secondary btn-xs' : 'btn-secondary';
-  const html = buttons.map(([action, label]) => `
-    <button type="button" class="${className}" data-dashboard-action="runtime_${escapeHtml(item.key)}_${action}">${escapeHtml(label)}</button>
-  `).join('');
-  return compact ? html : `<div class="dashboard-actions">${html}</div>`;
-}
-
 function buildPluginDetail(item) {
   const details = [];
   if (item.category) details.push(item.category);
@@ -846,52 +832,6 @@ function showDashboard(elements) {
   elements.dashboard.hidden = false;
 }
 
-function statusLabel(status) {
-  // Operators see a plain-language label; the raw status stays in the
-  // CSS class for styling.
-  const raw = String(status || 'unknown');
-  return t(`dashboard.status.${raw}`, raw.replace(/_/g, ' '));
-}
-
-function fieldLabel(fieldKey, fallback, helpKey = fieldKey) {
-  const label = escapeHtml(t(`dashboard.field.${fieldKey}`, fallback));
-  const text = t(`dashboard.help.${helpKey}`, '');
-  if (!text) return label;
-  const safeText = escapeHtml(text);
-  const safeLabel = escapeHtml(t('dashboard.helpIconLabel', `{field}`).replace('{field}', fallback));
-  return `<span class="status-label-help" tabindex="0" title="${safeText}" aria-label="${safeLabel}: ${safeText}">${label}</span>`;
-}
-
-function formatHealthValue(value) {
-  if (value === null || value === undefined || value === '') return '-';
-  const normalized = String(value).trim().toLowerCase();
-  const labels = {
-    connected: t('dashboard.health.connected', 'connected'),
-    waiting: t('dashboard.health.waiting', 'waiting'),
-    unknown: t('dashboard.health.unknown', 'unknown'),
-    usable: t('dashboard.health.usable', 'usable'),
-    mixed: t('dashboard.health.mixed', 'mixed'),
-    poor: t('dashboard.health.poor', 'poor'),
-    poor_contact: t('dashboard.health.poorContact', 'poor contact'),
-    calibrating: t('dashboard.health.calibrating', 'calibrating'),
-    warming_up: t('dashboard.health.warmingUp', 'warming up'),
-    ready: t('dashboard.health.ready', 'ready'),
-    receiving: t('dashboard.health.receiving', 'receiving'),
-    enabled: t('dashboard.enabled', 'Enabled'),
-    disabled: t('dashboard.disabled', 'Disabled'),
-    recording: t('dashboard.recording', 'recording'),
-    forced: t('dashboard.health.forced', 'forced'),
-    stopped: t('dashboard.health.stopped', 'stopped'),
-  };
-  return escapeHtml(labels[normalized] || value);
-}
-
-function formatTimestampAge(timestamp, ageSeconds) {
-  if (!timestamp) return '-';
-  const age = ageSeconds === null || ageSeconds === undefined ? '' : ` (${formatValue(ageSeconds, ' s')})`;
-  return `${escapeHtml(timestamp)}${age}`;
-}
-
 function formatCard(client) {
   if (client.current_index === null || client.current_index === undefined) return '-';
   return `#${Number(client.current_index) + 1} ${escapeHtml(client.current_type || '')}`;
@@ -907,52 +847,6 @@ function formatClientPluginStatus(pluginStatus) {
     return `<strong>${escapeHtml(label)}</strong>: ${escapeHtml(summary)}${warning ? `<br><span class="status-warning">${escapeHtml(warning)}</span>` : ''}`;
   });
   return rows.length ? rows.join('<br>') : '-';
-}
-
-function formatValue(value, suffix = '') {
-  if (value === null || value === undefined || value === '') return '-';
-  const numericValue = Number(value);
-  if (Number.isFinite(numericValue)) return `${numericValue.toFixed(2)}${suffix}`;
-  return escapeHtml(value);
-}
-
-function formatBoolean(value) {
-  if (value === null || value === undefined || value === '') return '-';
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    if (['1', 'true', 'yes', 'on', 'present'].includes(normalized)) return t('dashboard.yes', 'yes');
-    if (['0', 'false', 'no', 'off', 'absent'].includes(normalized)) return t('dashboard.no', 'no');
-  }
-  return value ? t('dashboard.yes', 'yes') : t('dashboard.no', 'no');
-}
-
-function formatEnabled(value) {
-  return escapeHtml(value ? t('dashboard.enabled', 'Enabled') : t('dashboard.disabled', 'Disabled'));
-}
-
-function formatOnOff(value) {
-  return value ? t('dashboard.on', 'on') : t('dashboard.off', 'off');
-}
-
-function formatSensorChannels(source, keys) {
-  if (!source || typeof source !== 'object') return '-';
-  const parts = keys
-    .filter((key) => source[key] !== null && source[key] !== undefined && source[key] !== '')
-    .map((key) => `${escapeHtml(key)}: ${formatValue(source[key])}`);
-  return parts.length ? parts.join('<br>') : '-';
-}
-
-function formatObjectBrief(value) {
-  if (!value || typeof value !== 'object' || !Object.keys(value).length) return '-';
-  return Object.entries(value)
-    .slice(0, 5)
-    .map(([key, item]) => `${escapeHtml(key)}: ${escapeHtml(item)}`)
-    .join('<br>');
-}
-
-function formatPluginName(key) {
-  return pluginByKey(key)?.ui?.label
-    || String(key || '').replace(/[._-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 window.addEventListener('beforeunload', () => {

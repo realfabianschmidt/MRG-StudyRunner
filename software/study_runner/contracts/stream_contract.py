@@ -43,6 +43,14 @@ def stream_contract_desc_fields(stream: Mapping[str, Any]) -> dict[str, str]:
         fields["capture_delay_max_ns"] = str(delay["max_ns"])
     if delay.get("reference"):
         fields["capture_delay_reference"] = str(delay["reference"])
+    # Where the timestamps come from, and -- for a corrected timestamp --
+    # which channel undoes the correction (sensor data contract).
+    if timing.get("timestamp_source"):
+        fields["timestamp_source"] = str(timing["timestamp_source"])
+    if timing.get("correction_channel"):
+        fields["correction_channel"] = str(timing["correction_channel"])
+    if stream.get("processing"):
+        fields["processing"] = str(stream["processing"])
     return fields
 
 
@@ -59,6 +67,41 @@ def apply_stream_contract_desc(info: Any, stream: Mapping[str, Any]) -> None:
         node.append_child_value(key, value)
 
 
+def build_stream_info(pylsl: Any, stream: Mapping[str, Any], *, name: str) -> Any:
+    """A ``pylsl.StreamInfo`` for one manifest stream: identity, channels, units, contract.
+
+    The one place an outlet's header is built, so what the recording worker
+    validates (type, channel count, rate, format, labels, units) always
+    matches the manifest.
+    """
+    channels = list(stream["channels"])
+    units = list(stream["channel_units"])
+    info = pylsl.StreamInfo(
+        name=name,
+        type=str(stream.get("type") or ""),
+        channel_count=len(channels),
+        nominal_srate=float(stream.get("nominal_rate_hz") or 0.0),
+        channel_format=stream["channel_format"],
+        source_id=stream["source_id"],
+    )
+    node = info.desc().append_child("channels")
+    for label, unit in zip(channels, units, strict=True):
+        channel = node.append_child("channel")
+        channel.append_child_value("label", label)
+        channel.append_child_value("unit", unit)
+    apply_stream_contract_desc(info, stream)
+    return info
+
+
+def load_own_manifest(adapter_file: str) -> dict[str, Any]:
+    """Load and normalize the ``manifest.json`` beside ``adapter_file``."""
+    from study_runner.contracts.manifest import validate_and_normalize_manifest
+
+    manifest_path = Path(adapter_file).resolve().parent / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return validate_and_normalize_manifest(payload, directory_name=manifest_path.parent.name)
+
+
 def load_own_stream_contracts(adapter_file: str) -> dict[str, dict[str, Any]]:
     """Load and normalize the ``manifest.json`` beside ``adapter_file``.
 
@@ -70,9 +113,4 @@ def load_own_stream_contracts(adapter_file: str) -> dict[str, dict[str, Any]]:
     ``data_core/host/markers.py`` already does for itself. Pass
     ``__file__`` from the calling adapter module.
     """
-    from study_runner.contracts.manifest import validate_and_normalize_manifest
-
-    manifest_path = Path(adapter_file).resolve().parent / "manifest.json"
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest = validate_and_normalize_manifest(payload, directory_name=manifest_path.parent.name)
-    return {stream["key"]: stream for stream in manifest["streams"]}
+    return {stream["key"]: stream for stream in load_own_manifest(adapter_file)["streams"]}

@@ -48,6 +48,7 @@ const DETAIL_FALLBACKS = {
   bluetooth_unavailable: ['Bluetooth unavailable', 'Switch Bluetooth on, then search again.'],
   missing_dependency: ['Software missing', 'The device software is not installed. See the diagnostics.'],
   crashed: ['Stopped unexpectedly', 'Choose the device again, or search.'],
+  publication_failed: ['Data not published', 'The data could not be passed on for recording. Restart the sensor.'],
 };
 const SIGNAL_FALLBACKS = {
   good: 'good',

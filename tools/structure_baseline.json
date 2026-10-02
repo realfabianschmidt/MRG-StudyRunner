@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 492,
+  "cross_package_import_edges": 499,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -20,7 +20,7 @@
       "path": ""
     },
     "apps.ui.admin": {
-      "lines": 962,
+      "lines": 856,
       "path": "software/study_runner/apps/ui/scripts/admin/admin-dashboard-controller.js"
     },
     "apps.ui.cards": {
@@ -40,7 +40,7 @@
       "path": "software/study_runner/apps/ui/scripts/shared/qr-code.js"
     },
     "contracts": {
-      "lines": 1598,
+      "lines": 1504,
       "path": "software/study_runner/contracts/manifest.py"
     },
     "data_core": {
@@ -100,17 +100,17 @@
     "apps": 0,
     "apps.server": 4661,
     "apps.ui": 0,
-    "apps.ui.admin": 5707,
+    "apps.ui.admin": 5858,
     "apps.ui.cards": 4374,
     "apps.ui.participant": 2778,
     "apps.ui.settings": 1887,
     "apps.ui.shared": 3035,
-    "contracts": 2781,
+    "contracts": 3038,
     "data_core": 16,
     "data_core.contract": 1184,
     "data_core.host": 6655,
     "data_core.worker": 2406,
-    "plugin_framework": 3299,
+    "plugin_framework": 4008,
     "plugins": 0,
     "plugins.cards": 1420,
     "plugins.destinations": 1894,

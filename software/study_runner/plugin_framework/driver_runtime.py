@@ -15,6 +15,7 @@ from study_runner.contracts.card_validation_primitives import CardValidationErro
 from .plugin_layout import resolve_plugin
 from .plugin_secrets import resolve_plugin_secret
 from .process_host import PROTOCOL_PREFIX
+from .sensor_streams import registered as registered_sensor_streams
 
 
 _OUTPUT_LOCK = threading.Lock()
@@ -117,6 +118,7 @@ def _serve_plugin_driver(plugin_key: str) -> int:
                     result, should_exit = None, True
                 elif operation == "initialize":
                     context = _context_from_payload(payload.get("context"))
+                    _reset_sensor_streams(plugin)
                     if plugin.initialize:
                         plugin.initialize(context)
                     result: Any = None
@@ -178,11 +180,18 @@ def _dispatch(
     payload: Mapping[str, Any],
 ) -> tuple[Any, bool]:
     if operation == "status":
-        return (plugin.get_status(context) if plugin.get_status else {}), False
+        status = plugin.get_status(context) if plugin.get_status else {}
+        streams = registered_sensor_streams(plugin.key)
+        if streams is not None and isinstance(status, dict):
+            # The live view and stream health come from the one publishing
+            # path, the same for every sensor (plugin_framework/sensor_streams.py).
+            status = {**status, **streams.status_blocks()}
+        return status, False
     if operation in {"start", "stop", "restart"}:
         handler = getattr(plugin, operation, None)
         if not callable(handler):
             raise RuntimeError(f"plugin does not support {operation}")
+        _reset_sensor_streams(plugin)
         return handler(context), False
     if operation == "admin_action":
         if plugin.run_admin_action is None:
@@ -246,6 +255,13 @@ def _dispatch(
                 _emit_diagnostic(f"Plugin stop during shutdown failed: {error}", level="warning")
         return {"stopped": True}, True
     raise RuntimeError(f"unsupported operation: {operation}")
+
+
+def _reset_sensor_streams(plugin: Plugin) -> None:
+    """A new run starts with an empty live view and fresh counters."""
+    streams = registered_sensor_streams(plugin.key)
+    if streams is not None:
+        streams.reset()
 
 
 def _dispatch_card(plugin: Plugin, operation: str, payload: Mapping[str, Any]) -> Any:

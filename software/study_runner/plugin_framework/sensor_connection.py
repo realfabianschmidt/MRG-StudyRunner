@@ -159,6 +159,10 @@ def next_step(connection: Mapping[str, Any], roles: Iterable[str] = ()) -> str |
 
     role_set = set(roles)
     phase = _PHASE_ALIASES.get(str(connection.get("phase") or ""), connection.get("phase"))
+    if phase == "failed" and connection.get("detail") == "publication_failed":
+        # The device is fine; its data could not be published. Searching
+        # again would not help -- the operator restarts the sensor.
+        return None
     if phase in {"idle", "failed"}:
         # A device in the list (the one used last time, or a search result)
         # is one click away; otherwise search.

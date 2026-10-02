@@ -23,6 +23,8 @@ manifest and uses it to dispatch calls to the plugin runtime.
 | `card_catalog.py` | Turns the plugin catalog's `card_contract` declarations into the live set of valid question types, cached until the catalog itself changes. |
 | `adapter_utils.py` | A couple of tiny, state-free helpers shared by plugin adapters (a formatted timestamp, updating a lock-protected status dict). |
 | `history_buffer.py` | Sizes and queries the bounded in-memory sample history every sensor adapter keeps, so a long session can't grow memory without bound. |
+| `sensor_streams.py` | The one way a sensor publishes data (the sensor data contract): LSL outlets built from the manifest only, explicit timestamps that never go backwards, reversible timestamp corrections, counted push failures, and the dashboard's live view fed by the same pushes. `driver_runtime.py` merges its `live` and `stream_health` blocks into every status and resets them before start/stop/restart. |
+| `live_view.py` | The live view behind it: the mean of every 0.5 s over the last 60 s, in the plugin process; plus `standardize_live`, which gives the host one shape for every plugin (NaN becomes null, empty while the plugin is off). |
 | `__init__.py` | States what this package is (and isn't) in one paragraph. |
 
 ## The contract

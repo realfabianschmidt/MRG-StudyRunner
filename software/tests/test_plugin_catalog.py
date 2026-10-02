@@ -231,6 +231,82 @@ class PluginManifestTests(unittest.TestCase):
             {"sensor": "fixture", "filename_suffix": "fixture_signals", "output_key": "fixture_file"},
         )
 
+    def test_backup_projection_runs_on_the_fixed_one_hertz_grid(self) -> None:
+        payload = _manifest("fixture", source_id="fixture.stream")
+        payload["capabilities"]["backup_projection"] = {
+            "channels": [{"output": "value", "stream": "values", "channel": "value"}],
+        }
+        projection = validate_and_normalize_manifest(payload, directory_name="fixture")["capability_config"][
+            "backup_projection"
+        ]
+        self.assertEqual((projection["rate_hz"], projection["stale_after_ms"]), (1.0, 2500))
+
+        payload["capabilities"]["backup_projection"]["rate_hz"] = 4
+        with self.assertRaisesRegex(PluginManifestError, "fixed at 1 Hz"):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
+    def test_live_view_names_declared_numeric_channels(self) -> None:
+        payload = _manifest("fixture", source_id="fixture.stream")
+        series = {"key": "trend", "stream": "values", "channels": ["value"], "axis": "signed", "min_span": 5}
+        payload["capabilities"]["live_view"] = {"series": [series], "channel_key_prefix": "fixture.channel"}
+        live_view = validate_and_normalize_manifest(payload, directory_name="fixture")["capability_config"]["live_view"]
+        self.assertEqual(
+            live_view,
+            {
+                "rate_hz": 2,
+                "window_s": 60,
+                "channel_key_prefix": "fixture.channel",
+                "series": [{
+                    "key": "trend", "stream": "values", "channels": ["value"], "axis": "signed",
+                    "min_span": 5.0, "scale": 1.0, "unit_label": "",
+                }],
+            },
+        )
+        for bad, message in (
+            ({"series": [{**series, "stream": "missing"}]}, "declared stream"),
+            ({"series": [{**series, "channels": ["nope"]}]}, "declared channels"),
+            ({"series": [{**series, "key": "Trend"}]}, "snake_case"),
+            ({"series": [{**series, "axis": "log"}]}, "axis"),
+            ({"series": [{**series, "key": f"s{index}"} for index in range(5)]}, "at most 4"),
+            ({"series": []}, "non-empty"),
+            ({"series": [series], "rate_hz": 10}, "unsupported fields"),
+        ):
+            payload["capabilities"]["live_view"] = bad
+            with self.subTest(message=message), self.assertRaisesRegex(PluginManifestError, message):
+                validate_and_normalize_manifest(payload, directory_name="fixture")
+
+    def test_stream_timing_declares_where_timestamps_come_from(self) -> None:
+        payload = _manifest("fixture", source_id="fixture.stream")
+        stream = payload["streams"][0]
+        stream["timing"] = {"timestamp_source": "host_arrival"}
+        timing = validate_and_normalize_manifest(payload, directory_name="fixture")["streams"][0]["timing"]
+        self.assertEqual(timing["timestamp_source"], "host_arrival")
+
+        stream["timing"] = {"timestamp_source": "device_clock"}
+        with self.assertRaisesRegex(PluginManifestError, "timestamp_source must be one of"):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
+    def test_a_corrected_timestamp_must_stay_reversible(self) -> None:
+        payload = _manifest("fixture", source_id="fixture.stream")
+        stream = payload["streams"][0]
+        stream["timing"] = {"timestamp_source": "host_arrival_corrected"}
+        with self.assertRaisesRegex(PluginManifestError, "correction_channel is required"):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
+        stream["channels"] = ["value", "correction_ms"]
+        stream["channel_units"] = ["arbitrary_unit", "second"]
+        stream["timing"]["correction_channel"] = "correction_ms"
+        with self.assertRaisesRegex(PluginManifestError, "unit millisecond"):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
+        stream["channel_units"] = ["arbitrary_unit", "millisecond"]
+        timing = validate_and_normalize_manifest(payload, directory_name="fixture")["streams"][0]["timing"]
+        self.assertEqual(timing["correction_channel"], "correction_ms")
+
+        stream["timing"]["timestamp_source"] = "host_arrival"
+        with self.assertRaisesRegex(PluginManifestError, "belongs to host_arrival_corrected"):
+            validate_and_normalize_manifest(payload, directory_name="fixture")
+
     def test_lsl_stream_channels_and_format_are_strict(self) -> None:
         payload = _manifest("fixture", source_id="fixture.stream")
         payload["streams"][0]["channel_format"] = "complex128"

@@ -59,6 +59,22 @@ class StreamContractDescFieldsTests(unittest.TestCase):
     def test_missing_timing_block_is_tolerated_as_unknown(self) -> None:
         fields = stream_contract_desc_fields({"source_id": "x", "clock_domain": "lsl"})
         self.assertEqual(fields["capture_delay_source"], "unknown")
+        self.assertNotIn("timestamp_source", fields)
+
+    def test_timestamp_source_correction_channel_and_processing_reach_the_header(self) -> None:
+        stream = {
+            **_UNKNOWN_STREAM,
+            "processing": "unit_scale_only",
+            "timing": {
+                **_UNKNOWN_STREAM["timing"],
+                "timestamp_source": "host_arrival_corrected",
+                "correction_channel": "correction_ms",
+            },
+        }
+        fields = stream_contract_desc_fields(stream)
+        self.assertEqual(fields["timestamp_source"], "host_arrival_corrected")
+        self.assertEqual(fields["correction_channel"], "correction_ms")
+        self.assertEqual(fields["processing"], "unit_scale_only")
 
 
 class _FakeDescNode:

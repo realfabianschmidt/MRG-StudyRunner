@@ -6,7 +6,7 @@
   "category": "biosignal",
   "ui": {
     "label": "Example sensor",
-    "description": "Plugin SDK template for a new recording sensor. Rename plugin_key/config_key and every 'example_sensor' occurrence (manifest, plugin.py, driver.py) before shipping -- tools/plugin_sdk.py new does this for you.",
+    "description": "Plugin SDK template for a new recording sensor. Rename plugin_key/config_key and every 'example_sensor' occurrence (manifest, plugin.py, adapter.py, driver.py) before shipping -- tools/plugin_sdk.py new does this for you.",
     "order": 9999
   },
   "capabilities": {
@@ -15,10 +15,14 @@
     "lsl_stream_provider": {},
     "recording_source": {"artifact": "xdf", "primary_stream": "measurements"},
     "backup_projection": {
-      "rate_hz": 4,
-      "stale_after_ms": 750,
+      "stale_after_ms": 2500,
       "channels": [
         {"output": "value", "stream": "measurements", "channel": "value"}
+      ]
+    },
+    "live_view": {
+      "series": [
+        {"key": "value", "stream": "measurements", "channels": ["value"], "label": "Value"}
       ]
     },
     "health": {},
@@ -34,6 +38,7 @@
     "entrypoint": "driver.py",
     "protocol": "study-runner-stdio/v1",
     "sample_delivery": "declared_transport",
+    "actions": ["start", "stop"],
     "trial_events": ["session_end"]
   },
   "streams": [
@@ -43,9 +48,11 @@
       "type": "EXAMPLE",
       "nominal_rate_hz": 4,
       "clock_domain": "lsl",
-      "channel_format": "float32",
-      "channels": ["value"],
-      "channel_units": ["arbitrary_unit"]
+      "channel_format": "double64",
+      "channels": ["value", "seq"],
+      "channel_units": ["arbitrary_unit", "count"],
+      "sequence_channel": "seq",
+      "timing": {"timestamp_source": "host_arrival"}
     }
   ]
 }

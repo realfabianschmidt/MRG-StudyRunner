@@ -58,7 +58,8 @@ settings schemas, timing limits, and capabilities. Important capability names ar
 - `study_sensor`: selectable for a study, required by default when selected.
 - `lsl_stream_provider`: owns stable stream/source IDs and channel metadata.
 - `recording_source`: contributes native XDF segments.
-- `backup_projection`: declares numeric channels and a positive projection rate.
+- `backup_projection`: declares the numeric channels the core samples on its fixed 1 Hz backup grid.
+- `live_view`: declares up to four series of recorded channels the dashboard draws live (2 Hz, last 60 s).
 - `acquisition_transport`: declares how samples reach LSL; browser sources also
   guarantee heartbeat, sequence, and source timestamps.
 - `runtime_modes`, `health`, and `admin_actions`: lifecycle, diagnostics, and
@@ -166,8 +167,11 @@ work it cannot do.
 1. Choose a stable lowercase `plugin_key`.
 2. Define LSL streams with unique, stable `source_id` values, nominal rates,
    clock domains, channel types, labels, and units.
-3. Add `study_sensor`, `lsl_stream_provider`, `recording_source`, and a valid
-   `backup_projection` when the sensor participates in recording.
+3. Add `study_sensor`, `lsl_stream_provider`, `recording_source`, a valid
+   `backup_projection` and the `live_view` series when the sensor
+   participates in recording, and publish every sample through
+   `SensorStreams` (the sensor data contract,
+   `docs/plugin-recording-architecture.md`).
 4. Implement `PLUGIN` with the handlers promised by the manifest, including
    `running` and the `connection` block in the status (the template shows
    both).

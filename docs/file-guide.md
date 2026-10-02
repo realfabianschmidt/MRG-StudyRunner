@@ -43,6 +43,7 @@ Edit-safety legend:
 | `software/study_runner/contracts/manifest.py` | Pure manifest/command-payload validation and API versions; imports only the standard library, shared by recorder and plugin framework | no |
 | `software/study_runner/contracts/plugin_api.py` | Dependency-light runtime context and plugin protocol shared by server, framework, and plugin subprocesses | no |
 | `software/study_runner/contracts/stream_contract.py` | Turns one manifest-declared stream contract into `desc/study_runner` XDF header fields; every LSL-producing module calls it before creating its outlet | no |
+| `software/study_runner/contracts/sensor_contract.py` | The sensor data contract in one place: the fixed 1 Hz backup, the 2 Hz / 60 s live view, and where each stream's timestamps come from (`timing.timestamp_source`, reversible `correction_channel`) | careful |
 | `software/study_runner/contracts/session_lifecycle.py` | The one explicit session state (`IDLE`/`PREFLIGHT`/`RECORDING`/`FINALIZING`/`SEALED`/`WITHDRAWN`/`FAILED`), derived from the recording plan and finalization job that own the detail, plus the allowed transitions | no |
 | `software/study_runner/contracts/recording_checkpoint.py` | The confirmed-prefix contract: how far a segment is *known* to be on disk, written by the worker after each durable flush and read by the host during recovery to name the unconfirmed tail | careful |
 | `software/study_runner/contracts/quality_journal.py` | Streaming quality counters (gaps, timestamp regressions, jitter, effective rate), wall-clock jump detection, ingest-backlog monitoring against the transport's bounded buffer, and the versioned quality profile whose thresholds turn a number into an event | careful |
@@ -218,6 +219,8 @@ browser module a manifest declares under `ui.extensions`.
 | `adapter_utils.py` | Shared timestamps, locked state updates, config-section lookup, and `plugin_runtime_dir`/`runtime_path_setting` (plugin logs and state live next to the results, never in the program files) | careful |
 | `registry.py` | The façade almost everything else calls: manifest-driven plugin lookup, generic actions, interval summaries, sidecar exports | careful |
 | `sensor_connection.py` | The one connection pattern for every sensor: normalizes the reported phase/signal/setup and decides `ready` and the next step (the dashboard's call to action) | careful |
+| `sensor_streams.py` | The one way a sensor publishes data: LSL outlets built from the manifest, explicit and never-decreasing timestamps, reversible corrections, counted push failures, and the live view fed by the same pushes | careful |
+| `live_view.py` | The dashboard's live view of recorded samples (mean per 0.5 s, last 60 s) in the plugin process, and the host's one standardized `live` shape | careful |
 | `plugin_catalog.py` | Discovers trusted plugin folders and validates API-v5 manifests before dispatch | no |
 | `plugin_layout.py` | Defines trusted plugin category roots shared by discovery, drivers, UI assets, and self-check | no |
 | `card_session_isolation.py` | Refuses a card whose `card.js` keeps mutable module-level state, so no answer can reach the next participant | careful |
@@ -330,6 +333,8 @@ one, unlike the plugin table above).
 | `admin/admin-update-handling.js` | Update status, download/install confirmation, progress, and restart handling | careful |
 | `admin/admin-study-editor.js` | Card editor/list, study persistence, packages, and recent-study behavior | careful |
 | `admin/admin-dashboard-controller.js` | Live sensor dashboard with plain-language statuses | careful |
+| `admin/dashboard-ui-helpers.js` | Formatting helpers for sensor tiles and the `ui` object handed to plugin dashboard extensions | careful |
+| `admin/live-trend.js` | Draws every sensor's declared live-view series the same way (2 Hz points over 60 s) | careful |
 | `admin/sensor-columns.js` | Sensor dashboard column layout and tile placement | careful |
 | `admin/runtime-switch-input.js` | Accessible Off/On/Restart switch behavior for live sensors | careful |
 | `admin/sensor-connection-panel.js` | The connection panel on every sensor tile: status line, Ready badge, switch, device list and guided steps; also the study bar's state | careful |

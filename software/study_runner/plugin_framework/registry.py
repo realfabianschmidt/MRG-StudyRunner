@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapter_utils import config_section
+from .live_view import standardize_live
 from .sensor_connection import action_roles, standardize_connection
 from .plugin_catalog import (
     PluginCatalog,
@@ -13,6 +14,7 @@ from .plugin_catalog import (
     validate_admin_action_payload,
 )
 from study_runner.contracts.plugin_api import PluginContext, Plugin, SecretResolver
+from study_runner.contracts.sensor_contract import live_view_series
 
 
 def build_context(
@@ -398,11 +400,29 @@ def _standardize_status(
     if plugin.has_lsl and "lsl_enabled" not in payload:
         payload["lsl_enabled"] = bool((config_section(context, plugin.config_key).get("lsl") or {}).get("enabled", False))
     manifest = _PLUGIN_CATALOG.manifests.get(plugin.key) or {}
+    # The sensor data contract: one live shape for every plugin that
+    # declares a live view, and a failed publication is a failed plugin.
+    series = live_view_series(manifest)
+    if series:
+        payload["live"] = standardize_live(raw_status.get("live"), series, running=running)
+    else:
+        payload.pop("live", None)
+    connection_facts = raw_status
+    health = raw_status.get("stream_health")
+    if running and isinstance(health, dict) and health.get("failed"):
+        message = str(health.get("last_error") or "Publishing the sensor data failed.")
+        payload.update({"status": "failed", "last_message": message})
+        connection = raw_status.get("connection") if isinstance(raw_status.get("connection"), dict) else {}
+        connection_facts = {
+            **raw_status,
+            "status": "failed",
+            "connection": {**connection, "phase": "failed", "detail": "publication_failed", "streaming": False},
+        }
     if "study_sensor" in set(manifest.get("capabilities") or []):
         # Every sensor gets the same connection block, ready flag and next
         # step, decided here in the core -- never by the plugin itself.
         payload["connection"] = standardize_connection(
-            raw_status,
+            connection_facts,
             running=running,
             roles=action_roles(manifest),
             study_running=bool(getattr(context, "study_running", False)),

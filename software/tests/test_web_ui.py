@@ -456,6 +456,14 @@ class SettingsShellTests(unittest.TestCase):
                     fields.extend(field for field in scope.values() if isinstance(field, dict))
             fields.append((manifest.get("capabilities") or {}).get("credentials") or {})
             fields.append(manifest.get("ui") or {})
+            # The live view's graph titles, help and legend (sensor data contract).
+            live_view = (manifest.get("capabilities") or {}).get("live_view") or {}
+            fields.extend(series for series in live_view.get("series") or [] if isinstance(series, dict))
+            prefix = live_view.get("channel_key_prefix")
+            if prefix:
+                referenced.update(
+                    f"{prefix}.{channel}" for series in live_view.get("series") or [] for channel in series.get("channels") or []
+                )
             for field in fields:
                 for key in text_keys:
                     if field.get(key):
@@ -532,8 +540,12 @@ class PluginUiContractTests(unittest.TestCase):
             / "study_runner_server_common.py"
         )
 
-        for sensor_key in ("brainbit", "mini_radar", "camera_emotion"):
-            self.assertNotIn(sensor_key, dashboard)
+        # The core modules that draw sensor tiles never name a sensor.
+        core_modules = ("dashboard-ui-helpers.js", "live-trend.js", "sensor-columns.js")
+        core_sources = [dashboard] + [_read(WEB / "scripts" / "admin" / name).lower() for name in core_modules]
+        for sensor_key in ("brainbit", "mini_radar", "camera_emotion", "am_hub"):
+            for source in core_sources:
+                self.assertNotIn(sensor_key, source)
         self.assertNotIn("PREFERRED_CHANNELS", timeline)
         self.assertIn("ui?.timeline?.preferred_channels", timeline)
         self.assertIn('ui.get("extensions")', packaging)
