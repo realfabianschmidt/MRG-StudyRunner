@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.0 - 2026-10-04
+
 ### Added
 
 - **Citable software versions.** Every session records the Study Runner version and the version of each plugin that produced it (sensors as recorded, cards, upload destinations) in `meta/manifest.json` → `provenance.software`. The session view lists them and copies a sentence for the methods section, each plugin's settings page shows its version, and the release notes carry a plugin version table. Older sessions show what they recorded, marked as incomplete.
