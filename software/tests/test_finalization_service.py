@@ -208,6 +208,26 @@ class FinalizationServiceTests(unittest.TestCase):
         )
         ArtifactStore(root).reserve(identity).recording_plan_file.write_text(json.dumps(plan), encoding="utf-8")
 
+    def test_exact_source_retry_is_acknowledged_after_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = self._service(root)
+            committed = service.commit_submission(
+                SUBMISSION, recording_expected=True, source_submission_sha256="source-hash-1",
+            )
+            service = self._service(root)  # a retry can arrive after a server restart
+            retry = service.acknowledged_source_submission(
+                study_id="Study A", participant_id="p01", submission_id="submission-1",
+                session_id="session-1", source_submission_sha256="source-hash-1",
+            )
+            self.assertEqual(retry["job_id"], committed["job_id"])
+            self.assertFalse(retry["created"])
+            with self.assertRaises(SubmissionConflictError):
+                service.acknowledged_source_submission(
+                    study_id="Study A", participant_id="p01", submission_id="submission-1",
+                    session_id="session-1", source_submission_sha256="changed-content",
+                )
+
     def test_commit_is_idempotent_and_processing_publishes_complete_session(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

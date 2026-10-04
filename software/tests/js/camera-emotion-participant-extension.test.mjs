@@ -14,6 +14,7 @@ test('camera participant extension preserves preview, stimulus capture, cleanup,
   const statuses = [];
   let activeStimulus = null;
   let monitorStartFailures = 1;
+  let clockFresh = true;
 
   globalThis.window = {
     isSecureContext: true,
@@ -79,7 +80,19 @@ test('camera participant extension preserves preview, stimulus capture, cleanup,
     getPluginActions: () => ({ snapshot_interval_ms: 1400 }),
     runParticipantAction,
     ingestParticipant,
-    estimateServerEpochMs: (value) => value + 100,
+    getClockEvidence: (value) => clockFresh ? {
+      source_epoch_ms: value + 100,
+      clock_sync_id: 'sync-1',
+      clock_sync_age_ms: 50,
+      clock_sync_rtt_ms: 8,
+      time_source: 'tablet_sync',
+    } : {
+      source_epoch_ms: null,
+      clock_sync_id: null,
+      clock_sync_age_ms: null,
+      clock_sync_rtt_ms: null,
+      time_source: 'server_receipt',
+    },
     getClientClockOffsetMs: () => 12,
     reportStatus: (status) => statuses.push(status),
   };
@@ -96,6 +109,8 @@ test('camera participant extension preserves preview, stimulus capture, cleanup,
     assert.equal(frames[0].preview, true);
     assert.equal(frames[0].phase, 'prestudy_monitor');
     assert.ok(frames[0].source_instance_id);
+    assert.equal(frames[0].clock_sync_id, 'sync-1');
+    assert.equal(frames[0].time_source, 'tablet_sync');
 
     activeStimulus = { index: 2, activeStarted: true, question: { type: 'stimulus' } };
     intervals[0].callback();
@@ -104,6 +119,21 @@ test('camera participant extension preserves preview, stimulus capture, cleanup,
     assert.equal(frames.at(-1).active_phase, true);
     assert.equal(frames.at(-1).question_index, 2);
     assert.equal(frames.at(-1).source_instance_id, frames[0].source_instance_id);
+    assert.equal(frames.at(-1).phase, 'stimulus_active');
+
+    // The card's duration passed and the participant stayed (overtime).
+    activeStimulus.overtime = true;
+    intervals[0].callback();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(frames.at(-1).phase, 'stimulus_overtime');
+    activeStimulus.overtime = false;
+
+    clockFresh = false;
+    intervals[0].callback();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(frames.at(-1).source_epoch_ms, null);
+    assert.equal(frames.at(-1).time_source, 'server_receipt');
+    assert.equal(typeof frames.at(-1).source_monotonic_ms, 'number');
 
     extension.beforeSubmit();
     assert.equal(tracks[0].stopped, true);

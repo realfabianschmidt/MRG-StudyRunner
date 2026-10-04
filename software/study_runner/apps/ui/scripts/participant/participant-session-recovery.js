@@ -1,3 +1,5 @@
+import { CLOCK_SYNC_INTERVAL_MS, createTabletClock } from './tablet-clock.js';
+
 /**
  * Own participant clock sync, lifecycle snapshots, partial saves, and reload
  * recovery.  The controller supplies state and navigation callbacks explicitly
@@ -17,6 +19,8 @@ export function createParticipantSessionRecovery(context) {
     collectAnswers,
     collectAnswerEvents,
     collectCardEvents,
+    getCardModule,
+    isAnswerless,
     updateSensorRuntime,
     handleStudyRunState,
     queueParticipantExtensionSync,
@@ -29,52 +33,38 @@ export function createParticipantSessionRecovery(context) {
     updateNavigation,
     playCardEntrance,
     prepareStimulusCard,
+    startStimulusCard,
+    discardInterruptedTrialEvents,
     startParticipantExtensionMonitors,
     renderMediaLayout,
     escapeHtml,
     t,
+    isPreview = false,
     constants,
   } = context;
 
   let studyNoticeTimer = null;
 
-  async function syncClock() {
-    const offsets = [];
-    const rtts = [];
-    for (let i = 0; i < 3; i += 1) {
-      const clientSendMs = performance.now();
-      try {
-        const response = await postJson('/api/sync-clock', {
-          client_id: getStudyClientId(),
-          client_send_ms: clientSendMs,
-        }, { timeoutMs: constants.clockSyncTimeoutMs });
-        const clientRecvMs = performance.now();
-        offsets.push(((response.server_receive_ms - clientSendMs)
-          + (response.server_send_ms - clientRecvMs)) / 2);
-        rtts.push(Math.max(0, clientRecvMs - clientSendMs));
-      } catch {
-        // Server unreachable; skip this round.
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    if (offsets.length > 0) {
-      offsets.sort((a, b) => a - b);
-      rtts.sort((a, b) => a - b);
-      state.clockOffsetMs = offsets[Math.floor(offsets.length / 2)];
-      const medianRtt = rtts[Math.floor(rtts.length / 2)];
-      state.clockRttMs = Number.isFinite(medianRtt) ? medianRtt : null;
-      console.debug('[study] Clock offset estimated:', state.clockOffsetMs.toFixed(2), 'ms');
-    }
-  }
+  const tabletClock = createTabletClock({
+    exchange: (clientSendMs) => postJson('/api/sync-clock', {
+      client_id: getStudyClientId(),
+      client_send_ms: clientSendMs,
+    }, { timeoutMs: constants.clockSyncTimeoutMs }),
+    onSelected: (sample) => {
+      state.clockOffsetMs = sample.offset_ms;
+      state.clockRttMs = sample.network_delay_ms;
+      state.clockSyncSamples = [...(state.clockSyncSamples || []), sample].slice(-1440);
+    },
+  });
 
+  async function syncClock() { return tabletClock.sync(); }
+  function getClockEvidence(clientPerfMs = performance.now()) { return tabletClock.evidence(clientPerfMs); }
   function estimateServerEpochMs(clientPerfMs = performance.now()) {
-    return Number.isFinite(state.clockOffsetMs) ? clientPerfMs + state.clockOffsetMs : Date.now();
+    return getClockEvidence(clientPerfMs).source_epoch_ms;
   }
-
   function getClientClockOffsetMs() {
-    return Number.isFinite(state.clockOffsetMs)
-      ? Math.round(estimateServerEpochMs() - Date.now())
-      : null;
+    const estimate = estimateServerEpochMs();
+    return Number.isFinite(estimate) ? Math.round(estimate - Date.now()) : null;
   }
 
   function getSessionPayload() {
@@ -174,30 +164,72 @@ export function createParticipantSessionRecovery(context) {
         session_id: state.sessionId,
         client_id: getStudyClientId(),
         study_id: state.config.study_id || '',
+        study_revision: state.studyRevision || '',
         participant_id: resolveParticipantId(),
         participant_metadata: collectParticipantMetadata(),
         current_index: state.currentIndex,
         current_type: (state.config.questions || [])[state.currentIndex]?.type || '',
         study_started_at: new Date(state.startTime).toISOString(),
         sensor_session_started: state.sensorSessionStarted,
+        checkpoint_sequence: state.checkpointSequence,
       }));
     } catch {
       // Session recovery is best-effort.
     }
   }
 
-  function buildPartialResultsPayload() {
+  function buildPartialResultsPayload({ nextIndex = state.currentIndex, completedIndex = null } = {}) {
+    const completed = new Set(state.completedCards || []);
+    if (Number.isInteger(completedIndex)) completed.add(completedIndex);
+    const answers = collectAnswers({ includeIndex: completedIndex });
+    const touchedFields = Object.fromEntries(Object.entries(state.touchedFields || {})
+      .map(([index, fields]) => [index, [...fields]]));
+    const cardStates = Object.fromEntries([...completed].map((index) => [
+      `q${index}`, { answer: answers[`q${index}`] ?? null, touched_fields: touchedFields[index] || [] },
+    ]));
+    const activeStimulus = state.activeStimulus;
     return {
       ...getSessionPayload(),
+      study_revision: state.studyRevision || '',
+      checkpoint_version: 2,
+      checkpoint_sequence: ++state.checkpointSequence,
       client_clock_offset_ms: getClientClockOffsetMs(),
+      clock_sync_samples: state.clockSyncSamples || [],
       timestamp_start: state.startTime ? new Date(state.startTime).toISOString() : null,
       snapshot_at: new Date().toISOString(),
-      current_index: state.currentIndex,
-      answers: collectAnswers(),
+      current_index: nextIndex,
+      completed_indices: [...completed].sort((a, b) => a - b),
+      answers,
+      card_states: cardStates,
+      touched_fields: touchedFields,
+      question_metrics: structuredClone(state.questionMetrics || {}),
+      active_stimulus: activeStimulus ? {
+        index: activeStimulus.index,
+        stimulus_id: activeStimulus.stimulusId,
+        start_event_id: activeStimulus.startEventId,
+        stop_event_id: activeStimulus.stopEventId,
+        signal_started: Boolean(activeStimulus.signalStarted),
+      } : null,
       participant_metadata: collectParticipantMetadata(),
       answer_events: collectAnswerEvents(),
       card_events: collectCardEvents(),
     };
+  }
+
+  async function commitCheckpoint({ nextIndex = state.currentIndex, completedIndex = null } = {}) {
+    if (!state.startTime || (!state.sessionId && !isPreview)) throw new Error('No active session to checkpoint.');
+    const payload = buildPartialResultsPayload({ nextIndex, completedIndex });
+    if (!isPreview) {
+      const response = await postJson('/api/results/partial', payload, { timeoutMs: 5000 });
+      if (response?.checkpoint_sequence !== payload.checkpoint_sequence) {
+        throw new Error('The server did not acknowledge the answer checkpoint.');
+      }
+    }
+    state.completedCards = new Set(payload.completed_indices);
+    state.acknowledgedAnswers = structuredClone(payload.answers);
+    state.lastAcknowledgedCheckpoint = payload;
+    saveSessionSnapshot();
+    return payload;
   }
 
   function sendPartialResults({ useBeacon = false } = {}) {
@@ -224,6 +256,9 @@ export function createParticipantSessionRecovery(context) {
         current_index: state.currentIndex,
         current_type: (state.config.questions || [])[state.currentIndex]?.type || null,
         is_stimulus_active: Boolean(state.activeStimulus),
+        stimulus_id: state.activeStimulus?.stimulusId || null,
+        start_event_id: state.activeStimulus?.startEventId || null,
+        stop_event_id: state.activeStimulus?.stopEventId || null,
       };
       try {
         const body = JSON.stringify(payload);
@@ -238,9 +273,19 @@ export function createParticipantSessionRecovery(context) {
     };
     window.addEventListener('pagehide', sendLeaveEvent);
     window.addEventListener('beforeunload', sendLeaveEvent);
-    window.addEventListener('online', () => void flushReliableStudyEvents());
-    document.addEventListener('visibilitychange', handleStudyVisibilityChange);
-    void flushReliableStudyEvents();
+    const flushIfSafe = () => {
+      if (!loadSessionSnapshot() || state.startTime) void flushReliableStudyEvents();
+    };
+    window.addEventListener('online', () => {
+      void syncClock();
+      flushIfSafe();
+    });
+    document.addEventListener('visibilitychange', () => {
+      handleStudyVisibilityChange();
+      if (!document.hidden) void syncClock();
+    });
+    window.setInterval(() => void syncClock(), CLOCK_SYNC_INTERVAL_MS);
+    flushIfSafe();
   }
 
   function loadSessionSnapshot() {
@@ -298,6 +343,7 @@ export function createParticipantSessionRecovery(context) {
     const snapshot = matchingSessionSnapshot();
     const container = getElement('q-container');
     if (!snapshot || !container) return false;
+    state.recoveryPending = true;
     container.innerHTML = `
       <div class="q-card-study active">
         <div class="q-type-tag"><i class="iconoir-refresh"></i> ${escapeHtml(t('study.recoveryTag', 'Session recovery'))}</div>
@@ -327,6 +373,7 @@ export function createParticipantSessionRecovery(context) {
         session_id: snapshot.session_id,
         client_id: getStudyClientId(),
         study_id: snapshot.study_id,
+        study_revision: snapshot.study_revision,
         participant_id: snapshot.participant_id,
         current_index: snapshot.current_index,
         current_type: snapshot.current_type,
@@ -337,8 +384,47 @@ export function createParticipantSessionRecovery(context) {
       state.startTime = Date.parse(snapshot.study_started_at) || Date.now();
       state.sensorSessionStarted = Boolean(snapshot.sensor_session_started);
       updateSensorRuntime(response.sensor_runtime || state.sensorRuntime);
+      const checkpoint = response.checkpoint;
+      if (!checkpoint || checkpoint.checkpoint_version !== 2) {
+        throw new Error('The server returned no verified answer checkpoint.');
+      }
+      state.participantIdOverride = checkpoint.participant_id;
+      state.participantMetadataOverride = checkpoint.participant_metadata || {};
       buildQuestions({ markInitialShown: false, startFirstStimulus: false });
-      const targetIndex = Number.isInteger(Number(snapshot.current_index)) ? Number(snapshot.current_index) : 0;
+      state.checkpointSequence = checkpoint.checkpoint_sequence;
+      state.completedCards = new Set(checkpoint.completed_indices || []);
+      state.acknowledgedAnswers = structuredClone(checkpoint.answers || {});
+      state.lastAcknowledgedCheckpoint = checkpoint;
+      state.questionMetrics = structuredClone(checkpoint.question_metrics || {});
+      state.touchedFields = Object.fromEntries(Object.entries(checkpoint.touched_fields || {})
+        .map(([index, fields]) => [index, new Set(fields)]));
+      state.clockSyncSamples = [...(checkpoint.clock_sync_samples || [])];
+      const participantCardIndex = state.config.questions?.findIndex((question) => question.type === 'participant-id');
+      if (participantCardIndex >= 0) {
+        getCardModule('participant-id')?.restoreAnswer?.(
+          participantCardIndex,
+          state.config.questions[participantCardIndex],
+          checkpoint.participant_id,
+          getElement(`card-q-${participantCardIndex}`),
+          checkpoint.participant_metadata || {},
+        );
+      }
+      for (const index of state.completedCards) {
+        const question = state.config.questions?.[index];
+        if (!question || isAnswerless(question.type)) continue;
+        const answer = checkpoint.answers?.[`q${index}`];
+        if (answer === undefined) continue;
+        const cardModule = getCardModule(question.type);
+        const cardElement = getElement(`card-q-${index}`);
+        if (!cardModule?.restoreAnswer || !cardElement) {
+          throw new Error(`Card ${question.type} does not support verified answer restoration.`);
+        }
+        cardModule.restoreAnswer(index, question, answer, cardElement);
+        if (JSON.stringify(cardModule.collectAnswer(index, question)) !== JSON.stringify(answer)) {
+          throw new Error(`Card ${question.type} failed answer restoration.`);
+        }
+      }
+      const targetIndex = Number.isInteger(checkpoint.current_index) ? checkpoint.current_index : 0;
       const safeIndex = Math.max(0, Math.min(targetIndex, (state.config.questions || []).length - 1));
       if (safeIndex === 0) {
         markQuestionShown(0);
@@ -347,6 +433,50 @@ export function createParticipantSessionRecovery(context) {
         showRecoveredCard(safeIndex);
       }
       saveSessionSnapshot();
+      if (response.interrupted_stimulus?.stimulus_id) {
+        discardInterruptedTrialEvents(state.sessionId, response.interrupted_stimulus.stimulus_id);
+        state.repeatInterruptedStimulus = response.interrupted_stimulus;
+        const interruptedIndex = Number(response.interrupted_stimulus.index);
+        if (Number.isInteger(interruptedIndex) && interruptedIndex >= 0) {
+          showRecoveredCard(interruptedIndex);
+          const card = getElement(`card-q-${interruptedIndex}`);
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'btn-primary';
+          button.textContent = t('study.repeatStimulus', 'Repeat stimulus');
+          button.addEventListener('click', () => {
+            button.remove();
+            const old = state.questionMetrics[interruptedIndex] || {};
+            const attempt = {
+              stimulus_id: response.interrupted_stimulus.stimulus_id,
+              start_event_id: old.start_event_id || checkpoint.active_stimulus?.start_event_id || '',
+              stop_event_id: old.stop_event_id || checkpoint.active_stimulus?.stop_event_id || '',
+              active_started_at: old.active_started_at || null,
+              active_ended_at: old.active_ended_at || null,
+              server_start_received_epoch_ms: old.server_start_received_epoch_ms || null,
+              server_stop_received_epoch_ms: response.interrupted_stimulus.server_stop_received_epoch_ms || null,
+              interrupted_by_reload: true,
+              inferred_from_checkpoint: response.interrupted_stimulus.inferred_from_checkpoint === true,
+              reconciliation_outcome: response.interrupted_stimulus.outcome,
+            };
+            state.questionMetrics[interruptedIndex] = {
+              shown_at: old.shown_at,
+              shown_at_server_epoch_ms: old.shown_at_server_epoch_ms,
+              shown_marker_sent: old.shown_marker_sent,
+              shown_event_id: old.shown_event_id,
+              attempt_history: [...(old.attempt_history || []), attempt].slice(-10),
+            };
+            state.repeatInterruptedStimulus = null;
+            updateNavigation();
+            void startStimulusCard(interruptedIndex, state.config.questions[interruptedIndex]);
+          });
+          card?.appendChild(button);
+        }
+      }
+      state.recoveryPending = false;
+      updateNavigation();
+      void syncClock();
+      void flushReliableStudyEvents();
       startParticipantExtensionMonitors('session_recovered');
     } catch (error) {
       console.error('[study] Could not resume study session:', error);
@@ -375,6 +505,7 @@ export function createParticipantSessionRecovery(context) {
     currentRunKey,
     dismissCoverPage,
     estimateServerEpochMs,
+    getClockEvidence,
     getClientClockOffsetMs,
     getSessionPayload,
     handleHeartbeatResponse,
@@ -383,6 +514,7 @@ export function createParticipantSessionRecovery(context) {
     reportNoticeToAdmin,
     saveSessionSnapshot,
     sendPartialResults,
+    commitCheckpoint,
     showCoverPage,
     showStudyNotice,
     startRuntimePolling,

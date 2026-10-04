@@ -324,8 +324,11 @@ def build_answer_details(
             answer_value = "stimulus"
             skipped = False
             interval_start = event.get("active_started_at") or event.get("shown_at") or result_payload.get("timestamp_start")
+            # With overtime the stimulus interval ends when the duration is
+            # reached; the overtime is reported as its own interval below.
             interval_end = (
-                event.get("active_ended_at")
+                event.get("time_up_at")
+                or event.get("active_ended_at")
                 or event.get("completed_at")
                 or result_payload.get("timestamp_end")
             )
@@ -381,6 +384,9 @@ def build_answer_details(
             "client_stop_trigger_epoch_ms": event.get("client_stop_trigger_epoch_ms"),
             "start_marker": event.get("start_marker"),
             "stop_marker": event.get("stop_marker"),
+            "time_up_at": event.get("time_up_at"),
+            "overtime_seconds": _overtime_seconds(event),
+            "overtime_capped": bool(event.get("overtime_capped")),
             "biosignal_interval_start": interval_start,
             "biosignal_interval_end": interval_end,
             "biosignal_interval_kind": interval_kind,
@@ -522,7 +528,8 @@ def _resolve_interval_epochs(
             or event.get("server_start_received_epoch_ms")
         )
         end_epoch = _epoch_ms_to_seconds(
-            event.get("client_stop_trigger_epoch_ms")
+            event.get("time_up_epoch_ms")
+            or event.get("client_stop_trigger_epoch_ms")
             or event.get("server_stop_received_epoch_ms")
         )
     else:
@@ -542,6 +549,18 @@ def _resolve_interval_epochs(
     if offset_seconds is not None:
         return start_iso_epoch + offset_seconds, end_iso_epoch + offset_seconds, "client_clock_plus_offset"
     return start_iso_epoch, end_iso_epoch, "client_clock"
+
+
+def _overtime_seconds(event: dict[str, Any]) -> float | None:
+    """Seconds the participant stayed after the duration; ``None`` without overtime."""
+
+    try:
+        overtime_ms = float(event.get("overtime_ms"))
+    except (TypeError, ValueError):
+        return None
+    if overtime_ms < 0:
+        return None
+    return round(overtime_ms / 1000.0, 3)
 
 
 def _epoch_ms_to_seconds(value: Any, *, allow_negative: bool = False) -> float | None:

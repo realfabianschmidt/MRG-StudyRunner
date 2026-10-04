@@ -89,7 +89,7 @@ class ClockSyncService:
             "ok": True,
             "strategy": {
                 "primary": "LSL/XDF for biosignal stream alignment",
-                "tablet": "median ping-pong offset plus RTT from the participant browser",
+                "tablet": "three-exchange lowest-network-delay offset with its paired RTT, refreshed by the participant browser",
                 "remote_worker": "same offset/RTT contract when workers report it",
                 "note": "Use these values for diagnostics and non-LSL metadata, not as a replacement for source timestamps.",
             },

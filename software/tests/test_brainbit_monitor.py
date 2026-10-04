@@ -122,7 +122,7 @@ class MonitorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             script = Path(folder) / 'cli.py'
             script.write_text('# fixture')
-            with patch.object(adapter, '_config', {}), patch.object(adapter, '_process', None), patch.object(adapter, '_set_state'), patch.object(adapter, '_registered_shutdown', True), patch.object(adapter, 'start') as start, patch.object(adapter, 'stop') as stop, patch.object(adapter, '_initialize_lsl_outlets') as lsl, patch.object(adapter, '_initialize_touchdesigner_client'):
+            with patch.object(adapter, '_config', {}), patch.object(adapter, '_process', None), patch.object(adapter, '_set_state'), patch.object(adapter, '_registered_shutdown', True), patch.object(adapter, 'start') as start, patch.object(adapter, 'stop') as stop, patch.object(adapter, '_initialize_lsl_outlets') as lsl:
                 options = dict(script_path=str(script), lsl_enabled=True)
                 adapter.initialize(**options)
                 with patch.object(adapter, '_process', SimpleNamespace(poll=lambda:None)):

@@ -5,12 +5,14 @@ preserve the raw submission on disk (see _write_results_recovery_file)
 and the partial-snapshot endpoint keeps a server-side copy of everything
 answered so far in case the tablet dies before the final submit.
 """
+import hashlib
 import json
+import threading
 import time
 import uuid
 from pathlib import Path
 
-from study_runner.runtime_core.studies.card_extension_bridge import CardExtensionUnavailableError
+from study_runner.runtime_core.studies.card_extension_bridge import CardExtensionUnavailableError, validate_card_answer
 
 from flask import Blueprint, current_app, jsonify, request
 
@@ -29,8 +31,10 @@ from study_runner.runtime_core.studies.results_service import (
 )
 from study_runner.runtime_core.settings.secrets_service import redact_hardware_config
 from study_runner.runtime_core.studies.study_config_service import load_config
+from study_runner.runtime_core.studies.study_config_service import study_config_revision
 from study_runner.runtime_core.delivery.upload_jobs_service import build_job_metadata
 from study_runner.runtime_core.studies.validation import (
+    NON_ANSWER_QUESTION_TYPES,
     ValidationError,
     validate_and_normalize_config,
     validate_and_normalize_results,
@@ -38,6 +42,7 @@ from study_runner.runtime_core.studies.validation import (
 from .helpers import _complete_study_run, _runtime_hardware_config, _stop_study_session_tracking
 
 bp = Blueprint("results", __name__)
+_partial_snapshot_lock = threading.RLock()
 
 
 def _write_results_recovery_file(result_payload: dict) -> str | None:
@@ -179,18 +184,151 @@ def _merge_partial_snapshot(previous, incoming: dict) -> dict:
     return merged
 
 
+def _verified_checkpoint(payload: dict) -> tuple[dict | None, str | None]:
+    """Keep new checkpoints bound to one active session and study document."""
+
+    session_id = str(payload.get("session_id") or "").strip()
+    session = current_app.config["SESSION_STORE"].get(session_id)
+    if not session or session.get("status") != "active":
+        return None, "The study session is no longer active."
+    for field in ("session_id", "study_id", "participant_id", "client_id", "study_revision"):
+        expected = str(session.get(field) or "").strip()
+        supplied = str(payload.get(field) or "").strip()
+        if not expected or supplied != expected:
+            return None, f"Checkpoint {field} does not match the active session."
+    config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
+    if study_config_revision(config_data) != session["study_revision"]:
+        return None, "The active study changed after this session started."
+    sequence = payload.get("checkpoint_sequence")
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+        return None, "checkpoint_sequence must be a positive integer."
+    if not isinstance(payload.get("answers"), dict):
+        return None, "Checkpoint answers must be an object."
+    completed = payload.get("completed_indices")
+    questions = config_data.get("questions") or []
+    if not isinstance(completed, list) or any(
+        isinstance(index, bool) or not isinstance(index, int) or index < 0 or index >= len(questions)
+        for index in completed
+    ):
+        return None, "completed_indices must list valid card indices."
+    if len(set(completed)) != len(completed):
+        return None, "completed_indices must not contain duplicates."
+    current_index = payload.get("current_index")
+    if isinstance(current_index, bool) or not isinstance(current_index, int) or not 0 <= current_index < len(questions):
+        return None, "current_index is invalid."
+    answers = payload["answers"]
+    completed_set = set(completed)
+    for key, answer in answers.items():
+        if not isinstance(key, str) or not key.startswith("q") or not key[1:].isdigit():
+            return None, "Checkpoint has an unknown answer key."
+        index = int(key[1:])
+        if index not in completed_set or index >= len(questions):
+            return None, "Checkpoint includes an unconfirmed Card answer."
+        question = questions[index]
+        if question["type"] in NON_ANSWER_QUESTION_TYPES:
+            return None, "Checkpoint includes an answerless Card value."
+        try:
+            validate_card_answer(question["type"], question, answer, index + 1)
+        except (ValueError, CardExtensionUnavailableError) as error:
+            return None, f"Checkpoint answer {key} is invalid: {error}"
+    for index in completed_set:
+        question = questions[index]
+        if question["type"] not in NON_ANSWER_QUESTION_TYPES and question.get("required", True) and f"q{index}" not in answers:
+            return None, f"Completed Card {index} has no required answer."
+    if not isinstance(payload.get("touched_fields"), dict) or not isinstance(payload.get("question_metrics"), dict):
+        return None, "Checkpoint card state is incomplete."
+    return session, None
+
+
+def load_verified_partial_checkpoint(session: dict) -> dict | None:
+    """Return only a v2 checkpoint for the exact active session on resume."""
+
+    path = _partial_snapshot_path(session)
+    if path is None:
+        return None
+    with _partial_snapshot_lock:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+    if not isinstance(payload, dict) or payload.get("checkpoint_version") != 2:
+        return None
+    if any(str(payload.get(field) or "") != str(session.get(field) or "") for field in (
+        "session_id", "study_id", "participant_id", "client_id", "study_revision",
+    )):
+        return None
+    return payload
+
+
 @bp.route("/api/results", methods=["POST"])
 def save_results():
+    result_received_epoch_ms = round(time.time() * 1000.0, 3)
     result_payload = request.get_json() or {}
+    session_id = str(result_payload.get("session_id") or "").strip() if isinstance(result_payload, dict) else ""
+    tracked_session = current_app.config["SESSION_STORE"].get(session_id) if session_id else None
+    source_hash = _source_submission_sha256(result_payload) if isinstance(result_payload, dict) else ""
+    submitted_study_id = str(result_payload.get("study_id") or "").strip() if isinstance(result_payload, dict) else ""
+    submitted_participant = str(result_payload.get("participant_id") or "").strip() if isinstance(result_payload, dict) else ""
+    committed_participant = str((tracked_session or {}).get("participant_id") or submitted_participant).strip()
+    submission_id = str(result_payload.get("submission_id") or "").strip() if isinstance(result_payload, dict) else ""
+    submission_id = submission_id or f"submission-{session_id}"
+    if submitted_study_id and committed_participant and session_id:
+        try:
+            acknowledged = current_app.config["FINALIZATION_SERVICE"].acknowledged_source_submission(
+                study_id=submitted_study_id,
+                participant_id=committed_participant,
+                submission_id=submission_id,
+                session_id=session_id,
+                source_submission_sha256=source_hash,
+            )
+        except SubmissionConflictError as error:
+            return jsonify({"ok": False, "error": str(error)}), 409
+        if acknowledged is not None:
+            _discard_partial_snapshot(result_payload)
+            return jsonify({
+                "ok": True,
+                "accepted": True,
+                "finalization_job": acknowledged,
+                "session_completed": bool((tracked_session or {}).get("status") == "completed"),
+                "post_commit_warnings": [],
+            }), 202
     try:
         config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
+        current_revision = study_config_revision(config_data)
+        session_revision = str((tracked_session or {}).get("study_revision") or "").strip().lower()
+        submitted_revision = str(result_payload.get("study_revision") or "").strip().lower()
+        if session_revision and submitted_revision and session_revision != submitted_revision:
+            return _study_revision_conflict(result_payload, current_revision)
+        if (session_revision or submitted_revision) and (session_revision or submitted_revision) != current_revision:
+            return _study_revision_conflict(result_payload, current_revision)
         hardware_config = _runtime_hardware_config()
         validated_results = validate_and_normalize_results(result_payload, config_data)
-        session_id = str(result_payload.get("session_id") or "").strip()
+        validated_results["study_revision"] = current_revision
+        end_event = validated_results.get("study_end_event") or {}
+        if end_event:
+            end_event["server_received_epoch_ms"] = result_received_epoch_ms
+            if end_event.get("time_source") == "tablet_sync":
+                age = end_event.get("clock_sync_age_ms")
+                rtt = end_event.get("clock_sync_rtt_ms")
+                source = end_event.get("source_epoch_ms")
+                if (not end_event.get("clock_sync_id") or age is None or age > 120_000
+                        or rtt is None or rtt > 10_000 or source is None
+                        or source > result_received_epoch_ms + max(5000, rtt / 2 + 1000)):
+                    end_event["client_claimed_source_epoch_ms"] = source
+                    end_event["source_epoch_ms"] = result_received_epoch_ms
+                    end_event["time_source"] = "server_receipt"
+                    end_event["clock_quality"] = "invalid_or_stale_evidence"
+                else:
+                    end_event["clock_quality"] = "fresh"
+            elif end_event.get("time_source") == "server_receipt":
+                end_event["source_epoch_ms"] = result_received_epoch_ms
+                end_event["clock_quality"] = "server_arrival_fallback"
+            else:
+                end_event["time_source"] = "legacy_unverified"
+                end_event["clock_quality"] = "legacy_unverified"
         if session_id:
             validated_results["session_id"] = session_id
-        submission_id = str(validated_results.get("submission_id") or "").strip()
-        validated_results["submission_id"] = submission_id or f"submission-{session_id}"
+        validated_results["submission_id"] = submission_id
         validated_results["answer_details"] = build_answer_details(
             validated_results,
             config_data,
@@ -202,7 +340,6 @@ def save_results():
             current_app.config.get("LOCAL_SECRETS", {}),
             str(config_data.get("study_id") or ""),
         )
-        tracked_session = current_app.config["SESSION_STORE"].get(session_id) if session_id else None
         tracked_participant = str((tracked_session or {}).get("participant_id") or "").strip()
         submitted_participant = str(validated_results.get("participant_id") or "").strip()
         if tracked_participant and submitted_participant and tracked_participant != submitted_participant:
@@ -216,6 +353,7 @@ def save_results():
             hardware_config=safe_hardware_config,
             recording_expected=_recording_expected(config_data),
             started_at_epoch=(tracked_session or {}).get("started_at_epoch"),
+            source_submission_sha256=source_hash,
         )
     except (ValidationError, CardExtensionUnavailableError):
         _write_results_recovery_file(result_payload)
@@ -278,6 +416,22 @@ def save_results():
         ),
         202,
     )
+
+
+def _source_submission_sha256(payload: dict) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _study_revision_conflict(payload: dict, current_revision: str):
+    recovery_file = _write_results_recovery_file(payload)
+    return jsonify({
+        "ok": False,
+        "code": "study_revision_conflict",
+        "error": "The study changed after this session started. The submission was preserved for recovery.",
+        "current_revision": current_revision,
+        "recovered_file": recovery_file,
+    }), 409
 
 
 def _recording_expected(config_data: dict) -> bool:
@@ -379,19 +533,46 @@ def save_partial_results():
     The successful final /api/results submit removes the snapshot.
     """
     payload = request.get_json(force=True, silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "A JSON object is required."}), 400
     snapshot_path = _partial_snapshot_path(payload)
     if snapshot_path is None:
         return jsonify({"ok": False, "error": "session_id is required"}), 400
     try:
-        payload["server_received_at"] = time.time()
-        previous_payload = None
-        if snapshot_path.is_file():
-            try:
-                previous_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                previous_payload = None
-        atomic_write_json(snapshot_path, _merge_partial_snapshot(previous_payload, payload))
-        return jsonify({"ok": True})
+        if payload.get("checkpoint_version") not in (None, 2):
+            return jsonify({"ok": False, "code": "checkpoint_version_unsupported", "error": "Unsupported checkpoint version."}), 400
+        is_checkpoint = payload.get("checkpoint_version") == 2
+        if is_checkpoint:
+            _, error = _verified_checkpoint(payload)
+            if error:
+                return jsonify({"ok": False, "code": "checkpoint_invalid", "error": error}), 409
+        with _partial_snapshot_lock:
+            previous_payload = None
+            if snapshot_path.is_file():
+                try:
+                    previous_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    previous_payload = None
+            if is_checkpoint:
+                if isinstance(previous_payload, dict) and previous_payload.get("checkpoint_version") == 2:
+                    previous_sequence = previous_payload.get("checkpoint_sequence", 0)
+                    sequence = payload["checkpoint_sequence"]
+                    if sequence < previous_sequence:
+                        return jsonify({"ok": False, "code": "checkpoint_stale", "error": "A newer checkpoint is already saved."}), 409
+                    if sequence == previous_sequence:
+                        comparable = dict(previous_payload)
+                        comparable.pop("server_received_at", None)
+                        if comparable != payload:
+                            return jsonify({"ok": False, "code": "checkpoint_conflict", "error": "Checkpoint sequence was reused with different data."}), 409
+                        return jsonify({"ok": True, "checkpoint_sequence": sequence, "duplicate": True})
+                payload["server_received_at"] = time.time()
+                atomic_write_json(snapshot_path, payload)
+                return jsonify({"ok": True, "checkpoint_sequence": payload["checkpoint_sequence"]})
+            if isinstance(previous_payload, dict) and previous_payload.get("checkpoint_version") == 2:
+                return jsonify({"ok": False, "code": "checkpoint_stale", "error": "Legacy snapshots cannot replace a confirmed checkpoint."}), 409
+            payload["server_received_at"] = time.time()
+            atomic_write_json(snapshot_path, _merge_partial_snapshot(previous_payload, payload))
+            return jsonify({"ok": True})
     except Exception as error:
         print(f"[DATA] Could not write partial snapshot: {error}")
         return jsonify({"ok": False, "error": str(error)}), 500

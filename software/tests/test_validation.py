@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from study_runner.runtime_core.studies.validation import (
     ValidationError,
+    _validate_clock_sync_samples,
     validate_and_normalize_config,
     validate_and_normalize_results,
     validate_and_normalize_trial_options,
@@ -31,6 +32,17 @@ def _manifest_sensor_defaults() -> dict[str, bool]:
 
 
 class ValidationTests(unittest.TestCase):
+    def test_clock_evidence_keeps_paired_exchange_and_rejects_nonfinite_values(self) -> None:
+        exchange = {
+            "id": "exchange-1", "client_send_ms": 100.0,
+            "client_receive_ms": 112.0, "server_receive_ms": 1_105.0,
+            "server_send_ms": 1_107.0, "network_delay_ms": 10.0,
+            "offset_ms": 1_000.0,
+        }
+        self.assertEqual(_validate_clock_sync_samples([exchange]), [exchange])
+        with self.assertRaises(ValidationError):
+            _validate_clock_sync_samples([{**exchange, "network_delay_ms": float("nan")}])
+
     def test_participant_id_text_fields_are_preserved(self) -> None:
         config = validate_and_normalize_config(
             {
@@ -410,11 +422,14 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(options["event_id"], "start-1")
         self.assertEqual(options["stop_event_id"], "stop-1")
         self.assertEqual(options["stimulus_id"], "stimulus-1")
-        self.assertFalse(options["plugin_actions"]["brainbit"]["to_touchdesigner"])
+        # BrainBit is a sensor: no card option of its own decides anything.
+        self.assertNotIn("brainbit", options["plugin_actions"])
         self.assertEqual(
             options["plugin_actions"]["camera_emotion"]["snapshot_interval_ms"],
             1500,
         )
+        self.assertIsNone(options["actuator_plugins"], "an old payload keeps reaching every plugin")
+        self.assertEqual(options["actuator_stop_at"], "stop")
         self.assertNotIn("brainbit_to_touchdesigner", options)
         self.assertNotIn("camera_snapshot_interval_ms", options)
 

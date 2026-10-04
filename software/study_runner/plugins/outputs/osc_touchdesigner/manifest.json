@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "osc",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "category": "output",
   "config_key": "osc",
   "runtime": {
@@ -30,7 +30,6 @@
   "capabilities": {
     "health": {},
     "machine_settings": {},
-    "card_actions": {},
     "marker_forwarding": {}
   },
   "streams": [],
@@ -47,14 +46,7 @@
         "help_key": "pluginHelp.osc.port"
       }
     },
-    "study": {},
-    "card_actions": {
-      "forward_marker": {
-        "type": "boolean",
-        "default": true,
-        "help_key": "pluginHelp.osc.forwardMarker"
-      }
-    }
+    "study": {}
   },
   "poll_interval_ms": 2000,
   "request_timeout_ms": 250,

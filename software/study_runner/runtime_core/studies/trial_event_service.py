@@ -157,6 +157,7 @@ class TrialEventService:
                 "event_id": normalized_id,
                 "kind": normalized_kind,
                 "fingerprint": fingerprint,
+                "payload": deepcopy(payload_copy),
                 "status": "processing",
                 "attempts": int((previous or {}).get("attempts") or 0) + 1,
                 "source_epoch_ms": payload_copy.get("source_epoch_ms", payload_copy.get("client_trigger_epoch_ms")),
@@ -229,6 +230,7 @@ class TrialEventService:
         deadline = _required_deadline(payload.get("planned_deadline_epoch_ms"))
         if deadline <= self._clock() * 1000.0:
             raise ValueError("planned_deadline_epoch_ms has already elapsed.")
+        end_of_time = _end_of_time_fields(payload, deadline)
         prepared = {
             "stimulus_id": stimulus_id,
             "event_id": event_id,
@@ -240,6 +242,7 @@ class TrialEventService:
             "question_index": payload.get("question_index"),
             "planned_start_epoch_ms": payload.get("planned_start_epoch_ms"),
             "planned_deadline_epoch_ms": deadline,
+            **end_of_time,
             "server_received_epoch_ms": payload.get("server_received_epoch_ms"),
             "prepared_at_epoch_ms": round(self._clock() * 1000.0, 3),
         }
@@ -317,6 +320,7 @@ class TrialEventService:
                     "question_index": payload.get("question_index"),
                     "planned_start_epoch_ms": payload.get("planned_start_epoch_ms"),
                     "planned_deadline_epoch_ms": deadline,
+                    **_end_of_time_fields(payload, deadline),
                 }
                 actual = {key: prepared.get(key) for key in expected}
                 if actual != expected:
@@ -506,13 +510,16 @@ class TrialEventService:
             return None
 
         event_id = str(stop_payload.get("event_id") or f"{normalized_stimulus_id}:deadline-stop")
+        # The stop that ends the actuators is either leaving the card or, with
+        # overtime, the time-up event; the caller names which one.
+        marker_event = str(stop_payload.get("marker_event") or "stimulus_active_stop")
         payload_copy = deepcopy(stop_payload)
         payload_copy.update(
             {
                 "event_id": event_id,
                 "stimulus_id": normalized_stimulus_id,
-                "phase": "stimulus_active_stop",
-                "marker_event": "stimulus_active_stop",
+                "phase": marker_event,
+                "marker_event": marker_event,
                 "automatic_deadline": True,
                 "client_trigger_epoch_ms": deadline,
                 "source_epoch_ms": deadline,
@@ -991,6 +998,65 @@ def _required_deadline(value: Any) -> float:
     return deadline
 
 
+MAX_OVERTIME_MS = 3_600_000.0
+
+
+def _end_of_time_fields(payload: dict[str, Any], planned_deadline: float) -> dict[str, Any]:
+    """How a prepared stimulus ends; immutable between prepare and start.
+
+    ``stop_deadline_epoch_ms`` is when the server stops the actuators on its
+    own if the tablet goes silent: the planned deadline, or with overtime at
+    most one hour later. ``actuator_stop_at`` names the event that stops
+    them, the time-up event or leaving the card.
+    """
+
+    stop_at = str(payload.get("actuator_stop_at") or "stop")
+    if stop_at not in {"stop", "time_up"}:
+        raise ValueError("actuator_stop_at must be stop or time_up.")
+    time_up_event_id = str(payload.get("time_up_event_id") or "").strip()
+    if stop_at == "time_up" and not time_up_event_id:
+        raise ValueError("time_up_event_id is required when actuators stop at time-up.")
+    raw_stop_deadline = payload.get("stop_deadline_epoch_ms")
+    stop_deadline = planned_deadline if raw_stop_deadline in (None, "") else _required_deadline(raw_stop_deadline)
+    if stop_deadline < planned_deadline or stop_deadline > planned_deadline + MAX_OVERTIME_MS:
+        raise ValueError("stop_deadline_epoch_ms must lie within one hour after the planned deadline.")
+    if stop_at == "time_up" and stop_deadline != planned_deadline:
+        raise ValueError("Actuators that stop at time-up cannot have a later stop deadline.")
+    selected = payload.get("actuator_plugins")
+    return {
+        "actuator_stop_at": stop_at,
+        "time_up_event_id": time_up_event_id,
+        "stop_deadline_epoch_ms": stop_deadline,
+        "actuator_plugins": list(selected) if isinstance(selected, (list, tuple)) else None,
+    }
+
+
+def stop_deadline_for(payload: dict[str, Any]) -> tuple[float | None, dict[str, Any]]:
+    """The safety deadline and the stop event it fires, for one prepared trial.
+
+    With ``actuator_stop_at == "time_up"`` the actuators stop with the
+    time-up event at the planned deadline; otherwise with the ordinary stop
+    event at ``stop_deadline_epoch_ms`` (equal to the planned deadline unless
+    the card allows overtime).
+    """
+
+    planned = payload.get("planned_deadline_epoch_ms")
+    if planned in (None, ""):
+        return None, {}
+    fields = _end_of_time_fields(payload, _required_deadline(planned))
+    if fields["actuator_stop_at"] == "time_up":
+        return fields["stop_deadline_epoch_ms"], {
+            "event_id": fields["time_up_event_id"],
+            "marker_event": "stimulus_time_up",
+            "phase": "stimulus_time_up",
+        }
+    return fields["stop_deadline_epoch_ms"], {
+        "event_id": payload.get("stop_event_id") or "",
+        "marker_event": "stimulus_active_stop",
+        "phase": "stimulus_active_stop",
+    }
+
+
 def _fingerprint(kind: str, payload: dict[str, Any]) -> str:
     fingerprint_kind = kind
     # Transport-observation fields are intentionally different on a retry and
@@ -1005,6 +1071,14 @@ def _fingerprint(kind: str, payload: dict[str, Any]) -> str:
             "_trial_component_outcomes",
         }
     }
+    if payload.get("time_source") == "server_receipt" or (
+        payload.get("time_source") == "legacy_unverified"
+        and payload.get("client_trigger_epoch_ms") is None
+        and payload.get("visual_onset_epoch_ms") is None
+    ):
+        # Receipt time is a transport observation and changes on an exact
+        # retry. The first committed event remains authoritative.
+        fingerprint_payload.pop("source_epoch_ms", None)
     if kind == "trial_stop":
         # Callback observation timestamps differ between the server timer and a
         # throttled tablet callback. They describe transport quality, not a
@@ -1021,6 +1095,7 @@ def _fingerprint(kind: str, payload: dict[str, Any]) -> str:
                 "question_type",
                 "planned_deadline_epoch_ms",
                 "plugin_actions",
+                "actuator_plugins",
             )
         }
     encoded = json.dumps(

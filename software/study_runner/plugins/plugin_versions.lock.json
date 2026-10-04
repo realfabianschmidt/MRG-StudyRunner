@@ -3,33 +3,33 @@
   "note": "Written by tools/plugin_versions.py --update; see CONTRIBUTING.md section 11.",
   "plugins": {
     "affect_map": {
-      "version": "1.1.0",
+      "version": "1.2.0",
       "path": "software/study_runner/plugins/cards/affect_map",
-      "content_sha256": "d8c4b7a149dfb029d671f88de31962d3fcd21fd312d08405a9b263599f06a273",
+      "content_sha256": "a285d7b57c34627701102d0c42d2e1199e9188b56b1928d29159d3563dc2a8b3",
       "contract_sha256": "89f20ed4b47fe8c9d324fc08de5a5a722ee8720d222876d1ed9079e198ef46f8"
     },
     "am_hub": {
-      "version": "4.0.0",
+      "version": "4.1.1",
       "path": "software/study_runner/plugins/sensors/am_hub",
-      "content_sha256": "b1bcd51d43f7baccbe25933f94d26f5c6e6d1920ea3f3962456582f6a32c24c6",
+      "content_sha256": "bb3cefe173d241da8c83c24084eaa88f1f50a0ad5da0b07ea91ffd34873f0c6f",
       "contract_sha256": "386e9f5c88aed49a9b28b37720d35660490d5e1aaccc7b297159861d44f73e29"
     },
     "brainbit": {
-      "version": "2.0.0",
+      "version": "2.1.0",
       "path": "software/study_runner/plugins/sensors/brainbit",
-      "content_sha256": "00edf6bb87fca26872d9ea209979f3a1e99e9e9bb499f1f3b4385820fe2c7ba6",
+      "content_sha256": "67529cef978a44d54207c5b11d8a038d786a1b6e8da98e3898375fc722ed1a10",
       "contract_sha256": "00c438f80e2d01afcf960283264955237f77d51c71a353f30a8783ba77530b9e"
     },
     "camera_emotion": {
-      "version": "2.0.0",
+      "version": "3.0.0",
       "path": "software/study_runner/plugins/sensors/camera_emotion",
-      "content_sha256": "07a1dc7bc5f776aac345b7ecb518608cba908efcb034ebb8e47591411adcdc91",
-      "contract_sha256": "fd01e3e3ed7120b427939778377810c9c691da1232e7056267c2f430f6f039c5"
+      "content_sha256": "928d2f4edc6bef0c0ba75d5cf2ad2ee360f40584271aa0dc3610fc1ae2319da7",
+      "contract_sha256": "d4649c9205c2b94e0b76997937c98f9b0d2270d639e2700b0fc7bad17a70ca63"
     },
     "choice": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/cards/choice",
-      "content_sha256": "5500c1f250378bae92d3bf1ae09c3e8ffbae4ed9aa7fe926e87780e0857aa6e6",
+      "content_sha256": "1e2735730dc287e2d13cadd7d34e57e070bed1fb23df35e01724f71e9bed673a",
       "contract_sha256": "768351476aea33863e618f2107f748bb3116b4a879b1ca450770541535b78612"
     },
     "finish": {
@@ -45,27 +45,27 @@
       "contract_sha256": "cb929f33b652d7d2ce41e656582beb6f4a01ad264ef617ba1b3e29d3b89b49f9"
     },
     "likert": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/cards/likert",
-      "content_sha256": "588e685e728b4d9f7c9f70334c96312434804e622b1e3e6b1ae5e4b2d1ff68b9",
+      "content_sha256": "ba39e2412d0c95cf92060ee058030778272a916d2317137feb41f7fdd2c5315c",
       "contract_sha256": "9c1e17976e6e4705ead5caefb90cf4bfdfb7cceaacb81f850c6d1810ae4c0eba"
     },
     "mini_radar": {
-      "version": "2.0.0",
+      "version": "2.1.0",
       "path": "software/study_runner/plugins/sensors/mr60_mini_radar",
-      "content_sha256": "428e40db2996126bc66dc929303dea40307dc6de3cdd08d32697e46f58141c6c",
+      "content_sha256": "05d5dead91333e259f18b5f7243f405340e511482111bbe1d893169b647ebae6",
       "contract_sha256": "af24524d3c50200e5090dfbf2e78adcbe375dd4d3d06a8ebcb982ab33f73aa60"
     },
     "mood_meter": {
-      "version": "1.1.1",
+      "version": "1.2.0",
       "path": "software/study_runner/plugins/cards/mood_meter",
-      "content_sha256": "e22ac605c3231e11e05493e3a0306b3a8381ebe68dcdcd3f10186727c774ef4e",
+      "content_sha256": "fde6315931b27a29aa0f5ac655f7a4cac0794fd99a0b4d38ee68e5b6461e094d",
       "contract_sha256": "a22bb6eb0ba97bc7a8e7c7ba8c07d4229984002a4a08d433fd83518942034011"
     },
     "multi_slider": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/cards/multi_slider",
-      "content_sha256": "78db6040f35ef1e946fc3d7f19c51b8652e2910e7dcd35a3a7d92f710487a577",
+      "content_sha256": "73d94b1a9a7e949fd6eaba892b3f77e2bf68d5880efbcc19ee1dcb332a723a4f",
       "contract_sha256": "edbf1a5eb1341da231294bdf214689d415f9ea8c78b31f06c61ff315369fdba7"
     },
     "nextcloud": {
@@ -75,57 +75,57 @@
       "contract_sha256": "1aa2b4f4f583229552b8dc07021ab1a63385ed37f1efd1ccd71cbfc7467f6b60"
     },
     "notion": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/destinations/notion_upload",
-      "content_sha256": "87a07cd1b182d632affc27c42559d3eb2db66e1b2425c2dc623eb4f9493213db",
+      "content_sha256": "268fd2bd0008800f09dcf34fe23830bb3b2ff6371b4bfe8c5a822b25ab39cbc3",
       "contract_sha256": "1aa2b4f4f583229552b8dc07021ab1a63385ed37f1efd1ccd71cbfc7467f6b60"
     },
     "osc": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/outputs/osc_touchdesigner",
-      "content_sha256": "4177fd65c3c09b94f03dfb7be36693b8cbc88cd5d74b3065c551aa5ea5f200d7",
+      "content_sha256": "813dfc9e23d5b5e849a1b72878988ae4ea98de77f70dc76c1154f2d3c2f8de72",
       "contract_sha256": "1aa2b4f4f583229552b8dc07021ab1a63385ed37f1efd1ccd71cbfc7467f6b60"
     },
     "participant_id": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/cards/participant_id",
-      "content_sha256": "725cce18949492f23ec8aa4b1c10ee03daaf6e5101e93f1caceaf914d7f1bcf3",
+      "content_sha256": "99e30adf5362f0b8a4c1d29806682df962673421aedfc80538e446fe981845d6",
       "contract_sha256": "3fd9291a02ff954b1fdccb852a4698d8444ade0c448db61128eb1dc8e81ca9d1"
     },
     "ranking": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/cards/ranking",
-      "content_sha256": "54d05640e2ae71989e85d7478a7eb8e863a48f77b3479ef0770adb97104e7514",
+      "content_sha256": "12a70e85c6befbdddb5e2a7c14f6d70bdbbbfeb9bdb5038a3abb94c631ad1b01",
       "contract_sha256": "88b96476f57bef2b565710df9c5e344bdc9514a3df1b848b40ec7e3a11f1e2e4"
     },
     "semantic": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/cards/semantic",
-      "content_sha256": "b8cfda5722f8aeff259be98c98badc943117e2bd268f91a8542fa86f19147d6e",
+      "content_sha256": "897bb2098559f88579c6af4127110897f4a95f0373febd24bcdb89af06997f96",
       "contract_sha256": "738d92a1ab9254a237f127857b6b44724623ce691fa831534b7865ec81b655d0"
     },
     "slider": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/cards/slider",
-      "content_sha256": "371ff07769fa0c784fbe1089aa9cb7d005d2aa17354e8b44d508426343207986",
+      "content_sha256": "73712a0ba07b53bc0fee53f019287fa29e1fe7a2ea52a7ee8210f6c6d2f3870b",
       "contract_sha256": "08eb237e1ea81d486d1c1e890b800eb6841fc31246d4aadd2be92714b8bdfefe"
     },
     "stimulus": {
-      "version": "1.0.0",
+      "version": "2.0.0",
       "path": "software/study_runner/plugins/cards/stimulus",
-      "content_sha256": "47e0f07ed818fb01e5f491eed95ac30b4b3b2988f5f4df727165462efcedcb47",
-      "contract_sha256": "3de9bb3a701315f0fb5c3d2856e1eb4d9a8b18b485e9c186c1c97b304cc848f5"
+      "content_sha256": "488a8580fd227984ab27037af664f7581e6992a1c2fb4b5cc1e2126e21d2cfdb",
+      "contract_sha256": "2970546027024a89407e685d05d6d74e6bbf24457bbb8d86eabef8dd3d02a80e"
     },
     "text": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/cards/text",
-      "content_sha256": "eaa35684f8ff77709298cca2e7f3e3527095637efb3649859230520943a95b2e",
+      "content_sha256": "3d69e2c6251c2071701ebbb8465eea53696f17340a1555b50925ca03649f7dd4",
       "contract_sha256": "6b8f19975dfc6d4d45776526c48d77b562996ac31c2e1bf880854437ab35359c"
     },
     "word_cloud": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/cards/word_cloud",
-      "content_sha256": "7f51d2d60bf6fe3185ddd0733163adf9b92ceb64e469dc85a560713e0338391f",
+      "content_sha256": "4422f1423af956687bc769a49944b0eb1e740b8fcbac424492d9dfd6c71a63d7",
       "contract_sha256": "626be1398de4f5032a5184e4dcf9dd208e3ae4e290ac8668f4659bd69c37f698"
     }
   }

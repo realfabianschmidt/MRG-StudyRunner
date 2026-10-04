@@ -52,6 +52,15 @@ export function collectAnswer(i, q) {
   return ans;
 }
 
+export function restoreAnswer(i, question, answer, cardElement) {
+  (question.pairs || []).forEach((pair, pairIndex) => {
+    const value = answer[`${pair[0]}_${pair[1]}`];
+    cardElement.querySelectorAll(`input[name="q${i}p${pairIndex}"]`).forEach((input) => {
+      input.checked = Number(input.value) === value;
+    });
+  });
+}
+
 export function isAnswered(question, _questionIndex, { cardElement }) {
   return cardElement.querySelectorAll('input[type="radio"]:checked').length >= (question.pairs?.length || 0);
 }

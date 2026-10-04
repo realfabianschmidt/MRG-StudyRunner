@@ -3,9 +3,10 @@ import json
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator, Mapping
 
 from study_runner.shared.atomic_io import atomic_write_bytes, atomic_write_json
 from study_runner.shared.study_identifiers import normalize_study_id
@@ -13,6 +14,7 @@ from study_runner.shared.study_identifiers import normalize_study_id
 from .migrate import migrate_study_config
 from .study_plugin_config import (
     LEGACY_CARD_FIELDS,
+    normalize_card_actuator_plugins,
     normalize_card_plugin_actions,
     normalize_study_settings_plugins,
 )
@@ -29,12 +31,38 @@ class StudyRevisionConflict(ValueError):
     """A client tried to replace a study revision it did not load."""
 
 
+@contextmanager
+def locked_study_change() -> Iterator[None]:
+    """Serialize a study activity check with the corresponding config write."""
+
+    with _STUDY_SAVE_LOCK:
+        yield
+
+
+def study_busy_reason(runtime_config: Mapping[str, Any]) -> str:
+    """Read run/recording activity without changing the loaded study state."""
+
+    run_store = runtime_config.get("STUDY_RUN_STATE")
+    if run_store is not None and run_store.public().get("status") == "running":
+        return "A study run is active. Stop or finish it before changing the study."
+    recording = runtime_config.get("RECORDING_RUNTIME_SERVICE")
+    if recording is not None:
+        try:
+            active = recording.current_status()
+            if active is not None and active.get("status") != "frozen":
+                return "A session is being recorded. Finish or abort it before changing the study."
+        except Exception:
+            return "Recording activity could not be verified. The study was not changed."
+    return ""
+
+
 def normalize_config(config_data: dict[str, Any]) -> dict[str, Any]:
     """Migrate old config keys into the current card-based study structure."""
     return migrate_study_config(
         config_data,
         normalize_settings=normalize_study_settings_plugins,
         normalize_actions=normalize_card_plugin_actions,
+        normalize_actuators=normalize_card_actuator_plugins,
         legacy_card_fields=LEGACY_CARD_FIELDS,
     )
 
@@ -177,6 +205,7 @@ def patch_study_plugin_settings(
     expected_settings: dict[str, Any],
     updates: dict[str, str],
     defaults: dict[str, Any],
+    busy_reason: Callable[[], str] | None = None,
 ) -> bool:
     """Merge a destination's discoveries without restoring an old session config.
 
@@ -187,6 +216,8 @@ def patch_study_plugin_settings(
     if not study_id.strip() or not updates:
         return False
     with _STUDY_SAVE_LOCK:
+        if busy_reason is not None and busy_reason():
+            return False
         active = load_config(config_file) if config_file.is_file() else None
         same_active_study = (
             active is not None

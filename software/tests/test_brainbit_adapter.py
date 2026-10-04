@@ -54,8 +54,6 @@ class BrainBitAdapterTests(unittest.TestCase):
     def tearDown(self) -> None:
         adapter._auto_reconnect_active = False
         adapter._streams.close()
-        adapter._routing_state["forward_to_lsl"] = False
-        adapter._routing_state["forward_to_touchdesigner"] = False
         adapter._process = None
 
     def test_lsl_mirror_is_continuous_when_outlet_exists(self) -> None:
@@ -63,7 +61,6 @@ class BrainBitAdapterTests(unittest.TestCase):
         adapter._streams.use_backend(lsl)
         adapter._streams.open("eeg")
         adapter._eeg_lsl_channels = ("O1", "O2", "T3", "T4")
-        adapter._routing_state["forward_to_lsl"] = False
 
         adapter._mirror_line_to_lsl('EEG {"O1": 1, "O2": 2, "T3": 3, "T4": 4}')
 

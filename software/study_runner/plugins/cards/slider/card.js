@@ -45,6 +45,14 @@ export function collectAnswer(i) {
   return Number.parseInt(document.getElementById(`q${i}`)?.value, 10) ?? 50;
 }
 
+export function restoreAnswer(i, _question, answer, cardElement) {
+  const input = cardElement.querySelector(`#q${i}`);
+  if (input) {
+    input.value = String(answer);
+    onInput({ target: input });
+  }
+}
+
 // A slider defaults to a visible, plausible-looking value (50) whether or
 // not the participant ever touched it, so collectAnswer() alone cannot
 // tell "answered" from "untouched". touchedFieldCount is the controller's

@@ -98,21 +98,6 @@ def _run_admin_action(context: PluginContext, action_key: str, payload: dict[str
     }
 
 
-def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
-    from . import adapter
-
-    # The registry invokes this hook only for an enabled plugin. Canonical LSL
-    # acquisition/recording is mandatory for a recording_source and therefore
-    # cannot be disabled by a card-level boolean.
-    adapter.set_recording(True)
-
-
-def _trial_stop(context: PluginContext, options: dict[str, Any]) -> None:
-    from . import adapter
-
-    adapter.set_recording(False)
-
-
 def _interval(context: PluginContext, start_epoch: float, end_epoch: float) -> dict[str, Any]:
     from . import adapter
 
@@ -141,8 +126,6 @@ PLUGIN = Plugin(
     stop=_stop,
     restart=_restart,
     run_admin_action=_run_admin_action,
-    on_trial_start=_trial_start,
-    on_trial_stop=_trial_stop,
     get_interval_summary=_interval,
     export_interval_samples=_export,
 )

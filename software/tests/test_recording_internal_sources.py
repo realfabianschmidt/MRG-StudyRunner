@@ -69,6 +69,19 @@ class MarkersTests(unittest.TestCase):
         self.assertEqual(second["marker_lsl_timestamp"], 100.0)
         self.assertGreaterEqual(second["marker_push_epoch_ms"], first["marker_push_epoch_ms"])
 
+    def test_host_clock_step_disables_backdating_for_affected_marker(self) -> None:
+        outlet = _Outlet()
+        markers._outlet = outlet
+        markers._local_clock = lambda: 100.0
+        markers._wall_to_lsl_offset = -900.0
+        with patch.object(markers.time, "time", side_effect=[1000.0, 1000.0, 1002.0, 1002.0]):
+            first = markers.send_marker("before", server_epoch_ms=1_000_000.0)
+            after = markers.send_marker("after", server_epoch_ms=1_002_000.0)
+        self.assertEqual(first["timestamp_source"], "mapped_server_epoch")
+        self.assertEqual(after["timestamp_source"], "lsl_receipt_after_clock_step")
+        self.assertEqual(after["host_clock_step_ms"], -2000.0)
+        self.assertEqual(outlet.samples[1][1], 100.0)
+
 
 class ClockDiagnosticsTests(unittest.TestCase):
     def tearDown(self) -> None:

@@ -31,6 +31,13 @@ setting.
   cm/s, energies arbitrary units). The ESP firmware repeats its latest values
   and sets them to 0 after its own timeout, so a 0 or a repeated value is not
   necessarily a new, independent measurement.
+- **Parsed, not verbatim wire bytes.** The plugin decodes the AM Hub's v2 JSON
+  event and projects its declared fields into typed numeric XDF channels.
+  Numeric parsing, channel selection and optional timestamp correction are
+  transformations; these streams must not be described as byte-for-byte
+  copies of the hub response or of the radar UART frames. `hub_events` keeps
+  the status/unknown events and unsupported fields described below; it is not
+  a guaranteed duplicate of every board frame.
 - **`rssi`** is filled only over WiFi (the board appends it to each frame);
   over BLE it is NaN and the connection strength is in the hub's status
   events. **`seq`** is the hub's frame counter per board and is the stream's
@@ -72,6 +79,9 @@ from the moment the board sent the frame is measured and recorded:
   link_rtt_ms / 2`. It is NaN while the hub clock is not yet known, during a
   suspected clock step, or when a board reports no radio round trip (older
   firmware). The ESP's own processing before it sends is not included.
+  Half a radio or network RTT is only a symmetry-based estimate, not a proven
+  one-way transport time. Neither this estimate nor the hub timestamp reveals
+  the exact instant of radar or bio acquisition.
 - **Correction (machine setting "Correct timestamps by the measured
   latency", off by default).** When on, the timestamp of a frame with a
   plausible latency (0-1000 ms) is `arrival - latency`; `correction_ms` holds
@@ -111,6 +121,23 @@ values.
 | `adapter.py` | Hub connection, one LSL sample per frame, `hub_events`, the pings and `hub_clock`, latency and correction, card summaries. |
 | `monitor.py` | The dashboard view, derived only from received events. |
 | `ui/dashboard.js` | Renders the monitor's view and the timing row. |
+
+## Stimulus start/stop (actuators)
+
+The AM Hub is also an actuator: its manifest declares trial `start` and
+`stop`, so stimulus cards list it under "Control actuators". Only a card that
+selects it sends, at the start and the stop of its stimulus,
+
+    POST {base_url}/api/v2/stimulus/start
+    POST {base_url}/api/v2/stimulus/stop
+    {"event_id", "stimulus_id", "study_id", "session_id", "question_index", "source_epoch_ms"}
+
+What the hub does with it (a scene, valves) is decided on the hub; the
+endpoint still has to be added there (MRG-ParasiteV2,
+`am_hub/amhub/plugins/logic/studyrunner/plugin.py`). Until then the call is
+answered with 404: the plugin shows that as `last_stimulus_command`
+(`unsupported`) and never holds up the stimulus. The sensing side does not
+react to stimuli at all; it records continuously.
 
 ## Hardware acceptance still required
 

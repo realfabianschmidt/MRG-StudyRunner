@@ -12,13 +12,14 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.apps.server import create_app
+from study_runner.apps.server.routes.study import _reconcile_reload_interruption
 
 
 def _app(data_dir: str, *, disable_hardware: bool = True):
@@ -87,7 +88,142 @@ def _load_plain_study(client, study_id: str = "study-a") -> None:
     assert response.status_code == 200, response.get_json()
 
 
+def _ack_initial_checkpoint(client, session: dict) -> None:
+    response = client.post("/api/results/partial", json={
+        "checkpoint_version": 2,
+        "checkpoint_sequence": 1,
+        "session_id": session["session_id"],
+        "study_id": session["study_id"],
+        "study_revision": session["study_revision"],
+        "participant_id": session["participant_id"],
+        "client_id": session["client_id"],
+        "current_index": 0,
+        "completed_indices": [],
+        "answers": {},
+        "card_states": {},
+        "touched_fields": {},
+        "question_metrics": {},
+        "participant_metadata": {},
+    })
+    assert response.status_code == 200, response.get_json()
+
+
 class StudySessionRouteTests(unittest.TestCase):
+    def test_lost_pagehide_is_inferred_from_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = _app(temp_dir)
+            session = {
+                "session_id": "session-1", "study_id": "study-a",
+                "participant_id": "p01", "client_id": "tablet-1",
+            }
+            checkpoint = {"active_stimulus": {
+                "index": 1, "stimulus_id": "stimulus-1",
+                "start_event_id": "start-1", "stop_event_id": "stop-1",
+            }}
+            store = Mock()
+            store.get.return_value = {"last_interruption": {
+                "interrupted_by_reload": True, "inferred_from_checkpoint": True,
+                "stimulus_id": "stimulus-1", "current_index": 1,
+            }}
+            service = Mock()
+            service.snapshot.return_value = {"preparations": {}, "events": {}}
+            with app.app_context():
+                app.config["SESSION_STORE"] = store
+                app.config["TRIAL_EVENT_SERVICE"] = service
+                result = _reconcile_reload_interruption(session, checkpoint)
+            store.record_client_event.assert_called_once()
+            self.assertTrue(result["inferred_from_checkpoint"])
+            self.assertEqual(result["outcome"], "visual_only_interrupted")
+            store.mark_interruption_reconciled.assert_called_once_with(
+                "session-1", "stimulus-1", "visual_only_interrupted",
+            )
+
+    def test_started_reload_attempt_stops_once_before_repetition(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = _app(temp_dir)
+            session = {
+                "session_id": "session-1", "study_id": "study-a",
+                "participant_id": "p01", "client_id": "tablet-1",
+                "last_interruption": {
+                    "interrupted_by_reload": True, "stimulus_id": "stimulus-1",
+                    "start_event_id": "start-1", "stop_event_id": "stop-1",
+                },
+            }
+            store = Mock()
+            service = Mock()
+            service.snapshot.return_value = {
+                "preparations": {"stimulus-1": {
+                    "session_id": "session-1", "event_id": "start-1",
+                    "stop_event_id": "stop-1", "question_index": 1,
+                }},
+                "events": {"start-1": {"status": "done"}},
+            }
+            service.execute.return_value = {"server_received_epoch_ms": 1234.0}
+            with app.app_context():
+                app.config["SESSION_STORE"] = store
+                app.config["TRIAL_EVENT_SERVICE"] = service
+                result = _reconcile_reload_interruption(session, {"active_stimulus": {
+                    "index": 1, "stimulus_id": "stimulus-1",
+                }})
+            self.assertEqual(result["outcome"], "stop_confirmed")
+            self.assertEqual(result["server_stop_received_epoch_ms"], 1234.0)
+            service.execute.assert_called_once()
+            stop_payload = service.execute.call_args.args[2]
+            self.assertEqual(stop_payload["time_source"], "server_receipt")
+            self.assertEqual(stop_payload["phase"], "stimulus_interrupted_by_reload")
+            store.mark_interruption_reconciled.assert_called_once()
+
+    def test_checkpoint_sequence_rejects_late_and_conflicting_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            client = _app(temp_dir).test_client()
+            _load_plain_study(client)
+            started = client.post("/api/study/session/start", json={
+                "participant_id": "hash1234", "client_id": "tablet-1",
+            })
+            self.assertEqual(started.status_code, 200)
+            session = started.get_json()["session"]
+            checkpoint = {
+                "checkpoint_version": 2, "checkpoint_sequence": 2,
+                "session_id": session["session_id"], "study_id": session["study_id"],
+                "study_revision": session["study_revision"],
+                "participant_id": session["participant_id"], "client_id": session["client_id"],
+                "current_index": 0, "completed_indices": [], "answers": {},
+                "card_states": {}, "touched_fields": {}, "question_metrics": {},
+            }
+            self.assertEqual(client.post("/api/results/partial", json=checkpoint).status_code, 200)
+            duplicate = client.post("/api/results/partial", json=checkpoint)
+            self.assertEqual(duplicate.status_code, 200)
+            self.assertTrue(duplicate.get_json()["duplicate"])
+            stale = client.post("/api/results/partial", json={**checkpoint, "checkpoint_sequence": 1})
+            self.assertEqual(stale.status_code, 409)
+            self.assertEqual(stale.get_json()["code"], "checkpoint_stale")
+            conflict = client.post("/api/results/partial", json={**checkpoint, "current_index": 1})
+            self.assertEqual(conflict.status_code, 409)
+            self.assertEqual(conflict.get_json()["code"], "checkpoint_conflict")
+            legacy = client.post("/api/results/partial", json={
+                "session_id": session["session_id"], "study_id": session["study_id"],
+            })
+            self.assertEqual(legacy.status_code, 409)
+            self.assertEqual(legacy.get_json()["code"], "checkpoint_stale")
+
+    def test_resume_requires_bound_study_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            client = _app(temp_dir).test_client()
+            _load_plain_study(client)
+            started = client.post("/api/study/session/start", json={
+                "participant_id": "hash1234", "client_id": "tablet-1",
+            })
+            self.assertEqual(started.status_code, 200)
+            session = started.get_json()["session"]
+            _ack_initial_checkpoint(client, session)
+            resumed = client.post("/api/study/session/resume", json={
+                "session_id": session["session_id"], "study_id": session["study_id"],
+                "participant_id": session["participant_id"], "client_id": session["client_id"],
+                "study_revision": "wrong-revision",
+            })
+            self.assertEqual(resumed.status_code, 409)
+            self.assertEqual(resumed.get_json()["code"], "study_revision_conflict")
+
     def test_session_survives_a_simulated_server_restart(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             first_app = _app(temp_dir)
@@ -95,17 +231,19 @@ class StudySessionRouteTests(unittest.TestCase):
             _load_plain_study(first_client)
             start = first_client.post(
                 "/api/study/session/start",
-                json={"participant_id": "hash1234", "current_index": 0, "current_type": "participant-id"},
+                json={"participant_id": "hash1234", "client_id": "tablet-1", "current_index": 0, "current_type": "participant-id"},
             )
             self.assertEqual(start.status_code, 200)
             session_id = start.get_json()["session"]["session_id"]
+            session = start.get_json()["session"]
+            _ack_initial_checkpoint(first_client, session)
 
             # A fresh create_app() against the same DATA_DIR is what a process restart does.
             second_app = _app(temp_dir)
             second_client = second_app.test_client()
             resume = second_client.post(
                 "/api/study/session/resume",
-                json={"session_id": session_id, "participant_id": "hash1234"},
+                json={"session_id": session_id, "study_id": "study-a", "study_revision": session["study_revision"], "participant_id": "hash1234", "client_id": "tablet-1"},
             )
 
         self.assertEqual(resume.status_code, 200)
@@ -131,11 +269,14 @@ class StudySessionRouteTests(unittest.TestCase):
                     json={
                         "study_id": "study-a",
                         "participant_id": "hash1234",
+                        "client_id": "tablet-1",
                         "current_index": 0,
                         "current_type": "participant-id",
                     },
                 )
                 session_id = start.get_json()["session"]["session_id"]
+                session = start.get_json()["session"]
+                _ack_initial_checkpoint(first_client, session)
 
                 second_app = _app(temp_dir, disable_hardware=False)
                 self.assertIsNone(second_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"))
@@ -144,7 +285,7 @@ class StudySessionRouteTests(unittest.TestCase):
                 second_client = second_app.test_client()
                 resume = second_client.post(
                     "/api/study/session/resume",
-                    json={"session_id": session_id, "study_id": "study-a", "participant_id": "hash1234"},
+                    json={"session_id": session_id, "study_id": "study-a", "study_revision": session["study_revision"], "participant_id": "hash1234", "client_id": "tablet-1"},
                 )
 
         # Sensors were dark after the "restart"; resuming must bring them back

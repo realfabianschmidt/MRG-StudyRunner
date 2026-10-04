@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "brainbit",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "category": "biosignal",
   "config_key": "brainbit",
   "runtime": {
@@ -21,8 +21,6 @@
       "stop": 15000,
       "restart": 90000,
       "admin_action": 90000,
-      "trial_start": 2000,
-      "trial_stop": 2000,
       "session_end": 5000,
       "interval_summary": 5000,
       "interval_export": 15000,
@@ -34,8 +32,6 @@
       "restart"
     ],
     "trial_events": [
-      "start",
-      "stop",
       "session_end"
     ],
     "can_toggle": true,
@@ -145,7 +141,6 @@
     },
     "machine_settings": {},
     "study_settings": {},
-    "card_actions": {},
     "interval_summary": {},
     "sidecar_export": {},
     "admin_actions": {
@@ -449,14 +444,7 @@
         "help_key": "pluginHelp.brainbit.autoRestartMaxAttempts"
       }
     },
-    "study": {},
-    "card_actions": {
-      "to_touchdesigner": {
-        "type": "boolean",
-        "default": true,
-        "help_key": "pluginHelp.brainbit.toTouchdesigner"
-      }
-    }
+    "study": {}
   },
   "poll_interval_ms": 1000,
   "request_timeout_ms": 1500,

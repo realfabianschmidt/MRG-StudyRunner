@@ -757,7 +757,8 @@ def _sequence_drop_count(series: Any, labels: Sequence[str]) -> int | None:
     indices = [
         index
         for index, label in enumerate(labels)
-        if label.casefold() == "sequence" or label.casefold().endswith(".sequence")
+        if label.casefold() in {"sequence", "seq"}
+        or label.casefold().endswith((".sequence", ".seq"))
     ]
     if not indices:
         return None
@@ -778,7 +779,7 @@ def _sequence_drop_count(series: Any, labels: Sequence[str]) -> int | None:
 
 
 def _invalid_rows_with_values(series: Any, labels: Sequence[str]) -> int:
-    quality_suffixes = {"valid", "sample_age_ms", "sequence", "status"}
+    quality_suffixes = {"valid", "sample_age_ms", "sequence", "seq", "status"}
     valid_indices_by_prefix: dict[str, list[int]] = {}
     value_indices_by_prefix: dict[str, list[int]] = {}
     for index, label in enumerate(labels):

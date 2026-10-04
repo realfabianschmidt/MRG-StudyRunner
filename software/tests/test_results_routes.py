@@ -183,7 +183,10 @@ class ResultsRoutesTests(unittest.TestCase):
                 "timestamp_end": "2026-07-10T10:05:00Z",
             }
             patches = self._results_patches()
-            with patches[0], patches[1], patches[2], patches[3]:
+            with patches[0], patches[1], patches[2], patches[3], patch(
+                "study_runner.apps.server.routes.results.study_config_revision",
+                return_value=app.config["SESSION_STORE"].get(session_id)["study_revision"],
+            ):
                 response = client.post("/api/results", json=submission)
 
             payload = response.get_json()
@@ -218,6 +221,10 @@ class ResultsRoutesTests(unittest.TestCase):
                 patch("study_runner.apps.server.routes.results.validate_and_normalize_config", return_value=dict(CONFIG_DATA)),
                 patch("study_runner.apps.server.routes.results.validate_and_normalize_results", return_value=edited),
                 patch("study_runner.apps.server.routes.results.build_answer_details", return_value=[]),
+                patch(
+                    "study_runner.apps.server.routes.results.study_config_revision",
+                    return_value=app.config["SESSION_STORE"].get(session_id)["study_revision"],
+                ),
             ):
                 response = client.post(
                     "/api/results",

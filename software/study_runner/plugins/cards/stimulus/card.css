@@ -131,6 +131,11 @@
   margin-bottom: var(--s-5);
 }
 
+/* End-of-time block (admin editor): sound, auto-advance and overtime. */
+.stimulus-end-block .se-end-sound-preview { margin: var(--s-1) 0 var(--s-3); }
+.stimulus-end-block .editor-toggles { margin-top: var(--s-2); }
+.stimulus-end-block .se-overtime-fields[hidden] { display: none; }
+
 .stimulus-editor-note {
   font-size: .813rem;
   line-height: 1.5;

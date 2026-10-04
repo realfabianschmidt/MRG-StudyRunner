@@ -238,8 +238,18 @@ def _load_study_run(study_id: str) -> dict:
     return _study_run_state_store().set_loaded(study_id)
 
 
-def _start_study_run(study_id: str, active_client_id: str = "", started_despite: list | None = None) -> dict:
-    return _study_run_state_store().start(study_id, active_client_id, started_despite=started_despite)
+def _start_study_run(
+    study_id: str,
+    active_client_id: str = "",
+    started_despite: list | None = None,
+    study_revision: str = "",
+) -> dict:
+    return _study_run_state_store().start(
+        study_id,
+        active_client_id,
+        started_despite=started_despite,
+        study_revision=study_revision,
+    )
 
 
 def _complete_study_run(study_id: str, session_id: str) -> dict:

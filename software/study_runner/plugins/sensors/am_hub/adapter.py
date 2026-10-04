@@ -26,6 +26,10 @@ time and the latency is only recorded. With the machine setting
 
 What the dashboard shows is ``monitor.py``'s job and the core's live view;
 this module never derives a recorded value from them.
+
+The hub also drives actuators. A stimulus card that selected this plugin
+sends it start and stop (``send_stimulus_command``); what a stimulus does is
+decided on the hub. Sensing never follows a card: it runs continuously.
 """
 from __future__ import annotations
 
@@ -91,6 +95,10 @@ QUICK_PING_INTERVAL_SECONDS = 0.25
 MAX_CORRECTION_MS = 1000.0
 # Recent latencies per board stream, for the dashboard's medians.
 LATENCY_WINDOW = 50
+# Stimulus start/stop for the hub's actuators: a short connect timeout, so an
+# unreachable hub delays a trial event by at most about a second.
+STIMULUS_COMMAND_TIMEOUT_SECONDS = (0.5, 1.0)
+STIMULUS_COMMAND_FIELDS = ("event_id", "stimulus_id", "study_id", "session_id", "question_index", "source_epoch_ms")
 
 
 class HubApiUnsupported(RuntimeError):
@@ -104,7 +112,6 @@ _running = False
 # Bumped on every start()/stop() so an older reader exits on restart.
 _generation = 0
 _stop_event = threading.Event()
-_recording_enabled = False
 _registered_shutdown = False
 _reader_thread: threading.Thread | None = None
 _ping_thread: threading.Thread | None = None
@@ -130,6 +137,8 @@ _latest_state: dict[str, Any] = {
 _link_lock = threading.Lock()
 _link: dict[str, Any] = {}
 _event_times: deque[float] = deque(maxlen=400)
+# The outcome of the last stimulus start/stop sent to the hub, for the dashboard.
+_last_stimulus_command: dict[str, Any] = {}
 
 
 def _reset_link() -> None:
@@ -275,14 +284,54 @@ def set_auto_reconnect(enabled: bool) -> None:
         _config["auto_reconnect"] = bool(enabled)
 
 
-def set_recording(enabled: bool) -> None:
-    """Track the active stimulus phase without gating continuous LSL output."""
-    global _recording_enabled
-    _recording_enabled = bool(enabled)
-    _set_state({
-        "recording_enabled": _recording_enabled,
-        "last_message": f"AM Hub recording {'enabled' if _recording_enabled else 'disabled'}.",
-    })
+def send_stimulus_command(action: str, options: dict[str, Any]) -> dict[str, Any]:
+    """Tell the hub that a stimulus starts or stops, for which card.
+
+    ``POST {base_url}/api/v2/stimulus/start|stop`` with the card's identity;
+    the hub decides what its actuators do. Prepared ahead of the hub: an
+    unknown endpoint, an unreachable hub or a refusal is recorded in the
+    status and never raised, so a stimulus is never held up by the hub.
+    """
+    import requests
+
+    if action not in {"start", "stop"}:
+        raise ValueError("Stimulus command must be start or stop.")
+    payload = {field: options.get(field) for field in STIMULUS_COMMAND_FIELDS}
+    result: dict[str, Any] = {
+        "action": action,
+        "event_id": payload["event_id"],
+        "stimulus_id": payload["stimulus_id"],
+        "sent_at": timestamp(time.time()),
+    }
+    base_url = str(_config.get("base_url") or "")
+    if not _config.get("enabled") or not base_url:
+        result.update(ok=False, outcome="not_configured", message="AM Hub is not configured; the stimulus command was not sent.")
+    else:
+        try:
+            response = requests.post(
+                f"{base_url}/api/v2/stimulus/{action}",
+                json=payload,
+                timeout=STIMULUS_COMMAND_TIMEOUT_SECONDS,
+            )
+        except Exception as error:
+            result.update(ok=False, outcome="unreachable", message=f"AM Hub did not answer the stimulus {action}: {error}")
+        else:
+            result["http_status"] = response.status_code
+            if response.ok:
+                result.update(ok=True, outcome="accepted", message=f"AM Hub accepted the stimulus {action}.")
+            elif response.status_code in (404, 405):
+                result.update(ok=False, outcome="unsupported", message="This AM Hub does not handle stimulus commands yet.")
+            else:
+                result.update(ok=False, outcome="refused", message=f"AM Hub refused the stimulus {action} (HTTP {response.status_code}).")
+    with _state_lock:
+        _last_stimulus_command.clear()
+        _last_stimulus_command.update(result)
+    return dict(result)
+
+
+def _stimulus_command_status() -> dict[str, Any] | None:
+    with _state_lock:
+        return dict(_last_stimulus_command) or None
 
 
 def _alive(generation: int) -> bool:
@@ -297,8 +346,8 @@ def get_status() -> dict[str, Any]:
     status.update({
         "enabled": bool(_config.get("enabled", False)),
         "lsl_enabled": _streams.is_open("radar"),
-        "recording_enabled": bool(_recording_enabled),
         "base_url": _config.get("base_url", ""),
+        "last_stimulus_command": _stimulus_command_status(),
         "streams": [contract["key"] for contract in _streams.contracts()],
         "auto_reconnect": bool(_config.get("auto_reconnect", True)),
         "api_unsupported": _api_unsupported,

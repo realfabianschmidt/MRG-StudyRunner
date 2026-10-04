@@ -47,6 +47,9 @@ class CardWindow:
     start_epoch: float
     end_epoch: float
     time_source: str
+    # "card" is the card's own window. A card that let the participant stay
+    # past its duration also gets an "overtime" window right after it.
+    window: str = "card"
 
     @property
     def duration_seconds(self) -> float:
@@ -128,11 +131,13 @@ class CardSummaryBuilder:
         # XDF, so a general journal/XDF comparison never re-flags those --
         # this only ever surfaces *additional* ids either side is missing.
         mismatch_warnings = _journal_xdf_mismatches(marker_times.keys(), journal_event_ids)
+        window_warnings: list[dict[str, Any]] = []
         windows = _card_windows(
             card_events,
             client_clock_offset_ms=client_clock_offset_ms,
             marker_times=marker_times,
             require_markers=require_xdf_markers,
+            warnings=window_warnings,
         )
 
         cards = []
@@ -142,6 +147,7 @@ class CardSummaryBuilder:
                     "card_id": window.card_id,
                     "question_index": window.question_index,
                     "question_type": window.question_type,
+                    "window": window.window,
                     "start_epoch": window.start_epoch,
                     "end_epoch": window.end_epoch,
                     "duration_seconds": window.duration_seconds,
@@ -177,6 +183,7 @@ class CardSummaryBuilder:
             for event_id in sorted(duplicate_marker_ids)
         ]
         quality_warnings.extend(mismatch_warnings)
+        quality_warnings.extend(window_warnings)
         if quality_warnings:
             result["quality_warnings"] = quality_warnings
         return result
@@ -475,6 +482,7 @@ def _card_windows(
     client_clock_offset_ms: Any,
     marker_times: dict[str, float] | None = None,
     require_markers: bool = False,
+    warnings: list[dict[str, Any]] | None = None,
 ) -> list[CardWindow]:
     windows = []
     markers = marker_times or {}
@@ -482,7 +490,11 @@ def _card_windows(
         if not isinstance(event, dict):
             continue
         start_event_id = str(event.get("start_event_id") or event.get("shown_event_id") or "")
-        end_event_id = str(event.get("stop_event_id") or event.get("answered_event_id") or "")
+        stop_event_id = str(event.get("stop_event_id") or event.get("answered_event_id") or "")
+        # With overtime the card's own window ends when its duration is
+        # reached, so it stays comparable between participants.
+        time_up_event_id = str(event.get("time_up_event_id") or "")
+        end_event_id = time_up_event_id or stop_event_id
         if start_event_id and end_event_id and start_event_id in markers and end_event_id in markers:
             resolved = (
                 markers[start_event_id],
@@ -499,6 +511,10 @@ def _card_windows(
             continue
         else:
             resolved = _event_epochs(event, client_clock_offset_ms)
+            if resolved is not None and time_up_event_id:
+                time_up = _finite_number(event.get("time_up_epoch_ms"))
+                if time_up is not None:
+                    resolved = (resolved[0], time_up / 1000.0, resolved[2])
         if resolved is None:
             continue
         start_epoch, end_epoch, source = resolved
@@ -506,17 +522,74 @@ def _card_windows(
             raise CardSummaryError(f"Card event {index} ends before it starts.")
         question_index = _integer_or_none(event.get("question_index"))
         card_id = str(event.get("event_id") or event.get("card_id") or f"card-{question_index if question_index is not None else index}")
+        question_type = str(event.get("question_type") or event.get("type") or "")
         windows.append(
             CardWindow(
                 card_id=card_id,
                 question_index=question_index,
-                question_type=str(event.get("question_type") or event.get("type") or ""),
+                question_type=question_type,
                 start_epoch=start_epoch,
                 end_epoch=end_epoch,
                 time_source=source,
             )
         )
+        if time_up_event_id:
+            overtime = _overtime_window(
+                event,
+                time_up_event_id=time_up_event_id,
+                stop_event_id=stop_event_id,
+                markers=markers,
+                client_clock_offset_ms=client_clock_offset_ms,
+            )
+            if overtime is None:
+                if warnings is not None:
+                    warnings.append(
+                        {
+                            "code": "overtime_window_unavailable",
+                            "event_id": stop_event_id or time_up_event_id,
+                            "message": "The card's overtime has no complete start and end; only its own window was summarized.",
+                        }
+                    )
+                continue
+            windows.append(
+                CardWindow(
+                    card_id=f"{card_id}:overtime",
+                    question_index=question_index,
+                    question_type=question_type,
+                    start_epoch=overtime[0],
+                    end_epoch=overtime[1],
+                    time_source=overtime[2],
+                    window="overtime",
+                )
+            )
     return windows
+
+
+def _overtime_window(
+    event: dict[str, Any],
+    *,
+    time_up_event_id: str,
+    stop_event_id: str,
+    markers: dict[str, float],
+    client_clock_offset_ms: Any,
+) -> tuple[float, float, str] | None:
+    """From the end of the duration until the participant left the card."""
+
+    if time_up_event_id in markers and stop_event_id in markers:
+        start, end, source = markers[time_up_event_id], markers[stop_event_id], "xdf_marker_event_ids"
+    elif markers:
+        return None
+    else:
+        start_ms = _finite_number(event.get("time_up_epoch_ms"))
+        end_ms = _finite_number(event.get("client_stop_trigger_epoch_ms")) or _finite_number(
+            event.get("server_stop_received_epoch_ms")
+        )
+        if start_ms is None or end_ms is None:
+            return None
+        start, end, source = start_ms / 1000.0, end_ms / 1000.0, "client_trigger"
+    if end < start:
+        return None
+    return start, end, source
 
 
 def _marker_event_times(
@@ -623,6 +696,8 @@ def _sample_valid(sample: dict[str, Any]) -> bool:
         return True
     if isinstance(value, str):
         return value.strip().lower() not in {"", "0", "false", "no", "invalid", "missing"}
+    if isinstance(value, float) and not math.isfinite(value):
+        return False
     return bool(value)
 
 

@@ -27,6 +27,11 @@ actions a `role` (select, scan, measure_signal, initialize) in the manifest
 to have the shared panel draw them. Sensors keep streaming between
 participants; `on_session_end` is where per-person state (e.g. a
 calibration) is reset -- never stop acquisition there.
+
+Stimulus cards (the same for every sensor): a sensor records continuously
+and declares no trial `start`/`stop`; a card only marks its phases with
+markers in the recording. Declaring `start` and `stop` would make the plugin
+an actuator (see the outputs template).
 """
 from __future__ import annotations
 

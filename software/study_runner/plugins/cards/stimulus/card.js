@@ -2,8 +2,13 @@ import { t } from '/static/scripts/shared/i18n.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
 import {
   PLUGIN_UI_SURFACES,
+  stimulusActuatorPlugins,
   visiblePluginsWithCapability,
 } from '/static/scripts/shared/plugin-catalog.js';
+import { renderEditorToggle } from '/static/scripts/cards/card-info.js';
+import { installSoundCueUnlock, playSoundCue, preloadSoundCue } from './sound-cues.js';
+
+const END_SOUNDS = ['none', 'gong', 'bell', 'beep', 'custom'];
 
 export const meta = {
   type: 'stimulus',
@@ -14,6 +19,8 @@ export const meta = {
 
 
 export function renderStudy(q, i) {
+  // Audio needs a user gesture first; the participant's next tap provides it.
+  installSoundCueUnlock();
   const warmupSeconds = Math.max(0, Math.round((q.warmup_duration_ms ?? defaultQuestion.warmup_duration_ms) / 1000));
   const durationSeconds = Math.max(1, Math.round((q.duration_ms ?? defaultQuestion.duration_ms) / 1000));
   const startsWithWarmup = warmupSeconds > 0;
@@ -107,14 +114,104 @@ export function renderEditor(q) {
       }
     </div>
     <div class="field">
-      <label>${escapeHtml(t('stimulus.signalSettingsLabel', 'Signals and recordings'))}</label>
+      <label>${escapeHtml(t('stimulus.actuatorsLabel', 'Control actuators (start/stop)'))}</label>
+      <div class="stimulus-toggle-list">
+        ${renderActuatorSelection(q)}
+      </div>
+      <p class="settings-hint">${escapeHtml(t('stimulus.actuatorsHint', 'Sensors always record continuously and only receive markers.'))}</p>
+    </div>
+    <div class="field">
+      <label>${escapeHtml(t('stimulus.signalSettingsLabel', 'Plugin settings for this card'))}</label>
       <div class="stimulus-toggle-list">
         ${renderPluginActions(q)}
       </div>
     </div>
+    ${renderEndOfTime(q)}
     <p class="stimulus-editor-note">
-      ${escapeHtml(t('stimulus.editorNote', 'Warm-up only shows the instruction view. Enabled plugin actions, media triggers, and custom JavaScript start with the active timer. HTML and JavaScript stay blocked unless the server explicitly enables unsafe study content.'))}
+      ${escapeHtml(t('stimulus.editorNote', 'Warm-up only shows the instruction view. Selected actuators, media triggers, and custom JavaScript start with the active timer. HTML and JavaScript stay blocked unless the server explicitly enables unsafe study content.'))}
     </p>`;
+}
+
+function renderActuatorSelection(question) {
+  const actuators = stimulusActuatorPlugins();
+  if (!actuators.length) {
+    return `<p class="settings-hint">${escapeHtml(t('stimulus.noActuators', 'No installed plugin can drive actuators.'))}</p>`;
+  }
+  const selected = new Set(question.actuator_plugins ?? defaultQuestion.actuator_plugins ?? []);
+  return actuators.map((plugin) => {
+    const pluginKey = plugin.plugin_key;
+    const checked = selected.has(pluginKey);
+    const label = plugin.ui?.label || pluginKey;
+    return `
+      <div class="stimulus-toggle-row${checked ? '' : ' stimulus-toggle-row--off'}">
+        <span class="stimulus-toggle-text">${escapeHtml(label)}</span>
+        <div class="stimulus-toggle-controls">
+          <label class="switch" aria-label="${escapeHtml(label)}">
+            <input type="checkbox" class="stimulus-toggle-input se-actuator" data-plugin-key="${escapeHtml(pluginKey)}" ${checked ? 'checked' : ''}>
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderEndOfTime(question) {
+  const value = (key) => question[key] ?? defaultQuestion[key];
+  const endSound = value('end_sound');
+  const autoAdvance = value('auto_advance') !== false;
+  const maxOvertimeSeconds = Math.round(value('overtime_max_ms') / 1000);
+  return `
+    <div class="field stimulus-end-block">
+      <label>${escapeHtml(t('stimulus.endOfTimeLabel', 'When the time is up'))}</label>
+      <div class="row2">
+        <div class="field">
+          <label>${escapeHtml(t('stimulus.endSoundLabel', 'Sound'))}</label>
+          <select class="fi-input se-end-sound">
+            ${END_SOUNDS.map((sound) => `<option value="${sound}" ${sound === endSound ? 'selected' : ''}>${escapeHtml(t(`stimulus.endSound.${sound}`, sound))}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>${escapeHtml(t('stimulus.endSoundVolumeLabel', 'Volume (%)'))}</label>
+          <input type="number" class="se-end-sound-volume" min="0" max="100" value="${escapeHtml(value('end_sound_volume'))}">
+        </div>
+      </div>
+      <div class="field se-end-sound-url-field"${endSound === 'custom' ? '' : ' hidden'}>
+        <label>${escapeHtml(t('stimulus.endSoundUrlLabel', 'Sound file (URL)'))}</label>
+        <input type="url" class="se-end-sound-url" placeholder="${escapeHtml(t('stimulus.urlPlaceholder', 'https://...'))}" value="${escapeHtml(value('end_sound_url'))}">
+      </div>
+      <button type="button" class="btn-secondary se-end-sound-preview"${endSound === 'none' ? ' disabled' : ''}>
+        <i class="iconoir-sound-high"></i> ${escapeHtml(t('stimulus.endSoundPreview', 'Play sound'))}
+      </button>
+      <div class="editor-toggles">
+        ${renderEditorToggle({
+          className: 'se-auto-advance',
+          checked: autoAdvance,
+          label: t('stimulus.autoAdvanceLabel', 'Continue to the next card automatically'),
+          title: t('stimulus.autoAdvanceHint', 'Off: the duration becomes a minimum. The card stays, Next becomes available, and the time until Next is saved as overtime.'),
+        })}
+      </div>
+      <div class="se-overtime-fields"${autoAdvance ? ' hidden' : ''}>
+        <div class="editor-toggles">
+          ${renderEditorToggle({
+            className: 'se-overtime-keep-stimulus',
+            checked: value('overtime_keep_stimulus') !== false,
+            label: t('stimulus.overtimeKeepStimulusLabel', 'Stimulus keeps running after the time is up'),
+            title: t('stimulus.overtimeKeepStimulusHint', 'Image, video, audio, HTML and JavaScript stay until the participant taps Next.'),
+          })}
+          ${renderEditorToggle({
+            className: 'se-overtime-keep-actuators',
+            checked: value('overtime_keep_actuators') === true,
+            label: t('stimulus.overtimeKeepActuatorsLabel', 'Actuators keep running during overtime'),
+            title: t('stimulus.overtimeKeepActuatorsHint', 'On: the selected actuators receive stop only when the participant taps Next. Off: they stop when the time is up.'),
+          })}
+        </div>
+        <div class="field">
+          <label>${escapeHtml(t('stimulus.overtimeMaxLabel', 'Maximum overtime (seconds)'))}</label>
+          <input type="number" class="se-overtime-max" min="10" max="3600" value="${escapeHtml(maxOvertimeSeconds)}">
+        </div>
+        <p class="settings-hint">${escapeHtml(t('stimulus.overtimeHint', 'After the maximum the card continues by itself.'))}</p>
+      </div>
+    </div>`;
 }
 
 function renderToggleRow({ checked, label, pluginKey, actionKey }) {
@@ -181,8 +278,36 @@ export function bindEditorEvents(editorEl) {
   editorEl.addEventListener('change', (event) => {
     const toggle = event.target.closest?.('.stimulus-toggle-input');
     if (toggle) syncStimulusToggleRow(toggle.closest('.stimulus-toggle-row'));
+    if (event.target.closest?.('.se-end-sound, .se-auto-advance')) syncEndOfTimeFields(editorEl);
   });
 
+  editorEl.addEventListener('click', (event) => {
+    if (!event.target.closest?.('.se-end-sound-preview')) return;
+    void playSoundCue(collectEndSound(editorEl));
+  });
+}
+
+function syncEndOfTimeFields(editorEl) {
+  const endSound = editorEl.querySelector('.se-end-sound')?.value || 'none';
+  const urlField = editorEl.querySelector('.se-end-sound-url-field');
+  if (urlField) urlField.hidden = endSound !== 'custom';
+  const preview = editorEl.querySelector('.se-end-sound-preview');
+  if (preview) preview.disabled = endSound === 'none';
+  const overtimeFields = editorEl.querySelector('.se-overtime-fields');
+  if (overtimeFields) overtimeFields.hidden = editorEl.querySelector('.se-auto-advance')?.checked !== false;
+}
+
+function collectEndSound(el) {
+  return {
+    end_sound: el.querySelector('.se-end-sound')?.value || defaultQuestion.end_sound,
+    end_sound_url: el.querySelector('.se-end-sound-url')?.value.trim() || '',
+    end_sound_volume: readInteger(el, '.se-end-sound-volume', defaultQuestion.end_sound_volume),
+  };
+}
+
+function readInteger(el, selector, fallback) {
+  const value = Number.parseInt(el.querySelector(selector)?.value ?? '', 10);
+  return Number.isFinite(value) ? value : fallback;
 }
 
 function syncStimulusToggleRow(row) {
@@ -212,6 +337,14 @@ export function collectConfig(el) {
     trigger_type: el.querySelector('.se-trigger-type')?.value || defaultQuestion.trigger_type,
     trigger_content: el.querySelector('.se-trigger-content')?.value.trim() || '',
     plugin_actions: pluginActions,
+    actuator_plugins: [...el.querySelectorAll('.se-actuator')]
+      .filter((input) => input.checked)
+      .map((input) => input.dataset.pluginKey),
+    ...collectEndSound(el),
+    auto_advance: el.querySelector('.se-auto-advance')?.checked !== false,
+    overtime_keep_stimulus: el.querySelector('.se-overtime-keep-stimulus')?.checked !== false,
+    overtime_keep_actuators: el.querySelector('.se-overtime-keep-actuators')?.checked === true,
+    overtime_max_ms: readInteger(el, '.se-overtime-max', defaultQuestion.overtime_max_ms / 1000) * 1000,
   };
 }
 
@@ -221,6 +354,23 @@ function humanize(value) {
 
 export function collectAnswer() {
   return null;
+}
+
+/**
+ * Participant-side hooks the stimulus runtime calls by name. The runtime owns
+ * timing, navigation and trial events; the sound is this card's business.
+ */
+export function onStimulusPrepared(question) {
+  void preloadSoundCue(question);
+}
+
+export function onTimeUp(question, index, { notify } = {}) {
+  return playSoundCue(question, {
+    onFallback: (url) => notify?.(
+      t('stimulus.endSoundFallback', 'The end sound file could not be loaded; the built-in gong was played instead: {url}').replace('{url}', url),
+      'warning',
+    ),
+  });
 }
 
 export let defaultQuestion;

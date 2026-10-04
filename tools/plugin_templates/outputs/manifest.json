@@ -15,6 +15,7 @@
     "protocol": "study-runner-stdio/v1",
     "interactive_stdin": false,
     "sample_delivery": "none",
-    "actions": []
+    "actions": [],
+    "trial_events": ["start", "stop"]
   }
 }

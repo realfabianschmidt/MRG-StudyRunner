@@ -40,7 +40,7 @@ from study_runner.runtime_core.studies.study_config_service import load_config
 from study_runner.runtime_core.studies.study_run_state_service import StudyRunStateStore
 from study_runner.runtime_core.studies.trial_event_service import TrialEventService
 from study_runner.runtime_core.studies.trial_service import stop_trial_session
-from study_runner.runtime_core.delivery.upload_runtime import configure_upload_jobs
+from study_runner.runtime_core.delivery.upload_runtime import apply_deferred_upload_targets, configure_upload_jobs
 
 
 BASE_DIR = get_project_base_dir()
@@ -199,6 +199,7 @@ def create_app() -> Flask:
         end_session_producers=lambda context: _end_finalization_producers(app, context),
     )
     configure_finalization(app)
+    apply_deferred_upload_targets(app)
     app.config["WITHDRAWAL_SERVICE"] = WithdrawalService(
         app.config["DATA_DIR"],
         upload_jobs=app.config["UPLOAD_JOBS_SERVICE"],

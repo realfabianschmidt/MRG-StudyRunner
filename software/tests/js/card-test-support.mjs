@@ -52,6 +52,12 @@ export async function importCard(url) {
   return import(pathToFileURL(path.join(folder, 'card.js')).href);
 }
 
+// One of a card's own modules, loaded the same way as its card.js.
+export async function importCardModule(key, fileName) {
+  const folder = await cardFolderCopy(key);
+  return import(pathToFileURL(path.join(folder, fileName)).href);
+}
+
 export async function loadShippedCards() {
   configurePluginCatalog(snapshot.catalog);
   await loadCards({

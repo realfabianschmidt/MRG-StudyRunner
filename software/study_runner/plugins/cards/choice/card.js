@@ -53,6 +53,13 @@ export function collectAnswer(i, q) {
   return sel ? sel.value : null;
 }
 
+export function restoreAnswer(i, q, answer, cardElement) {
+  const selected = new Set(q.type === 'choice' ? answer : [answer]);
+  cardElement.querySelectorAll(`input[name="q${i}"]`).forEach((input) => {
+    input.checked = selected.has(input.value);
+  });
+}
+
 export function isAnswered(question, _questionIndex, { cardElement }) {
   const inputType = question.type === 'choice' ? 'checkbox' : 'radio';
   return Boolean(cardElement.querySelector(`input[type="${inputType}"]:checked`));

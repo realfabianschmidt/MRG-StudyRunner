@@ -156,11 +156,11 @@ rate, quality and `distance_cm`. Over BLE the packet has no quality field, so
 `quality` is NaN there.
 
 Radar LSL output is continuous while the BLE reader and outlets are running. It
-is not gated by stimulus activity. The stimulus flag
-the plugin's manifest-driven card action marks the active phase for Study
-Runner state and summaries, but it does not stop continuous LSL output. The
-detached Python worker writes append-never MR60 XDF segments using the stable
-manifest source IDs; XDF is internal infrastructure, not a plugin toggle.
+is not gated by stimulus activity: the radar is a sensor, so it declares no
+trial `start`/`stop` and stimulus cards only mark their phases with markers in
+the recording. The detached Python worker writes append-never MR60 XDF
+segments using the stable manifest source IDs; XDF is internal
+infrastructure, not a plugin toggle.
 
 If LSL streams are missing:
 

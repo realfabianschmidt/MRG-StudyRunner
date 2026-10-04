@@ -15,7 +15,9 @@ from study_runner.plugin_framework.plugin_secrets import copy_study_secrets
 from study_runner.runtime_core.studies.study_config_service import (
     StudyRevisionConflict,
     load_config,
+    locked_study_change,
     save_active_study,
+    study_busy_reason,
     study_config_revision,
 )
 from study_runner.runtime_core.studies.study_readiness_service import check_study_readiness
@@ -27,6 +29,7 @@ from study_runner.runtime_core.studies.trial_event_service import (
     TrialEventConflictError,
     TrialEventInProgressError,
     TrialPreparationRequiredError,
+    stop_deadline_for,
 )
 from study_runner.runtime_core.studies.validation import validate_and_normalize_config, validate_and_normalize_trial_options
 from .helpers import (
@@ -86,12 +89,23 @@ def update_config():
     expected_revision = str(config_data.pop("_revision", "") or "").strip() or None
     config_data.pop("_runtime", None)
     config_data.pop("_capabilities", None)
-    previous_study_id = _current_study_id()
+    # Card validation may call an isolated plugin process. Do not hold the
+    # global save/start lock while waiting for that process: another healthy
+    # editor or plain route must remain responsive if one Card hangs.
     validated_config = validate_and_normalize_config(config_data)
     try:
         require_assets(current_app.config["SAVED_STUDIES_DIR"], validated_config)
     except StudyAssetError as error:
         return jsonify({"ok": False, "error": str(error), "error_code": "missing_study_asset"}), 400
+    with locked_study_change():
+        busy = study_busy_reason(current_app.config)
+        if busy:
+            return jsonify({"ok": False, "code": "study_busy", "error": busy}), 409
+        return _save_validated_config_locked(validated_config, expected_revision)
+
+
+def _save_validated_config_locked(validated_config: dict, expected_revision: str | None):
+    previous_study_id = _current_study_id()
     try:
         revision = save_active_study(
             current_app.config["CONFIG_FILE"],
@@ -151,9 +165,15 @@ def _carry_credentials_on_rename(previous_study_id: str, new_study_id: str) -> N
 
 @bp.route("/api/study/session/start", methods=["POST"])
 def start_study_session():
+    with locked_study_change():
+        return _start_study_session_locked()
+
+
+def _start_study_session_locked():
     payload = request.get_json() or {}
     config_data = _current_config_data()
     study_id = str(config_data.get("study_id") or "")
+    study_revision = study_config_revision(config_data)
 
     def refuse(message: str, status_code: int, **details):
         # Whatever the tablet is told, the admin is told too.
@@ -162,6 +182,14 @@ def start_study_session():
 
     if not _valid_participant_id(payload.get("participant_id")):
         return refuse("Participant ID is required before a study can start.", 400)
+    submitted_revision = str(payload.get("study_revision") or "").strip().lower()
+    if submitted_revision and submitted_revision != study_revision:
+        return refuse(
+            "The study changed after this tablet loaded it. Reload the study before starting.",
+            409,
+            code="study_revision_conflict",
+            current_revision=study_revision,
+        )
     recording_runtime = current_app.config.get("RECORDING_RUNTIME_SERVICE")
     readiness = check_study_readiness(
         config_data,
@@ -176,6 +204,14 @@ def start_study_session():
     if readiness.get("start_blocked"):
         return refuse("Required plugins or recording infrastructure are not ready.", 409, readiness=readiness)
     run_state = _study_run_state(config_data["study_id"])
+    run_revision = str(run_state.get("study_revision") or "").strip().lower()
+    if run_state.get("status") == "running" and run_revision and run_revision != study_revision:
+        return refuse(
+            "The active study revision differs from the started run.",
+            409,
+            code="study_revision_conflict",
+            current_revision=study_revision,
+        )
     if payload.get("require_admin_start") and run_state.get("status") != "running":
         return refuse("The study has not been started by the admin yet.", 409)
     client_id = str(payload.get("client_id") or "").strip()
@@ -185,7 +221,10 @@ def start_study_session():
     payload_run_id = str(payload.get("study_run_id") or "").strip()
     if payload.get("require_admin_start") and payload_run_id and payload_run_id != str(run_state.get("run_id") or ""):
         return refuse("The tablet is using an older study run. Please wait for the latest start signal.", 409)
-    session = _start_or_reuse_study_session(payload)
+    try:
+        session = _start_or_reuse_study_session({**payload, "study_id": study_id, "study_revision": study_revision})
+    except ValueError as error:
+        return refuse(str(error), 409, code="study_revision_conflict", current_revision=study_revision)
     result = _start_study_sensor_runtime(config_data.get("study_settings", {}))
     required_failures = _required_sensor_runtime_failures(config_data, result.get("runtime") or {})
     if required_failures:
@@ -277,10 +316,24 @@ def resume_study_session():
     payload = request.get_json() or {}
     if not _valid_participant_id(payload.get("participant_id")):
         return jsonify({"ok": False, "error": "Participant ID is required before a study can resume."}), 400
+    config_data = _current_config_data()
+    revision = study_config_revision(config_data)
+    tracked = current_app.config["SESSION_STORE"].get(str(payload.get("session_id") or ""))
+    if (not tracked or tracked.get("status") != "active" or any(
+        payload.get(field) and str(payload.get(field)) != str(tracked.get(field) or "")
+        for field in ("study_id", "participant_id", "client_id")
+    )):
+        return jsonify({"ok": False, "error": "No matching active study session was found for this tablet."}), 404
+    if not tracked or tracked.get("study_revision") != revision or payload.get("study_revision") != revision:
+        return jsonify({"ok": False, "code": "study_revision_conflict", "error": "The study changed after this session started."}), 409
+    from .results import load_verified_partial_checkpoint
+
+    checkpoint = load_verified_partial_checkpoint(tracked)
+    if checkpoint is None:
+        return jsonify({"ok": False, "code": "checkpoint_unavailable", "error": "A verified answer checkpoint is not available for this session."}), 409
     session = _resume_study_session(payload)
     if session is None:
         return jsonify({"ok": False, "error": "No active study session was found for this tablet."}), 404
-    config_data = _current_config_data()
     sensor_result = _start_study_sensor_runtime(config_data.get("study_settings", {}))
     required_failures = _required_sensor_runtime_failures(
         config_data,
@@ -319,14 +372,115 @@ def resume_study_session():
                 "status": "attention_required",
                 "error": str(error),
             }
+    try:
+        interruption = _reconcile_reload_interruption(session, checkpoint)
+    except (ValueError, TrialEventConflictError, TrialEventInProgressError, TrialDispatchError) as error:
+        return jsonify({
+            "ok": False,
+            "code": "stimulus_reconciliation_failed",
+            "error": f"The interrupted stimulus could not be confirmed stopped: {error}",
+        }), 503
     return jsonify(
         {
             "ok": True,
             "session": _public_study_session(session),
+            "checkpoint": checkpoint,
+            "interrupted_stimulus": interruption,
             **sensor_result,
             "recording": recording_result,
         }
     )
+
+
+def _reconcile_reload_interruption(session: dict, checkpoint: dict) -> dict | None:
+    """Confirm one old attempt safe before a tablet may repeat that card."""
+
+    store = current_app.config["SESSION_STORE"]
+    prior = session.get("last_interruption") or {}
+    active = checkpoint.get("active_stimulus") or {}
+    pending = prior.get("interrupted_by_reload") and not prior.get("reconciled_at")
+    if not pending and not active:
+        return None
+    if active and not pending:
+        store.record_client_event({
+            "event": "client_reload_or_leave",
+            "session_id": session["session_id"],
+            "study_id": session["study_id"],
+            "participant_id": session["participant_id"],
+            "client_id": session["client_id"],
+            "current_index": active.get("index"),
+            "current_type": "stimulus",
+            "is_stimulus_active": True,
+            "stimulus_id": active.get("stimulus_id"),
+            "start_event_id": active.get("start_event_id"),
+            "stop_event_id": active.get("stop_event_id"),
+            "inferred_from_checkpoint": True,
+        })
+        prior = store.get(session["session_id"]).get("last_interruption") or {}
+    stimulus_id = str(prior.get("stimulus_id") or active.get("stimulus_id") or "").strip()
+    if not stimulus_id or (active and active.get("stimulus_id") != stimulus_id):
+        raise ValueError("The interrupted stimulus identity is missing or conflicting.")
+    service = current_app.config["TRIAL_EVENT_SERVICE"]
+    trial_state = service.snapshot()
+    prepared = (trial_state.get("preparations") or {}).get(stimulus_id)
+    if not prepared:
+        # A visual-only stimulus has no server trial; its browser attempt is
+        # still interrupted, but there is no hardware preparation to stop.
+        outcome = "visual_only_interrupted"
+        stop_result = None
+    else:
+        if prepared.get("session_id") != session["session_id"]:
+            raise ValueError("The prepared trial belongs to a different session.")
+        start_id = prepared["event_id"]
+        stop_id = prepared["stop_event_id"]
+        if prior.get("start_event_id") and prior["start_event_id"] != start_id:
+            raise ValueError("The interrupted start event differs from the prepared trial.")
+        if prior.get("stop_event_id") and prior["stop_event_id"] != stop_id:
+            raise ValueError("The interrupted stop event differs from the prepared trial.")
+        start_record = (trial_state.get("events") or {}).get(start_id)
+        if start_record is None:
+            cancellation = service.cancel_preparation(start_id, stimulus_id, "abort")
+            outcome = "preparation_cancelled"
+            stop_result = cancellation
+        else:
+            old_stop = (trial_state.get("events") or {}).get(stop_id)
+            if old_stop and old_stop.get("status") == "done":
+                stop_result = old_stop.get("response") or {}
+            else:
+                # Retry an already attempted stop with its original payload;
+                # a new emergency stop is stamped at this request's receipt.
+                stop_payload = (old_stop or {}).get("payload")
+                if old_stop and not stop_payload:
+                    raise ValueError("The previous stop cannot be safely replayed.")
+                if not stop_payload:
+                    receipt_ms = round(time.time() * 1000.0, 3)
+                    stop_payload = {
+                        "event_id": stop_id,
+                        "stimulus_id": stimulus_id,
+                        "study_id": session["study_id"],
+                        "session_id": session["session_id"],
+                        "participant_id": session["participant_id"],
+                        "client_id": session["client_id"],
+                        "question_index": prepared.get("question_index"),
+                        "question_type": "stimulus",
+                        "phase": "stimulus_interrupted_by_reload",
+                        "marker_event": "stimulus_interrupted_by_reload",
+                        "server_received_epoch_ms": receipt_ms,
+                        "source_epoch_ms": receipt_ms,
+                        "time_source": "server_receipt",
+                        "interrupted_by_reload": True,
+                    }
+                stop_result = service.execute(stop_id, "trial_stop", stop_payload, stop_trial_session)
+            service.cancel_deadline(stimulus_id)
+            outcome = "stop_confirmed"
+    store.mark_interruption_reconciled(session["session_id"], stimulus_id, outcome)
+    return {
+        "stimulus_id": stimulus_id,
+        "index": active.get("index", prior.get("current_index")),
+        "outcome": outcome,
+        "inferred_from_checkpoint": bool(prior.get("inferred_from_checkpoint")),
+        "server_stop_received_epoch_ms": (stop_result or {}).get("server_received_epoch_ms"),
+    }
 
 
 @bp.route("/api/study/session/client-event", methods=["POST"])
@@ -362,10 +516,11 @@ def start_trial():
             runtime_gate = _require_trial_start_runtime(options)
         deadline = None
         if prepare_gate.get("source") != "completed_event":
+            deadline_epoch_ms, stop_payload = _deadline_stop(options)
             deadline = service.arm_deadline(
                 options.get("stimulus_id") or "",
-                options.get("planned_deadline_epoch_ms"),
-                _deadline_stop_payload(options),
+                deadline_epoch_ms,
+                stop_payload,
                 stop_trial_session,
             )
             if not isinstance(deadline, dict) or deadline.get("status") != "armed":
@@ -429,6 +584,26 @@ def prepare_trial():
     _refresh_trial_runtime()
     options = validate_and_normalize_trial_options(request.get_json())
     _apply_trial_ingress_time(options, ingress_epoch_ms)
+    if options.get("time_source") == "server_receipt" or options.get("clock_quality") != "fresh":
+        if options.get("time_source") != "legacy_unverified":
+            return jsonify({
+                "ok": False,
+                "code": "clock_sync_required",
+                "error": "A fresh tablet clock exchange is required before preparing a timed stimulus.",
+                "clock_quality": options.get("clock_quality"),
+            }), 428
+    planned_start = options.get("planned_start_epoch_ms")
+    planned_deadline = options.get("planned_deadline_epoch_ms")
+    if (planned_start is None or planned_deadline is None
+            or planned_deadline <= planned_start
+            or planned_start < ingress_epoch_ms - 120_000
+            or planned_start > ingress_epoch_ms + 600_000
+            or planned_deadline > ingress_epoch_ms + 86_400_000):
+        return jsonify({
+            "ok": False,
+            "code": "invalid_trial_timing",
+            "error": "The planned stimulus start/deadline are missing or implausible.",
+        }), 400
     service = current_app.config["TRIAL_EVENT_SERVICE"]
     try:
         override = service.get_prepare_override(options.get("event_id"))
@@ -437,10 +612,11 @@ def prepare_trial():
                 f"Trial prepare override {options.get('event_id')!r} belongs to a different stimulus."
             )
         prepared = service.prepare(options)
+        deadline_epoch_ms, stop_payload = _deadline_stop(options)
         deadline = service.arm_deadline(
             options.get("stimulus_id") or "",
-            options.get("planned_deadline_epoch_ms"),
-            _deadline_stop_payload(options),
+            deadline_epoch_ms,
+            stop_payload,
             stop_trial_session,
         )
         if not isinstance(deadline, dict) or deadline.get("status") != "armed":
@@ -579,19 +755,43 @@ def get_trial_prepare_override(event_id: str):
 
 def _apply_trial_ingress_time(options: dict, ingress_epoch_ms: float) -> None:
     options["server_received_epoch_ms"] = round(float(ingress_epoch_ms), 3)
-    if options.get("visual_onset_epoch_ms") is not None:
-        options["source_epoch_ms"] = options["visual_onset_epoch_ms"]
-    elif options.get("client_trigger_epoch_ms") is not None:
-        options["source_epoch_ms"] = options["client_trigger_epoch_ms"]
+    claimed_source = options.get("visual_onset_epoch_ms")
+    if claimed_source is None:
+        claimed_source = options.get("client_trigger_epoch_ms")
+    source = options.get("time_source")
+    if source == "tablet_sync":
+        age = options.get("clock_sync_age_ms")
+        rtt = options.get("clock_sync_rtt_ms")
+        if (not options.get("clock_sync_id") or age is None or age > 120_000
+                or rtt is None or rtt > 10_000 or claimed_source is None):
+            options["clock_quality"] = "missing_or_stale_evidence"
+        elif claimed_source > ingress_epoch_ms + max(5_000, rtt / 2 + 1_000):
+            options["clock_quality"] = "source_after_receipt"
+        else:
+            options["clock_quality"] = "fresh"
+            options["source_epoch_ms"] = claimed_source
+            return
+    elif source:
+        options["clock_quality"] = "server_arrival_fallback"
+    else:
+        # Readers for older clients remain one-way compatible, but their
+        # source time must not be described as calibrated.
+        options["time_source"] = "legacy_unverified"
+        options["clock_quality"] = "legacy_unverified"
+        if claimed_source is not None:
+            options["source_epoch_ms"] = claimed_source
+            return
+        options["source_epoch_ms"] = options["server_received_epoch_ms"]
+        return
+    options["time_source"] = "server_receipt"
+    options["source_epoch_ms"] = options["server_received_epoch_ms"]
 
 
-def _deadline_stop_payload(options: dict) -> dict:
-    return {
-        **options,
-        "event_id": options.get("stop_event_id") or "",
-        "marker_event": "stimulus_active_stop",
-        "phase": "stimulus_active_stop",
-    }
+def _deadline_stop(options: dict) -> tuple[float | None, dict]:
+    """The server's safety stop: the event that ends the actuators, and when."""
+
+    deadline_epoch_ms, stop_identity = stop_deadline_for(options)
+    return deadline_epoch_ms, {**options, **stop_identity}
 
 
 def _trial_dispatch_error_response(error: TrialDispatchError, options: dict):

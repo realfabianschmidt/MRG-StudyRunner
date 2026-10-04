@@ -889,6 +889,9 @@ def _biosignal_table_rows(summary: dict[str, Any], result_payload: dict[str, Any
             card_label = labels.get(index, f"Q{index + 1}")
         else:
             card_label = str(card.get("card_id") or "Karte")
+        if card.get("window") == "overtime":
+            # The time the participant stayed after the card's duration.
+            card_label = f"{card_label} · Nachlauf"
         streams = card.get("streams") if isinstance(card.get("streams"), dict) else {}
         for stream_key, stream in streams.items():
             if not isinstance(stream, dict):

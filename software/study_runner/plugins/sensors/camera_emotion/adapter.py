@@ -3,7 +3,7 @@ Camera affect adapter for tablet selfie-camera snapshots (sensor data contract).
 
 Browser snapshots are forwarded to the Emotion Worker (local or remote), which
 returns the face/emotion analysis. Without a reachable worker the result says
-so (emotion "unknown", confidence 0 and an error) -- nothing is guessed.
+so and marks the measurements unavailable -- nothing is guessed.
 
 Each analysed frame is one sample in ``emotion`` and one in ``face_quality``,
 published through the shared ``SensorStreams``. The arrival time is taken the
@@ -97,8 +97,8 @@ def initialize(
     )
 
     _streams.configure(auto_install=bool(lsl_auto_install))
-    if _config["enabled"] and _config["lsl_enabled"]:
-        _streams.open_all()
+    if _config["enabled"] and _config["lsl_enabled"] and not _streams.open_all():
+        _set_state({"status": "failed", "last_message": "Camera LSL outlets could not be opened."})
 
 
 def start() -> dict[str, Any]:
@@ -109,6 +109,8 @@ def start() -> dict[str, Any]:
         _set_state({"status": "not_configured", "last_message": "Camera affect adapter is not configured."})
     elif not _config.get("enabled"):
         _set_state({"status": "disabled", "last_message": "Camera affect analysis is disabled."})
+    elif _config.get("lsl_enabled") and not _streams.open_all():
+        _set_state({"status": "failed", "last_message": "Camera LSL outlets could not be opened."})
     else:
         _set_state({"status": "ready", "last_message": "Camera affect analysis is ready."})
     return get_status()
@@ -165,6 +167,10 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
             "client_captured_at": payload.get("client_captured_at") or payload.get("client_timestamp"),
             "source_monotonic_ms": payload.get("source_monotonic_ms"),
             "source_epoch_ms": payload.get("source_epoch_ms"),
+            "clock_sync_id": payload.get("clock_sync_id"),
+            "clock_sync_age_ms": payload.get("clock_sync_age_ms"),
+            "clock_sync_rtt_ms": payload.get("clock_sync_rtt_ms"),
+            "time_source": payload.get("time_source"),
             "server_received_at": received_at,
             "processed_at": timestamp(),
             "sequence_number": payload.get("sequence_number"),
@@ -185,6 +191,10 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
         "client_captured_at": payload.get("client_captured_at") or payload.get("client_timestamp"),
         "source_monotonic_ms": payload.get("source_monotonic_ms"),
         "source_epoch_ms": payload.get("source_epoch_ms"),
+        "clock_sync_id": payload.get("clock_sync_id"),
+        "clock_sync_age_ms": payload.get("clock_sync_age_ms"),
+        "clock_sync_rtt_ms": payload.get("clock_sync_rtt_ms"),
+        "time_source": payload.get("time_source"),
         "server_received_at": received_at,
         "processed_at": timestamp(),
         "sequence_number": payload.get("sequence_number"),
@@ -193,9 +203,6 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
         "frame": frame_info,
         "analysis": analysis,
     }
-    result["_epoch"] = time.time()
-    _history.append(dict(result))
-
     message = "Camera affect frame processed."
     status = "connected"
     if analysis.get("error"):
@@ -207,6 +214,18 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
             f"{sequence_diagnostics['gap_count']}."
         )
         status = "degraded"
+    if _config.get("lsl_enabled"):
+        publication = _publish(result, arrival, arrival_epoch)
+        result["recording"] = publication
+        if not publication["complete"]:
+            result["accepted"] = False
+            result["reason"] = "recording_failed"
+            message = "Camera frame was not fully published to LSL."
+            status = "failed"
+    else:
+        result["recording"] = {"required": False, "complete": False, "status": "not_requested"}
+    result["_epoch"] = time.time()
+    _history.append(dict(result))
     _set_state(
         {
             "status": status,
@@ -215,8 +234,6 @@ def process_frame(payload: dict[str, Any]) -> dict[str, Any]:
             "last_message": message,
         }
     )
-    if _config.get("lsl_enabled"):
-        _publish(result, arrival, arrival_epoch)
     return result
 
 
@@ -337,6 +354,8 @@ def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]
         return {
             "available": False,
             "sample_count": 0,
+            "valid_detection_count": 0,
+            "valid_emotion_count": 0,
             "avg_face_confidence": None,
             "avg_emotion_confidence": None,
             "face_detected_rate": None,
@@ -346,32 +365,50 @@ def get_interval_summary(start_epoch: float, end_epoch: float) -> dict[str, Any]
 
     emotion_totals: dict[str, float] = {}
     face_detected = 0
+    detection_count = 0
+    emotion_count = 0
     face_conf_values: list[float] = []
     emotion_conf_values: list[float] = []
 
     for sample in samples:
         analysis = sample.get("analysis") or {}
-        if analysis.get("face_detected"):
-            face_detected += 1
-        if analysis.get("face_confidence") is not None:
-            face_conf_values.append(float(analysis.get("face_confidence") or 0.0))
-        if analysis.get("confidence") is not None:
-            emotion_conf_values.append(float(analysis.get("confidence") or 0.0))
+        if sample.get("recording") and (sample["recording"]).get("status") != "recorded":
+            continue
+        detection_valid = analysis.get(
+            "detection_valid",
+            not bool(analysis.get("error")) and isinstance(analysis.get("face_detected"), bool),
+        ) is True
+        emotion_valid = analysis.get("emotion_valid", detection_valid and bool(analysis.get("face_detected"))) is True
+        if detection_valid:
+            detection_count += 1
+            if analysis.get("face_detected") is True:
+                face_detected += 1
+            face_confidence = _finite_number(analysis.get("face_confidence"))
+            if face_confidence is not None:
+                face_conf_values.append(face_confidence)
+        if not emotion_valid:
+            continue
+        emotion_count += 1
+        confidence = _finite_number(analysis.get("confidence"))
+        if confidence is not None:
+            emotion_conf_values.append(confidence)
         for emotion, score in (analysis.get("scores") or {}).items():
-            if score is None:
-                continue
-            emotion_totals[emotion] = emotion_totals.get(emotion, 0.0) + float(score)
+            value = _finite_number(score)
+            if value is not None:
+                emotion_totals[emotion] = emotion_totals.get(emotion, 0.0) + value
 
     dominant_emotion = None
     if emotion_totals:
         dominant_emotion = max(emotion_totals.items(), key=lambda item: item[1])[0]
 
     return {
-        "available": True,
+        "available": detection_count > 0 or emotion_count > 0,
         "sample_count": len(samples),
+        "valid_detection_count": detection_count,
+        "valid_emotion_count": emotion_count,
         "avg_face_confidence": _mean(face_conf_values),
         "avg_emotion_confidence": _mean(emotion_conf_values),
-        "face_detected_rate": round(face_detected / len(samples), 4),
+        "face_detected_rate": round(face_detected / detection_count, 4) if detection_count else None,
         "dominant_emotion": dominant_emotion,
         "max_gap_seconds": max_gap_seconds(samples),
         **truncation_info(_history, start_epoch),
@@ -438,15 +475,7 @@ def _forward_to_emotion_worker(payload: dict[str, Any]) -> dict[str, Any]:
         with urllib.request.urlopen(req, timeout=timeout_s) as resp:
             raw = resp.read()
             result = json.loads(raw)
-        # Ensure the result has the expected shape
-        result.setdefault("worker_mode", _config.get("worker_mode", "local_worker"))
-        result.setdefault("face_detected", False)
-        result.setdefault("emotion", "unknown")
-        result.setdefault("confidence", 0.0)
-        result.setdefault("face_confidence", 0.0)
-        result.setdefault("scores", {name: 0.0 for name in _EMOTIONS})
-        result.setdefault("overlay", {})
-        return result
+        return _normalize_worker_analysis(result)
     except (urllib.error.URLError, OSError, ValueError) as exc:
         reason = f"emotion_worker unreachable: {exc}"
         _set_state({"last_message": reason})
@@ -454,53 +483,156 @@ def _forward_to_emotion_worker(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _worker_error_result(reason: str) -> dict[str, Any]:
-    scores = {name: 0.0 for name in _EMOTIONS}
     return {
         "worker_mode": _config.get("worker_mode", "local_worker"),
-        "face_detected": False,
+        "analysis_status": "error",
+        "detection_valid": False,
+        "emotion_valid": False,
+        "face_detected": None,
         "emotion": "unknown",
-        "confidence": 0.0,
-        "face_confidence": 0.0,
-        "scores": scores,
+        "confidence": None,
+        "face_confidence": None,
+        "scores": {},
         "overlay": {},
         "error": reason,
         "install_hint": "Run the Study Runner installer again (tools/install-windows.cmd or tools/install-macos.sh), then restart the Emotion Worker from the dashboard.",
     }
 
 
-def _publish(result: dict[str, Any], arrival: float, arrival_epoch: float) -> None:
-    """One sample in each stream, dated back to the tablet's capture time when plausible."""
+def _normalize_worker_analysis(raw: Any) -> dict[str, Any]:
+    """Reject incomplete remote/local worker outputs instead of filling measurements with zero."""
+    if not isinstance(raw, dict):
+        return _worker_error_result("emotion worker returned a non-object analysis")
+    if raw.get("error"):
+        return _worker_error_result(str(raw["error"]))
+    if (
+        raw.get("analysis_status") == "no_face"
+        and raw.get("detection_valid") is True
+        and raw.get("face_detected") is False
+    ):
+        return {
+            **raw,
+            "worker_mode": _config.get("worker_mode", "local_worker"),
+            "emotion_valid": False,
+            "face_detected": False,
+            "emotion": "unknown",
+            "confidence": None,
+            "face_confidence": None,
+            "scores": {},
+            "overlay": {},
+        }
+    detector_score = _finite_number(raw.get("face_confidence"))
+    confidence = _finite_number(raw.get("confidence"))
+    emotion = str(raw.get("emotion") or "").strip().lower()
+    scores = raw.get("scores")
+    if (
+        raw.get("analysis_status") != "ok"
+        or raw.get("detection_valid") is not True
+        or raw.get("emotion_valid") is not True
+        or raw.get("face_detected") is not True
+        or detector_score is None
+        or detector_score < 0
+        or confidence is None
+        or emotion not in _EMOTIONS
+        or not isinstance(scores, dict)
+        or any(
+            (score := _finite_number(scores.get(name))) is None or not 0.0 <= score <= 1.0
+            for name in _EMOTIONS
+        )
+        or not 0.0 <= confidence <= 1.0
+        or abs(confidence - float(scores[emotion])) > 0.001
+    ):
+        return _worker_error_result("emotion worker returned incomplete or invalid analysis")
+    return {**raw, "worker_mode": _config.get("worker_mode", "local_worker")}
+
+
+def _publish(result: dict[str, Any], arrival: float, arrival_epoch: float) -> dict[str, Any]:
+    """Publish both declared samples and report partial writes explicitly."""
     analysis = result.get("analysis") or {}
     scores = analysis.get("scores") or {}
     frame = result.get("frame") or {}
-    face = 1.0 if analysis.get("face_detected") else 0.0
-    emotion = {name: float(scores.get(name, 0.0)) for name in _EMOTIONS}
+    detection_valid = analysis.get("detection_valid") is True
+    emotion_valid = analysis.get("emotion_valid") is True
+    face = float(analysis["face_detected"]) if detection_valid else math.nan
+    emotion = {
+        name: float(scores[name]) if emotion_valid and name in scores else math.nan
+        for name in _EMOTIONS
+    }
     emotion.update({
-        "confidence": float(analysis.get("confidence") or 0.0),
+        "confidence": float(analysis["confidence"]) if emotion_valid else math.nan,
         "face_detected": face,
+        "valid": float(emotion_valid),
         "sequence": result.get("sequence_number"),
     })
     quality = {
         "face_detected": face,
-        "face_confidence": float(analysis.get("face_confidence") or 0.0),
-        "width": float(frame.get("width") or 0.0),
-        "height": float(frame.get("height") or 0.0),
+        "face_confidence": (
+            float(analysis["face_confidence"])
+            if detection_valid and analysis.get("face_confidence") is not None else math.nan
+        ),
+        "width": _finite_number(frame.get("width")),
+        "height": _finite_number(frame.get("height")),
+        "valid": float(detection_valid),
         "sequence": result.get("sequence_number"),
     }
-    stamp = _capture_timestamp(result.get("source_epoch_ms"), arrival, arrival_epoch)
-    _streams.push("emotion", _streams.row("emotion", emotion), stamp, arrival=arrival)
-    _streams.push("face_quality", _streams.row("face_quality", quality), stamp, arrival=arrival)
+    stamp, timestamp_source = _capture_timestamp(result, arrival, arrival_epoch)
+    result["timestamp_source"] = timestamp_source
+    evidence = {
+        "time_source": 1.0 if timestamp_source == "tablet_sync" else 0.0,
+        "source_monotonic_ms": _finite_number(result.get("source_monotonic_ms")),
+        "clock_sync_age_ms": _finite_number(result.get("clock_sync_age_ms")) if timestamp_source == "tablet_sync" else None,
+        "clock_sync_rtt_ms": _finite_number(result.get("clock_sync_rtt_ms")) if timestamp_source == "tablet_sync" else None,
+    }
+    emotion.update(evidence)
+    quality.update(evidence)
+    emotion_published = _streams.push(
+        "emotion", _streams.row("emotion", emotion), stamp, arrival=arrival, valid=emotion_valid
+    )
+    quality_published = _streams.push(
+        "face_quality", _streams.row("face_quality", quality), stamp, arrival=arrival, valid=detection_valid
+    )
+    complete = emotion_published and quality_published
+    return {
+        "required": True,
+        "complete": complete,
+        "status": "recorded" if complete else "partial" if emotion_published or quality_published else "failed",
+        "emotion_published": emotion_published,
+        "face_quality_published": quality_published,
+        "errors": {
+            key: _streams.last_error(key)
+            for key, published in (("emotion", emotion_published), ("face_quality", quality_published))
+            if not published
+        },
+    }
 
 
-def _capture_timestamp(source_epoch_ms: Any, arrival: float, arrival_epoch: float) -> float:
-    """The tablet's capture time on this computer's LSL clock, or the arrival time."""
+def _capture_timestamp(result: dict[str, Any], arrival: float, arrival_epoch: float) -> tuple[float, str]:
+    """Backdate only a plausible capture with fresh shared-clock evidence."""
+    if result.get("time_source") != "tablet_sync" or not str(result.get("clock_sync_id") or ""):
+        return arrival, "server_receipt"
+    estimate_age = _finite_number(result.get("clock_sync_age_ms"))
+    rtt = _finite_number(result.get("clock_sync_rtt_ms"))
+    source_epoch_ms = _finite_number(result.get("source_epoch_ms"))
+    if (
+        estimate_age is None or not 0 <= estimate_age <= 120_000
+        or rtt is None or rtt < 0
+        or source_epoch_ms is None
+    ):
+        return arrival, "server_receipt"
+    age = arrival_epoch - source_epoch_ms / 1000.0
+    if not 0.0 <= age <= MAX_CAPTURE_AGE_SECONDS:
+        return arrival, "server_receipt"
+    return arrival - age, "tablet_sync"
+
+
+def _finite_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     try:
-        age = arrival_epoch - float(source_epoch_ms) / 1000.0
+        number = float(value)
     except (TypeError, ValueError):
-        return arrival
-    if not math.isfinite(age) or not 0.0 <= age <= MAX_CAPTURE_AGE_SECONDS:
-        return arrival
-    return arrival - age
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _set_state(values: dict[str, Any]) -> None:
@@ -528,4 +660,3 @@ def _mean(values: list[float]) -> float | None:
     if not values:
         return None
     return round(sum(values) / len(values), 4)
-

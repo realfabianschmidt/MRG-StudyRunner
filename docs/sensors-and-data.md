@@ -76,6 +76,15 @@ published result view. `manifest.json` and `checksums.sha256` record provenance
 and artifact integrity. `finalization-state.json` plus the JSONL log make every
 step and retry replayable after a process restart.
 
+Answers in the canonical submission have passed each Card's validator and may
+therefore be normalized (for example, whitespace, numeric types or omitted
+optional answers). They are not a byte-for-byte copy of the browser's draft.
+An optional Card left unanswered is explicitly listed as skipped. The
+versioned `_partial/<session>.json` checkpoint is a recovery artifact for
+acknowledged Cards; its unfinished Card draft is deliberately excluded and
+must be completed again after a reload. Older partial files remain available
+for operator recovery but are not silently promoted to verified checkpoints.
+
 ## How The Recording Is Produced
 
 You do not have to configure any of this; it follows from the plugins the
@@ -158,6 +167,11 @@ capture and local/remote analysis workers are internal modes.
 - Raw camera frames are not stored as session video by this architecture.
 
 Emotion values are research signals, not diagnostic measurements.
+They are model inferences from captured images, not direct measurements of a
+participant's emotion. Detector confidence is an uncalibrated face-detection
+score, independent of the model's emotion confidence. A no-face frame is a
+valid negative face detection but has no emotion measurement; a worker error
+invalidates both channels. Unavailable numeric measurements are `NaN` in XDF.
 
 **Plan the emotion model before the study day.** The analysis model is
 separately licensed under non-commercial research terms and ships in no
@@ -175,9 +189,41 @@ deadlines. Visual onset records event ID, monotonic time, estimated server time,
 and deadline locally; rendering does not wait for a network response. The
 backend also knows the deadline and closes routing/markers idempotently.
 
+The tablet exchanges four timestamps with the server three times at startup
+and before a session, then refreshes every 60 seconds and when the tab returns
+or reconnects. The lowest-delay exchange supplies one paired offset and RTT;
+the selected exchanges are retained with the result. An estimate over 120
+seconds old is stale. Events carry the selected exchange ID, age, RTT and
+`time_source`; without valid calibration the server receipt is labelled as a
+fallback, and a new timed stimulus cannot be prepared. The RTT/2 value is at
+best a network-delay bound under a symmetry assumption, not a measurement of
+browser rendering, camera exposure or sensor acquisition time. A host wall
+clock step is flagged and the affected marker uses LSL receipt time rather
+than a guessed historical mapping.
+
 Hidden tabs do not pause a trial. Visibility interruption duration and late
 callback delay are stored as quality metadata. Events are buffered locally and
 retried with their original event IDs and source times.
+
+Sensors record continuously; a stimulus card never starts or stops them, it
+only writes markers. Start and stop go to the actuator plugins the card
+selected (a plugin is an actuator when its manifest declares trial `start`
+and `stop`):
+
+| Moment | Marker | Actuators |
+|---|---|---|
+| The stimulus begins | `stimulus_active_start` | start |
+| The duration is reached, only when the card does not continue automatically | `stimulus_time_up` | stop, unless they keep running during overtime |
+| The card is left (with auto-advance: when the duration is reached) | `stimulus_active_stop` | stop, if not stopped yet |
+
+The server's safety stop fires whichever of these events stops the
+actuators: at the planned end, or with overtime at the latest after the
+card's maximum overtime. The card's statistics window runs from
+`stimulus_active_start` to `stimulus_time_up` (or `stimulus_active_stop`),
+so it has the same length for every participant; the overtime from
+`stimulus_time_up` to `stimulus_active_stop` is its own window in
+`card-summary.json` (`window: "overtime"`) and `overtime_ms` in
+`card_events`.
 
 For scientific streams, original source timestamps, LSL time correction, and
 XDF clock-offset chunks remain authoritative. Browser/server clock estimates

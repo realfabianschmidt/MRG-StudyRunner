@@ -124,8 +124,8 @@ class ShippedStudyContentTests(unittest.TestCase):
         config = _load(CARD_GALLERY_PRESET)
         self.assertTrue(all(not entry["enabled"] for entry in config["study_settings"]["plugins"].values()))
         stimulus = next(question for question in config["questions"] if question["type"] == "stimulus")
-        self.assertFalse(stimulus["plugin_actions"]["brainbit"]["to_touchdesigner"])
-        self.assertFalse(stimulus["plugin_actions"]["osc"]["forward_marker"])
+        # A sensor-free gallery drives no actuator.
+        self.assertEqual(stimulus["actuator_plugins"], [])
 
     def test_sensor_example_covers_the_active_sensor_catalog_but_starts_disabled(self) -> None:
         from study_runner.plugin_framework.registry import get_plugin_manifests

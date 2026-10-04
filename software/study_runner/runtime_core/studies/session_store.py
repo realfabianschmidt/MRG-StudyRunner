@@ -134,11 +134,16 @@ class SessionStore:
         study_id = str(payload.get("study_id") or "").strip()
         participant_id = str(payload.get("participant_id") or "").strip()
         client_id = str(payload.get("client_id") or "").strip()
+        study_revision = str(payload.get("study_revision") or "").strip()
         with self._lock:
             existing = self._find_active_locked(study_id, participant_id, client_id)
             now = self._clock()
             if existing is not None:
+                if study_revision and existing.get("study_revision") not in (None, "", study_revision):
+                    raise ValueError("The active session belongs to a different study revision.")
                 candidate = deepcopy(existing)
+                if study_revision and not candidate.get("study_revision"):
+                    candidate["study_revision"] = study_revision
                 candidate["last_seen"] = now
                 candidate["last_seen_at"] = _format_server_time(now)
                 self._commit_session_locked(candidate, "session_reused")
@@ -149,6 +154,7 @@ class SessionStore:
                 "session_id": session_id,
                 "client_id": client_id,
                 "study_id": study_id,
+                "study_revision": study_revision,
                 "participant_id": participant_id,
                 "current_index": payload.get("current_index"),
                 "current_type": payload.get("current_type"),
@@ -167,6 +173,7 @@ class SessionStore:
         study_id = str(payload.get("study_id") or "").strip()
         participant_id = str(payload.get("participant_id") or "").strip()
         client_id = str(payload.get("client_id") or "").strip()
+        study_revision = str(payload.get("study_revision") or "").strip()
         with self._lock:
             session = self._sessions.get(session_id) if session_id else None
             if session is not None:
@@ -177,9 +184,15 @@ class SessionStore:
                     client_id=client_id,
                 ):
                     return None
+                bound_revision = str(session.get("study_revision") or "")
+                if (bound_revision and bound_revision != study_revision) or (study_revision and not bound_revision):
+                    return None
             else:
                 session = self._find_active_locked(study_id, participant_id, client_id)
             if session is None:
+                return None
+            bound_revision = str(session.get("study_revision") or "")
+            if (bound_revision and bound_revision != study_revision) or (study_revision and not bound_revision):
                 return None
             now = self._clock()
             candidate = deepcopy(session)
@@ -212,6 +225,25 @@ class SessionStore:
                 str(payload.get("event") or "client_event"),
             )
             return deepcopy(candidate)
+
+    def mark_interruption_reconciled(self, session_id: str, stimulus_id: str, outcome: str) -> None:
+        """Durably close one reload interruption after trial safety is confirmed."""
+
+        with self._lock:
+            session = self._sessions.get(str(session_id or "").strip())
+            if session is None:
+                raise ValueError("The interrupted study session no longer exists.")
+            candidate = deepcopy(session)
+            interruption = candidate.get("last_interruption")
+            if isinstance(interruption, dict) and interruption.get("stimulus_id") == stimulus_id:
+                interruption["reconciled_at"] = _format_server_time(self._clock())
+                interruption["reconciliation_outcome"] = outcome
+            self._append_event_locked(candidate, "stimulus_reconciled", {
+                "current_index": candidate.get("current_index"),
+                "current_type": "stimulus",
+                "stimulus_id": stimulus_id,
+            })
+            self._commit_session_locked(candidate, "stimulus_reconciled")
 
     def mark_completed(self, session_id: str) -> bool:
         with self._lock:
@@ -272,6 +304,10 @@ class SessionStore:
         }
         if event_name in INTERRUPTION_EVENTS and item["is_stimulus_active"]:
             item["interrupted_by_reload"] = True
+            item["stimulus_id"] = str(payload.get("stimulus_id") or "")
+            item["start_event_id"] = str(payload.get("start_event_id") or "")
+            item["stop_event_id"] = str(payload.get("stop_event_id") or "")
+            item["inferred_from_checkpoint"] = bool(payload.get("inferred_from_checkpoint", False))
             session["last_interruption"] = item
         events.append(item)
         if len(events) > MAX_EVENTS_PER_SESSION:
@@ -285,6 +321,7 @@ def public_session(session: dict[str, Any] | None) -> dict[str, Any] | None:
         "session_id": session.get("session_id"),
         "client_id": session.get("client_id"),
         "study_id": session.get("study_id"),
+        "study_revision": session.get("study_revision"),
         "participant_id": session.get("participant_id"),
         "current_index": session.get("current_index"),
         "current_type": session.get("current_type"),

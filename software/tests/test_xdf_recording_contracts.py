@@ -19,6 +19,7 @@ from study_runner.data_core.host.xdf import (
     StreamInspection,
     UnavailableCanonicalXdfBackend,
     XdfArtifactInspection,
+    _sequence_drop_count,
     validate_merge_parity,
     validate_sources,
 )
@@ -143,6 +144,11 @@ class XdfRecordingContractTests(unittest.TestCase):
 
         self.assertEqual(clean.invalid_rows_with_values, 0)
         self.assertEqual(mixed.invalid_rows_with_values, 1)
+
+    def test_sequence_gap_qc_accepts_short_seq_channel_names(self) -> None:
+        rows = [[1.0, 10.0], [2.0, 11.0], [3.0, 14.0]]
+        self.assertEqual(_sequence_drop_count(rows, ("value", "seq")), 2)
+        self.assertEqual(_sequence_drop_count(rows, ("value", "radar.seq")), 2)
 
 
 def _backup_stream(labels: tuple[str, ...], rows: list[list[float]]) -> dict:

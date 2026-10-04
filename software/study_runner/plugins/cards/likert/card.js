@@ -53,6 +53,12 @@ export function collectAnswer(i) {
   return sel ? Number.parseInt(sel.value, 10) : null;
 }
 
+export function restoreAnswer(i, _question, answer, cardElement) {
+  cardElement.querySelectorAll(`input[name="q${i}"]`).forEach((input) => {
+    input.checked = Number(input.value) === answer;
+  });
+}
+
 export function isAnswered(_question, _questionIndex, { cardElement }) {
   return Boolean(cardElement.querySelector('input[type="radio"]:checked'));
 }

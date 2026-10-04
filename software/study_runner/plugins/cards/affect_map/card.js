@@ -109,6 +109,18 @@ export function collectAnswer(i) {
   return { words: [...current.selected], ...current.position };
 }
 
+export function restoreAnswer(i, _question, answer) {
+  const current = state(i);
+  current.selected = new Set(answer?.words || []);
+  current.position = answer ? {
+    pleasantness: answer.pleasantness,
+    energy: answer.energy,
+    ...(answer.intensity === undefined ? {} : { intensity: answer.intensity }),
+  } : null;
+  view(i).refresh?.(i, CTX);
+  renderChips(i);
+}
+
 export function isAnswered(_question, i) { return collectAnswer(i) !== null; }
 
 function preview(variantName, colors) {

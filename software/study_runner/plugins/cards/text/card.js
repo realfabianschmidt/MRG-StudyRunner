@@ -26,6 +26,11 @@ export function collectAnswer(i) {
   return document.getElementById(`q${i}`)?.value || '';
 }
 
+export function restoreAnswer(i, _question, answer, cardElement) {
+  const input = cardElement.querySelector(`#q${i}`);
+  if (input) input.value = answer;
+}
+
 export function isAnswered(_question, questionIndex) {
   return (collectAnswer(questionIndex) || '').trim().length > 0;
 }

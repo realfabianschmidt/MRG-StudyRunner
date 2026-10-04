@@ -35,30 +35,18 @@ def _status(context: PluginContext) -> dict[str, Any]:
     }
 
 
+# Start and stop reach this plugin only when a stimulus card selected it;
+# the core makes that choice for every actuator alike.
 def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
-    if not _forward_marker(options):
-        return
     from . import adapter
 
     adapter.send_start()
 
 
 def _trial_stop(context: PluginContext, options: dict[str, Any]) -> None:
-    if not _forward_marker(options):
-        return
     from . import adapter
 
     adapter.send_stop()
-
-
-def _forward_marker(options: dict[str, Any]) -> bool:
-    plugin_actions = options.get("plugin_actions")
-    plugin_actions = plugin_actions if isinstance(plugin_actions, dict) else {}
-    actions = plugin_actions.get("osc")
-    if isinstance(actions, dict) and "forward_marker" in actions:
-        return bool(actions["forward_marker"])
-    # One-release compatibility for a request from an already-open old UI.
-    return bool(options.get("send_signal", True))
 
 
 PLUGIN = Plugin(

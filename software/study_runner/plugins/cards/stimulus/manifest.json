@@ -2,7 +2,7 @@
   "api_version": 5,
   "plugin_key": "stimulus",
   "config_key": "stimulus",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "category": "card",
   "capabilities": {
     "card_contract": {
@@ -14,7 +14,8 @@
         "stimulus"
       ],
       "host_data": [
-        "plugin_actions"
+        "plugin_actions",
+        "actuator_plugins"
       ]
     }
   },
@@ -46,6 +47,7 @@
     },
     "assets": [
       "card.js",
+      "sound-cues.js",
       "card.css"
     ]
   }

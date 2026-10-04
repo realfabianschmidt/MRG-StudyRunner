@@ -115,7 +115,7 @@ def send_marker(value: str, *, server_epoch_ms: Any = None) -> dict[str, Any]:
     mapping is available the original ``push_sample([value])`` behavior is kept.
     """
 
-    global _last_lsl_timestamp
+    global _last_lsl_timestamp, _wall_to_lsl_offset
     with _lock:
         outlet = _outlet
         if outlet is None:
@@ -124,7 +124,25 @@ def send_marker(value: str, *, server_epoch_ms: Any = None) -> dict[str, Any]:
                 "marker_lsl_timestamp": None,
                 "marker_push_epoch_ms": None,
             }
-        requested_lsl_timestamp = _mapped_lsl_timestamp(server_epoch_ms)
+        host_clock_step_ms = None
+        if _local_clock is not None and _wall_to_lsl_offset is not None:
+            try:
+                local_now = float(_local_clock())
+                wall_now = time.time()
+                current_offset = local_now - wall_now
+            except (TypeError, ValueError, RuntimeError):
+                current_offset = math.nan
+            if math.isfinite(current_offset):
+                difference = current_offset - _wall_to_lsl_offset
+                if abs(difference) > 0.5:
+                    # A host wall-clock step invalidates an old wall-to-LSL
+                    # mapping. Do not backdate this marker with a guessed map.
+                    host_clock_step_ms = round(difference * 1000.0, 3)
+                    _wall_to_lsl_offset = current_offset
+        requested_lsl_timestamp = (
+            None if host_clock_step_ms is not None else _mapped_lsl_timestamp(server_epoch_ms)
+        )
+        mapped_server_epoch = requested_lsl_timestamp is not None
         if requested_lsl_timestamp is None and _local_clock is not None:
             try:
                 candidate = float(_local_clock())
@@ -152,6 +170,10 @@ def send_marker(value: str, *, server_epoch_ms: Any = None) -> dict[str, Any]:
         "sent": True,
         "marker_lsl_timestamp": used_lsl_timestamp,
         "marker_push_epoch_ms": pushed_at_epoch_ms,
+        "host_clock_step_ms": host_clock_step_ms,
+        "timestamp_source": "lsl_receipt_after_clock_step" if host_clock_step_ms is not None
+                            else "mapped_server_epoch" if mapped_server_epoch
+                            else "lsl_receipt",
     }
 
 

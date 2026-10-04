@@ -8,12 +8,22 @@ from study_runner.plugin_framework.card_catalog import card_bindings
 from study_runner.plugin_framework.registry import get_plugin_catalog
 from study_runner.plugin_framework.process_host import PluginProcessError
 
-from .study_plugin_config import PluginConfigError, normalize_card_plugin_actions
+from .study_plugin_config import (
+    PluginConfigError,
+    normalize_card_actuator_plugins,
+    normalize_card_plugin_actions,
+)
 
 
 class CardExtensionUnavailableError(RuntimeError):
     """The card could not validate; the input must not be treated as accepted."""
 
+
+# One provider per value the card contract may request (CARD_HOST_DATA).
+_HOST_DATA = {
+    "plugin_actions": normalize_card_plugin_actions,
+    "actuator_plugins": normalize_card_actuator_plugins,
+}
 
 _defaults_catalog = None
 _defaults_cache: dict[str, dict] = {}
@@ -71,11 +81,10 @@ def normalize_card_config(question_type: str, question_data: dict, question_inde
     plugin, contract = _card_plugin(question_type)
     host_data = {}
     for requirement in contract["host_data"]:
-        if requirement == "plugin_actions":
-            try:
-                host_data[requirement] = normalize_card_plugin_actions(question_data)
-            except PluginConfigError as error:
-                raise CardValidationError(f"Question {question_index} {error}") from error
+        try:
+            host_data[requirement] = _HOST_DATA[requirement](question_data)
+        except PluginConfigError as error:
+            raise CardValidationError(f"Question {question_index} {error}") from error
     return _config_result(question_type, _call(
         question_type, plugin.normalize_card_config, question_data, question_index, host_data,
     ))

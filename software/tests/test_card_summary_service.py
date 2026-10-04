@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.runtime_core.studies.card_summary_service import CardSummaryBuilder, CardSummaryError
+from study_runner.runtime_core.studies.card_summary_service import CardSummaryBuilder, CardSummaryError, _sample_valid
 
 
 class FixtureReader:
@@ -36,6 +36,11 @@ class FixtureReader:
 
 
 class CardSummaryBuilderTests(unittest.TestCase):
+    def test_non_finite_validity_is_not_treated_as_valid(self) -> None:
+        self.assertFalse(_sample_valid({"valid": math.nan}))
+        self.assertFalse(_sample_valid({"valid": 0.0}))
+        self.assertTrue(_sample_valid({"valid": 1.0}))
+
     def test_half_open_window_statistics_and_quality_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             merged = Path(temp_dir) / "session.xdf"

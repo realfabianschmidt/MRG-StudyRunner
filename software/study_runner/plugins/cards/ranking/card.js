@@ -41,6 +41,23 @@ export function collectAnswer(questionIndex) {
   return [...(list?.children || [])].map(el => el.querySelector('.rank-text').textContent);
 }
 
+export function restoreAnswer(i, _question, answer, cardElement) {
+  const list = cardElement.querySelector(`#rl${i}`);
+  if (!list) return;
+  const rows = [...list.querySelectorAll('.rank-item')];
+  const byText = new Map();
+  rows.forEach((row) => {
+    const text = row.querySelector('.rank-text')?.textContent;
+    if (!byText.has(text)) byText.set(text, []);
+    byText.get(text).push(row);
+  });
+  answer.forEach((value) => {
+    const row = byText.get(value)?.shift();
+    if (row) list.appendChild(row);
+  });
+  renumberItems(list);
+}
+
 // The initial order is a plausible-looking ranking whether or not the
 // participant ever dragged an item, so - like the slider - this needs the
 // controller's own touched-field record rather than collectAnswer() alone.

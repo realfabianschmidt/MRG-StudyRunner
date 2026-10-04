@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.runtime_core.delivery.upload_runtime import _plugin_executor
+from study_runner.runtime_core.delivery.upload_runtime import _plugin_executor, apply_deferred_upload_targets
 from study_runner.runtime_core.delivery.upload_jobs_service import UploadJobError, UploadJobService
 from study_runner.runtime_core.studies.study_config_service import (
     StudyRevisionConflict, delete_study, load_config, load_study,
@@ -57,6 +57,14 @@ def settings(config: dict) -> dict:
 
 
 class UploadTargetPersistenceTests(unittest.TestCase):
+    def test_discovered_target_waits_until_study_is_not_busy(self) -> None:
+        with patch("study_runner.runtime_core.delivery.upload_runtime.study_busy_reason", return_value="running"):
+            self.executor(self.discovered)(self.queued)
+            self.assertNotIn("database_id", settings(load_config(self.app.config["CONFIG_FILE"])))
+            self.assertEqual(apply_deferred_upload_targets(self.app), 0)
+        self.assertEqual(apply_deferred_upload_targets(self.app), 1)
+        self.assertEqual(settings(load_config(self.app.config["CONFIG_FILE"]))["database_id"], "created-db")
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -159,7 +167,12 @@ class UploadTargetPersistenceTests(unittest.TestCase):
             self.assertEqual(call["saved_output"], self.original["saved_output"])
         self.assertEqual(self.queued, self.original)
         target = next((self.app.config["DATA_DIR"] / "upload_targets").glob("*.json"))
-        self.assertEqual(json.loads(target.read_text()), {"schema": "study-runner/upload-target/v1", "settings": {"database_id": "durable-db"}})
+        durable_target = json.loads(target.read_text())
+        self.assertEqual(durable_target["schema"], "study-runner/upload-target/v1")
+        self.assertEqual(durable_target["settings"], {"database_id": "durable-db"})
+        self.assertEqual(durable_target["study_id"], "Study A")
+        self.assertEqual(durable_target["plugin_key"], "notion")
+        self.assertIn("expected_settings", durable_target)
 
     def test_different_target_does_not_inherit_an_old_discovery(self) -> None:
         self.executor(self.discovered)(self.queued)

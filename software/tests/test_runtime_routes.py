@@ -20,6 +20,60 @@ from study_runner.plugin_framework.process_host import get_process_runtime
 
 
 class RuntimeRoutesTests(unittest.TestCase):
+    def test_concurrent_start_prevents_a_prevalidated_study_save(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+            client = app.test_client()
+            config = {
+                "study_id": "study-a",
+                "study_settings": {"sensors_enabled": False, "sensors": {}, "plugins": {}},
+                "questions": [{"type": "participant-id"}, {"type": "finish"}],
+            }
+            self.assertEqual(client.post("/api/config", json=config).status_code, 200)
+            self.assertEqual(client.post("/api/study-client/heartbeat", json={
+                "client_id": "tablet-1", "study_id": "study-a", "waiting_for_admin_start": True,
+            }).status_code, 200)
+
+            from study_runner.apps.server.routes import study as study_routes
+            original_validate = study_routes.validate_and_normalize_config
+            validation_started = threading.Event()
+            allow_save = threading.Event()
+            responses = []
+
+            def paused_validation(value):
+                result = original_validate(value)
+                validation_started.set()
+                if not allow_save.wait(timeout=10):
+                    raise TimeoutError("test save validation was not released")
+                return result
+
+            def save_from_other_thread():
+                responses.append(app.test_client().post("/api/config", json={
+                    **config, "questions": [
+                        {"type": "participant-id"},
+                        {"type": "text", "prompt": "New question"},
+                        {"type": "finish"},
+                    ],
+                }))
+
+            with patch.object(study_routes, "validate_and_normalize_config", side_effect=paused_validation):
+                worker = threading.Thread(target=save_from_other_thread)
+                worker.start()
+                self.assertTrue(validation_started.wait(timeout=10))
+                started = client.post("/api/admin/study-run/start", json={})
+                allow_save.set()
+                worker.join(timeout=10)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(started.status_code, 200)
+            self.assertEqual(responses[0].status_code, 409)
+            self.assertEqual(responses[0].get_json()["code"], "study_busy")
+
     def test_machine_admin_plugin_persistence_works_from_reader_thread(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
@@ -179,12 +233,14 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertEqual(started.status_code, 200)
         self.assertEqual(started.get_json()["run_state"]["status"], "running")
         self.assertEqual(started.get_json()["run_state"]["active_client_id"], "tablet-1")
+        self.assertEqual(started.get_json()["run_state"]["study_revision"], saved.get_json()["config"]["_revision"])
         self.assertEqual(allowed.status_code, 200)
         self.assertEqual(allowed.get_json()["study_run_state"]["status"], "running")
+        self.assertEqual(allowed.get_json()["session"]["study_revision"], saved.get_json()["config"]["_revision"])
         self.assertEqual(persisted.status_code, 200)
         self.assertEqual(persisted.get_json()["run_state"]["status"], "running")
 
-    def test_admin_study_run_load_returns_config_and_waiting_state(self) -> None:
+    def test_admin_study_run_load_rejects_active_run_then_allows_stopped_run(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {
                 "STUDY_RUNNER_DATA_DIR": data_dir,
@@ -212,13 +268,17 @@ class RuntimeRoutesTests(unittest.TestCase):
             started = client.post("/api/admin/study-run/start", json={})
             loaded = client.post("/api/admin/study-run/load", json={"id": "study-a"})
             config = client.get("/api/config")
+            stopped = client.post("/api/admin/study-run/stop", json={})
+            loaded_after_stop = client.post("/api/admin/study-run/load", json={"id": "study-a"})
 
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(started.get_json()["run_state"]["status"], "running")
-        self.assertEqual(loaded.status_code, 200)
-        self.assertEqual(loaded.get_json()["config"]["study_id"], "study-a")
-        self.assertEqual(loaded.get_json()["run_state"]["status"], "loaded")
-        self.assertEqual(config.get_json()["_runtime"]["study_run_state"]["status"], "loaded")
+        self.assertEqual(loaded.status_code, 409)
+        self.assertEqual(loaded.get_json()["code"], "study_busy")
+        self.assertEqual(config.get_json()["_runtime"]["study_run_state"]["status"], "running")
+        self.assertEqual(stopped.status_code, 200)
+        self.assertEqual(loaded_after_stop.status_code, 200)
+        self.assertEqual(loaded_after_stop.get_json()["run_state"]["status"], "loaded")
 
     def test_admin_study_run_start_requires_exactly_one_matching_tablet(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:

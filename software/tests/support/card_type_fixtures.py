@@ -23,14 +23,15 @@ whichever plugin manifests happen to be installed
 registry), so its exact content is not a property of card-type validation
 at all. Pinning it here would make this fixture fail for a reason that has
 nothing to do with card types -- a plugin gaining or losing a
-``card_actions_schema`` field. ``STIMULUS_EXCLUDED_KEYS`` names the keys
-left out of that comparison.
+``card_actions_schema`` field. ``actuator_plugins`` is the same: a card
+without a selection gets every installed actuator. ``STIMULUS_EXCLUDED_KEYS``
+names the keys left out of that comparison.
 """
 from __future__ import annotations
 
 from typing import Any
 
-STIMULUS_EXCLUDED_KEYS = frozenset({"plugin_actions"})
+STIMULUS_EXCLUDED_KEYS = frozenset({"plugin_actions", "actuator_plugins"})
 
 # question_type -> {"question": ..., "expected_question": ..., and for
 # answerable types "answer": ..., "expected_answer": ...}. Non-answer types
@@ -92,7 +93,15 @@ CARD_TYPE_FIXTURES: dict[str, dict[str, Any]] = {
             "duration_ms": 5000,
             "trigger_type": "timer",
             "trigger_content": "",
-            # plugin_actions deliberately omitted -- see STIMULUS_EXCLUDED_KEYS.
+            "end_sound": "none",
+            "end_sound_url": "",
+            "end_sound_volume": 80,
+            "auto_advance": True,
+            "overtime_keep_stimulus": True,
+            "overtime_keep_actuators": False,
+            "overtime_max_ms": 300000,
+            # plugin_actions and actuator_plugins deliberately omitted -- see
+            # STIMULUS_EXCLUDED_KEYS.
         },
     },
     "finish": {

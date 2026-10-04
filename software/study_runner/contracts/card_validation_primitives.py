@@ -1,6 +1,8 @@
 """Small, shared input primitives; card semantics live in their extensions."""
 from __future__ import annotations
 
+import math
+
 from typing import Any
 
 
@@ -70,6 +72,9 @@ def normalize_float(
         normalized = float(value)
     except (TypeError, ValueError) as exc:
         raise CardValidationError(f"{field_name} must be a number.") from exc
+
+    if not math.isfinite(normalized):
+        raise CardValidationError(f"{field_name} must be a finite number.")
 
     if normalized < minimum or normalized > maximum:
         raise CardValidationError(f"{field_name} must be between {minimum} and {maximum}.")

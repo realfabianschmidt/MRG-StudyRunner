@@ -46,6 +46,28 @@ test('ranking: the initial order is not itself an answer', () => {
   assert.equal(ranking.isAnswered(question, 0, { touchedFieldCount: 1 }), true);
 });
 
+test('ranking recovery preserves duplicate labels and their recorded order', () => {
+  const row = (label) => ({
+    label,
+    number: { textContent: '' },
+    querySelector(selector) {
+      return selector === '.rank-text' ? { textContent: this.label } : this.number;
+    },
+  });
+  const rows = [row('A'), row('B'), row('A')];
+  const list = {
+    children: rows,
+    querySelectorAll: () => rows,
+    appendChild(item) {
+      rows.splice(rows.indexOf(item), 1);
+      rows.push(item);
+    },
+  };
+  ranking.restoreAnswer(0, {}, ['A', 'A', 'B'], { querySelector: () => list });
+  assert.deepEqual(rows.map((item) => item.label), ['A', 'A', 'B']);
+  assert.deepEqual(rows.map((item) => item.number.textContent), ['#1', '#2', '#3']);
+});
+
 test('choice: checked means a checkbox, not a radio', () => {
   const question = { type: 'choice' };
   assert.equal(choice.isAnswered(question, 0, { cardElement: elementWithChecked(0) }), false);
@@ -86,6 +108,14 @@ test('every answerable registered type has an isAnswered hook; stimulus/finish/i
     .filter(([, cardModule]) => typeof cardModule.isAnswered !== 'function')
     .map(([type]) => type);
   assert.deepEqual(new Set(withoutHook), new Set(['stimulus', 'finish', 'info']));
+});
+
+test('every answerable registered type owns a recovery hook', () => {
+  const withoutRestore = Object.entries(CARDS)
+    .filter(([type]) => !['stimulus', 'finish', 'info'].includes(type))
+    .filter(([, cardModule]) => typeof cardModule.restoreAnswer !== 'function')
+    .map(([type]) => type);
+  assert.deepEqual(withoutRestore, []);
 });
 
 test('interactive custom cards expose a bindInteractions hook', () => {

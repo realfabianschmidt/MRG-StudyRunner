@@ -124,7 +124,7 @@ Edit-safety legend:
 | `software/study_runner/runtime_core/studies/operator_notices.py` | Persisted notices for the admin: every tablet error and every refused session start, until clicked | careful |
 | `software/study_runner/runtime_core/studies/live_sensor_readiness.py` | Live check on Play: which selected study sensors are not delivering data right now | careful |
 | `software/study_runner/data_core/host/study_sensor_runtime.py` | Which sensors are effectively on (study settings + overrides) | careful |
-| `software/study_runner/runtime_core/studies/trial_service.py` | Sends stimulus start/stop markers to plugins and the two built-in recording sources | careful |
+| `software/study_runner/runtime_core/studies/trial_service.py` | Sends stimulus start/stop to the card's selected actuator plugins and every marker to the two built-in recording sources | careful |
 | `software/study_runner/runtime_core/studies/study_client_service.py` | Tablet heartbeat bookkeeping | careful |
 | `software/study_runner/runtime_core/settings/secrets_service.py` | Local-secrets file I/O plus manifest-driven hardware-config redaction | no |
 | `software/study_runner/plugin_framework/plugin_secrets.py` | Per-study credential overrides and secret resolution, never written into the exported study | no |
@@ -304,10 +304,10 @@ Fourteen folders, one per card (`choice` alone answers both `choice` and
 
 | File | Purpose | Edit? |
 |---|---|---|
-| `<card>/manifest.json` | Declares `capabilities.card_contract`: `question_types`, `answerless_types`, and any `host_data` the card needs from the host (e.g. stimulus's `plugin_actions`); `ui.extensions.card` names its JS entry point | careful |
+| `<card>/manifest.json` | Declares `capabilities.card_contract`: `question_types`, `answerless_types`, and any `host_data` the card needs from the host (stimulus's `plugin_actions` and `actuator_plugins`); `ui.extensions.card` names its JS entry point | careful |
 | `<card>/driver.py` | API-v5 process entry point (`run_plugin_driver("<card>")`) | no |
 | `<card>/plugin.py` | Implements the executable card contract: `get_card_defaults`/`normalize_card_config`/`validate_card_answer`; imports only `contracts`, never `runtime_core` | careful |
-| `<card>/card.js` | Renderer/editor module: `metaByType`, `configureCard`, `renderStudy`, `renderEditor`, `collectConfig`, `collectAnswer`, and the optional `isAnswered`/`bindInteractions` hooks; loaded on demand by `apps/ui/scripts/cards/index.js` | careful |
+| `<card>/card.js` | Renderer/editor module: `metaByType`, `configureCard`, `renderStudy`, `renderEditor`, `collectConfig`, `collectAnswer`, and the optional `isAnswered`/`bindInteractions` hooks (a stimulus card may also export `onStimulusPrepared`/`onTimeUp`, called by the stimulus runtime); loaded on demand by `apps/ui/scripts/cards/index.js` | careful |
 
 | `mood_meter/mood-core.js` | Mood Meter core: quadrants, each word's place on the energy x pleasantness plane (Brackett's 10 x 10 grid), colors, morphing shape, spring, animation loop | careful |
 | `mood_meter/word-space.js` | Mood Meter fullscreen word space (pan with momentum, zoom or circle reveal), shared by the classic and blob views | careful |
@@ -316,6 +316,7 @@ Fourteen folders, one per card (`choice` alone answers both `choice` and
 | `affect_map/mood-core.js` | Independent positional and color core, copied from Mood Meter for plugin removability | careful |
 | `affect_map/view-field.js`, `affect_map/view-orbit.js` | Affect Map's Field/Orbit views with per-card palette support | careful |
 | `affect_map/card.css` | Affect Map's self-contained visual styles | careful |
+| `stimulus/sound-cues.js` | The stimulus card's end-of-time sound: built-in gong/bell/beep synthesized with WebAudio, an optional custom file decoded ahead, the iPad audio unlock; played through the card's `onTimeUp` hook | careful |
 
 Folders: `affect_map`, `choice`, `finish`, `info`, `likert`, `mood_meter`, `multi_slider`,
 `participant_id`, `ranking`, `semantic`, `slider`, `stimulus`, `text`,
@@ -327,8 +328,11 @@ one, unlike the plugin table above).
 | File | Purpose | Edit? |
 |---|---|---|
 | `participant/study-controller.js` | Participant page initialization, card rendering, and page orchestration | careful |
+| `participant/tablet-clock.js` | Repeated tablet-server clock exchanges, low-delay selection, freshness, and event-time evidence | careful |
+| `participant/participant-event-payload.js` | Shared participant marker and trial payload with timing provenance | careful |
+| `participant/participant-pending-submission.js` | Durable browser-side retry state for a final result submission | careful |
 | `participant/participant-session-recovery.js` | Clock sync, partial snapshots, lifecycle events, cover page, and reload recovery | careful |
-| `participant/participant-stimulus-execution.js` | Prepared-trial timing and stimulus content lifecycle | careful |
+| `participant/participant-stimulus-execution.js` | Prepared-trial timing, stimulus content lifecycle, and the end of the time: auto-advance or overtime until Next, with the time-up marker and one actuator stop | careful |
 | `participant/participant-result-submission.js` | Answer/card metrics, sensor and plugin session state, navigation readiness, and submission | careful |
 | `admin/admin-controller.js` | Admin initialization, header, QR/access information, and view navigation | careful |
 | `admin/admin-run-control.js` | Readiness gates and active study-run controls | careful |

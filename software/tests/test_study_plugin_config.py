@@ -266,7 +266,7 @@ class StudyPluginMigrationTests(unittest.TestCase):
             },
         )
 
-    def test_legacy_stimulus_fields_become_plugin_actions(self) -> None:
+    def test_legacy_stimulus_fields_become_plugin_actions_and_an_actuator_selection(self) -> None:
         migrated = migrate_study_plugin_config(
             {
                 "study_id": "Legacy cards",
@@ -284,13 +284,14 @@ class StudyPluginMigrationTests(unittest.TestCase):
         )
         actions = migrated["questions"][0]["plugin_actions"]
 
-        self.assertTrue(actions["brainbit"]["to_touchdesigner"])
         self.assertEqual(actions["camera_emotion"]["snapshot_interval_ms"], 1500)
         self.assertNotIn("lsl", actions)
         self.assertNotIn("mini_radar", actions)
-        self.assertNotIn("to_lsl", actions["brainbit"])
+        self.assertNotIn("brainbit", actions, "a sensor has no start/stop option of its own")
         self.assertNotIn("capture_enabled", actions["camera_emotion"])
-        self.assertFalse(actions["osc"]["forward_marker"])
+        self.assertNotIn("osc", actions, "the actuator selection replaced OSC's own switch")
+        # send_signal=False switched every start/stop signal off.
+        self.assertEqual(migrated["questions"][0]["actuator_plugins"], [])
         self.assertNotIn("send_signal", migrated["questions"][0])
         self.assertNotIn("camera_capture_enabled", migrated["questions"][0])
 

@@ -23,6 +23,7 @@ def migrate_study_config(
     normalize_settings: Callable[[dict[str, Any]], dict[str, Any]],
     normalize_actions: Callable[[dict[str, Any]], dict[str, dict[str, Any]]],
     legacy_card_fields: set[str],
+    normalize_actuators: Callable[[dict[str, Any]], list[str]] | None = None,
 ) -> dict[str, Any]:
     """Return the current shape while preserving canonical values."""
 
@@ -54,6 +55,10 @@ def migrate_study_config(
                     question["info_top"] = legacy_hint
             question.pop("code_hint", None)
             if question.get("type") == "stimulus":
+                # The actuator selection reads the old fields, so it is
+                # settled before they are dropped.
+                if normalize_actuators is not None:
+                    question["actuator_plugins"] = normalize_actuators(question)
                 question["plugin_actions"] = normalize_actions(question)
                 for legacy_key in legacy_card_fields:
                     question.pop(legacy_key, None)

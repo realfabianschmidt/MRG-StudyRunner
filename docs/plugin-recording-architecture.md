@@ -96,6 +96,10 @@ Every built-in manifest provides:
 - a `runtime` block: `entrypoint` (always `driver.py`), `protocol`
   (`study-runner-stdio/v1`), `interactive_stdin`, and its supported `modes`
 - `ui` metadata, including label, description, order, and visibility
+- `runtime.trial_events`: `start` and `stop` together make a plugin an
+  actuator; stimulus cards list it automatically and only the cards that
+  select it call its trial hooks. Sensors declare neither (at most
+  `session_end`) and only ever see markers.
 - `settings.machine`, `settings.study`, and `settings.card_actions` schemas
 - declarative `capabilities`
 - stable stream metadata for every LSL stream
@@ -446,6 +450,16 @@ idempotently.
 Page visibility does not pause a trial. Visibility interruption duration and
 late-callback delay are quality metadata. Marker and card events are buffered
 locally and retried with their original source time and event ID.
+
+Card navigation waits for a durable, sequenced acknowledgement on the existing
+partial-results path. A newer complete checkpoint replaces the previous one;
+late pagehide writes cannot roll it back. Resume verifies session and study
+revision, restores only completed Card answers through each Card's hook, and
+requires the open Card to be redone. An interrupted physical stimulus is not
+treated as continuous: the old attempt is cancelled or stopped through the
+trial journal before a new attempt with new IDs can be offered. The old attempt
+remains in XDF and event history. If reconciliation fails, navigation stays
+blocked for operator attention.
 
 ## Persistent Finalization
 

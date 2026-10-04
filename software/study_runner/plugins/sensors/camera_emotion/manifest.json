@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "camera_emotion",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "category": "biosignal",
   "config_key": "camera_emotion",
   "runtime": {
@@ -69,7 +69,8 @@
       "source_timestamp_required": true,
       "source_timestamp_fields": [
         "source_epoch_ms",
-        "source_timestamp"
+        "source_timestamp",
+        "source_monotonic_ms"
       ]
     },
     "lsl_stream_provider": {},
@@ -127,8 +128,13 @@
         },
         {
           "output": "face_detected",
-          "stream": "emotion",
+          "stream": "face_quality",
           "channel": "face_detected"
+        },
+        {
+          "output": "face_confidence",
+          "stream": "face_quality",
+          "channel": "face_confidence"
         }
       ]
     },
@@ -155,14 +161,25 @@
           "key": "face",
           "stream": "face_quality",
           "channels": [
-            "face_detected",
-            "face_confidence"
+            "face_detected"
           ],
           "label_key": "cameraEmotion.live.face",
           "label": "Face detection",
           "scale": 100,
           "min_span": 10,
           "unit_label": "%"
+        },
+        {
+          "key": "face_confidence",
+          "stream": "face_quality",
+          "channels": [
+            "face_confidence"
+          ],
+          "label_key": "cameraEmotion.channel.face_confidence",
+          "label": "Detector score (uncalibrated)",
+          "scale": 1,
+          "min_span": 0.1,
+          "unit_label": ""
         }
       ]
     },
@@ -247,7 +264,12 @@
         "unknown",
         "confidence",
         "face_detected",
+        "valid",
         "sequence",
+        "time_source",
+        "source_monotonic_ms",
+        "clock_sync_age_ms",
+        "clock_sync_rtt_ms",
         "correction_ms"
       ],
       "channel_units": [
@@ -261,7 +283,12 @@
         "probability",
         "probability",
         "boolean",
+        "boolean",
         "count",
+        "code",
+        "millisecond",
+        "millisecond",
+        "millisecond",
         "millisecond"
       ],
       "name": "CameraEmotion",
@@ -283,15 +310,25 @@
         "face_confidence",
         "width",
         "height",
+        "valid",
         "sequence",
+        "time_source",
+        "source_monotonic_ms",
+        "clock_sync_age_ms",
+        "clock_sync_rtt_ms",
         "correction_ms"
       ],
       "channel_units": [
         "boolean",
-        "probability",
+        "detector_score_uncalibrated",
         "pixel",
         "pixel",
+        "boolean",
         "count",
+        "code",
+        "millisecond",
+        "millisecond",
+        "millisecond",
         "millisecond"
       ],
       "name": "CameraFaceQuality",

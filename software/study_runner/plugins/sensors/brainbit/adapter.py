@@ -4,15 +4,12 @@ BrainBit adapter - launches a repo-local BrainBit CLI process and optionally mir
 Expected setup inside this repository:
   - BrainBit Python CLI script in the project folder, for example:
       study_runner/plugins/sensors/brainbit/brainbit_realtime_cli.py
-  - TouchDesigner project listening for OSC on the configured port, for example:
-      study_runner/plugins/sensors/brainbit/HelloEEG_HelloMYO_01.3.toe
 
 The BrainBit CLI itself is responsible for Bluetooth scanning and SDK usage. This adapter keeps
 Study Runner in charge of:
   - starting the external process at server startup
   - stopping it cleanly on server shutdown
   - relaying selected numeric outputs into optional LSL streams for LabRecorder
-  - forwarding selected BrainBit values to TouchDesigner based on the active stimulus card
   - keeping the main server terminal quiet by writing details to log/state files
 """
 from __future__ import annotations
@@ -33,7 +30,6 @@ from .monitor import BrainBitMonitor
 
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 
-from study_runner.shared.dependency_utils import ensure_requirements
 from study_runner.plugin_framework.sensor_streams import SensorStreams
 from .brainbit_realtime_cli import (
     EXIT_BLE_UNAVAILABLE,
@@ -112,14 +108,12 @@ DEFAULT_SETTLE_SECONDS = 2.0
 
 _lock = threading.Lock()
 _state_lock = threading.Lock()
-_routing_lock = threading.Lock()
 _process: subprocess.Popen[str] | None = None
 _process_generation = 0
 _reader_thread: threading.Thread | None = None
 _watchdog_thread: threading.Thread | None = None
 _registered_shutdown = False
 _config: dict[str, Any] = {}
-_td_client: Any = None
 _latest_state: dict[str, Any] = {}
 _last_state_write = 0.0
 _last_state_write_error_at = 0.0
@@ -144,10 +138,6 @@ _stream_contract_ready = threading.Event()
 # Never set in normal operation: waiting on an Event that nobody sets is simply
 # an interruptible sleep. It exists so a shutdown can cut a settle short.
 _restart_settle_event = threading.Event()
-_routing_state = {
-    "forward_to_lsl": False,
-    "forward_to_touchdesigner": False,
-}
 _auto_restart_count = 0
 _last_auto_restart_at = 0.0
 # Switched on, but no search or connection runs: the plugin waits for the
@@ -286,8 +276,6 @@ def initialize(
     script_path: str,
     working_dir: str | None = None,
     python_executable: str | None = None,
-    osc_host: str = "127.0.0.1",
-    osc_port: int = 8000,
     scan_seconds: int = 5,
     device_index: int | None = 0,
     device_address: str | None = None,
@@ -358,8 +346,6 @@ def initialize(
         "script_path": str(script_file),
         "working_dir": str(resolved_working_dir),
         "python_executable": resolved_python,
-        "osc_host": osc_host,
-        "osc_port": int(osc_port),
         "scan_seconds": int(scan_seconds),
         "device_index": device_index,
         "device_address": str(device_address or "").strip(),
@@ -403,16 +389,12 @@ def initialize(
             return
         stop()
     _config = new_config
-    with _routing_lock:
-        _routing_state["forward_to_lsl"] = bool(lsl_enabled)
-        _routing_state["forward_to_touchdesigner"] = False
 
     _set_state(
         {
             "status": "configured",
             "script_path": _config["script_path"],
             "working_dir": _config["working_dir"],
-            "osc_target": f"{_config['osc_host']}:{_config['osc_port']}",
             "raw_log_path": _config["raw_log_path"],
             "state_path": _config["state_path"],
             "target_device": _target_device_from_config(),
@@ -420,8 +402,6 @@ def initialize(
         },
         force=True,
     )
-
-    _initialize_touchdesigner_client()
 
     if _config["lsl_enabled"]:
         _initialize_lsl_outlets()
@@ -584,7 +564,7 @@ def start() -> None:
         launch_label = "--brainbit-cli" if _uses_frozen_self_dispatch() else Path(_config["script_path"]).name
         print(
             "[BrainBit] External CLI started "
-            f"({launch_label} -> OSC {_config['osc_host']}:{_config['osc_port']})"
+            f"({launch_label})"
         )
         print(f"[BrainBit] State file: {_config['state_path']}")
         print(f"[BrainBit] Raw log: {_config['raw_log_path']}")
@@ -779,7 +759,6 @@ def get_status() -> dict[str, Any]:
         "pid": pid,
         "lsl_enabled": bool(_config.get("lsl_enabled", False)),
         "recording_enabled": bool(_config.get("lsl_enabled", False) and _has_recent_raw_lsl(latest)),
-        "touchdesigner_forwarding_enabled": bool(_routing_state.get("forward_to_touchdesigner", False)),
         "scan_timeout_seconds": int(_config.get("scan_seconds", 5)) if _config else None,
         "last_scan_started_at": latest.get("last_scan_started_at"),
         "last_scan_finished_at": latest.get("last_scan_finished_at"),
@@ -1100,7 +1079,6 @@ def _read_output(process: subprocess.Popen[str], generation: int | None = None) 
                 continue
             _append_raw_log(line, generation=generation)
             important = _update_state_from_line(line)
-            _forward_line_to_touchdesigner(line)
             _mirror_line_to_lsl(line)
             if not _config.get("quiet_output", True) or important:
                 print(f"[BrainBit] {line}")
@@ -1893,7 +1871,7 @@ def _close_log_handle() -> None:
 
 
 # ============================================================
-#  4. FORWARDING - LSL / TouchDesigner mirrors
+#  4. FORWARDING - LSL mirror
 # ============================================================
 def _mirror_line_to_lsl(line: str) -> None:
     if not _config.get("lsl_enabled", False) and not _streams.contracts():
@@ -2127,138 +2105,6 @@ def _publish_diagnostic_snapshot() -> None:
         return
     _last_diagnostic_snapshot = now
     _publish_diagnostic("SNAPSHOT", _monitor.snapshot())
-
-
-def set_routing(
-    *,
-    forward_to_lsl: bool | None = None,
-    forward_to_touchdesigner: bool | None = None,
-) -> None:
-    with _routing_lock:
-        if forward_to_lsl is not None:
-            _routing_state["forward_to_lsl"] = bool(forward_to_lsl)
-        if forward_to_touchdesigner is not None:
-            _routing_state["forward_to_touchdesigner"] = bool(forward_to_touchdesigner)
-
-        state_snapshot = dict(_routing_state)
-
-    _set_state({"routing": state_snapshot}, force=True)
-    print(
-        "[BrainBit] Routing updated: "
-        f"LSL={'on' if state_snapshot['forward_to_lsl'] else 'off'}, "
-        f"TouchDesigner={'on' if state_snapshot['forward_to_touchdesigner'] else 'off'}"
-    )
-
-
-def _is_routing_enabled(key: str) -> bool:
-    with _routing_lock:
-        return bool(_routing_state.get(key, False))
-
-
-def _initialize_touchdesigner_client() -> None:
-    global _td_client
-
-    if not ensure_requirements(
-        [("pythonosc", "python-osc")],
-        auto_install=True,
-        label="BrainBit OSC",
-    ):
-        _td_client = None
-        return
-
-    try:
-        from pythonosc.udp_client import SimpleUDPClient
-
-        _td_client = SimpleUDPClient(_config["osc_host"], int(_config["osc_port"]))
-        print(
-            "[BrainBit] TouchDesigner OSC proxy ready: "
-            f"{_config['osc_host']}:{_config['osc_port']}"
-        )
-    except Exception as error:
-        _td_client = None
-        print(f"[BrainBit] Could not initialize TouchDesigner OSC proxy: {error}")
-
-
-def _forward_line_to_touchdesigner(line: str) -> None:
-    if _td_client is None or not _is_routing_enabled("forward_to_touchdesigner"):
-        return
-
-    parsed = _parse_json_line(line)
-    if parsed is None:
-        return
-
-    tag, payload = parsed
-
-    if tag == "EEG_BATCH":
-        preview = payload.get("preview")
-        if not isinstance(preview, dict):
-            preview = _latest_eeg_from_batch(payload) or {}
-        for name in (_eeg_lsl_channels or tuple(str(key) for key in preview)):
-            _send_td_num("EEG", name, preview.get(name), root_name=name)
-    elif tag == "EEG":
-        for name in ("O1", "O2", "T3", "T4"):
-            _send_td_num("EEG", name, payload.get(name), root_name=name)
-    elif tag in {"BANDS", "BANDS_BATCH"}:
-        if tag.endswith("_BATCH"):
-            try:
-                _, _, payload = _validated_metric_batch(payload, _BANDS_FIELDS)
-            except ValueError:
-                return
-        for source_name, osc_name in (
-            ("delta", "Delta"),
-            ("theta", "Theta"),
-            ("alpha", "Alpha"),
-            ("beta", "Beta"),
-            ("gamma", "Gamma"),
-        ):
-            _send_td_num("BANDS", osc_name, payload.get(source_name), root_name=osc_name)
-    elif tag in {"MENTAL", "MENTAL_BATCH"}:
-        if tag.endswith("_BATCH"):
-            try:
-                _, _, payload = _validated_metric_batch(payload, _MENTAL_FIELDS)
-            except ValueError:
-                return
-        for name in _MENTAL_FIELDS:
-            _send_td_num("MENTAL", name, payload.get(name), root_name=name)
-    elif tag == "QUALITY":
-        for name in (_eeg_lsl_channels or ("O1", "O2", "T3", "T4")):
-            _send_td_num("QUALITY", name, payload.get(name))
-    elif tag == "BATTERY":
-        _send_td_num("BATTERY", "percent", payload.get("percent"))
-    elif tag == "ARTIFACT":
-        _send_td_num("ARTIFACT", "Both", payload.get("both_now"))
-        _send_td_num("ARTIFACT", "Seq", payload.get("sequence"))
-    elif tag == "CALIB":
-        if "progress_percent" in payload:
-            try:
-                _send_td_num("CALIB", "Progress", float(payload["progress_percent"]) / 100.0)
-            except (TypeError, ValueError):
-                pass
-        event = payload.get("event")
-        if event == "START":
-            _send_td_num("CALIB", "Started", 1.0)
-        elif event == "FINISHED":
-            _send_td_num("CALIB", "Finished", 1.0)
-        elif event == "FORCED_FINISH":
-            _send_td_num("CALIB", "Finished", 1.0)
-            _send_td_num("CALIB", "Forced", 1.0)
-
-
-def _send_td_num(label: str, name: str, value: Any, root_name: str | None = None) -> None:
-    if _td_client is None or value is None:
-        return
-
-    try:
-        numeric_value = float(value)
-    except (TypeError, ValueError):
-        return
-
-    try:
-        _td_client.send_message(f"/BrainBit/{label}/{name}", numeric_value)
-        if root_name:
-            _td_client.send_message(f"/BrainBit/{root_name}", numeric_value)
-    except Exception as error:
-        print(f"[BrainBit] Could not forward OSC {label}/{name}: {error}")
 
 
 def _parse_json_line(line: str) -> tuple[str, dict[str, Any]] | None:

@@ -152,11 +152,13 @@
         },
         "trial_events": {
           "type": "array",
+          "description": "start and stop together make the plugin an actuator that stimulus cards list for selection; sensors declare neither.",
           "items": {
             "enum": [
               "start",
               "stop",
-              "marker"
+              "marker",
+              "session_end"
             ]
           }
         },

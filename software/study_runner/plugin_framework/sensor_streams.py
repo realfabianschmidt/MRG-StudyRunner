@@ -352,7 +352,9 @@ class SensorStreams:
             self._contract(key)
             entry = self._outlets.get(key)
             if entry is None:
-                self._fail(key, f"the {key} stream is not open")
+                prior = self._health[key].last_error
+                reason = f"the {key} stream is not open"
+                self._fail(key, f"{reason}; {prior}" if prior and prior not in reason else reason)
                 return None
             width = len(entry.contract["channels"])
             health = self._health[key]

@@ -54,12 +54,16 @@ Python modules directly — it only ever starts `driver.py` as a subprocess
 - `plugin.py` — the single public plugin: config, lifecycle, participant
   actions, and admin actions (`repair_runtime`, `install_dependencies`).
 - `adapter.py` — accepts tablet camera frames and publishes the stable LSL
-  streams `CameraEmotion` and `CameraFaceQuality` through the shared
-  `SensorStreams` (sensor data contract). A frame's timestamp is its arrival
-  time here, dated back to the tablet's capture time (`source_epoch_ms`) when
-  that is 0-60 s earlier; `correction_ms` records how far, so the arrival
-  time can always be rebuilt. The dashboard draws live graphs of the emotion
-  scores and the face detection; the worker itself publishes nothing.
+  stream identities `CameraEmotion` and `CameraFaceQuality` through the shared
+  `SensorStreams` (sensor data contract). Both streams now include `valid` and
+  timing-evidence channels (plugin version 3). A frame is dated back to the
+  browser snapshot estimate only with fresh shared-clock evidence and a
+  plausible 0-60 s transport age. Otherwise it uses server arrival;
+  `time_source` is 1 for tablet sync and 0 for server arrival. The browser
+  monotonic snapshot time, clock-estimate age, and RTT are retained, while
+  `correction_ms` makes the LSL arrival time recoverable from either XDF
+  stream. The dashboard draws only published, valid values; the worker itself
+  publishes nothing.
 - `worker/` — the internal DeepFace analysis process (`server.py`), its
   supervisor (`worker/plugin.py`), the per-frame analyzer
   (`worker/analyzer.py`), and shared error classification
@@ -69,9 +73,25 @@ Python modules directly — it only ever starts `driver.py` as a subprocess
 ## Where the code comes from
 
 `worker/analyzer.py` calls `DeepFace.analyze(frame, actions=["emotion"],
-enforce_detection=False, detector_backend="opencv", silent=True)` — standard,
+enforce_detection=True, detector_backend="opencv", silent=True)` — standard,
 documented usage of the official `deepface` PyPI package (pinned in
 `software/requirements.txt`), not adapted or copied vendor example code.
+The `face_confidence` output is DeepFace's independent detector score, not the
+highest emotion score and not a calibrated probability. It is shown as a raw
+score, not a percentage. No-face is a valid negative face-detection result:
+`face_detected=0`, face-quality `valid=1`, and emotion `valid=0` with emotion
+values unavailable (`NaN`). Decode, model, worker, and publication failures
+are different from no-face; their affected stream values are invalid and the
+frame JSON/sidecar records the reason. A partial two-stream publication is
+reported as a failure, not as a complete frame.
+
+The tablet captures a JPEG from the browser video element. Its snapshot time
+is taken after drawing the frame, **not** at camera sensor exposure; physical
+exposure time and display-to-camera latency are not measured. Raw JPEGs are
+not saved in sessions. Emotion scores are model inferences about a detected
+face, not direct measurements of a person's internal state. The 1 Hz backup
+is a derived projection with validity and staleness fields, not a copy of all
+camera events; the XDF streams and sidecar retain the per-frame evidence.
 
 The emotion model weight file itself is a separate, VGG-Face-derived
 artifact under non-commercial research terms; `worker/model_errors.py` pins

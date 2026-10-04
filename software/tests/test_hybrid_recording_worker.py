@@ -552,6 +552,24 @@ class _FakePylsl:
 
 
 class LslSourceRecorderTests(unittest.TestCase):
+    def test_projection_cache_respects_a_recorded_valid_channel(self) -> None:
+        stream = StreamSpec.from_manifest({
+            "key": "values",
+            "source_id": "study_runner.fixture",
+            "type": "TEST",
+            "nominal_rate_hz": 1,
+            "channel_format": "float32",
+            "channels": ["value", "valid"],
+            "channel_units": ["arbitrary", "boolean"],
+        })
+        cache = ProjectionCache()
+        cache.update("fixture", stream, [math.nan, 0.0], received_monotonic=0.0,
+                     source_timestamp=10.0, fallback_sequence=1)
+        self.assertFalse(cache.get("fixture", "values").source_ok)
+        cache.update("fixture", stream, [42.0, 1.0], received_monotonic=1.0,
+                     source_timestamp=11.0, fallback_sequence=2)
+        self.assertTrue(cache.get("fixture", "values").source_ok)
+
     def test_projection_cache_degrades_last_real_value_then_becomes_stale_nan(self) -> None:
         stream = StreamSpec.from_manifest(
             {

@@ -377,6 +377,7 @@ class FinalizationService:
         hardware_config: dict[str, Any] | None = None,
         recording_expected: bool = False,
         started_at_epoch: float | None = None,
+        source_submission_sha256: str = "",
     ) -> dict[str, Any]:
         payload = deepcopy(submission)
         payload = sanitize_canonical_submission_sensor_summaries(payload)
@@ -426,6 +427,7 @@ class FinalizationService:
                 "job_id": job_id,
                 "submission_id": submission_id,
                 "submission_sha256": payload_hash,
+                "source_submission_sha256": str(source_submission_sha256 or ""),
                 "study_id": study_id,
                 "participant_id": participant_id,
                 "session_id": session_id,
@@ -488,6 +490,37 @@ class FinalizationService:
 
         self._wake.set()
         return {**self.public_job(state), "created": True}
+
+    def acknowledged_source_submission(
+        self,
+        *,
+        study_id: str,
+        participant_id: str,
+        submission_id: str,
+        session_id: str,
+        source_submission_sha256: str,
+    ) -> dict[str, Any] | None:
+        """Acknowledge an exact HTTP retry even after the active study changed.
+
+        Older commits have no source hash; their existing normalized-payload
+        idempotence path remains available when the study revision still matches.
+        """
+
+        with self._lock:
+            existing_id = self._submission_index.get(
+                _submission_key(study_id, participant_id, submission_id)
+            )
+            state = self._jobs.get(existing_id) if existing_id else None
+            if state is None or not state.get("source_submission_sha256"):
+                return None
+            if (
+                state.get("session_id") != session_id
+                or state["source_submission_sha256"] != source_submission_sha256
+            ):
+                raise SubmissionConflictError(
+                    "submission_id was already committed with different source content."
+                )
+            return {**self.public_job(state), "created": False}
 
     def get(self, job_id: str) -> dict[str, Any]:
         with self._lock:

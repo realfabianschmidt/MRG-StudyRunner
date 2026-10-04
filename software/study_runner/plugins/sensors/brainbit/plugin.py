@@ -98,8 +98,6 @@ def _initialize(context: PluginContext, *, connect: bool = False) -> None:
         ),
         working_dir=_runtime_dir(context, config.get("working_dir"), DEFAULT_BRAINBIT["working_dir"], "runtime"),
         python_executable=context.resolve_project_path(context.resolve_platform_value(config.get("python_executable"))),
-        osc_host=config.get("osc_host", "127.0.0.1"),
-        osc_port=config.get("osc_port", 8000),
         scan_seconds=config.get("scan_seconds", 5),
         device_index=config.get("device_index", 0),
         device_address=context.resolve_platform_value(config.get("device_address") if has_target else last_connected.get("address")),
@@ -226,7 +224,6 @@ def _status(context: PluginContext) -> dict[str, Any]:
         "historical_state": state_payload if not latest else {},
         "runtime_locked": context.runtime_locked,
         "lsl_enabled": bool(config.get("enabled", False)),
-        "touchdesigner_target": f"{config.get('osc_host', '127.0.0.1')}:{config.get('osc_port', 8000)}",
         "scan_timeout_seconds": int(config.get("scan_seconds", 5)),
         "scan_mode": adapter_status.get("scan_mode", "on_request"),
         "last_scan_started_at": adapter_status.get("last_scan_started_at") or latest.get("last_scan_started_at"),
@@ -350,25 +347,6 @@ def _session_end(context: PluginContext, options: dict[str, Any]) -> None:
     from . import adapter
 
     adapter.session_end()
-
-
-def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
-    from . import adapter
-
-    plugin_actions = options.get("plugin_actions")
-    plugin_actions = plugin_actions if isinstance(plugin_actions, dict) else {}
-    actions = plugin_actions.get("brainbit")
-    actions = actions if isinstance(actions, dict) else {}
-    adapter.set_routing(
-        forward_to_lsl=None,
-        forward_to_touchdesigner=bool(actions.get("to_touchdesigner", False)),
-    )
-
-
-def _trial_stop(context: PluginContext, options: dict[str, Any]) -> None:
-    from . import adapter
-
-    adapter.set_routing(forward_to_lsl=None, forward_to_touchdesigner=False)
 
 
 def _interval(context: PluginContext, start_epoch: float, end_epoch: float) -> dict[str, Any]:
@@ -509,8 +487,6 @@ PLUGIN = Plugin(
     stop=_stop,
     restart=_restart,
     run_admin_action=_run_admin_action,
-    on_trial_start=_trial_start,
-    on_trial_stop=_trial_stop,
     on_session_end=_session_end,
     get_interval_summary=_interval,
     export_interval_samples=_export,

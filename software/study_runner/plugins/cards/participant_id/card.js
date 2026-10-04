@@ -442,6 +442,25 @@ export function collectAnswer() {
   return idState().id;
 }
 
+export function restoreAnswer(_index, _question, answer, cardElement, metadata = {}) {
+  const current = idState();
+  current.id = String(answer || '') || null;
+  current.metadata = { ...metadata };
+  const body = cardElement?.querySelector('.pid-card-body');
+  body?.querySelectorAll('[data-pid-field]').forEach((control) => {
+    if (Object.hasOwn(metadata, control.dataset.pidField)) {
+      control.value = metadata[control.dataset.pidField];
+    }
+    // Identity is bound to the running session; non-stored hash inputs cannot
+    // be reconstructed reliably after reload and must not be rehashed.
+    control.disabled = true;
+  });
+  const display = body?.querySelector('.pid-code-display');
+  if (display && current.id) display.textContent = current.id.slice(0, 8);
+  const box = body?.querySelector('.pid-code-box');
+  if (box) box.hidden = !current.id;
+}
+
 export function isAnswered() {
   return collectAnswer() !== null;
 }

@@ -14,9 +14,53 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.apps.server import create_app
+from study_runner.apps.server.routes.study import _apply_trial_ingress_time
 
 
 class TrialTimingRouteTests(unittest.TestCase):
+    def test_fresh_clock_evidence_preserves_source_and_stale_evidence_falls_back(self) -> None:
+        options = {
+            "time_source": "tablet_sync", "clock_sync_id": "exchange-1",
+            "clock_sync_age_ms": 1000.0, "clock_sync_rtt_ms": 20.0,
+            "client_trigger_epoch_ms": 999_900.0,
+        }
+        _apply_trial_ingress_time(options, 1_000_000.0)
+        self.assertEqual(options["source_epoch_ms"], 999_900.0)
+        self.assertEqual(options["clock_quality"], "fresh")
+
+        stale = {**options, "clock_sync_age_ms": 120_001.0}
+        _apply_trial_ingress_time(stale, 1_000_100.0)
+        self.assertEqual(stale["source_epoch_ms"], 1_000_100.0)
+        self.assertEqual(stale["time_source"], "server_receipt")
+        self.assertEqual(stale["clock_quality"], "missing_or_stale_evidence")
+
+        future = {**options, "client_trigger_epoch_ms": 1_010_000.0}
+        _apply_trial_ingress_time(future, 1_000_000.0)
+        self.assertEqual(future["clock_quality"], "source_after_receipt")
+        self.assertEqual(future["source_epoch_ms"], 1_000_000.0)
+
+    def test_prepare_with_new_client_requires_fresh_clock(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+            client = app.test_client()
+            now_ms = time.time() * 1000.0
+            payload = {
+                "event_id": "new-clock-start", "stop_event_id": "new-clock-stop",
+                "stimulus_id": "new-clock-stimulus",
+                "planned_start_epoch_ms": now_ms + 1000,
+                "planned_deadline_epoch_ms": now_ms + 31_000,
+                "time_source": "server_receipt",
+            }
+            response = client.post("/api/trial/prepare", json=payload)
+        self.assertEqual(response.status_code, 428)
+        self.assertEqual(response.get_json()["code"], "clock_sync_required")
+
     def test_prepare_and_duplicate_start_are_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {

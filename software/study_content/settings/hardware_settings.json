@@ -21,8 +21,6 @@
       "stream_prefix": "BrainBit"
     },
     "monitor_refresh_ms": 1000,
-    "osc_host": "127.0.0.1",
-    "osc_port": 8000,
     "pretty": false,
     "python_executable": {
       "macos": "",

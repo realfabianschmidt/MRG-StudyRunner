@@ -94,7 +94,7 @@ class PluginManifestTests(unittest.TestCase):
         for field, value, message in (
             ("version", 2, "version must be 1"),
             ("answerless_types", ["other"], "unique subset"),
-            ("host_data", ["secrets"], "supports only plugin_actions"),
+            ("host_data", ["secrets"], "supports only: actuator_plugins, plugin_actions"),
         ):
             invalid = _card_manifest("fixture_card", "fixture-card")
             invalid["capabilities"]["card_contract"][field] = value

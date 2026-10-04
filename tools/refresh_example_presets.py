@@ -100,7 +100,7 @@ def sensors_study() -> dict:
                 "text": "This portable example includes every current sensor, but all hardware integrations are disabled. On the study computer, connect and test each device in the dashboard, then enable only the sensors you intend to record in Study settings.",
             },
             {"type": "mood-meter", "prompt": "How do you feel before the measurement?", "variant": "classic", "required": True},
-            {"type": "stimulus", "title": "Quiet baseline", "trigger_type": "timer", "warmup_duration_ms": 5000, "duration_ms": 30000, "plugin_actions": {"brainbit": {"to_touchdesigner": False}, "osc": {"forward_marker": False}}},
+            {"type": "stimulus", "title": "Quiet baseline", "trigger_type": "timer", "warmup_duration_ms": 5000, "duration_ms": 30000, "actuator_plugins": []},
             {"type": "single", "prompt": "How comfortable was the measurement period?", "options": ["Comfortable", "Neutral", "Uncomfortable"], "required": True},
             finish,
         ],
@@ -131,7 +131,7 @@ def card_gallery_study() -> dict:
             {"type": "word-cloud", "prompt": "Which words describe your current mood?", "words": ["Calm", "Curious", "Focused", "Tired"], "allow_multiple": True, "required": True},
             {"type": "mood-meter", "prompt": "Where are you on the Mood Meter?", "variant": "field", "required": True},
             {"type": "affect-map", "prompt": "Place yourself on the affect field and choose a nearby word.", "variant": "field", "required": True},
-            {"type": "stimulus", "title": "Timed pause", "trigger_type": "timer", "warmup_duration_ms": 3000, "duration_ms": 10000, "plugin_actions": {"brainbit": {"to_touchdesigner": False}, "osc": {"forward_marker": False}}},
+            {"type": "stimulus", "title": "Timed pause", "trigger_type": "timer", "warmup_duration_ms": 3000, "duration_ms": 10000, "actuator_plugins": []},
             finish,
         ],
         "study_settings": study_settings(

@@ -42,6 +42,20 @@ export function flushReliableStudyEvents() {
   return drainPromise;
 }
 
+/** Drop only an interrupted trial after the server confirms its safe stop. */
+export function discardInterruptedTrialEvents(sessionId, stimulusId) {
+  const removed = [];
+  const retained = readQueue().filter((event) => {
+    const matches = event.payload?.session_id === sessionId
+      && event.payload?.stimulus_id === stimulusId
+      && ['/api/start', '/api/stop', '/api/marker'].includes(event.endpoint);
+    if (matches) removed.push(event.payload.event_id);
+    return !matches;
+  });
+  if (removed.length) writeQueue(retained);
+  return removed;
+}
+
 export function createEventId(prefix = 'event') {
   const randomId = window.crypto?.randomUUID
     ? window.crypto.randomUUID()

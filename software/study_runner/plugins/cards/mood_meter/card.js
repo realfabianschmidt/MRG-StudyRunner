@@ -133,6 +133,18 @@ export function collectAnswer(i) {
   return { words, ...state.position };
 }
 
+export function restoreAnswer(i, _question, answer) {
+  const current = getState(i);
+  const words = Array.isArray(answer) ? answer : answer?.words;
+  current.selected = new Set(words || []);
+  current.position = Array.isArray(answer) || !answer ? null : {
+    pleasantness: answer.pleasantness,
+    energy: answer.energy,
+    ...(answer.intensity === undefined ? {} : { intensity: answer.intensity }),
+  };
+  refreshCard(i);
+}
+
 export function isAnswered(_question, questionIndex) {
   return collectAnswer(questionIndex) !== null;
 }

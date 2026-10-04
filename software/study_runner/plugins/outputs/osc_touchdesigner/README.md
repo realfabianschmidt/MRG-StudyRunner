@@ -1,10 +1,12 @@
 # OSC / TouchDesigner plugin
 
-Forwards trial start/stop markers to TouchDesigner (or any other OSC
-listener) over UDP, so a visual/generative patch can react live to a
-study's stimulus timing. It carries no sensor data of its own
-(`sample_delivery: none`) — it only relays the two `trial_events` (`start`,
-`stop`) declared in its manifest.
+Forwards trial start/stop to TouchDesigner (or any other OSC listener) over
+UDP, so a visual/generative patch can react live to a study's stimulus
+timing. It carries no sensor data of its own (`sample_delivery: none`) — it
+only relays the two `trial_events` (`start`, `stop`) declared in its
+manifest. Declaring both makes it an actuator: every stimulus card lists it
+under "Control actuators", and only cards that select it send it start and
+stop.
 
 ## Architecture
 
@@ -20,8 +22,10 @@ a subprocess and never imports its Python modules directly (see
 - `adapter.py` — the actual OSC client: opens one UDP client for the
   configured host/port and sends `/start` and `/stop` messages.
 - `manifest.json` — declares the `marker_forwarding` capability, the
-  machine settings (`host`, `port`, default `127.0.0.1:8000`), and the card
-  action `forward_marker`.
+  machine settings (`host`, `port`, default `127.0.0.1:8000`), and the trial
+  events `start` and `stop`. There is no per-card option of its own: the
+  stimulus card's actuator selection decides, the same way for every
+  actuator.
 
 ## Where the code comes from
 

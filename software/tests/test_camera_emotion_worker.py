@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -47,6 +49,54 @@ class FakeWorkerProcess:
 
 
 class CameraEmotionWorkerTests(unittest.TestCase):
+    def test_analyzer_uses_detector_score_and_enforces_a_face(self) -> None:
+        analyzer_path = PROJECT_ROOT / "study_runner/plugins/sensors/camera_emotion/worker/analyzer.py"
+        spec = importlib.util.spec_from_file_location("camera_analyzer_integrity_test", analyzer_path)
+        analyzer = importlib.util.module_from_spec(spec)
+        scores = {name: 0.0 for name in ("angry", "disgust", "fear", "happy", "sad", "surprise", "neutral")}
+        scores["happy"] = 90.0
+        calls = []
+
+        class DeepFace:
+            @staticmethod
+            def analyze(_frame, **kwargs):
+                calls.append(kwargs)
+                return [{"dominant_emotion": "happy", "emotion": scores, "face_confidence": 0.42, "region": {}}]
+
+        with patch.dict(sys.modules, {
+            "cv2": SimpleNamespace(), "numpy": SimpleNamespace(), "deepface": SimpleNamespace(DeepFace=DeepFace),
+        }):
+            spec.loader.exec_module(analyzer)
+            with patch.object(analyzer, "_decode_image", return_value=SimpleNamespace(shape=(10, 10, 3))):
+                result = analyzer.analyze_frame({"image": "unused"})
+                self.assertTrue(result["face_detected"])
+                self.assertEqual(result["face_confidence"], 0.42)
+                self.assertEqual(result["confidence"], 0.9)
+                self.assertTrue(result["detection_valid"])
+                self.assertTrue(result["emotion_valid"])
+                self.assertEqual(len(calls), 1)
+                self.assertTrue(calls[0]["enforce_detection"])
+
+                with patch.object(DeepFace, "analyze", return_value=[{
+                    "dominant_emotion": "happy", "emotion": scores,
+                    "face_confidence": math.nan, "region": {},
+                }]):
+                    invalid_score = analyzer.analyze_frame({"image": "unused"})
+                self.assertEqual(invalid_score["analysis_status"], "error")
+                self.assertIsNone(invalid_score["face_confidence"])
+
+                with patch.object(DeepFace, "analyze", side_effect=ValueError("Face could not be detected. Please confirm that the picture is a face photo")):
+                    no_face = analyzer.analyze_frame({"image": "unused"})
+                self.assertEqual(no_face["analysis_status"], "no_face")
+                self.assertTrue(no_face["detection_valid"])
+                self.assertFalse(no_face["emotion_valid"])
+                self.assertIsNone(no_face["confidence"])
+
+                with patch.object(DeepFace, "analyze", side_effect=RuntimeError("model missing")):
+                    failed = analyzer.analyze_frame({"image": "unused"})
+                self.assertEqual(failed["analysis_status"], "error")
+                self.assertFalse(failed["detection_valid"])
+
     def test_camera_plugin_import_uses_the_bundle_root_without_source_markers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             bundle = Path(temporary).resolve() / "_internal"
@@ -102,6 +152,8 @@ class CameraEmotionWorkerTests(unittest.TestCase):
 
         self.assertTrue(result["accepted"])
         self.assertEqual(result["analysis"]["emotion"], "unknown")
+        self.assertFalse(result["analysis"]["emotion_valid"])
+        self.assertFalse(result["analysis"]["detection_valid"])
         self.assertIn("error", result["analysis"])
         self.assertEqual(camera_adapter.get_status()["status"], "failed")
 
@@ -111,12 +163,29 @@ class CameraEmotionWorkerTests(unittest.TestCase):
             {"image": "data:image/jpeg;base64,AAAA", "emotion": "happy", "face_detected": True}
         )
         self.assertEqual(result["analysis"]["emotion"], "unknown")
-        self.assertEqual(result["analysis"]["confidence"], 0.0)
+        self.assertIsNone(result["analysis"]["confidence"])
         self.assertIn("unsupported worker_mode", result["analysis"]["error"])
+
+    def test_remote_worker_without_independent_detector_score_fails_closed(self) -> None:
+        invalid = {
+            "analysis_status": "ok", "detection_valid": True, "emotion_valid": True,
+            "face_detected": True, "emotion": "happy", "confidence": 0.9,
+            "scores": {name: 0.9 if name == "happy" else 0.0 for name in camera_adapter._EMOTIONS},
+        }
+        normalized = camera_adapter._normalize_worker_analysis(invalid)
+        self.assertEqual(normalized["analysis_status"], "error")
+        self.assertFalse(normalized["detection_valid"])
+        self.assertIsNone(normalized["face_confidence"])
 
     def test_preview_frame_is_not_added_to_study_history(self) -> None:
         camera_adapter.initialize(enabled=True, worker_mode="local_worker")
-        worker_result = {"emotion": "happy", "face_detected": True, "confidence": 0.9, "scores": {}, "overlay": {}}
+        worker_result = {
+            "analysis_status": "ok", "detection_valid": True, "emotion_valid": True,
+            "emotion": "happy", "face_detected": True, "face_confidence": 0.42,
+            "confidence": 0.9,
+            "scores": {name: 0.0 for name in camera_adapter._EMOTIONS},
+            "overlay": {},
+        }
 
         with patch.object(camera_adapter, "_forward_to_emotion_worker", return_value=worker_result):
             result = camera_adapter.process_frame(
@@ -172,8 +241,12 @@ class CameraEmotionWorkerTests(unittest.TestCase):
         camera_adapter._streams.use_backend(lsl)
         camera_adapter.initialize(enabled=True, worker_mode="local_worker", emotion_worker_url="", lsl_enabled=True)
         with patch.object(camera_adapter.time, "time", return_value=arrival_epoch):
-            camera_adapter.process_frame({"image": "", "sequence_number": 1, "source_epoch_ms": source_epoch_ms,
-                                          "source_instance_id": "tablet-a"})
+            camera_adapter.process_frame({
+                "image": "", "sequence_number": 1, "source_epoch_ms": source_epoch_ms,
+                "source_monotonic_ms": 500.0, "clock_sync_id": "sync-1",
+                "clock_sync_age_ms": 50.0, "clock_sync_rtt_ms": 8.0,
+                "time_source": "tablet_sync", "source_instance_id": "tablet-a",
+            })
         outlets = {}
         for key, contract in camera_adapter.STREAM_CONTRACTS.items():
             outlet = lsl.outlet(contract["source_id"])
@@ -189,6 +262,12 @@ class CameraEmotionWorkerTests(unittest.TestCase):
         (quality, quality_stamp), = outlets["face_quality"]
         self.assertEqual(quality_stamp, stamp)
         self.assertEqual(quality["sequence"], 1.0)
+        self.assertEqual(emotion["time_source"], 1.0)
+        self.assertEqual(emotion["clock_sync_rtt_ms"], 8.0)
+        self.assertEqual(emotion["valid"], 0.0)  # no worker: analysis is unavailable
+        self.assertTrue(math.isnan(emotion["happy"]))
+        self.assertEqual(quality["valid"], 0.0)
+        self.assertTrue(math.isnan(quality["face_detected"]))
 
     def test_an_implausible_capture_time_keeps_the_arrival_time(self) -> None:
         for source_epoch_ms in (1_005_000.0, 900_000.0, None):  # future, 100 s old, missing
@@ -197,6 +276,96 @@ class CameraEmotionWorkerTests(unittest.TestCase):
                 (emotion, stamp), = self._published(source_epoch_ms)["emotion"]
                 self.assertEqual(stamp, 500.0)
                 self.assertEqual(emotion["correction_ms"], 0.0)
+                self.assertEqual(emotion["time_source"], 0.0)
+
+    def test_stale_or_missing_clock_evidence_never_backdates_a_frame(self) -> None:
+        source = {
+            "source_epoch_ms": 998_000.0,
+            "time_source": "tablet_sync",
+            "clock_sync_id": "sync-1",
+            "clock_sync_age_ms": 120_001.0,
+            "clock_sync_rtt_ms": 8.0,
+        }
+        self.assertEqual(camera_adapter._capture_timestamp(source, 500.0, 1000.0), (500.0, "server_receipt"))
+        source["clock_sync_age_ms"] = 10.0
+        source["clock_sync_id"] = None
+        self.assertEqual(camera_adapter._capture_timestamp(source, 500.0, 1000.0), (500.0, "server_receipt"))
+
+    def test_no_face_is_valid_detection_but_not_an_emotion_measurement(self) -> None:
+        lsl = FakePylsl()
+        camera_adapter._streams.use_backend(lsl)
+        camera_adapter.initialize(enabled=True, lsl_enabled=True)
+        no_face = {
+            "analysis_status": "no_face", "detection_valid": True, "emotion_valid": False,
+            "face_detected": False, "face_confidence": None, "confidence": None,
+            "emotion": "unknown", "scores": {}, "overlay": {},
+        }
+        with patch.object(camera_adapter, "_forward_to_emotion_worker", return_value=no_face):
+            result = camera_adapter.process_frame({"sequence_number": 1, "source_monotonic_ms": 500.0})
+
+        emotion_row = dict(zip(
+            camera_adapter.STREAM_CONTRACTS["emotion"]["channels"],
+            lsl.outlet("study_runner.tablet_camera.emotion").rows[0],
+        ))
+        quality_row = dict(zip(
+            camera_adapter.STREAM_CONTRACTS["face_quality"]["channels"],
+            lsl.outlet("study_runner.tablet_camera.face_quality").rows[0],
+        ))
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["recording"]["status"], "recorded")
+        self.assertEqual(emotion_row["valid"], 0.0)
+        self.assertTrue(math.isnan(emotion_row["happy"]))
+        self.assertEqual(quality_row["valid"], 1.0)
+        self.assertEqual(quality_row["face_detected"], 0.0)
+        self.assertTrue(math.isnan(quality_row["face_confidence"]))
+        now = camera_adapter.time.time()
+        summary = camera_adapter.get_interval_summary(now - 2, now + 2)
+        self.assertEqual(summary["face_detected_rate"], 0.0)
+        self.assertIsNone(summary["dominant_emotion"])
+        self.assertEqual(summary["valid_detection_count"], 1)
+        self.assertEqual(summary["valid_emotion_count"], 0)
+
+    def test_a_partial_publication_is_reported_and_excluded_from_summary(self) -> None:
+        lsl = FakePylsl()
+        camera_adapter._streams.use_backend(lsl)
+        camera_adapter.initialize(enabled=True, lsl_enabled=True)
+        lsl.outlet("study_runner.tablet_camera.face_quality").fail = RuntimeError("outlet failed")
+        result = camera_adapter.process_frame({"sequence_number": 1, "source_monotonic_ms": 500.0})
+
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["reason"], "recording_failed")
+        self.assertEqual(result["recording"]["status"], "partial")
+        self.assertTrue(result["recording"]["emotion_published"])
+        self.assertFalse(result["recording"]["face_quality_published"])
+        self.assertEqual(camera_adapter.get_status()["status"], "failed")
+        now = camera_adapter.time.time()
+        summary = camera_adapter.get_interval_summary(now - 2, now + 2)
+        self.assertFalse(summary["available"])
+        self.assertEqual(summary["valid_detection_count"], 0)
+
+    def test_an_outlet_open_failure_cannot_report_recording_success(self) -> None:
+        class CannotOpenQuality(FakePylsl):
+            def StreamOutlet(self, info):  # noqa: N802 - pylsl API
+                if info.source_id == "study_runner.tablet_camera.face_quality":
+                    raise RuntimeError("cannot open quality outlet")
+                return super().StreamOutlet(info)
+
+        camera_adapter._streams.use_backend(CannotOpenQuality())
+        camera_adapter.initialize(enabled=True, lsl_enabled=True)
+        self.assertEqual(camera_adapter.get_status()["status"], "failed")
+        result = camera_adapter.process_frame({"sequence_number": 1, "source_monotonic_ms": 500.0})
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["recording"]["status"], "partial")
+        self.assertIn("cannot open quality outlet", result["recording"]["errors"]["face_quality"])
+
+    def test_browser_monotonic_time_satisfies_transport_without_stale_epoch(self) -> None:
+        from study_runner.plugin_framework.registry import _validate_participant_transport_metadata
+
+        manifest = get_plugin_manifest("camera_emotion")
+        _validate_participant_transport_metadata(
+            manifest,
+            {"sequence_number": 1, "source_epoch_ms": None, "source_monotonic_ms": 123.5},
+        )
 
     def test_the_camera_streams_keep_their_lsl_names(self) -> None:
         lsl = FakePylsl()

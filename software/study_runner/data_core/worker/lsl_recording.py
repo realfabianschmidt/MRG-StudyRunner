@@ -127,6 +127,13 @@ class ProjectionCache:
         fallback_sequence: int,
     ) -> None:
         values = dict(zip(spec.channels, row, strict=True))
+        source_ok = True
+        if "valid" in values:
+            try:
+                validity = float(values["valid"])
+                source_ok = math.isfinite(validity) and validity == 1.0
+            except (TypeError, ValueError):
+                source_ok = False
         sequence: int | None = fallback_sequence
         if spec.sequence_channel:
             try:
@@ -139,7 +146,7 @@ class ProjectionCache:
                 received_monotonic=float(received_monotonic),
                 source_timestamp=float(source_timestamp) if source_timestamp is not None else None,
                 sequence=sequence,
-                source_ok=True,
+                source_ok=source_ok,
             )
 
     def get(self, plugin_key: str, stream_key: str) -> CachedStreamSample | None:

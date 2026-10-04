@@ -16,7 +16,11 @@ from study_runner.plugin_framework.registry import (
 from study_runner.shared.atomic_io import atomic_path_lock, atomic_write_json
 from study_runner.shared.study_identifiers import normalize_study_id
 
-from ..studies.study_config_service import patch_study_plugin_settings
+from ..studies.study_config_service import (
+    locked_study_change,
+    patch_study_plugin_settings,
+    study_busy_reason,
+)
 from ..studies.study_plugin_config import normalize_study_settings_plugins
 from .upload_jobs_service import PermanentUploadError, UploadJobError, UploadJobService
 
@@ -119,7 +123,14 @@ def _plugin_executor(
                     known.update(discovered)
                     # Checkpoint before evaluating ok: the target may have been
                     # created successfully even though the later upload failed.
-                    atomic_write_json(state_path, {"schema": "study-runner/upload-target/v1", "settings": known})
+                    atomic_write_json(state_path, {
+                        "schema": "study-runner/upload-target/v1",
+                        "settings": known,
+                        "study_id": study_id,
+                        "plugin_key": plugin.key,
+                        "expected_settings": base_settings,
+                        "defaults": defaults,
+                    })
                 if known:
                     _persist_study_config_updates(
                         app, study_id, plugin.key, base_settings, known, defaults,
@@ -170,7 +181,52 @@ def _persist_study_config_updates(
             app.config["CONFIG_FILE"], app.config["SAVED_STUDIES_DIR"],
             study_id=study_id, plugin_key=plugin_key, expected_settings=expected_settings,
             updates=updates, defaults=defaults,
+            busy_reason=lambda: study_busy_reason(app.config),
         )
     except Exception as error:
         # The target checkpoint remains available to the next queued upload.
         print(f"[UPLOADS] Could not refresh study settings for {plugin_key!r}: {error}")
+
+
+def apply_deferred_upload_targets(app: Any) -> int:
+    """Replay durable destination discoveries once changing studies is safe."""
+
+    target_dir = Path(app.config["DATA_DIR"]) / "upload_targets"
+    if not target_dir.is_dir():
+        return 0
+    with locked_study_change():
+        if study_busy_reason(app.config):
+            return 0
+        applied = 0
+        for path in sorted(target_dir.glob("*.json")):
+            try:
+                with atomic_path_lock(path):
+                    state = json.loads(path.read_text(encoding="utf-8"))
+                    if not isinstance(state, dict) or state.get("schema") != "study-runner/upload-target/v1":
+                        continue
+                    # Older checkpoints lack replay metadata. Their next
+                    # upload attempt still applies the discovery as before.
+                    if not all(key in state for key in (
+                        "study_id", "plugin_key", "expected_settings", "defaults",
+                    )):
+                        continue
+                    if not all(isinstance(state.get(key), dict) for key in (
+                        "settings", "expected_settings", "defaults",
+                    )):
+                        continue
+                    if patch_study_plugin_settings(
+                        app.config["CONFIG_FILE"],
+                        app.config["SAVED_STUDIES_DIR"],
+                        study_id=str(state["study_id"]),
+                        plugin_key=str(state["plugin_key"]),
+                        expected_settings=state["expected_settings"],
+                        updates=state["settings"],
+                        defaults=state["defaults"],
+                        busy_reason=lambda: study_busy_reason(app.config),
+                    ):
+                        applied += 1
+            except Exception as error:
+                # A successful publication must not be retried because a
+                # later study-file refresh failed; the checkpoint remains.
+                print(f"[UPLOADS] Deferred target refresh from {path.name} failed: {error}")
+        return applied

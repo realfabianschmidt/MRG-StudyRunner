@@ -12,12 +12,15 @@ export function createParticipantResultSubmission(context) {
     participantExtensions,
     getClientClockOffsetMs,
     estimateServerEpochMs,
+    getClockEvidence,
+    syncClock,
     createEventId,
     sendMarker,
     pluginsWithCapability,
     postJson,
     getStudyClientId,
     clearSessionSnapshot,
+    commitCheckpoint,
     CARDS,
     isAnswerless,
     startTrial,
@@ -51,7 +54,7 @@ export function createParticipantResultSubmission(context) {
       study_run_status: state.studyRunState?.status || 'loaded',
       waiting_for_admin_start: Boolean(state.waitingForAdminStart),
       clock_offset_ms: getClientClockOffsetMs(),
-      clock_sync_rtt_ms: Number.isFinite(state.clockRttMs) ? Math.round(state.clockRttMs) : null,
+      clock_sync_rtt_ms: getClockEvidence().clock_sync_rtt_ms,
     };
   }
   
@@ -71,6 +74,7 @@ export function createParticipantResultSubmission(context) {
       state.touchedFields[questionIndex] = new Set();
     }
     state.touchedFields[questionIndex].add(normalizedKey);
+    if (state.completedCards?.has(questionIndex)) state.editedCompletedCards.add(questionIndex);
   }
   
   function markQuestionShown(questionIndex) {
@@ -110,6 +114,12 @@ export function createParticipantResultSubmission(context) {
   
     const current = state.questionMetrics[questionIndex] || {};
     if (current.answered_at) {
+      if (state.editedCompletedCards?.delete(questionIndex)) {
+        state.questionMetrics[questionIndex] = {
+          ...current,
+          answer_revision_times: [...(current.answer_revision_times || []), new Date().toISOString()],
+        };
+      }
       return Promise.resolve();
     }
     state.questionMetrics[questionIndex] = {
@@ -137,13 +147,10 @@ export function createParticipantResultSubmission(context) {
   function shouldActivateHardware(question) {
     const sensorsEnabled = state.config.study_settings?.sensors_enabled !== false
       && hasAnyStudySensorEnabled();
-    // Card actions belong to their plugin, not to biodata recording. OSC or any
-    // future output plugin must still receive a prepared trial when the study
-    // deliberately records no sensor streams.
-    const hasPluginAction = Object.values(getActivePluginActions(question)).some((actions) => (
-      Object.values(actions).some((value) => value !== false && value !== null && value !== '')
-    ));
-    return sensorsEnabled || hasPluginAction;
+    // Actuators the card selected must still receive a prepared trial when
+    // the study deliberately records no sensor streams.
+    const hasActuator = Array.isArray(question?.actuator_plugins) && question.actuator_plugins.length > 0;
+    return sensorsEnabled || hasActuator;
   }
   
   function getStudySensorSettings() {
@@ -184,6 +191,18 @@ export function createParticipantResultSubmission(context) {
     );
   }
   
+  /**
+   * What every trial event says about plugins: the card's plugin actions
+   * and, for a stimulus card, the actuators it selected - only those
+   * receive start and stop.
+   */
+  function getTrialPluginFields(question) {
+    return {
+      plugin_actions: getActivePluginActions(question),
+      ...(Array.isArray(question?.actuator_plugins) ? { actuator_plugins: [...question.actuator_plugins] } : {}),
+    };
+  }
+
   function isParticipantPluginEnabled(plugin) {
     const pluginKey = String(plugin?.plugin_key || '').trim();
     if (!pluginKey) return false;
@@ -226,6 +245,7 @@ export function createParticipantResultSubmission(context) {
         options,
       ),
       estimateServerEpochMs,
+      getClockEvidence,
       getClientClockOffsetMs,
     };
   }
@@ -266,10 +286,15 @@ export function createParticipantResultSubmission(context) {
   
   async function startStudySensorSession() {
     try {
+      await syncClock();
+      if (estimateServerEpochMs() === null) {
+        throw new Error('Tablet/server time calibration is unavailable.');
+      }
       const response = await postJson('/api/study/session/start', {
         session_id: state.sessionId,
         client_id: getStudyClientId(),
         study_id: state.config.study_id || '',
+        study_revision: state.studyRevision || '',
         participant_id: resolveParticipantId(),
         current_index: state.currentIndex,
         current_type: (state.config.questions || [])[state.currentIndex]?.type || null,
@@ -367,16 +392,20 @@ export function createParticipantResultSubmission(context) {
     }
   
     const isFirst = currentIndex === 0;
-    const isStimulusBusy = Boolean(state.activeStimulus);
-    const isUiBusy = state.navigationBusy || state.submitInFlight;
+    // During overtime the duration is reached: Next is free, Back stays locked.
+    const isStimulusRunning = Boolean(state.activeStimulus);
+    const isStimulusBusy = isStimulusRunning && !state.activeStimulus.overtime;
+    const isUiBusy = state.navigationBusy || state.submitInFlight || state.recoveryPending;
+    const repeatRequired = Boolean(state.repeatInterruptedStimulus)
+      && Number(state.repeatInterruptedStimulus.index) === currentIndex;
     const isOptional = currentQuestion?.required === false;
     const answered = (isOptional || isAnswered(currentIndex)) && !isStimulusBusy;
   
     const isLastNormalCard = (currentIndex === total - 1) || (questions[currentIndex + 1]?.type === 'finish');
     const isPreStudyStart = !state.startTime && currentQuestion?.type === 'participant-id';
   
-    getElement('btn-prev').disabled = isFirst || isStimulusBusy || isUiBusy;
-    getElement('btn-next').disabled = !answered || isUiBusy;
+    getElement('btn-prev').disabled = isFirst || isStimulusRunning || isUiBusy;
+    getElement('btn-next').disabled = !answered || isUiBusy || repeatRequired || state.stimulusClockBlocked;
   
     renderCounter(Math.min(currentIndex + 1, totalNormal), totalNormal);
     updateProgressBar(Math.min(currentIndex + 1, totalNormal), totalNormal);
@@ -460,25 +489,21 @@ export function createParticipantResultSubmission(context) {
     }
   }
   
-  function collectAnswers() {
-    const answers = {};
-  
-    (state.config.questions || []).forEach((question, questionIndex) => {
-      if (isAnswerless(question.type)) {
-        return;
-      }
-      // An optional, untouched question is omitted entirely so the server can
-      // tell "shown but skipped" apart from "answered" - never send a default.
-      if (question.required === false && !isAnswered(questionIndex)) {
-        return;
-      }
-  
+  function collectAnswers({ includeIndex = null } = {}) {
+    // Only acknowledged Cards are authoritative. In particular, an unvisited
+    // slider or ranking must never acquire its plausible-looking DOM default.
+    const answers = structuredClone(state.acknowledgedAnswers || {});
+    if (!Number.isInteger(includeIndex)) return answers;
+    const question = (state.config.questions || [])[includeIndex];
+    if (!question || isAnswerless(question.type)) return answers;
+    const key = `q${includeIndex}`;
+    if (question.required === false && !isAnswered(includeIndex)) {
+      delete answers[key];
+    } else {
       const cardModule = CARDS[question.type];
-      if (cardModule) {
-        answers[`q${questionIndex}`] = cardModule.collectAnswer(questionIndex, question);
-      }
-    });
-  
+      if (!cardModule) throw new Error(`Card ${question.type} is unavailable.`);
+      answers[key] = cardModule.collectAnswer(includeIndex, question);
+    }
     return answers;
   }
   
@@ -502,6 +527,7 @@ export function createParticipantResultSubmission(context) {
         answer_key: answerKey,
         shown_at: metrics.shown_at || metrics.answered_at,
         answered_at: metrics.answered_at,
+        answer_revision_times: metrics.answer_revision_times || [],
       });
     });
   
@@ -543,6 +569,7 @@ export function createParticipantResultSubmission(context) {
         event.stimulus_id = metrics.stimulus_id || '';
         event.start_event_id = metrics.start_event_id || '';
         event.stop_event_id = metrics.stop_event_id || '';
+        event.attempt_history = metrics.attempt_history || [];
         event.prepare_failed = metrics.prepare_failed === true;
         event.visibility_interrupted = metrics.visibility_interrupted === true;
         event.visibility_interruption_count = Number(metrics.visibility_interruption_count || 0);
@@ -552,6 +579,12 @@ export function createParticipantResultSubmission(context) {
         event.deadline_callback_delay_ms = Number(metrics.deadline_callback_delay_ms || 0);
         event.start_marker = metrics.start_marker || '';
         event.stop_marker = metrics.stop_marker || '';
+        // Overtime: the time between the end of the duration and Next.
+        event.time_up_at = metrics.time_up_at || null;
+        event.time_up_epoch_ms = metrics.time_up_epoch_ms || null;
+        event.time_up_event_id = metrics.time_up_event_id || '';
+        event.overtime_ms = Number.isFinite(metrics.overtime_ms) ? metrics.overtime_ms : null;
+        event.overtime_capped = metrics.overtime_capped === true;
       } else {
         event.answered_at = metrics.answered_at || null;
         event.answered_at_server_epoch_ms = metrics.answered_at_server_epoch_ms || null;
@@ -581,6 +614,7 @@ export function createParticipantResultSubmission(context) {
   
     try {
       await recordQuestionCompletion(state.currentIndex);
+      await commitCheckpoint({ nextIndex: state.currentIndex, completedIndex: state.currentIndex });
       const sessionId = state.sessionId;
       const participantId = resolveParticipantId();
       const studyId = state.config.study_id;
@@ -592,13 +626,15 @@ export function createParticipantResultSubmission(context) {
           session_id: sessionId,
           participant_id: participantId,
           study_id: studyId,
+          study_revision: state.studyRevision || '',
           client_clock_offset_ms: getClientClockOffsetMs(),
+          clock_sync_samples: state.clockSyncSamples || [],
           timestamp_start: new Date(state.startTime).toISOString(),
           timestamp_end: new Date().toISOString(),
           study_end_event: {
             event_id: createEventId('study-end'),
             source_monotonic_ms: endMonotonicMs,
-            source_epoch_ms: estimateServerEpochMs(endMonotonicMs),
+            ...getClockEvidence(endMonotonicMs),
             sequence_number: null,
           },
           answers: collectAnswers(),
@@ -660,6 +696,7 @@ export function createParticipantResultSubmission(context) {
     collectCardEvents,
     createParticipantExtensionContext,
     getActivePluginActions,
+    getTrialPluginFields,
     getParticipantSessionContext,
     getQuestionIndexFromElement,
     getStudyClientHeartbeatPayload,

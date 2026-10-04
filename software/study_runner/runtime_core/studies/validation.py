@@ -157,6 +157,7 @@ def validate_and_normalize_results(
             maximum=10_000_000_000.0,
             allow_none=True,
         ),
+        "clock_sync_samples": _validate_clock_sync_samples(result_payload.get("clock_sync_samples")),
         "answers": normalized_answers,
         "skipped_questions": skipped_questions,
         "participant_metadata": participant_metadata,
@@ -191,6 +192,22 @@ def _validate_study_end_event(value: Any) -> dict[str, Any]:
             maximum=100_000_000_000_000.0,
             allow_none=True,
         ),
+        "time_source": normalize_text(value.get("time_source")),
+        "clock_sync_id": normalize_text(value.get("clock_sync_id")),
+        "clock_sync_age_ms": normalize_float(
+            value.get("clock_sync_age_ms"),
+            field_name="study_end_event.clock_sync_age_ms",
+            minimum=0.0,
+            maximum=10_000_000_000.0,
+            allow_none=True,
+        ),
+        "clock_sync_rtt_ms": normalize_float(
+            value.get("clock_sync_rtt_ms"),
+            field_name="study_end_event.clock_sync_rtt_ms",
+            minimum=0.0,
+            maximum=10_000_000_000.0,
+            allow_none=True,
+        ),
         "sequence_number": normalize_integer(
             sequence,
             field_name="study_end_event.sequence_number",
@@ -198,6 +215,41 @@ def _validate_study_end_event(value: Any) -> dict[str, Any]:
             maximum=9_007_199_254_740_991,
         ) if sequence is not None else None,
     }
+
+
+def _validate_clock_sync_samples(value: Any) -> list[dict[str, Any]]:
+    """Keep each selected four-timestamp exchange and its paired RTT together."""
+    if value in (None, []):
+        return []
+    if not isinstance(value, list) or len(value) > 1440:
+        raise ValidationError("clock_sync_samples must be a list of at most 1440 exchanges.")
+    normalized = []
+    for index, sample in enumerate(value):
+        if not isinstance(sample, dict):
+            raise ValidationError(f"clock_sync_samples[{index}] must be an object.")
+        item = {"id": normalize_text(sample.get("id"))}
+        if not item["id"] or len(item["id"]) > 200:
+            raise ValidationError(f"clock_sync_samples[{index}].id is invalid.")
+        for key in ("client_send_ms", "client_receive_ms", "server_receive_ms", "server_send_ms",
+                    "network_delay_ms", "offset_ms"):
+            item[key] = normalize_float(
+                sample.get(key), field_name=f"clock_sync_samples[{index}].{key}",
+                minimum=-10_000_000_000_000.0, maximum=10_000_000_000_000.0,
+            )
+        if item["client_receive_ms"] < item["client_send_ms"] or item["server_send_ms"] < item["server_receive_ms"]:
+            raise ValidationError(f"clock_sync_samples[{index}] has reversed timestamps.")
+        if item["network_delay_ms"] < 0:
+            raise ValidationError(f"clock_sync_samples[{index}] has negative network delay.")
+        calculated_delay = (item["client_receive_ms"] - item["client_send_ms"]) - (
+            item["server_send_ms"] - item["server_receive_ms"]
+        )
+        calculated_offset = ((item["server_receive_ms"] - item["client_send_ms"]) + (
+            item["server_send_ms"] - item["client_receive_ms"]
+        )) / 2.0
+        if abs(item["network_delay_ms"] - calculated_delay) > 0.01 or abs(item["offset_ms"] - calculated_offset) > 0.01:
+            raise ValidationError(f"clock_sync_samples[{index}] does not match its four timestamps.")
+        normalized.append(item)
+    return normalized
 
 
 def validate_and_normalize_trial_options(payload: Any) -> dict[str, Any]:
@@ -218,7 +270,23 @@ def validate_and_normalize_trial_options(payload: Any) -> dict[str, Any]:
             payload.get("client_trigger_ms"),
             field_name="client_trigger_ms",
             minimum=0.0,
-            maximum=86_400_000.0,
+            maximum=10_000_000_000.0,
+            allow_none=True,
+        ),
+        "time_source": normalize_text(payload.get("time_source")),
+        "clock_sync_id": normalize_text(payload.get("clock_sync_id")),
+        "clock_sync_age_ms": normalize_float(
+            payload.get("clock_sync_age_ms"),
+            field_name="clock_sync_age_ms",
+            minimum=0.0,
+            maximum=10_000_000_000.0,
+            allow_none=True,
+        ),
+        "clock_sync_rtt_ms": normalize_float(
+            payload.get("clock_sync_rtt_ms"),
+            field_name="clock_sync_rtt_ms",
+            minimum=0.0,
+            maximum=10_000_000_000.0,
             allow_none=True,
         ),
         "clock_offset_ms": normalize_float(
@@ -281,7 +349,43 @@ def validate_and_normalize_trial_options(payload: Any) -> dict[str, Any]:
         "stimulus_id": normalize_text(payload.get("stimulus_id")),
         "automatic_deadline": normalize_boolean(payload.get("automatic_deadline", False)),
         "plugin_actions": plugin_actions,
+        "actuator_plugins": _normalize_actuator_plugins(payload.get("actuator_plugins")),
+        "time_up_event_id": normalize_text(payload.get("time_up_event_id")),
+        "actuator_stop_at": _normalize_actuator_stop_at(payload.get("actuator_stop_at")),
+        "stop_deadline_epoch_ms": normalize_float(
+            payload.get("stop_deadline_epoch_ms"),
+            field_name="stop_deadline_epoch_ms",
+            minimum=0.0,
+            maximum=10_000_000_000_000.0,
+            allow_none=True,
+        ),
     }
+
+
+def _normalize_actuator_plugins(value: Any) -> list[str] | None:
+    """The card's actuator selection; ``None`` keeps the pre-selection default."""
+
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValidationError("actuator_plugins must be a list of plugin keys.")
+    selected: list[str] = []
+    for item in value:
+        plugin_key = normalize_text(item)
+        if not plugin_key or len(plugin_key) > 200:
+            raise ValidationError("actuator_plugins contains an invalid plugin key.")
+        if plugin_key not in selected:
+            selected.append(plugin_key)
+    return selected
+
+
+def _normalize_actuator_stop_at(value: Any) -> str:
+    """Which event stops the actuators: leaving the card or the time-up."""
+
+    stop_at = normalize_text(value, default="stop") or "stop"
+    if stop_at not in {"stop", "time_up"}:
+        raise ValidationError("actuator_stop_at must be stop or time_up.")
+    return stop_at
 
 
 def skipped_optional_questions_for_result(
@@ -499,6 +603,10 @@ def _validate_answer_events(
                 "answer_key": normalized_answer_key,
                 "shown_at": _require_iso_timestamp(raw_event.get("shown_at"), "answer_event shown_at"),
                 "answered_at": _require_iso_timestamp(raw_event.get("answered_at"), "answer_event answered_at"),
+                "answer_revision_times": [
+                    _require_iso_timestamp(stamp, "answer_event answer_revision_times")
+                    for stamp in (raw_event.get("answer_revision_times") or [])
+                ],
             }
         )
 
@@ -623,6 +731,7 @@ def _validate_card_events(
                 "stimulus_id": normalize_text(raw_event.get("stimulus_id")),
                 "start_event_id": normalize_text(raw_event.get("start_event_id")),
                 "stop_event_id": normalize_text(raw_event.get("stop_event_id")),
+                "attempt_history": _validate_attempt_history(raw_event.get("attempt_history")),
                 "shown_event_id": normalize_text(raw_event.get("shown_event_id")),
                 "answered_event_id": normalize_text(raw_event.get("answered_event_id")),
                 "prepare_failed": normalize_boolean(raw_event.get("prepare_failed", False)),
@@ -661,10 +770,61 @@ def _validate_card_events(
                 ),
                 "start_marker": normalize_text(raw_event.get("start_marker")),
                 "stop_marker": normalize_text(raw_event.get("stop_marker")),
+                # Overtime: the participant stayed after the duration was reached.
+                "time_up_at": _optional_iso_timestamp(raw_event.get("time_up_at"), "card_event time_up_at"),
+                "time_up_epoch_ms": normalize_float(
+                    raw_event.get("time_up_epoch_ms"),
+                    field_name="card_event time_up_epoch_ms",
+                    minimum=0.0,
+                    maximum=10_000_000_000_000.0,
+                    allow_none=True,
+                ),
+                "time_up_event_id": normalize_text(raw_event.get("time_up_event_id")),
+                "overtime_ms": normalize_float(
+                    raw_event.get("overtime_ms"),
+                    field_name="card_event overtime_ms",
+                    minimum=0.0,
+                    maximum=86_400_000.0,
+                    allow_none=True,
+                ),
+                "overtime_capped": normalize_boolean(raw_event.get("overtime_capped", False)),
             }
         )
 
     return normalized_events
+
+
+def _validate_attempt_history(value: Any) -> list[dict[str, Any]]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list) or len(value) > 10:
+        raise ValidationError("card_event attempt_history must contain at most 10 attempts.")
+    normalized = []
+    for attempt in value:
+        if not isinstance(attempt, dict):
+            raise ValidationError("Each card_event attempt must be an object.")
+        stimulus_id = normalize_text(attempt.get("stimulus_id"))
+        if not stimulus_id:
+            raise ValidationError("card_event attempt stimulus_id is required.")
+        normalized.append({
+            "stimulus_id": stimulus_id,
+            "start_event_id": normalize_text(attempt.get("start_event_id")),
+            "stop_event_id": normalize_text(attempt.get("stop_event_id")),
+            "active_started_at": _optional_iso_timestamp(attempt.get("active_started_at"), "attempt active_started_at"),
+            "active_ended_at": _optional_iso_timestamp(attempt.get("active_ended_at"), "attempt active_ended_at"),
+            "server_start_received_epoch_ms": normalize_float(
+                attempt.get("server_start_received_epoch_ms"), field_name="attempt server_start_received_epoch_ms",
+                minimum=0.0, maximum=10_000_000_000_000.0, allow_none=True,
+            ),
+            "server_stop_received_epoch_ms": normalize_float(
+                attempt.get("server_stop_received_epoch_ms"), field_name="attempt server_stop_received_epoch_ms",
+                minimum=0.0, maximum=10_000_000_000_000.0, allow_none=True,
+            ),
+            "interrupted_by_reload": normalize_boolean(attempt.get("interrupted_by_reload", False)),
+            "inferred_from_checkpoint": normalize_boolean(attempt.get("inferred_from_checkpoint", False)),
+            "reconciliation_outcome": normalize_text(attempt.get("reconciliation_outcome")),
+        })
+    return normalized
 
 
 # ============================================================

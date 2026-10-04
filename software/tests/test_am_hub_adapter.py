@@ -432,6 +432,59 @@ def test_a_hub_without_v2_is_reported_without_trying_anything_else():
     assert status["api_unsupported"] is True and status["status"] == "failed"
 
 
+def test_a_stimulus_command_posts_the_cards_identity():
+    captured = {}
+
+    class Response:
+        ok = True
+        status_code = 200
+
+    def post(url, json=None, **kwargs):
+        captured["url"] = url
+        captured["json"] = json
+        return Response()
+
+    with mock.patch("requests.post", side_effect=post):
+        result = adapter.send_stimulus_command(
+            "start",
+            {"event_id": "e1", "stimulus_id": "s1", "study_id": "study", "session_id": "sess",
+             "question_index": 3, "source_epoch_ms": 123.0, "plugin_actions": {"ignored": True}},
+        )
+    assert captured["url"] == "http://hub/api/v2/stimulus/start"
+    assert captured["json"] == {
+        "event_id": "e1", "stimulus_id": "s1", "study_id": "study", "session_id": "sess",
+        "question_index": 3, "source_epoch_ms": 123.0,
+    }
+    assert result["ok"] is True and result["outcome"] == "accepted"
+    assert adapter.get_status()["last_stimulus_command"]["outcome"] == "accepted"
+
+
+def test_a_hub_without_the_stimulus_endpoint_never_blocks_the_trial():
+    class Response:
+        ok = False
+        status_code = 404
+
+    with mock.patch("requests.post", return_value=Response()):
+        result = adapter.send_stimulus_command("stop", {"event_id": "e1", "stimulus_id": "s1"})
+    assert result["ok"] is False
+    assert result["outcome"] == "unsupported"
+
+
+def test_an_unreachable_hub_is_reported_not_raised():
+    with mock.patch("requests.post", side_effect=OSError("refused")):
+        result = adapter.send_stimulus_command("start", {"event_id": "e1", "stimulus_id": "s1"})
+    assert result["ok"] is False
+    assert result["outcome"] == "unreachable"
+
+
+def test_an_unconfigured_hub_never_attempts_the_request():
+    adapter._config = {"enabled": False, "base_url": ""}
+    with mock.patch("requests.post") as post:
+        result = adapter.send_stimulus_command("start", {"event_id": "e1", "stimulus_id": "s1"})
+    post.assert_not_called()
+    assert result["outcome"] == "not_configured"
+
+
 def test_sse_byte_chunks_arrive_as_whole_events():
     outlets = active()
     event = frame("bio", 2, {"/sensor/heartBpm": 70})

@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "mini_radar",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "category": "biosignal",
   "config_key": "mini_radar",
   "runtime": {
@@ -18,10 +18,7 @@
       "stop",
       "restart"
     ],
-    "trial_events": [
-      "start",
-      "stop"
-    ],
+    "trial_events": [],
     "can_toggle": true,
     "sidecar": {
       "sensor": "mr60",

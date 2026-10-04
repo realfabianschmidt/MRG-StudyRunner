@@ -372,7 +372,11 @@ def generate_schema() -> dict[str, Any]:
                     "stream_contract": {"type": "object"},
                     "operation_timeouts_ms": {"type": "object"},
                     "actions": {"type": "array", "items": {"enum": ["start", "stop", "restart"]}},
-                    "trial_events": {"type": "array", "items": {"enum": ["start", "stop", "marker"]}},
+                    "trial_events": {
+                        "type": "array",
+                        "description": "start and stop together make the plugin an actuator that stimulus cards list for selection; sensors declare neither.",
+                        "items": {"enum": ["start", "stop", "marker", "session_end"]},
+                    },
                     "can_toggle": {"type": "boolean"},
                     "sidecar": {"type": "object"},
                 },

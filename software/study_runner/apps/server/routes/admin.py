@@ -9,13 +9,17 @@ from flask import Blueprint, current_app, jsonify, request
 from study_runner.plugin_framework.registry import get_plugin_manifests, initialize_plugin
 from study_runner.runtime_core.studies.live_sensor_readiness import live_sensor_issues, selected_study_sensors
 from study_runner.runtime_core.studies.study_run_abort import StudyRunAbortError, abort_study_run
+from study_runner.runtime_core.delivery.upload_runtime import apply_deferred_upload_targets
 from study_runner.runtime_core.settings.admin_status_service import build_admin_status
 from study_runner.runtime_core.settings.runtime_config import build_runtime_info
 from study_runner.runtime_core.settings import dashboard_layout_service, data_folder
 from study_runner.runtime_core.settings.shortcut_service import ShortcutError, create_desktop_shortcut
 from study_runner.runtime_core.studies.study_client_service import get_client_status
 from study_runner.runtime_core.settings.secrets_service import update_local_secrets
-from study_runner.runtime_core.studies.study_config_service import delete_study, list_studies, load_config, load_study, save_config
+from study_runner.runtime_core.studies.study_config_service import (
+    delete_study, list_studies, load_config, load_study, locked_study_change,
+    save_config, study_busy_reason, study_config_revision,
+)
 from study_runner.runtime_core.studies.study_readiness_service import check_study_readiness, describe_credentials
 from study_runner.plugin_framework.plugin_secrets import (
     forget_study_secrets,
@@ -193,15 +197,19 @@ def admin_set_active_study():
     study_id = payload.get("id")
     if not study_id:
         return jsonify({"ok": False, "error": "No study ID provided"}), 400
-    try:
-        config_data = load_study(current_app.config["SAVED_STUDIES_DIR"], study_id)
-        validated_config = validate_and_normalize_config(config_data)
-        save_config(current_app.config["CONFIG_FILE"], validated_config)
-        _load_study_run(validated_config["study_id"])
-        print(f"[CONFIG] Activated study: {study_id}")
-        return jsonify(validated_config)
-    except Exception as error:
-        return jsonify({"ok": False, "error": str(error)}), 404
+    with locked_study_change():
+        busy = study_busy_reason(current_app.config)
+        if busy:
+            return jsonify({"ok": False, "code": "study_busy", "error": busy}), 409
+        try:
+            config_data = load_study(current_app.config["SAVED_STUDIES_DIR"], study_id)
+            validated_config = validate_and_normalize_config(config_data)
+            save_config(current_app.config["CONFIG_FILE"], validated_config)
+            _load_study_run(validated_config["study_id"])
+            print(f"[CONFIG] Activated study: {study_id}")
+            return jsonify(validated_config)
+        except Exception as error:
+            return jsonify({"ok": False, "error": str(error)}), 404
 
 
 @bp.route("/api/admin/studies/<study_id>", methods=["GET"])
@@ -214,11 +222,15 @@ def admin_get_study(study_id):
 
 @bp.route("/api/admin/studies/<study_id>", methods=["DELETE"])
 def admin_delete_study(study_id):
-    if delete_study(current_app.config["SAVED_STUDIES_DIR"], study_id):
-        # Do not leave a deleted study's credentials on disk forever.
-        _forget_study_credentials(study_id)
-        return jsonify({"ok": True})
-    return jsonify({"ok": False, "error": "Not found"}), 404
+    with locked_study_change():
+        busy = study_busy_reason(current_app.config)
+        if busy:
+            return jsonify({"ok": False, "code": "study_busy", "error": busy}), 409
+        if delete_study(current_app.config["SAVED_STUDIES_DIR"], study_id):
+            # Do not leave a deleted study's credentials on disk forever.
+            _forget_study_credentials(study_id)
+            return jsonify({"ok": True})
+        return jsonify({"ok": False, "error": "Not found"}), 404
 
 
 def _forget_study_credentials(study_id: str) -> None:
@@ -403,32 +415,41 @@ def admin_load_study_run():
     study_id = payload.get("id")
     if not study_id:
         return jsonify({"ok": False, "error": "No study ID provided"}), 400
-    try:
-        config_data = load_study(current_app.config["SAVED_STUDIES_DIR"], study_id)
-        validated_config = validate_and_normalize_config(config_data)
-        save_config(current_app.config["CONFIG_FILE"], validated_config)
-        run_state = _load_study_run(validated_config["study_id"])
-        client_status = get_client_status(active_study_id=str(run_state.get("study_id") or ""))
-        # The loaded study decides which sensors run. Dashboard overrides were
-        # made for the previous study and end here.
-        _clear_session_overrides()
-        sensor_result = _apply_study_sensor_selection(validated_config.get("study_settings"))
-        print(f"[STUDY-RUN] Loaded study: {study_id}")
-        return jsonify(
-            {
-                "ok": True,
-                "config": validated_config,
-                "run_state": run_state,
-                "tablet_gate": client_status.get("single_tablet", {}),
-                "sensor_runtime": sensor_result.get("sensor_runtime"),
-            }
-        )
-    except Exception as error:
-        return jsonify({"ok": False, "error": str(error)}), 404
+    with locked_study_change():
+        busy = study_busy_reason(current_app.config)
+        if busy:
+            return jsonify({"ok": False, "code": "study_busy", "error": busy}), 409
+        try:
+            config_data = load_study(current_app.config["SAVED_STUDIES_DIR"], study_id)
+            validated_config = validate_and_normalize_config(config_data)
+            save_config(current_app.config["CONFIG_FILE"], validated_config)
+            run_state = _load_study_run(validated_config["study_id"])
+            client_status = get_client_status(active_study_id=str(run_state.get("study_id") or ""))
+            # The loaded study decides which sensors run. Dashboard overrides were
+            # made for the previous study and end here.
+            _clear_session_overrides()
+            sensor_result = _apply_study_sensor_selection(validated_config.get("study_settings"))
+            print(f"[STUDY-RUN] Loaded study: {study_id}")
+            return jsonify(
+                {
+                    "ok": True,
+                    "config": validated_config,
+                    "run_state": run_state,
+                    "tablet_gate": client_status.get("single_tablet", {}),
+                    "sensor_runtime": sensor_result.get("sensor_runtime"),
+                }
+            )
+        except Exception as error:
+            return jsonify({"ok": False, "error": str(error)}), 404
 
 
 @bp.route("/api/admin/study-run/start", methods=["POST"])
 def admin_start_study_run():
+    with locked_study_change():
+        return _admin_start_study_run_locked()
+
+
+def _admin_start_study_run_locked():
     try:
         config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
     except Exception as error:
@@ -485,6 +506,7 @@ def admin_start_study_run():
         config_data["study_id"],
         str(tablet_gate.get("selected_client_id") or ""),
         started_despite=live_issues or None,
+        study_revision=study_config_revision(config_data),
     )
     print(f"[STUDY-RUN] Started study: {config_data['study_id']}")
     return jsonify({"ok": True, "run_state": run_state, "tablet_gate": tablet_gate})
@@ -511,15 +533,22 @@ def admin_study_run_live_check():
 
 @bp.route("/api/admin/study-run/stop", methods=["POST"])
 def admin_stop_study_run():
-    run_state = _stop_study_run()
-    # Stopping the run keeps the study loaded, so its sensors keep running.
-    sensor_result = _end_study_sensor_session(notify=True, options={"reason": "run_stopped"})
-    print(f"[STUDY-RUN] Stopped study: {run_state.get('study_id')}")
-    return jsonify({"ok": True, "run_state": run_state, **sensor_result})
+    with locked_study_change():
+        run_state = _stop_study_run()
+        # Stopping the run keeps the study loaded, so its sensors keep running.
+        sensor_result = _end_study_sensor_session(notify=True, options={"reason": "run_stopped"})
+        refreshed_targets = apply_deferred_upload_targets(current_app)
+        print(f"[STUDY-RUN] Stopped study: {run_state.get('study_id')}")
+        return jsonify({"ok": True, "run_state": run_state, "refreshed_targets": refreshed_targets, **sensor_result})
 
 
 @bp.route("/api/admin/study-run/abort", methods=["POST"])
 def admin_abort_study_run():
+    with locked_study_change():
+        return _admin_abort_study_run_locked()
+
+
+def _admin_abort_study_run_locked():
     """End the running study on the admin's word, reason required.
 
     Works whenever the run shows ``running``: a recording session is frozen
@@ -540,6 +569,7 @@ def admin_abort_study_run():
         return jsonify({"ok": False, "error": str(error)}), error.status_code
 
     sensor_result = _end_study_sensor_session(notify=True, options={"reason": "run_aborted"})
+    refreshed_targets = apply_deferred_upload_targets(current_app)
     run_state = result.run_state
     print(f"[STUDY-RUN] Aborted study ({result.outcome}): {run_state.get('study_id')} -- {run_state.get('aborted_reason')}")
     return jsonify(
@@ -549,6 +579,7 @@ def admin_abort_study_run():
             "run_state": run_state,
             "withdrawal": result.withdrawal,
             "closed_sessions": result.closed_sessions,
+            "refreshed_targets": refreshed_targets,
             **sensor_result,
         }
     )

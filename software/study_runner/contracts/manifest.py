@@ -81,7 +81,7 @@ _BROWSER_TRANSPORT_REQUIREMENTS = (
     "sequence_required",
     "source_timestamp_required",
 )
-_BROWSER_SOURCE_TIMESTAMP_FIELDS = {"source_epoch_ms", "source_timestamp"}
+_BROWSER_SOURCE_TIMESTAMP_FIELDS = {"source_epoch_ms", "source_timestamp", "source_monotonic_ms"}
 _CANONICAL_RECORDING_DISABLE_TOKENS = {
     "captureenabled",
     "canonicalrecording",
@@ -578,6 +578,10 @@ def _normalize_credentials(config: dict[str, Any]) -> dict[str, Any]:
 
 
 _QUESTION_TYPE_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
+# What a card may ask the host to supply. ``plugin_actions`` are the card
+# actions every plugin declares; ``actuator_plugins`` is the card's selection
+# among the plugins whose manifest declares trial start and stop.
+CARD_HOST_DATA = frozenset({"plugin_actions", "actuator_plugins"})
 
 
 def _normalize_card_contract(config: dict[str, Any]) -> dict[str, Any]:
@@ -596,8 +600,10 @@ def _normalize_card_contract(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(answerless, list) or any(not isinstance(t, str) or t not in types for t in answerless) or len(set(answerless)) != len(answerless):
         raise PluginManifestError("card_contract.answerless_types must be a unique subset of question_types")
     host_data = config.get("host_data", [])
-    if not isinstance(host_data, list) or any(t != "plugin_actions" for t in host_data) or len(set(host_data)) != len(host_data):
-        raise PluginManifestError("card_contract.host_data supports only plugin_actions")
+    if not isinstance(host_data, list) or any(t not in CARD_HOST_DATA for t in host_data) or len(set(host_data)) != len(host_data):
+        raise PluginManifestError(
+            "card_contract.host_data supports only: " + ", ".join(sorted(CARD_HOST_DATA))
+        )
     return {"version": 1, "question_types": list(types), "answerless_types": list(answerless), "host_data": list(host_data)}
 
 

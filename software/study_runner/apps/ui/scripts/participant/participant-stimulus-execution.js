@@ -11,6 +11,8 @@ export function createParticipantStimulusExecution(context) {
     postJson,
     buildEventPayload,
     estimateServerEpochMs,
+    syncClock = async () => {},
+    sendPartialResults = () => {},
     updateNavigation,
     handleNext,
     stopStudySensorSession,
@@ -27,6 +29,8 @@ export function createParticipantStimulusExecution(context) {
     getParticipantSessionContext,
     sendReliableStudyEvent,
     closeVisibilityInterruption,
+    // A card may react to its own stimulus (onStimulusPrepared, onTimeUp).
+    getCardModule = () => null,
     constants,
   } = context;
   const {
@@ -36,6 +40,27 @@ export function createParticipantStimulusExecution(context) {
   } = constants;
 
   async function startStimulusCard(questionIndex, question) {
+    if (estimateServerEpochMs() === null) await syncClock();
+    if (estimateServerEpochMs() === null) {
+      state.stimulusClockBlocked = true;
+      updateNavigation();
+      showStudyNotice(t('study.clockRequired', 'Tablet time calibration is unavailable. Retry the stimulus when connected.'), 'error', 10000);
+      const card = getElement(`card-q-${questionIndex}`);
+      if (card && !card.querySelector('.stimulus-clock-retry')) {
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.className = 'btn-secondary stimulus-clock-retry';
+        retry.textContent = t('study.retryStimulus', 'Retry stimulus');
+        retry.addEventListener('click', () => {
+          retry.remove();
+          void startStimulusCard(questionIndex, question);
+        });
+        card.appendChild(retry);
+      }
+      return;
+    }
+    state.stimulusClockBlocked = false;
+    updateNavigation();
     const stimulusRun = {
       index: questionIndex,
       question,
@@ -48,12 +73,20 @@ export function createParticipantStimulusExecution(context) {
       stimulusId: createEventId(`stimulus-${questionIndex}`),
       startEventId: createEventId(`stimulus-${questionIndex}-start`),
       stopEventId: createEventId(`stimulus-${questionIndex}-stop`),
+      timeUpEventId: overtimeEventId(questionIndex, question),
       plannedStartPerfMs: null,
       plannedDeadlinePerfMs: null,
+      // Overtime: the duration was reached and the participant may stay.
+      overtime: false,
+      overtimeStartedPerfMs: null,
+      actuatorsStopped: false,
+      contentCleanup: null,
     };
-  
+
     state.activeStimulus = stimulusRun;
+    sendPartialResults();
     prepareStimulusCard(questionIndex, question);
+    runCardHook(question, 'onStimulusPrepared', questionIndex);
   
     assignStimulusSchedule(stimulusRun);
     if (shouldActivateHardware(question)) {
@@ -76,6 +109,7 @@ export function createParticipantStimulusExecution(context) {
       stimulusRun.stimulusId = createEventId(`stimulus-${stimulusRun.index}`);
       stimulusRun.startEventId = createEventId(`stimulus-${stimulusRun.index}-start`);
       stimulusRun.stopEventId = createEventId(`stimulus-${stimulusRun.index}-stop`);
+      stimulusRun.timeUpEventId = overtimeEventId(stimulusRun.index, stimulusRun.question);
     }
     // Fix the monotonic schedule before network I/O. The acknowledged values are
     // later compared with the actual browser onset instead of silently moving it.
@@ -99,7 +133,68 @@ export function createParticipantStimulusExecution(context) {
       stimulus_id: stimulusRun.stimulusId,
       planned_start_epoch_ms: estimateServerEpochMs(stimulusRun.plannedStartPerfMs),
       planned_deadline_epoch_ms: estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs),
+      ...endOfTimeTrialFields(stimulusRun, estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs)),
     };
+  }
+
+  /**
+   * How the card ends, read from its own fields. Without auto-advance the
+   * duration is a minimum: the card stays until Next, at most `maxOvertimeMs`.
+   */
+  function endOfTimeSettings(question) {
+    const autoAdvance = question?.auto_advance !== false;
+    const maxOvertimeMs = Number(question?.overtime_max_ms);
+    return {
+      autoAdvance,
+      keepStimulus: !autoAdvance && question?.overtime_keep_stimulus !== false,
+      keepActuators: !autoAdvance && question?.overtime_keep_actuators === true,
+      maxOvertimeMs: Number.isFinite(maxOvertimeMs) && maxOvertimeMs > 0 ? maxOvertimeMs : 300000,
+    };
+  }
+
+  function overtimeEventId(questionIndex, question) {
+    return endOfTimeSettings(question).autoAdvance
+      ? ''
+      : createEventId(`stimulus-${questionIndex}-time-up`);
+  }
+
+  // The actuators stop with the time-up event unless they keep running
+  // through the overtime; then they stop when the card is left.
+  function actuatorStopAt(question) {
+    const settings = endOfTimeSettings(question);
+    return !settings.autoAdvance && !settings.keepActuators ? 'time_up' : 'stop';
+  }
+
+  /**
+   * Fields the server stores with the prepared trial, so its safety deadline
+   * stops the actuators with the right event at the right time even when the
+   * tablet goes silent. Derived from the planned deadline so prepare and
+   * start always agree.
+   */
+  function endOfTimeTrialFields(stimulusRun, plannedDeadlineEpochMs) {
+    const settings = endOfTimeSettings(stimulusRun.question);
+    const stopAt = actuatorStopAt(stimulusRun.question);
+    const extraMs = stopAt === 'stop' && !settings.autoAdvance ? settings.maxOvertimeMs : 0;
+    return {
+      time_up_event_id: stimulusRun.timeUpEventId || '',
+      actuator_stop_at: stopAt,
+      stop_deadline_epoch_ms: Number.isFinite(plannedDeadlineEpochMs)
+        ? plannedDeadlineEpochMs + extraMs
+        : null,
+    };
+  }
+
+  function runCardHook(question, hookName, ...args) {
+    const hook = getCardModule(question?.type)?.[hookName];
+    if (typeof hook !== 'function') return;
+    try {
+      const result = hook(question, ...args);
+      if (typeof result?.catch === 'function') {
+        result.catch((error) => console.warn(`[stimulus] Card hook ${hookName} failed:`, error));
+      }
+    } catch (error) {
+      console.warn(`[stimulus] Card hook ${hookName} failed:`, error);
+    }
   }
   
   async function prepareStimulusRouting(stimulusRun) {
@@ -295,9 +390,13 @@ export function createParticipantStimulusExecution(context) {
       stimulus: stimulusRun,
       session: getParticipantSessionContext(),
     });
+    stimulusRun.contentCleanup = () => {
+      stimulusRun.contentCleanup = null;
+      if (typeof contentCleanup === 'function') contentCleanup();
+    };
     stimulusRun.cleanup = () => {
       stimulusRun.extensionCleanup?.();
-      if (typeof contentCleanup === 'function') contentCleanup();
+      stimulusRun.contentCleanup?.();
     };
     updateNavigation();
   
@@ -325,6 +424,7 @@ export function createParticipantStimulusExecution(context) {
           stimulus_id: stimulusRun.stimulusId,
           planned_start_epoch_ms: plannedStartEpochMs,
           planned_deadline_epoch_ms: plannedDeadlineEpochMs,
+          ...endOfTimeTrialFields(stimulusRun, plannedDeadlineEpochMs),
           visual_onset_epoch_ms: visualOnsetEpochMs,
           onset_uncertainty_ms: Number.isFinite(state.clockRttMs) ? state.clockRttMs / 2 : null,
           marker_event: 'stimulus_active_start',
@@ -355,17 +455,100 @@ export function createParticipantStimulusExecution(context) {
         if (numberLabel) numberLabel.textContent = String(remainingWholeSeconds(remainingMs));
         if (ring) ring.style.strokeDashoffset = String(314 * progress);
       },
-      onDeadline: ({ callbackDelayMs }) => {
+      onDeadline: ({ callbackDelayMs }) => handleTimeUp(stimulusRun, callbackDelayMs),
+    });
+  }
+
+  function handleTimeUp(stimulusRun, callbackDelayMs) {
+    if (state.activeStimulus !== stimulusRun) return;
+    stimulusRun.timer = null;
+    const { index, question } = stimulusRun;
+    state.questionMetrics[index] = {
+      ...(state.questionMetrics[index] || {}),
+      deadline_callback_delay_ms: Math.round(callbackDelayMs),
+    };
+    runCardHook(question, 'onTimeUp', index, {
+      overtime: !endOfTimeSettings(question).autoAdvance,
+      notify: (message, level = 'warning') => reportNoticeToAdmin(message, level),
+    });
+    if (endOfTimeSettings(question).autoAdvance) {
+      void finishStimulusCard(stimulusRun);
+      return;
+    }
+    enterOvertime(stimulusRun);
+  }
+
+  /**
+   * The duration is reached but the participant may stay. Sensors keep
+   * recording; only a marker notes the moment. Next becomes available, and
+   * the card continues by itself after the maximum overtime.
+   */
+  function enterOvertime(stimulusRun) {
+    const { index, question } = stimulusRun;
+    const settings = endOfTimeSettings(question);
+    const timeUpPerfMs = performance.now();
+    stimulusRun.overtime = true;
+    stimulusRun.overtimeStartedPerfMs = timeUpPerfMs;
+    state.questionMetrics[index] = {
+      ...(state.questionMetrics[index] || {}),
+      time_up_at: new Date().toISOString(),
+      time_up_epoch_ms: estimateServerEpochMs(timeUpPerfMs),
+      time_up_event_id: stimulusRun.timeUpEventId,
+    };
+
+    if (!settings.keepStimulus) {
+      stimulusRun.contentCleanup?.();
+      clearStimulusContent(index);
+    }
+
+    if (stimulusRun.signalStarted && shouldActivateHardware(question)) {
+      const stopsActuators = actuatorStopAt(question) === 'time_up';
+      if (stopsActuators) stimulusRun.actuatorsStopped = true;
+      sendStimulusEvent(stimulusRun, {
+        path: stopsActuators ? '/api/stop' : '/api/marker',
+        eventId: stimulusRun.timeUpEventId,
+        markerEvent: 'stimulus_time_up',
+        clientTriggerMs: timeUpPerfMs,
+        metricsPrefix: 'time_up',
+      });
+    }
+
+    stimulusRun.timer = startDeadlineTimer({
+      startedAtMs: timeUpPerfMs,
+      deadlineMs: timeUpPerfMs + settings.maxOvertimeMs,
+      onDeadline: () => {
         if (state.activeStimulus !== stimulusRun) return;
         stimulusRun.timer = null;
-        const metrics = state.questionMetrics[index] || {};
-        state.questionMetrics[index] = {
-          ...metrics,
-          deadline_callback_delay_ms: Math.round(callbackDelayMs),
-        };
+        state.questionMetrics[index] = { ...state.questionMetrics[index], overtime_capped: true };
         void finishStimulusCard(stimulusRun);
       },
     });
+    updateNavigation();
+  }
+
+  /**
+   * Queue one trial event of this stimulus. A stop reaches the selected
+   * actuators; a marker reaches the recording only. Queueing is durable, so
+   * navigation never waits for the network.
+   */
+  function sendStimulusEvent(stimulusRun, { path, eventId, markerEvent, clientTriggerMs, metricsPrefix }) {
+    const { index, question } = stimulusRun;
+    void sendReliableStudyEvent(path, {
+      ...buildEventPayload(index, question, markerEvent, clientTriggerMs),
+      event_id: eventId,
+      stimulus_id: stimulusRun.stimulusId,
+      planned_deadline_epoch_ms: state.questionMetrics[index]?.planned_deadline_epoch_ms,
+      marker_event: markerEvent,
+    }, { timeoutMs: TRIAL_STOP_TIMEOUT_MS })
+      .then((response) => {
+        state.questionMetrics[index] = {
+          ...state.questionMetrics[index],
+          [`server_${metricsPrefix}_received_at`]: response.server_received_at || null,
+          [`server_${metricsPrefix}_received_epoch_ms`]: response.server_received_epoch_ms || null,
+          [`${metricsPrefix}_marker`]: response.marker_value || null,
+        };
+      })
+      .catch((error) => console.error(`[study] Could not send ${path}; event remains queued:`, error));
   }
   
   function nextVisualFrameTimestamp() {
@@ -396,7 +579,13 @@ export function createParticipantStimulusExecution(context) {
     stimulusRun.timer?.cancel?.();
     stimulusRun.timer = null;
     closeVisibilityInterruption(stimulusRun);
-  
+    if (stimulusRun.overtime && Number.isFinite(stimulusRun.overtimeStartedPerfMs)) {
+      state.questionMetrics[stimulusRun.index] = {
+        ...(state.questionMetrics[stimulusRun.index] || {}),
+        overtime_ms: Math.round(Math.max(0, performance.now() - stimulusRun.overtimeStartedPerfMs)),
+      };
+    }
+
     if (typeof stimulusRun.cleanup === 'function') {
       try {
         stimulusRun.cleanup();
@@ -418,22 +607,15 @@ export function createParticipantStimulusExecution(context) {
       };
       // Queueing is synchronous and durable. Navigation does not wait for the
       // network; the serialized event queue preserves start-before-stop order.
-      void sendReliableStudyEvent('/api/stop', {
-        ...buildEventPayload(stimulusRun.index, stimulusRun.question, 'stimulus_active_stop', clientTriggerMs),
-        event_id: stimulusRun.stopEventId,
-        stimulus_id: stimulusRun.stimulusId,
-        planned_deadline_epoch_ms: state.questionMetrics[stimulusRun.index]?.planned_deadline_epoch_ms,
-        marker_event: 'stimulus_active_stop',
-      }, { timeoutMs: TRIAL_STOP_TIMEOUT_MS })
-        .then((response) => {
-        state.questionMetrics[stimulusRun.index] = {
-          ...state.questionMetrics[stimulusRun.index],
-          server_stop_received_at: response.server_received_at || null,
-          server_stop_received_epoch_ms: response.server_received_epoch_ms || null,
-          stop_marker: response.marker_value || null,
-        };
-        })
-        .catch((error) => console.error('[study] Could not send /api/stop; event remains queued:', error));
+      // Actuators that already stopped with the time-up event get no second
+      // stop: leaving the card is then a marker only.
+      sendStimulusEvent(stimulusRun, {
+        path: stimulusRun.actuatorsStopped ? '/api/marker' : '/api/stop',
+        eventId: stimulusRun.stopEventId,
+        markerEvent: 'stimulus_active_stop',
+        clientTriggerMs,
+        metricsPrefix: 'stop',
+      });
     } else if (stimulusRun.question?.type === 'stimulus') {
       const currentMetrics = state.questionMetrics[stimulusRun.index] || {};
       state.questionMetrics[stimulusRun.index] = {

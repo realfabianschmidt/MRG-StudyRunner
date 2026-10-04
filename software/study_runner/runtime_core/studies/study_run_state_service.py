@@ -97,6 +97,7 @@ class StudyRunStateStore:
         active_client_id: str = "",
         *,
         started_despite: list[dict[str, Any]] | None = None,
+        study_revision: str = "",
     ) -> dict[str, Any]:
         normalized = _clean_study_id(study_id)
         client_id = str(active_client_id or "").strip()
@@ -114,6 +115,7 @@ class StudyRunStateStore:
                 "status": RUNNING_STATUS,
                 "study_id": normalized,
                 "run_id": f"study-run-{uuid.uuid4()}",
+                "study_revision": str(study_revision or "").strip(),
                 "sequence": previous_sequence + 1,
                 "loaded_at": loaded_at or _format_time(now),
                 "loaded_at_epoch": loaded_at_epoch or now,

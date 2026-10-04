@@ -269,6 +269,58 @@ def normalize_card_plugin_actions(
     return actions
 
 
+def normalize_card_actuator_plugins(
+    card: dict[str, Any] | None,
+    *,
+    manifests: dict[str, dict[str, Any]] | None = None,
+) -> list[str]:
+    """Return which actuator plugins a stimulus card starts and stops.
+
+    Only the manifests decide what an actuator is (trial ``start`` and
+    ``stop``). A card saved before this selection existed sent both to every
+    such plugin unless it switched them off - all of them with the old
+    ``send_signal`` field, or one of them through a boolean option of that
+    plugin's own card actions. A missing field reproduces exactly that. Keys
+    of plugins missing from this install are kept like any other plugin
+    reference; installed plugins that are not actuators are dropped.
+    """
+
+    from study_runner.plugin_framework.registry import (
+        is_stimulus_actuator,
+        stimulus_actuator_keys,
+    )
+
+    source = card if isinstance(card, dict) else {}
+    available = manifests if manifests is not None else _plugin_manifests()
+    raw = source.get("actuator_plugins")
+    if raw is None:
+        if not _as_bool(source.get("send_signal", True)):
+            return []
+        legacy_actions = source.get("plugin_actions")
+        legacy_actions = legacy_actions if isinstance(legacy_actions, dict) else {}
+        return [
+            plugin_key
+            for plugin_key in stimulus_actuator_keys(available)
+            if not _switched_off(legacy_actions.get(plugin_key))
+        ]
+    if not isinstance(raw, list):
+        raise PluginConfigError("actuator_plugins must be a list of plugin keys")
+    selected: list[str] = []
+    for item in raw:
+        plugin_key = str(item or "").strip()
+        if not plugin_key:
+            raise PluginConfigError("actuator_plugins contains an empty plugin key")
+        if plugin_key in available and not is_stimulus_actuator(available[plugin_key]):
+            continue
+        if plugin_key not in selected:
+            selected.append(plugin_key)
+    return selected
+
+
+def _switched_off(actions: Any) -> bool:
+    return isinstance(actions, dict) and any(value is False for value in actions.values())
+
+
 def migrate_study_plugin_config(config_data: dict[str, Any]) -> dict[str, Any]:
     """Compatibility entry point for callers that migrate complete studies."""
 
@@ -278,6 +330,7 @@ def migrate_study_plugin_config(config_data: dict[str, Any]) -> dict[str, Any]:
         config_data,
         normalize_settings=normalize_study_settings_plugins,
         normalize_actions=normalize_card_plugin_actions,
+        normalize_actuators=normalize_card_actuator_plugins,
         legacy_card_fields=LEGACY_CARD_FIELDS,
     )
 
@@ -355,16 +408,13 @@ def _apply_legacy_card_actions(
     actions: dict[str, dict[str, Any]],
     card: dict[str, Any],
 ) -> None:
-    if "brainbit" in actions:
-        actions["brainbit"]["to_touchdesigner"] = _as_bool(
-            card.get("brainbit_to_touchdesigner", card.get("send_signal", True))
-        )
+    # Which plugins a card starts and stops is no longer a per-plugin card
+    # action; see normalize_card_actuator_plugins. Only this pre-v3 field
+    # still maps onto a declared card action.
     if "camera_emotion" in actions:
         actions["camera_emotion"]["snapshot_interval_ms"] = card.get(
             "camera_snapshot_interval_ms", 1_000
         )
-    if "osc" in actions:
-        actions["osc"]["forward_marker"] = _as_bool(card.get("send_signal", True))
 
 
 def _without_recording_disable_actions(

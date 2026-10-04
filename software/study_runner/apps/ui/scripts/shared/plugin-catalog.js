@@ -64,6 +64,20 @@ export function pluginsWithCapability(capability) {
   return catalog.plugins.filter((plugin) => (plugin.capabilities || []).includes(capability));
 }
 
+/**
+ * Plugins that drive actuators from stimulus cards. The manifest alone
+ * decides: declaring trial `start` and `stop` makes a plugin an actuator.
+ * Sensors declare neither, record continuously and only receive markers.
+ */
+export function isStimulusActuator(plugin) {
+  const trialEvents = new Set(plugin?.runtime?.trial_events || []);
+  return trialEvents.has('start') && trialEvents.has('stop');
+}
+
+export function stimulusActuatorPlugins() {
+  return catalog.plugins.filter(isStimulusActuator);
+}
+
 /** Return capability providers that opted into one generic UI surface. */
 export function visiblePluginsWithCapability(capability, surface) {
   return pluginsWithCapability(capability).filter((plugin) => isPluginVisible(plugin, surface));

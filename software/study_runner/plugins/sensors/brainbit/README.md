@@ -29,14 +29,14 @@ it.
 | `driver.py` | Three lines. The program Study Runner actually launches; hands straight over to the shared plugin runtime. | a process launch → a running plugin process |
 | `plugin.py` | The plugin's lifecycle: read the settings, start, stop, restart, report status, handle device selection and contact checks, and hand recorded samples back for export. | settings + a command from the dashboard → the adapter doing it |
 | `monitor.py` | Connection-scoped facts, battery freshness and bounded graph history. | tagged events → dashboard facts |
-| `adapter.py` | The supervisor. Starts and watches the acquisition program, reads its JSON lines, keeps the current picture of what the headband is doing, writes the diagnostic log, and republishes samples to LSL and (during stimuli) to TouchDesigner via OSC. | JSON lines from the CLI → dashboard status, log files, LSL streams |
+| `adapter.py` | The supervisor. Starts and watches the acquisition program, reads its JSON lines, keeps the current picture of what the headband is doing, writes the diagnostic log, and republishes samples to LSL. A sensor: it records continuously and gets no stimulus start/stop, only markers. | JSON lines from the CLI → dashboard status, log files, LSL streams |
 | `brainbit_realtime_cli.py` | The acquisition program. Owns every vendor-SDK call: scan, connect, measure electrode contact, stream EEG, compute the derived attention/relaxation values, and print one tagged JSON line per event. | Bluetooth → tagged JSON lines on standard output |
 | `ui/dashboard.js` | The dashboard panel: connection state, dated contact measurements, live metric graphs and technical details. | plugin status → what the researcher sees |
 | `diagnose_backends.py` | A standalone comparison tool (vendor SDK vs. BrainFlow) for when a band behaves oddly. Deliberately *not* part of recording; nothing imports it at runtime. | run by hand → a comparison report |
 | `tools/ble_brainbit_probe.py` | A standalone discovery probe: lists the bands this computer can see and which one the production selector would pick. | run by hand → a list of bands |
 | `OUTPUT_REFERENCE.md` | The full list of JSON tags the CLI prints and what each field means. | — |
 | `README_ENHANCED.md` | Implementation constraints: SDK packet shapes, channel mapping rules, scaling. Read this before changing the decoder. | — |
-| `HelloEEG_HelloMYO_01.3.toe` | An example TouchDesigner project showing how to receive the OSC values. Not used by the software. | — |
+| `HelloEEG_HelloMYO_01.3.toe` | An example TouchDesigner project for the standalone CLI's own OSC output (`brainbit_realtime_cli.py` without `--no-osc`). Study Runner starts the CLI with `--no-osc` and forwards nothing to TouchDesigner. | — |
 | `__init__.py` | Marks the folder as a Python package. | — |
 
 ## How a connection is made
@@ -88,7 +88,6 @@ CLI/adapter options below are advanced configuration fields.
 | `settle_seconds` | Pause between stopping and starting again, so Bluetooth can let go first. |
 | `auto_restart_max_attempts` | How many times the supervisor may restart the acquisition program by itself. Pressing Start or Restart refills this budget. |
 | `lsl.stream_prefix` | The name recordings and other tools see. |
-| `osc_host` / `osc_port` | Where TouchDesigner is listening. |
 
 ## For the operator
 

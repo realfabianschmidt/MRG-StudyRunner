@@ -42,7 +42,6 @@ export function renderDashboard({ plugin: brainbit, manifest }, ui) {
       <dt>${ui.fieldLabel('integrity', 'Packet integrity')}</dt><dd>${formatIntegrity(latest, ui)}</dd>
       <dt>${ui.fieldLabel('streams', 'Actual streams')}</dt><dd>${formatStreams(brainbit.actual_streams || latest.actual_streams, ui)}</dd>
       <dt>${ui.fieldLabel('brainbitDataLsl', 'BrainBit data LSL')}</dt><dd>${ui.formatEnabled(brainbit.lsl_enabled)}</dd>
-      <dt>${ui.fieldLabel('touchdesigner', 'TouchDesigner')}</dt><dd>${ui.formatEnabled(brainbit.touchdesigner_forwarding_enabled)}</dd>
       <dt>${ui.fieldLabel('lastActive', 'Last active')}</dt><dd>${ui.formatTimestampAge(latest.last_activity_at || brainbit.last_activity_at, brainbit.seconds_since_last_activity)}</dd>
       <dt>${ui.fieldLabel('diagnostics', 'Diagnostics')}</dt><dd>${formatDiagnostics(brainbit, latest, ui)}</dd>
       <dt>${ui.escapeHtml(ui.t('brainbit.monitor.lastEvent', 'Last connection event'))}</dt><dd>${ui.escapeHtml(brainbit.last_event?.tag || '-')} ${brainbit.last_event?.at ? ui.escapeHtml(new Date(brainbit.last_event.at * 1000).toLocaleString()) : ''}</dd>

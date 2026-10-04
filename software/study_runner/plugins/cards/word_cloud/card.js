@@ -79,6 +79,24 @@ export function collectAnswer(i) {
   return sel.size > 0 ? Array.from(sel) : null;
 }
 
+export function restoreAnswer(i, _question, answer, cardElement) {
+  const selected = getSelected(i);
+  selected.clear();
+  const cloud = cardElement.querySelector(`#wc-cloud-${i}`);
+  const tray = cardElement.querySelector(`#wc-tray-${i}`);
+  if (!cloud || !tray) return;
+  tray.querySelectorAll('.wc-tray-chip').forEach((chip) => chip.remove());
+  (answer || []).forEach((word) => {
+    const chip = [...cloud.querySelectorAll('.wc-chip')].find((item) => item.dataset.word === word);
+    if (!chip) return;
+    selected.add(word);
+    chip.classList.add('wc-chip--selected');
+    chip.setAttribute('aria-pressed', 'true');
+    addTrayChip(tray, word, i, cloud, cloud.dataset.multiple !== 'false');
+  });
+  updateTrayHint(tray, i);
+}
+
 export function isAnswered(_question, questionIndex) {
   const answer = collectAnswer(questionIndex);
   return Array.isArray(answer) && answer.length > 0;

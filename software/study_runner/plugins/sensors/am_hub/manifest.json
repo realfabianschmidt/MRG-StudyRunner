@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "am_hub",
-  "version": "4.0.0",
+  "version": "4.1.1",
   "category": "biosignal",
   "config_key": "am_hub",
   "runtime": {
@@ -22,6 +22,10 @@
       "start",
       "stop"
     ],
+    "operation_timeouts_ms": {
+      "trial_start": 2500,
+      "trial_stop": 2500
+    },
     "can_toggle": true,
     "sidecar": {
       "sensor": "am_hub",
@@ -34,7 +38,7 @@
   },
   "ui": {
     "label": "AM Hub",
-    "description": "Radar, bio and valve frames from the Parasite AM Hub (one sample per real frame) with the measured board-to-Study-Runner latency, the hub's own events, and the hub clock from a ping every second.",
+    "description": "Radar, bio and valve frames from the Parasite AM Hub (one sample per real frame) with the measured board-to-Study-Runner latency, the hub's own events, and the hub clock from a ping every second. Stimulus cards can also start and stop the hub's actuators.",
     "help_key": "pluginHelp.amHub.intro",
     "order": 120,
     "visibility": {

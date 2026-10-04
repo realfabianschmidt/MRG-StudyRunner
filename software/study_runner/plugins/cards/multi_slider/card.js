@@ -85,6 +85,16 @@ export function collectAnswer(i, q) {
   return result;
 }
 
+export function restoreAnswer(i, question, answer, cardElement) {
+  (question.dimensions || []).forEach((dimension, index) => {
+    const input = cardElement.querySelector(`#ms-${i}-${index}`);
+    if (!input) return;
+    input.value = String(answer[dimension.label]);
+    const target = cardElement.querySelector(`#ms-val-${i}-${index}`);
+    if (target) target.textContent = input.value;
+  });
+}
+
 // Every dimension defaults to a plausible-looking 0, so this needs
 // touchedFieldCount (like the single slider) rather than collectAnswer()
 // alone: answered only once every dimension has actually been moved.

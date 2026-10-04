@@ -94,6 +94,25 @@ def get_plugins_with_capability(capability: str) -> tuple[Plugin, ...]:
     )
 
 
+def is_stimulus_actuator(manifest: dict[str, Any] | None) -> bool:
+    """Whether a plugin drives actuators from stimulus cards.
+
+    The manifest alone decides: a plugin that declares both trial ``start``
+    and ``stop`` is an actuator, and stimulus cards offer it for selection.
+    Sensors declare neither; they record continuously and only see markers.
+    """
+
+    runtime = (manifest or {}).get("runtime") or {}
+    return {"start", "stop"} <= set(runtime.get("trial_events") or [])
+
+
+def stimulus_actuator_keys(
+    manifests: dict[str, dict[str, Any]] | None = None,
+) -> list[str]:
+    available = manifests if manifests is not None else get_plugin_manifests()
+    return sorted(key for key, manifest in available.items() if is_stimulus_actuator(manifest))
+
+
 def get_backup_projection_specs(
     active_plugin_keys: set[str] | tuple[str, ...] | list[str] | None = None,
 ) -> list[dict[str, Any]]:
@@ -265,9 +284,12 @@ def _run_trial_callbacks(
     """
 
     outcomes = dict(prior_outcomes or {})
+    selected = _selected_actuators(options) if event_label in {"start", "stop"} else None
     for plugin in PLUGINS:
         handler = getattr(plugin, handler_name)
         if handler is None or not _is_config_enabled(context, plugin):
+            continue
+        if selected is not None and plugin.key not in selected:
             continue
         component = f"plugin.{plugin.key}"
         previous = outcomes.get(component)
@@ -290,6 +312,20 @@ def _run_trial_callbacks(
                 "event": event_label,
             }
     return outcomes
+
+
+def _selected_actuators(options: dict[str, Any]) -> set[str] | None:
+    """The card's actuator selection; ``None`` means every actuator.
+
+    An event without the field comes from a page that predates the selection
+    (for example one still waiting in a tablet's event queue) and keeps the
+    old behaviour of reaching every enabled plugin.
+    """
+
+    selected = options.get("actuator_plugins")
+    if not isinstance(selected, (list, tuple, set)):
+        return None
+    return {str(key) for key in selected}
 
 
 def build_interval_summary(

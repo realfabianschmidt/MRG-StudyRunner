@@ -181,6 +181,14 @@ def _build_marker(event: str, options: dict) -> str:
         parts.append(f"stimulus_id={_marker_value(options.get('stimulus_id'))}")
     if options.get("source_epoch_ms") is not None:
         parts.append(f"source_epoch_ms={_marker_value(options.get('source_epoch_ms'))}")
+    if options.get("time_source"):
+        parts.append(f"time_source={_marker_value(options.get('time_source'))}")
+    if options.get("clock_quality"):
+        parts.append(f"clock_quality={_marker_value(options.get('clock_quality'))}")
+    if options.get("clock_sync_age_ms") is not None:
+        parts.append(f"clock_age_ms={_marker_value(options.get('clock_sync_age_ms'))}")
+    if options.get("clock_sync_rtt_ms") is not None:
+        parts.append(f"clock_rtt_ms={_marker_value(options.get('clock_sync_rtt_ms'))}")
     if options.get("visual_onset_epoch_ms") is not None:
         parts.append(f"visual_onset_ms={_marker_value(options.get('visual_onset_epoch_ms'))}")
     if options.get("onset_uncertainty_ms") is not None:
@@ -195,9 +203,9 @@ def _prepare_event_options(event: str, options: dict[str, Any] | None) -> dict[s
     server_received_epoch_ms = _finite_epoch_ms(event_options.get("server_received_epoch_ms"))
     if server_received_epoch_ms is None:
         server_received_epoch_ms = round(now * 1000.0, 3)
-    source_epoch_ms = _finite_epoch_ms(event_options.get("visual_onset_epoch_ms"))
+    source_epoch_ms = _finite_epoch_ms(event_options.get("source_epoch_ms"))
     if source_epoch_ms is None:
-        source_epoch_ms = _finite_epoch_ms(event_options.get("source_epoch_ms"))
+        source_epoch_ms = _finite_epoch_ms(event_options.get("visual_onset_epoch_ms"))
     if source_epoch_ms is None:
         source_epoch_ms = _finite_epoch_ms(event_options.get("client_trigger_epoch_ms"))
     if source_epoch_ms is None:
@@ -224,10 +232,16 @@ def _public_event_response(
         "server_received_at": options.get("server_received_at"),
         "marker_value": options.get("marker_value"),
         "source_epoch_ms": options.get("source_epoch_ms"),
+        "time_source": options.get("time_source"),
+        "clock_quality": options.get("clock_quality"),
+        "clock_sync_age_ms": options.get("clock_sync_age_ms"),
+        "clock_sync_rtt_ms": options.get("clock_sync_rtt_ms"),
         "visual_onset_epoch_ms": options.get("visual_onset_epoch_ms"),
         "onset_uncertainty_ms": options.get("onset_uncertainty_ms"),
         "marker_lsl_timestamp": marker_outcome.get("marker_lsl_timestamp"),
         "marker_push_epoch_ms": marker_outcome.get("marker_push_epoch_ms"),
+        "marker_timestamp_source": marker_outcome.get("timestamp_source"),
+        "host_clock_step_ms": marker_outcome.get("host_clock_step_ms"),
         "dispatch": dict(outcomes or {}),
     }
 

@@ -79,18 +79,24 @@ export function createParticipantExtension(context) {
     const active = !activeFrameState().preview;
     const question = active ? stimulus?.question : null;
     const sourceMonotonicMs = frameTiming.sourceMonotonicMs;
+    const clockEvidence = Number.isFinite(sourceMonotonicMs)
+      ? context.getClockEvidence?.(sourceMonotonicMs)
+      : null;
     return {
       participant_id: session.participantId,
       study_id: session.studyId,
       question_index: active ? stimulus?.index ?? null : null,
       question_type: active ? question?.type || '' : 'prestudy_monitor',
-      phase: active ? 'stimulus_active' : 'prestudy_monitor',
+      // Overtime is the same capture, just past the card's own duration.
+      phase: active ? (stimulus?.overtime ? 'stimulus_overtime' : 'stimulus_active') : 'prestudy_monitor',
       session_id: session.sessionId,
       client_clock_offset_ms: context.getClientClockOffsetMs(),
       source_monotonic_ms: sourceMonotonicMs ?? null,
-      source_epoch_ms: Number.isFinite(sourceMonotonicMs)
-        ? context.estimateServerEpochMs(sourceMonotonicMs)
-        : null,
+      source_epoch_ms: clockEvidence?.source_epoch_ms ?? null,
+      clock_sync_id: clockEvidence?.clock_sync_id ?? null,
+      clock_sync_age_ms: clockEvidence?.clock_sync_age_ms ?? null,
+      clock_sync_rtt_ms: clockEvidence?.clock_sync_rtt_ms ?? null,
+      time_source: clockEvidence?.time_source ?? 'server_receipt',
     };
   };
 
@@ -163,21 +169,12 @@ export function createParticipantExtension(context) {
     const cleanup = await startCameraCaptureSession({
       ingestPayload: (payload, options) => context.ingestParticipant('frame', payload, options),
       intervalMs: captureInterval(stimulus.question),
-      getPayload: (frameTiming) => {
-        const session = context.getSession();
-        return {
-          participant_id: session.participantId,
-          study_id: session.studyId,
+      getPayload: (frameTiming) => ({
+          ...framePayload(frameTiming),
           question_index: stimulus.index,
           question_type: stimulus.question.type,
-          session_id: session.sessionId,
-          client_clock_offset_ms: context.getClientClockOffsetMs(),
-          source_monotonic_ms: frameTiming?.sourceMonotonicMs ?? null,
-          source_epoch_ms: Number.isFinite(frameTiming?.sourceMonotonicMs)
-            ? context.estimateServerEpochMs(frameTiming.sourceMonotonicMs)
-            : null,
-        };
-      },
+          phase: stimulus.overtime ? 'stimulus_overtime' : 'stimulus_active',
+      }),
       onState: (captureState) => applyCaptureState(captureState, 'stimulus'),
     });
     let stopped = false;

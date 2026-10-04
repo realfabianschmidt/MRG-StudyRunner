@@ -82,16 +82,15 @@ def _run_admin_action(context: PluginContext, action_key: str, payload: dict[str
 def _trial_start(context: PluginContext, options: dict[str, Any]) -> None:
     from . import adapter
 
-    # The registry invokes this hook only for an enabled plugin. Canonical LSL
-    # acquisition/recording is mandatory for a recording_source and therefore
-    # cannot be disabled by a card-level boolean.
-    adapter.set_recording(True)
+    # Only for the hub's actuators, and only when a stimulus card selected
+    # this plugin. Sensing is continuous and never follows a card.
+    adapter.send_stimulus_command("start", options)
 
 
 def _trial_stop(context: PluginContext, options: dict[str, Any]) -> None:
     from . import adapter
 
-    adapter.set_recording(False)
+    adapter.send_stimulus_command("stop", options)
 
 
 def _interval(context: PluginContext, start_epoch: float, end_epoch: float) -> dict[str, Any]:

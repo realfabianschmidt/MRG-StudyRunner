@@ -48,7 +48,6 @@ _running = False
 # exits, so a restart can never leave two readers on one port (as in am_hub).
 _generation = 0
 _stop_event = threading.Event()
-_recording_enabled = False
 _registered_shutdown = False
 # Radar reports at ~10 Hz; sized to hold a full study session.
 _history: deque[dict[str, Any]] = deque(maxlen=history_maxlen(10.0))
@@ -247,18 +246,6 @@ def ingest_sample(payload: dict[str, Any], *, source: str = "manual", arrival: f
     return sample
 
 
-def set_recording(enabled: bool) -> None:
-    """Track the active stimulus phase without gating continuous LSL output."""
-    global _recording_enabled
-    _recording_enabled = bool(enabled)
-    _set_state(
-        {
-            "recording_enabled": _recording_enabled,
-            "last_message": f"Mini-radar recording {'enabled' if _recording_enabled else 'disabled'}.",
-        }
-    )
-
-
 def get_status() -> dict[str, Any]:
     with _state_lock:
         status = dict(_latest_state)
@@ -268,7 +255,6 @@ def get_status() -> dict[str, Any]:
     status["latest"] = latest
     status["enabled"] = bool(_config.get("enabled", False))
     status["lsl_enabled"] = bool(_config.get("lsl_enabled", False))
-    status["recording_enabled"] = bool(_recording_enabled)
     status["connection_type"] = _connection_type()
     status["port"] = _config.get("port", "")
     status["ble_device_name"] = _config.get("ble_device_name", BLE_DEVICE_NAME)

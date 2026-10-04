@@ -9,6 +9,7 @@ import { setLanguage, t } from '../shared/i18n.js';
 import { startDeadlineTimer, remainingWholeSeconds } from '../shared/deadline-timer.js';
 import {
   createEventId,
+  discardInterruptedTrialEvents,
   flushReliableStudyEvents,
   sendReliableStudyEvent as sendReliableStudyEventToServer,
 } from '../shared/reliable-event-queue.js';
@@ -26,6 +27,8 @@ import { createModal } from '../shared/modal.js';
 import { createParticipantSessionRecovery } from './participant-session-recovery.js';
 import { createParticipantResultSubmission } from './participant-result-submission.js';
 import { createParticipantStimulusExecution } from './participant-stimulus-execution.js';
+import { createPendingSubmissionStore } from './participant-pending-submission.js';
+import { createEventPayloadBuilder } from './participant-event-payload.js';
 
 // Preview renders real cards but suppresses participant claims and writes.
 const IS_PREVIEW = new URLSearchParams(window.location.search).get('preview') === '1';
@@ -57,6 +60,7 @@ const state = {
   coverVisibleRunId: '',
   coverDismissedRunId: '',
   config: {},
+  studyRevision: '',
   sensorRuntime: {},
   startTime: null,
   sessionId: '',
@@ -66,8 +70,17 @@ const state = {
   activeStimulus: null,
   clockOffsetMs: null,  // estimated server epoch ms minus tablet performance.now()
   clockRttMs: null,
+  clockSyncSamples: [],
   touchedFields: {},
   questionMetrics: {},
+  completedCards: new Set(),
+  editedCompletedCards: new Set(),
+  acknowledgedAnswers: {},
+  checkpointSequence: 0,
+  lastAcknowledgedCheckpoint: null,
+  recoveryPending: false,
+  repeatInterruptedStimulus: null,
+  stimulusClockBlocked: false,
   sensorSessionStarted: false,
   runtimePollTimer: null,
   navigationBusy: false,
@@ -117,7 +130,7 @@ async function init() {
     startStudyClientHeartbeat(getStudyClientHeartbeatPayload, { onHeartbeat: handleHeartbeatResponse });
   }
   bindPageLifecycleEvents();
-  // Estimate clock offset in the background; the waiting room must not skip it.
+  // Repeated four-timestamp exchanges establish the tablet/server estimate.
   void syncClock();
 
   try {
@@ -155,6 +168,7 @@ async function loadStudyConfig() {
   document.body.classList.remove('i18n-loading');
   await loadCards({ types: [...new Set((config.questions || []).map(q => q.type))] });
   state.config = config;
+  state.studyRevision = config._revision || '';
   document.body.classList.toggle('study-card-frame--off', config.study_settings?.card_frame_enabled === false);
   state.studyRunState = state.config._runtime?.study_run_state || null;
   state.sensorRuntime = state.config._runtime?.sensor_runtime || {};
@@ -271,6 +285,14 @@ function resetParticipantSessionState() {
   state.participantIdOverride = '';
   state.participantMetadataOverride = {};
   state.pendingSubmission = null;
+  state.completedCards = new Set();
+  state.editedCompletedCards = new Set();
+  state.acknowledgedAnswers = {};
+  state.checkpointSequence = 0;
+  state.lastAcknowledgedCheckpoint = null;
+  state.recoveryPending = false;
+  state.repeatInterruptedStimulus = null;
+  state.stimulusClockBlocked = false;
 }
 
 function pageHoldsSession() {
@@ -348,9 +370,7 @@ function handleStudyRunState(runState) {
 }
 
 /**
- * Estimate server epoch ms from tablet performance.now().
- * Runs 3 ping-pong rounds and uses the median offset.
- * Algorithm: server_minus_perf = ((srv_recv - cli_send) + (srv_send - cli_recv)) / 2
+ * One shared tablet/server estimate is refreshed throughout the session.
  */
 const {
   bindPageLifecycleEvents,
@@ -360,6 +380,7 @@ const {
   currentRunKey,
   dismissCoverPage,
   estimateServerEpochMs,
+  getClockEvidence,
   getClientClockOffsetMs,
   getSessionPayload,
   handleHeartbeatResponse,
@@ -368,6 +389,7 @@ const {
   reportNoticeToAdmin,
   saveSessionSnapshot,
   sendPartialResults,
+  commitCheckpoint,
   showCoverPage,
   showStudyNotice,
   startRuntimePolling,
@@ -385,6 +407,8 @@ const {
   collectAnswers: (...args) => collectAnswers(...args),
   collectAnswerEvents: (...args) => collectAnswerEvents(...args),
   collectCardEvents: (...args) => collectCardEvents(...args),
+  getCardModule: (type) => CARDS[type] || null,
+  isAnswerless,
   updateSensorRuntime: (...args) => updateSensorRuntime(...args),
   handleStudyRunState: (...args) => handleStudyRunState(...args),
   queueParticipantExtensionSync: (...args) => queueParticipantExtensionSync(...args),
@@ -397,10 +421,13 @@ const {
   updateNavigation: (...args) => updateNavigation(...args),
   playCardEntrance: (...args) => playCardEntrance(...args),
   prepareStimulusCard: (...args) => prepareStimulusCard(...args),
+  startStimulusCard: (...args) => startStimulusCard(...args),
+  discardInterruptedTrialEvents,
   startParticipantExtensionMonitors: (...args) => startParticipantExtensionMonitors(...args),
   renderMediaLayout,
   escapeHtml,
   t,
+  isPreview: IS_PREVIEW,
   constants: {
     sessionStateKey: STUDY_SESSION_STATE_KEY,
     runtimePollIntervalMs: RUNTIME_POLL_INTERVAL_MS,
@@ -596,56 +623,14 @@ function collectParticipantMetadata() {
   return state.participantMetadataOverride || {};
 }
 
-function buildEventPayload(questionIndex, question, phase, clientTriggerMs = performance.now()) {
-  return {
-    study_id: state.config.study_id || '',
-    session_id: state.sessionId || '',
-    client_id: getStudyClientId(),
-    participant_id: resolveParticipantId(),
-    question_index: Number.isInteger(questionIndex) ? questionIndex : null,
-    question_type: question?.type || '',
-    phase,
-    client_trigger_ms: clientTriggerMs,
-    client_trigger_epoch_ms: estimateServerEpochMs(clientTriggerMs),
-    clock_offset_ms: getClientClockOffsetMs(),
-    plugin_actions: getActivePluginActions(question),
-  };
-}
-
-function loadPendingSubmission(sessionId) {
-  if (state.pendingSubmission?.session_id === sessionId) {
-    return state.pendingSubmission;
-  }
-  try {
-    const raw = window.sessionStorage.getItem(PENDING_SUBMISSION_STATE_KEY);
-    const payload = raw ? JSON.parse(raw) : null;
-    if (payload?.session_id === sessionId) {
-      state.pendingSubmission = payload;
-      return payload;
-    }
-  } catch {
-    // A fresh immutable payload will be prepared below.
-  }
-  return null;
-}
-
-function persistPendingSubmission(payload) {
-  state.pendingSubmission = payload;
-  try {
-    window.sessionStorage.setItem(PENDING_SUBMISSION_STATE_KEY, JSON.stringify(payload));
-  } catch {
-    // The in-memory copy still makes retries in this page idempotent.
-  }
-}
-
-function clearPendingSubmission() {
-  state.pendingSubmission = null;
-  try {
-    window.sessionStorage.removeItem(PENDING_SUBMISSION_STATE_KEY);
-  } catch {
-    // Ignore storage failures after the server has acknowledged the commit.
-  }
-}
+const buildEventPayload = createEventPayloadBuilder({
+  state, getStudyClientId, resolveParticipantId: (...args) => resolveParticipantId(...args),
+  getClockEvidence: (...args) => getClockEvidence(...args),
+  getClientClockOffsetMs: (...args) => getClientClockOffsetMs(...args),
+  getTrialPluginFields: (...args) => getTrialPluginFields(...args),
+});
+const { load: loadPendingSubmission, persist: persistPendingSubmission,
+  clear: clearPendingSubmission } = createPendingSubmissionStore(state, PENDING_SUBMISSION_STATE_KEY);
 
 async function sendMarker(markerEvent, questionIndex, question, phase = markerEvent, options = {}) {
   const eventId = options.eventId || createEventId(`marker-${markerEvent}`);
@@ -779,6 +764,13 @@ async function startTrial(options = {}) {
     return;
   }
 
+  try {
+    await commitCheckpoint({ nextIndex: state.currentIndex });
+  } catch (error) {
+    showStudyNotice(t('study.saveFailedBody', 'Your answers could not be saved. Please tell the study supervisor - your answers are still on this screen.'), 'error', 10000);
+    return;
+  }
+
   showScreen('questions');
 }
 
@@ -795,6 +787,9 @@ function buildQuestions(options = {}) {
   state.currentIndex = 0;
   state.touchedFields = {};
   state.questionMetrics = {};
+  state.completedCards = new Set();
+  state.editedCompletedCards = new Set();
+  state.acknowledgedAnswers = {};
 
   (state.config.questions || []).forEach((question, questionIndex) => {
     const cardModule = CARDS[question.type];
@@ -883,6 +878,7 @@ async function goTo(targetIndex, options = {}) {
     }
 
     await recordQuestionCompletion(state.currentIndex);
+    await commitCheckpoint({ nextIndex: targetIndex, completedIndex: state.currentIndex });
 
     const goingForward = targetIndex > state.currentIndex;
 
@@ -894,7 +890,6 @@ async function goTo(targetIndex, options = {}) {
     markQuestionShown(targetIndex);
     updateNavigation();
     saveSessionSnapshot();
-    sendPartialResults();
 
     const targetQuestion = (state.config.questions || [])[targetIndex];
     if (targetQuestion?.type === 'stimulus') {
@@ -909,8 +904,6 @@ async function goTo(targetIndex, options = {}) {
 }
 
 const {
-  getActiveSeconds,
-  getWarmupSeconds,
   prepareStimulusCard,
   startStimulusCard,
   stopActiveStimulus,
@@ -922,6 +915,9 @@ const {
   postJson,
   buildEventPayload: (...args) => buildEventPayload(...args),
   estimateServerEpochMs: (...args) => estimateServerEpochMs(...args),
+  getClockEvidence: (...args) => getClockEvidence(...args),
+  syncClock: (...args) => syncClock(...args),
+  sendPartialResults: (...args) => sendPartialResults(...args),
   updateNavigation: (...args) => updateNavigation(...args),
   handleNext: (...args) => handleNext(...args),
   stopStudySensorSession: (...args) => stopStudySensorSession(...args),
@@ -938,6 +934,7 @@ const {
   getParticipantSessionContext: (...args) => getParticipantSessionContext(...args),
   sendReliableStudyEvent,
   closeVisibilityInterruption: (...args) => closeVisibilityInterruption(...args),
+  getCardModule: (type) => CARDS[type] || null,
   constants: {
     trialPrepareTimeoutMs: TRIAL_PREPARE_TIMEOUT_MS,
     trialStopTimeoutMs: TRIAL_STOP_TIMEOUT_MS,
@@ -949,7 +946,7 @@ const {
   collectAnswers,
   collectCardEvents,
   createParticipantExtensionContext,
-  getActivePluginActions,
+  getTrialPluginFields,
   getParticipantSessionContext,
   getQuestionIndexFromElement,
   getStudyClientHeartbeatPayload,
@@ -977,12 +974,15 @@ const {
   participantExtensions,
   getClientClockOffsetMs: (...args) => getClientClockOffsetMs(...args),
   estimateServerEpochMs: (...args) => estimateServerEpochMs(...args),
+  getClockEvidence: (...args) => getClockEvidence(...args),
+  syncClock: (...args) => syncClock(...args),
   createEventId,
   sendMarker: (...args) => sendMarker(...args),
   pluginsWithCapability,
   postJson,
   getStudyClientId,
   clearSessionSnapshot: (...args) => clearSessionSnapshot(...args),
+  commitCheckpoint: (...args) => commitCheckpoint(...args),
   CARDS,
   isAnswerless,
   startTrial: (...args) => startTrial(...args),
