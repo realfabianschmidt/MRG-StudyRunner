@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.1 - 2026-10-05
+
 ### Changed
 
 - Admin aborts enter a durable `aborting` state, stop open stimulus attempts and the active recorder before reporting success, and can be retried after a failed stop.
