@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.4 - 2026-10-05
+
 ### Fixed
 
 - **Reliable XDF finalization.** A slow LSL stream now gets a bounded drain period before the recorder safely fences further writes and closes every stream with an honest footer. A safely closed but unconfirmed tail is reported by source ID and recorded sample count; only a reasoned operator acceptance lets merge, parity checks, summaries, CSV, and the manifest continue as `completed_degraded`. Missing or invalid footers, count mismatches, and a failed durable close remain blocking. Freeze retries preserve the original source outcomes.
