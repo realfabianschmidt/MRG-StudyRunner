@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.3 - 2026-10-05
+
 ### Fixed
 
 - The 1.7.1 flat session-folder layout change is confirmed intentionally not backward-compatible with the older, nested layout: the pinned 0.7.0 compatibility fixture and its test now live in the flat layout too, and `docs/sensors-and-data.md` / `docs/plugin-recording-architecture.md` spell out that older result folders are left untouched on disk but are not read by the session browser.
