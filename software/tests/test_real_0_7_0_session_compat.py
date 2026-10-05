@@ -1,11 +1,14 @@
 """The shipped demo session must stay listable and openable.
 
 `software/saved_results/Demo_Completed_Study/` is the real session recorded
-with 0.7.0. Its only change since then is the move of `result.json` into
-`answers/` when the session folder was restructured (answers/meta/raw/derived),
-so it is exactly what a fresh installation shows as its example result. It
-still lacks every artifact added later (`quality.jsonl`, lifecycle fields, the
-meta/ folder), which proves that reading a session does not require them.
+with 0.7.0, carried forward through every session-folder layout since
+(`result.json` into `answers/`, and the flat `<study>/<participant>/<session>/`
+layout that replaced the older nested `participants/<id>/sessions/<session>/`
+one -- the session browser only reads the flat layout, and an older,
+unmigrated nested-layout result folder is intentionally not supported; see
+`docs/sensors-and-data.md`). Its content still lacks every artifact added
+after 0.7.0 (`quality.jsonl`, lifecycle fields, the meta/ folder), which
+proves that reading a session does not require them.
 """
 from __future__ import annotations
 
@@ -27,7 +30,7 @@ SESSION_FOLDER = "20260811T163356Z__study-session-02ec4b00debe496680afb8cffed52d
 
 class Real070SessionCompatTests(unittest.TestCase):
     def setUp(self) -> None:
-        session_root = SAVED_RESULTS / "Demo_Completed_Study" / "participants" / PARTICIPANT_ID / "sessions" / SESSION_FOLDER
+        session_root = SAVED_RESULTS / "Demo_Completed_Study" / PARTICIPANT_ID / SESSION_FOLDER
         self.assertTrue(
             session_root.is_dir(),
             f"{session_root} is missing -- it is a committed 0.7.0 fixture, not generated",

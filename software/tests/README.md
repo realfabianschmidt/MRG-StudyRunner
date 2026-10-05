@@ -141,8 +141,11 @@ changing quietly:
   does the same for the exact bytes an update manifest is signed over:
   installed clients verify signatures against this exact format, so it must
   never change silently either.
-- **`test_real_0_7_0_session_compat.py`** pins that one real, unmodified
-  session recorded by the actual 0.7.0 release still opens correctly today.
+- **`test_real_0_7_0_session_compat.py`** pins that one real session recorded
+  by the actual 0.7.0 release, carried forward into the current (flat) session
+  folder layout, still opens correctly despite lacking every artifact added
+  since. The session browser does not read the older nested layout that
+  release itself used; see `docs/sensors-and-data.md`.
 
 If one of these ever needs to change on purpose (a real new route, a
 deliberate format change), update the pinned expectation in the same commit

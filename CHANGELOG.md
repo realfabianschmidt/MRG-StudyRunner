@@ -10,7 +10,7 @@ All notable Study Runner changes are documented here. Release tags use
 ### Changed
 
 - Admin aborts enter a durable `aborting` state, stop open stimulus attempts and the active recorder before reporting success, and can be retried after a failed stop.
-- New result folders use `<DATA_DIR>/<study>/<participant>/<UTC>__<session-id>/`; per-study recovery work lives in `_work/`, and a rebuildable `sessions-index.csv` provides an overview. The bundled demo result follows the new layout.
+- New result folders use `<DATA_DIR>/<study>/<participant>/<UTC>__<session-id>/`; per-study recovery work lives in `_work/`, and a rebuildable `sessions-index.csv` provides an overview. The bundled demo result follows the new layout. **Breaking:** the session browser only reads this flat layout; older, nested `participants/<participant>/sessions/<session>/` result folders are not migrated and will not appear after upgrading (see `docs/sensors-and-data.md`).
 - The session file list separates high-resolution recordings, 1-Hz exports, and operational files. The CSV is named `session_1hz.csv`.
 - Interrupted tablets offer only checkpoint continuation; a fresh run requires an admin abort and new start.
 

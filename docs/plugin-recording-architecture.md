@@ -436,7 +436,11 @@ not part of the canonical session browser, and nothing writes that shape anymore
 The `answers`/`meta` split (2026-09) is not similarly back-compatible: sessions
 recorded before it keep their old flat shape on disk but are not read by the
 current session browser; that guarantee was deliberately not carried forward.
-The shipped 0.7.0 demo session was moved into the new layout once and stays
+The later move from `<study>/participants/<participant>/sessions/<session>/`
+to the flat `<study>/<participant>/<session>/` layout (2026-10) follows the
+same rule: older, nested-layout result folders are left untouched on disk but
+are not read by the current session browser, and nothing migrates them. The
+shipped 0.7.0 demo session was moved into each new layout in turn and stays
 readable (`test_real_0_7_0_session_compat.py`).
 
 ## Timer And Event Journal

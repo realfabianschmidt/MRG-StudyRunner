@@ -69,6 +69,15 @@ holds partial checkpoints, periodic flushes and recovery dumps separately.
 Status markers (`COMPLETE.json`/`ATTENTION_REQUIRED.json`/`WITHDRAWN.json`)
 stay at the session root, same as before.
 
+**Only this flat layout is read.** The session browser and `sessions-index.csv`
+never scan the older, nested `<study>/participants/<participant>/sessions/<session>/`
+layout from earlier versions, and there is no automatic migration of it on
+upgrade. Those older result folders are left untouched on disk and keep
+working with the version that wrote them; they simply do not appear in a newer
+install's session browser. An operator keeping long-term access to pre-upgrade
+results should either read them with the old installation or move each
+session folder to the flat layout above by hand before upgrading.
+
 The original pseudonymous participant ID is preserved in JSON. Sanitized path
 components, UTC start, and immutable session ID prevent collisions when one
 participant repeats a study. The data directory can be outside the installation.
