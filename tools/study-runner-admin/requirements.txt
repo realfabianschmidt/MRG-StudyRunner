@@ -1,52 +1,64 @@
-# Study Runner Admin
+from __future__ import annotations
 
-Standalone helper for Study Runner installation, repair, cleanup, and participant management.
+from pathlib import Path
 
-This tool intentionally lives outside the main Study Runner server and is meant to be used as an operational utility for lab systems and local administration.
+from setuptools import find_packages, setup
 
-## Features
+README = Path(__file__).with_name("README.md").read_text(encoding="utf-8")
 
-- Install the latest release into a local installation directory
-- Install a specific older version by tag
-- Repair a broken installation
-- Remove an installation directory safely
-- Generate participant IDs
-- List participants in a study
-- Find participant records in saved results
-- Delete participant folders with optional archive creation
+setup(
+    name="study-runner-admin",
+    version="0.2.0",
+    description="Standalone admin helper for Study Runner installation, repair, cleanup and participant management.",
+    long_description=README,
+    long_description_content_type="text/markdown",
+    packages=find_packages(),
+    include_package_data=True,
+    install_requires=["requests>=2.32.0"],
+    entry_points={
+        "console_scripts": [
+            "study-runner-admin=study_runner_admin.cli:main",
+        ]
+    },
+    python_requires=">=3.10",
+)
 
-## Quick start
 
-```bash
-cd tools/study-runner-admin
-python -m pip install -r requirements.txt
-python -m pip install -e .
-```
 
-## CLI examples
 
-```bash
-study-runner-admin versions --limit 10
-study-runner-admin install ~/StudyRunner --version 1.7.0
-study-runner-admin repair ~/StudyRunner
-study-runner-admin remove ~/StudyRunner --force
 
-study-runner-admin participants generate --prefix P --study DemoStudy
-study-runner-admin participants list --study DemoStudy --data-dir ~/StudyRunner/data
-study-runner-admin participants find P-abcdef123456 --data-dir ~/StudyRunner/data
-study-runner-admin participants delete P-abcdef123456 --data-dir ~/StudyRunner/data --reason "consent withdrawn" --archive-first
-```
 
-## Expected data layout
 
-```text
-<DATA_DIR>/
-  saved_results/
-    DemoStudy/
-      participants/
-        P-abcdef123456/
-          sessions/
-            20260811T163356Z__study-session-...
-```
 
-This is a standalone operational helper and does not replace the Study Runner server itself.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

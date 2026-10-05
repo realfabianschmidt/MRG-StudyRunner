@@ -92,14 +92,11 @@ def install_release(
     release = resolve_release(version)
 
     if install_root.exists() and not overwrite and any(install_root.iterdir()):
-        raise FileExistsError(
-            f"Installation directory already exists: {install_root}. Use --overwrite to replace it."
-        )
-
+        raise FileExistsError(f"Installation directory already exists: {install_root}. Use --overwrite to replace it.")
     if install_root.exists() and overwrite:
         shutil.rmtree(install_root)
-
     install_root.mkdir(parents=True, exist_ok=True)
+
     archive_url = release.get("download_url")
     if not archive_url:
         raise RuntimeError(f"Release {release['tag_name']} has no downloadable source archive.")
@@ -148,11 +145,120 @@ def remove_installation(install_root: Path, force: bool = False) -> dict[str, An
     install_root = install_root.expanduser().resolve()
     if not install_root.exists():
         raise FileNotFoundError(f"Installation directory does not exist: {install_root}")
-
     if not force:
         answer = input(f"Delete {install_root}? This action is irreversible. [y/N]: ")
         if answer.strip().lower() not in {"y", "yes"}:
             return {"status": "cancelled", "install_root": str(install_root)}
-
     shutil.rmtree(install_root)
     return {"status": "removed", "install_root": str(install_root)}
+
+
+def list_installed_versions(install_root: Path) -> list[str]:
+    root = install_root.expanduser().resolve()
+    if not root.exists():
+        return []
+    state_file = root / "study-runner-admin-state.json"
+    if not state_file.exists():
+        return []
+    try:
+        payload = json.loads(state_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+    version = payload.get("version")
+    return [version] if isinstance(version, str) and version else []
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
