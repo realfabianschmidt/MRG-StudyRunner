@@ -13,6 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.data_core.contract.recording_errors import XdfBackendUnavailableError
+from study_runner.data_core.host.recording_quality import split_validation_issues
 from study_runner.data_core.host.xdf import (
     PyXdfInspector,
     PythonRecoveryJournalBackend,
@@ -81,6 +82,50 @@ class XdfRecordingContractTests(unittest.TestCase):
         report = validate_sources((optional,), required_source_keys=("brainbit", "radar"))
         self.assertFalse(report.ok)
         self.assertIn("missing_required_source", {issue.code for issue in report.issues})
+
+    def test_drain_footer_field_is_strict_and_identifies_the_recorded_source(self) -> None:
+        def inspect(footer: dict) -> StreamInspection:
+            return PyXdfInspector._inspect_stream(
+                {
+                    "info": {"name": ["bands"], "type": ["EEG"],
+                             "source_id": ["study_runner.brainbit.bands"], "channel_count": ["1"]},
+                    "time_series": [[1.0]], "time_stamps": [1.0],
+                    "clock_times": [], "clock_values": [], "footer": {"info": footer},
+                },
+                generated_origin="brainbit:part-0001.xdf:0",
+                require_embedded_origin=False,
+            )
+
+        base = {"sample_count": ["1"]}
+        self.assertEqual(inspect(base).footer_drain_status, "confirmed")
+        self.assertEqual(inspect({**base, "study_runner_drain_confirmed": ["true"]}).footer_drain_status, "confirmed")
+        unconfirmed = inspect({**base, "study_runner_drain_confirmed": ["false"]})
+        self.assertEqual(unconfirmed.footer_drain_status, "unconfirmed")
+        source = XdfArtifactInspection(Path("part-0001.xdf"), "brainbit", True, "hash", (unconfirmed,))
+        report = validate_sources((source,), required_source_keys=("brainbit",))
+        self.assertEqual([issue.code for issue in report.issues], ["source_stream_drain_unconfirmed"])
+        self.assertEqual(len(split_validation_issues(report.issues)[1]), 1)
+        self.assertIn("study_runner.brainbit.bands", report.issues[0].message)
+        self.assertIn("1 recorded samples", report.issues[0].message)
+
+        for malformed in ([], [""], ["unknown"], ["False"], [" false "], ["false", "true"], 0):
+            invalid = inspect({**base, "study_runner_drain_confirmed": malformed})
+            self.assertEqual(invalid.footer_drain_status, "invalid")
+            report = validate_sources((replace(source, streams=(invalid,)),))
+            self.assertIn("source_footer_drain_status_invalid", {issue.code for issue in report.issues})
+            self.assertTrue(split_validation_issues(report.issues)[0])
+
+        mismatch = replace(unconfirmed, footer_sample_count=2)
+        report = validate_sources((replace(source, streams=(mismatch,)),))
+        self.assertIn("source_footer_sample_count_mismatch", {issue.code for issue in report.issues})
+
+    def test_merge_parity_preserves_unconfirmed_drain_provenance(self) -> None:
+        unconfirmed = replace(stream("brainbit:part-0001:0"), footer_drain_status="unconfirmed")
+        source = XdfArtifactInspection(Path("part-0001.xdf"), "brainbit", True, "source", (unconfirmed,))
+        merged = XdfArtifactInspection(Path("session.xdf"), "merged", True, "merged", (unconfirmed,))
+        self.assertTrue(validate_merge_parity((source,), merged).ok)
+        lost = replace(merged, streams=(replace(unconfirmed, footer_drain_status="confirmed"),))
+        self.assertIn("parity_footer_drain_status", {issue.code for issue in validate_merge_parity((source,), lost).issues})
 
     def test_python_fallback_has_distinct_suffix_and_is_not_canonical_xdf(self) -> None:
         backend = PythonRecoveryJournalBackend()

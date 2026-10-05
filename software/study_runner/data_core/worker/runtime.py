@@ -13,6 +13,7 @@ import time
 from typing import Any, Mapping, Sequence
 
 from study_runner.data_core.contract.worker_protocol import WorkerCommand
+from study_runner.version import __version__
 from study_runner.data_core.contract.recording_lease import RecordingLeaseStore
 from study_runner.contracts.quality_journal import (
     OBSERVATION_WALL_CLOCK_ANCHOR,
@@ -93,6 +94,7 @@ class RecordingWorkerRuntime:
         self._backup_config: str | None = None
         self._frozen = False
         self._freeze_reason: str | None = None
+        self._freeze_result: dict[str, Any] | None = None
         self._merged_outputs: list[str] = []
         self.shutdown_event = threading.Event()
         self._monitor_stop = threading.Event()
@@ -109,6 +111,7 @@ class RecordingWorkerRuntime:
             "worker_started",
             core=self.core.probe.as_dict(),
             lsl_versions=self.lsl_versions,
+            study_runner_version=__version__,
         )
 
     @property
@@ -273,6 +276,9 @@ class RecordingWorkerRuntime:
                     journals=self.journals,
                     generation=self.generation,
                     session_root=self.session_dir,
+                    phase_log=lambda phase, details, key=plugin_key: self._log(
+                        "recording_source_shutdown_phase", plugin_key=key, phase=phase, **details
+                    ),
                 )
                 self._sources[plugin_key] = recorder
                 self._source_configs[plugin_key] = config
@@ -333,19 +339,19 @@ class RecordingWorkerRuntime:
     def freeze(self, *, reason: str) -> Mapping[str, Any]:
         with self._lock:
             if self._frozen:
-                return {
-                    "already_frozen": True,
-                    "reason": self._freeze_reason,
-                    "sources": {key: value.status() for key, value in self._sources.items()},
-                    "backup": self._backup.status() if self._backup is not None else None,
-                }
+                return {"already_frozen": True, **dict(self._freeze_result or {})}
             source_results: dict[str, Any] = {}
+            source_outcomes: dict[str, dict[str, str]] = {}
             failures: list[str] = []
             for plugin_key, recorder in self._sources.items():
                 try:
-                    source_results[plugin_key] = recorder.freeze(reason=reason)
+                    result = recorder.freeze(reason=reason)
+                    source_results[plugin_key] = result
+                    source_outcomes[plugin_key] = {"status": str(result["close_outcome"])}
                 except Exception as error:
-                    failures.append(f"{plugin_key}: {type(error).__name__}: {error}")
+                    failure = f"{plugin_key}: {type(error).__name__}: {error}"
+                    failures.append(failure)
+                    source_outcomes[plugin_key] = {"status": "incomplete", "error": failure}
                     try:
                         recorder.abort()
                     except Exception:
@@ -360,8 +366,6 @@ class RecordingWorkerRuntime:
                         self._backup.abort()
                     except Exception:
                         pass
-            self._frozen = True
-            self._freeze_reason = reason
             for plugin_key, result in source_results.items():
                 fatal = result.get("fatal_error") if isinstance(result, Mapping) else None
                 if fatal:
@@ -374,25 +378,36 @@ class RecordingWorkerRuntime:
                         )
             if isinstance(backup_result, Mapping) and backup_result.get("last_error"):
                 failures.append(f"derived_backup: {backup_result['last_error']}")
-            self._log("recording_frozen", reason=reason, failures=failures)
-            # The session's second and last UTC anchor (target doc §6).
-            self.journals.append_timing(
-                timing_record(
-                    observation=OBSERVATION_WALL_CLOCK_ANCHOR,
-                    monotonic=time.monotonic(),
-                    anchor="session_end",
-                    wall_clock_epoch=float(self._wall_clock()),
-                    session_id=self.session_id,
-                    reason=reason,
+            try:
+                self._log("recording_frozen", reason=reason, failures=failures,
+                          source_outcomes=source_outcomes)
+            except Exception as error:
+                failures.append(f"worker log: {type(error).__name__}: {error}")
+            try:
+                # The session's second and last UTC anchor (target doc §6).
+                self.journals.append_timing(
+                    timing_record(
+                        observation=OBSERVATION_WALL_CLOCK_ANCHOR,
+                        monotonic=time.monotonic(),
+                        anchor="session_end",
+                        wall_clock_epoch=float(self._wall_clock()),
+                        session_id=self.session_id,
+                        reason=reason,
+                    )
                 )
-            )
-            self.journals.flush(durable=True)
+                self.journals.flush(durable=True)
+            except Exception as error:
+                failures.append(f"session end timing journal: {type(error).__name__}: {error}")
             result = {
                 "reason": reason,
                 "sources": source_results,
+                "source_outcomes": source_outcomes,
                 "backup": backup_result,
                 "quality_failures": failures,
             }
+            self._freeze_result = result
+            self._frozen = True
+            self._freeze_reason = reason
             if failures:
                 self._write_attention("recording_freeze_quality_failure", failures=failures)
             return result

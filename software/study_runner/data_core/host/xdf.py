@@ -291,6 +291,7 @@ class StreamInspection:
     footer_checked: bool = False
     footer_present: bool = True
     footer_sample_count: int | None = None
+    footer_drain_status: str = "confirmed"
 
 
 @dataclass(frozen=True)
@@ -444,6 +445,7 @@ class PyXdfInspector:
             footer_checked=True,
             footer_present=bool(footer),
             footer_sample_count=_optional_integer_info(footer_info or {}, "sample_count"),
+            footer_drain_status=_footer_drain_status(footer_info or {}),
         )
 
 
@@ -509,6 +511,28 @@ def validate_sources(
                         origin_id=stream.origin_id,
                     )
                 )
+            if stream.footer_checked and stream.footer_present:
+                if stream.footer_drain_status == "invalid":
+                    issues.append(
+                        ValidationIssue(
+                            code="source_footer_drain_status_invalid",
+                            message=f"stream {stream.source_id!r} has an invalid drain status",
+                            source_key=inspection.source_key,
+                            origin_id=stream.origin_id,
+                        )
+                    )
+                elif stream.footer_drain_status == "unconfirmed":
+                    issues.append(
+                        ValidationIssue(
+                            code="source_stream_drain_unconfirmed",
+                            message=(
+                                f"stream {stream.source_id!r} was safely cut off after "
+                                f"{stream.sample_count} recorded samples; its LSL tail is unconfirmed"
+                            ),
+                            source_key=inspection.source_key,
+                            origin_id=stream.origin_id,
+                        )
+                    )
             if stream.origin_id in seen_origins:
                 issues.append(
                     ValidationIssue(
@@ -686,6 +710,7 @@ def _compare_streams(
         "resampling_strategy",
         "active_plugins",
         "invalid_rows_with_values",
+        "footer_drain_status",
     )
     for field_name in fields:
         if getattr(source, field_name) != getattr(merged, field_name):
@@ -1006,6 +1031,19 @@ def _optional_integer_info(info: Mapping[str, Any], key: str) -> int | None:
         return int(float(value))
     except ValueError:
         return None
+
+
+def _footer_drain_status(info: Mapping[str, Any]) -> str:
+    if "study_runner_drain_confirmed" not in info:
+        return "confirmed"  # Legacy native XDFs have no drain-status field.
+    raw = info["study_runner_drain_confirmed"]
+    if isinstance(raw, list):
+        if len(raw) != 1:
+            return "invalid"
+        raw = raw[0]
+    if not isinstance(raw, str):
+        return "invalid"
+    return {"true": "confirmed", "false": "unconfirmed"}.get(raw, "invalid")
 
 
 def _series_channel_count(series: Any) -> int:

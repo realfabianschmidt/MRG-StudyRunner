@@ -48,6 +48,16 @@ def test_the_radio_round_trip_is_known_only_for_a_connected_board():
     assert monitor.link_rtt_ms("radar") is None
 
 
+def test_a_stale_board_status_no_longer_answers_for_the_radio_round_trip():
+    """A status reply older than STATUS_STALE_SECONDS must not stand in for
+    the board's *current* radio RTT - the caller passes `now` to find out."""
+    monitor = AmHubMonitor()
+    monitor.observe(status("bio", connected=True, link_rtt_ms=20.0), 1.0)
+    assert monitor.link_rtt_ms("bio", 1.5) == 20.0  # 0.5 s old: still fresh
+    assert monitor.link_rtt_ms("bio", 3.5) is None  # 2.5 s old: too stale
+    assert monitor.link_rtt_ms("bio") == 20.0  # no `now` given: no staleness check (back-compat)
+
+
 def test_a_person_is_seen_by_any_fresh_source_and_old_values_do_not_count():
     monitor = AmHubMonitor()
     monitor.observe(frame("bio", 1, {"/sensor/heartBpm": 70}), 10.0)

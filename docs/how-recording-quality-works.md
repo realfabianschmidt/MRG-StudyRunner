@@ -39,6 +39,26 @@ Two files are produced in every session folder's `meta/` subfolder:
 Both are plain text, one entry per line. You can open them in any text
 editor.
 
+### When a stream cannot finish draining
+
+At session end, the recording worker gives each LSL source a bounded period
+to deliver its buffered samples. The worker closes the XDF only after every
+stream has stopped writing, or after it has fenced a delayed stream so that
+no further write can start. Its footer records the count of samples actually
+written. A fenced stream carries `study_runner_drain_confirmed=false`:
+this means its final LSL tail could not be confirmed, even though the XDF
+file itself was closed safely. It does not assert that all samples produced
+near shutdown were captured.
+
+Validation reports this as `source_stream_drain_unconfirmed`, naming the
+recorded source ID and sample count. A researcher must accept that quality
+warning with a reason before merge, parity checking, summaries, CSV and the
+manifest continue. The session remains `completed_degraded`; the raw sources
+remain available. The warning and acceptance reason remain in the session's
+provenance. A missing footer, malformed drain field or count mismatch is a
+blocking structural problem and cannot be accepted through this warning
+path. A failed durable close leaves an incomplete source for recovery.
+
 ---
 
 ## 2. The four numbers, and what each one really tells you

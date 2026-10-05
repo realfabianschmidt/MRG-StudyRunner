@@ -16,11 +16,11 @@ setting.
 
 | Stream | One sample per | Channels |
 | --- | --- | --- |
-| `radar` | radar board frame (~10 Hz) | the 22 radar values in the hub's order (`personDist` ... `presDetDist`), `rssi`, `seq`, `hub_timestamp`, `latency_ms`, `correction_ms` |
-| `bio` | bio board frame (~10 Hz) | `heartBpm`, `breathRate`, `bioDist`, `bioT1x`, `bioT1y`, `rssi`, `seq`, `hub_timestamp`, `latency_ms`, `correction_ms` |
-| `valves` | valve board frame (on change + heartbeat) | `CH0` ... `CH7`, `rssi`, `seq`, `hub_timestamp`, `latency_ms`, `correction_ms` |
-| `hub_events` | any other hub event | `event`: the event's JSON exactly as received |
-| `hub_clock` | answered ping (about 1 per second) | `hub_clock_s`, `rtt_ms`, `exchange_offset_s`, `clock_offset_s`, `offset_uncertainty_ms`, `offset_valid`, `offset_steps`, `correction_enabled` |
+| `radar` | radar board frame (~10 Hz) | the 22 radar values in the hub's order (`personDist` ... `presDetDist`), `rssi`, `seq`, `hub_timestamp`, `latency_ms`, `radio_rtt_ms`, `clock_offset_ms`, `correction_ms` |
+| `bio` | bio board frame (~10 Hz) | `heartBpm`, `breathRate`, `bioDist`, `bioT1x`, `bioT1y`, `rssi`, `seq`, `hub_timestamp`, `latency_ms`, `radio_rtt_ms`, `clock_offset_ms`, `correction_ms` |
+| `valves` | valve board frame (on change + heartbeat) | `CH0` ... `CH7`, `rssi`, `seq`, `hub_timestamp`, `latency_ms`, `radio_rtt_ms`, `clock_offset_ms`, `correction_ms` |
+| `hub_events` | every received hub event, including every board frame | `event`: the event's JSON exactly as received |
+| `hub_clock` | every ping attempt, answered or not (about 1 per second) | `hub_clock_s`, `rtt_ms`, `exchange_offset_s`, `clock_offset_s`, `offset_uncertainty_ms`, `offset_valid`, `offset_steps`, `correction_enabled`, `reply_valid` |
 
 - **One frame, one sample.** A sample exists only because the board sent a
   frame. There is no fixed tick, nothing is resampled or carried forward, and
@@ -35,18 +35,21 @@ setting.
   event and projects its declared fields into typed numeric XDF channels.
   Numeric parsing, channel selection and optional timestamp correction are
   transformations; these streams must not be described as byte-for-byte
-  copies of the hub response or of the radar UART frames. `hub_events` keeps
-  the status/unknown events and unsupported fields described below; it is not
-  a guaranteed duplicate of every board frame.
+  copies of the hub response or of the radar UART frames (that verbatim copy,
+  as JSON text, is what `hub_events` is for - see below).
 - **`rssi`** is filled only over WiFi (the board appends it to each frame);
   over BLE it is NaN and the connection strength is in the hub's status
   events. **`seq`** is the hub's frame counter per board and is the stream's
   sequence channel, so gaps show up in the quality review.
   **`hub_timestamp`** is the hub's own clock at the frame's arrival there.
-- **`hub_events`** holds status, hello, valves, scene, gap and any unknown
-  event types, like BrainBit's `diagnostics`. A frame with a value its board
-  stream does not declare (for example `/solenoid/alive` over WiFi, or a new
-  firmware field) is written there as well, so nothing the hub sent is lost.
+- **`hub_events`** holds every event the hub sends, verbatim as received JSON
+  text (not the hub's radio/UART bytes) - status, hello, valves, scene, gap,
+  any unknown event type, and every normal board frame too, like BrainBit's
+  `diagnostics` but with no exception for a complete frame. This is in
+  addition to, never instead of, the numeric projection in `radar`/`bio`/
+  `valves`, so nothing the hub sent is ever lost even for a frame with a value
+  its board stream does not declare (for example `/solenoid/alive` over WiFi,
+  or a new firmware field).
 - **Backup:** the standard 1 Hz backup projection (presence, movement energy,
   person distance, heart and breathing rate) is a derived file for quality
   checks and as a fallback -- never a measurement.
@@ -61,34 +64,44 @@ event arrived at this computer (`timestamp_source: host_arrival_corrected`
 with nothing corrected: `correction_ms` is 0). What separates that arrival
 from the moment the board sent the frame is measured and recorded:
 
-| Part | Measured by | How |
+| Part | Estimated by | How |
 | --- | --- | --- |
-| board -> hub (radio) | the hub | its ping to each board (BLE ping characteristic / UDP echo), reported as `link_rtt_ms` in the status events; half of it counts |
+| board -> hub (radio) | the hub | its ping to each board (BLE ping characteristic / UDP echo), reported as `link_rtt_ms` in the status events; half of it counts. A status reply older than 2 s no longer answers for the board's *current* radio RTT - the age of that status reply, not of the hub's own radio ping. |
 | hub -> Study Runner, including the hub's own handling | this plugin | the hub stamps `t` when the board's packet reaches it; the pings map `t` onto this computer's LSL clock |
 
-- **The pings.** Once per second the plugin asks `/api/v2/ping`; the answer
-  carries the hub's wall clock (`server_now`). Send and receive time on this
-  computer give the round trip and one clock-offset estimate (the NTP method,
-  `shared/clock_offset.py`): the fastest recent round trip is trusted, aged
-  by a drift allowance; a jump of the hub clock (NTP on the hub) is accepted
-  after three agreeing pings. Every answered ping is one `hub_clock` sample,
-  so the XDF holds the evidence: the raw offset of each exchange
-  (`exchange_offset_s`), the estimate in use (`clock_offset_s`, valid after
-  four pings and within 25 ms), and its uncertainty.
+- **The pings.** Once per second the plugin asks `/api/v2/ping`. A reply that
+  carries the hub's wall clock (`server_now`) gives the round trip and one
+  clock-offset estimate (the NTP method, `shared/clock_offset.py`): the
+  fastest recent round trip is trusted, aged by a drift allowance; a jump of
+  the hub clock (NTP on the hub) is accepted after three agreeing pings.
+  Every ping *attempt* is one `hub_clock` sample, answered or not: a timeout,
+  an HTTP error, or a reply with no usable `server_now` still gets a row,
+  with `reply_valid` false and no invented hub time or exchange for that row
+  (a reply that came back with no usable clock still reports its real round
+  trip in `rtt_ms`, though). The XDF holds the evidence either way: the raw
+  offset of each successful exchange (`exchange_offset_s`), the estimate in
+  use (`clock_offset_s`, valid after four pings and within 25 ms), and its
+  uncertainty.
 - **`latency_ms`** per frame = `(arrival - t on this clock) * 1000 +
   link_rtt_ms / 2`. It is NaN while the hub clock is not yet known, during a
-  suspected clock step, or when a board reports no radio round trip (older
-  firmware). The ESP's own processing before it sends is not included.
-  Half a radio or network RTT is only a symmetry-based estimate, not a proven
-  one-way transport time. Neither this estimate nor the hub timestamp reveals
-  the exact instant of radar or bio acquisition.
-- **Correction (machine setting "Correct timestamps by the measured
+  suspected clock step, when a board reports no radio round trip (older
+  firmware), or when the board's status is older than 2 s. The raw
+  `radio_rtt_ms` and `clock_offset_ms` actually used travel with every frame
+  alongside the combined `latency_ms`, so a stale or missing part stays
+  visible instead of disappearing into one number. The ESP's own processing
+  before it sends is not included. Half a radio or network RTT is only a
+  symmetry-based estimate, not a proven one-way transport time. Neither this
+  estimate nor the hub timestamp reveals the exact instant of radar or bio
+  acquisition.
+- **Correction (machine setting "Correct timestamps by the estimated
   latency", off by default).** When on, the timestamp of a frame with a
-  plausible latency (0-1000 ms) is `arrival - latency`; `correction_ms` holds
-  what was taken off, so `arrival = timestamp + correction_ms / 1000` always
-  rebuilds the arrival time. The setting is read when the plugin starts, so
-  one run is never half corrected; restart the AM Hub after changing it.
-  Timestamps never go backwards within a stream.
+  plausible latency (0-1000 ms) is `arrival - latency`, clamped to never move
+  a stream's timestamps backwards - which can make the applied amount
+  smaller than the estimated `latency_ms` for that same frame.
+  `correction_ms` holds what was actually taken off, so
+  `arrival = timestamp + correction_ms / 1000` always rebuilds the arrival
+  time. The setting is read when the plugin starts, so one run is never half
+  corrected; restart the AM Hub after changing it.
 
 Neither SSE nor LSL/XDF is claimed to be loss-free; `seq` gaps, the hub's gap
 events and reconnects are the evidence.

@@ -9,10 +9,10 @@
       "contract_sha256": "89f20ed4b47fe8c9d324fc08de5a5a722ee8720d222876d1ed9079e198ef46f8"
     },
     "am_hub": {
-      "version": "4.1.1",
+      "version": "5.0.0",
       "path": "software/study_runner/plugins/sensors/am_hub",
-      "content_sha256": "bb3cefe173d241da8c83c24084eaa88f1f50a0ad5da0b07ea91ffd34873f0c6f",
-      "contract_sha256": "386e9f5c88aed49a9b28b37720d35660490d5e1aaccc7b297159861d44f73e29"
+      "content_sha256": "096aed338ce4db2cebaf0d910a86923c30de696856b0d9e5fee27364055287ea",
+      "contract_sha256": "76736ec11c19b5fe64ff04e5035a4325cdfc2069c61c7d03a129de9bf8b09389"
     },
     "brainbit": {
       "version": "2.1.0",

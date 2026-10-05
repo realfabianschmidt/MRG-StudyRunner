@@ -22,11 +22,13 @@ WORKER_UNAVAILABLE_REASON = (
 )
 
 from study_runner.data_core.host.artifacts import ArtifactStore, SessionIdentity
-from study_runner.data_core.host.coordinator import SegmentLedger
+from study_runner.data_core.host.coordinator import RecordingCoordinator, SegmentLedger
 from study_runner.data_core.contract.recording_lease import RecordingLeaseStore
 from study_runner.data_core.host.worker_binary import WorkerBinaryAvailability
-from study_runner.data_core.contract.worker_protocol import LoopbackWorkerClient, WorkerEndpointState
-from study_runner.data_core.host.xdf import StreamInspection, XdfArtifactInspection
+from study_runner.data_core.contract.worker_protocol import LoopbackWorkerClient, WorkerEndpointState, WorkerResponse
+from study_runner.data_core.host.xdf import (
+    StreamInspection, ValidationIssue, XdfArtifactInspection, XdfValidationReport,
+)
 from study_runner.data_core.contract.recording_errors import WorkerUnavailableError
 from study_runner.runtime_core.delivery.recording_finalization_adapter import (
     RuntimeRecordingFinalizationAdapter,
@@ -118,6 +120,125 @@ _PLANNED_DURATION_SETTINGS = {"planned_session_duration_minutes": 30}
 
 
 class RecordingRuntimeTests(unittest.TestCase):
+    def test_freeze_outcomes_drive_segment_ledger_states(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime = RecordingRuntimeService(Path(temp_dir), PROJECT_ROOT)
+            identity = SessionIdentity(
+                study_id="study", participant_id="p01", session_id="ledger-session",
+                started_at=dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
+            )
+            paths = runtime.artifacts.reserve(identity)
+            outcomes = {
+                "clean": {"status": "closed_confirmed"},
+                "delayed": {"status": "closed_unconfirmed"},
+                "broken": {"status": "incomplete"},
+            }
+            for key in outcomes:
+                SegmentLedger(paths, key).allocate(f"allocation-{key}", worker_generation=1)
+
+            class Worker:
+                def send(self, _command, _payload, *, command_id):
+                    return WorkerResponse(command_id, True, {"source_outcomes": outcomes})
+
+            response = RecordingCoordinator(paths, Worker()).freeze(command_id="freeze-ledger")
+            self.assertTrue(response.ok)
+            self.assertEqual(
+                {key: SegmentLedger(paths, key).records()[0].state for key in outcomes},
+                {"clean": "closed", "delayed": "closed", "broken": "invalid"},
+            )
+
+    def test_frozen_retry_replays_incomplete_source_outcome(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime = RecordingRuntimeService(root, PROJECT_ROOT)
+            identity = SessionIdentity(
+                study_id="study", participant_id="p01", session_id="retry-session",
+                started_at=dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
+            )
+            paths = runtime.artifacts.reserve(identity)
+            expected = {
+                "quality_failures": ["brainbit: writer could not be fenced"],
+                "source_outcomes": {"brainbit": {"status": "incomplete"}},
+            }
+            paths.recording_plan_file.write_text(
+                json.dumps({"schema": "study-runner/recording-plan/v1",
+                            "status": "frozen", "freeze_result": expected}), encoding="utf-8"
+            )
+            self.assertEqual(runtime.freeze_worker(paths, command_id="retry"),
+                             {"already_frozen": True, **expected})
+
+    def test_warning_only_source_does_not_skip_merge_parity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime = RecordingRuntimeService(root, PROJECT_ROOT)
+            identity = SessionIdentity(
+                study_id="study", participant_id="p01", session_id="parity-session",
+                started_at=dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
+            )
+            paths = runtime.artifacts.reserve(identity)
+            source_stream = StreamInspection(
+                origin_id="brainbit:part-0001.xdf:0", name="bands", stream_type="EEG",
+                source_id="study_runner.brainbit.bands", nominal_srate=10.0,
+                channel_count=1, sample_count=1, first_timestamp=1.0,
+                last_timestamp=1.0, sample_hash="sample", timestamp_hash="time",
+                clock_offsets_hash="clock", metadata_hash="meta",
+                stream_id="stream-brainbit-0",
+                footer_drain_status="unconfirmed",
+            )
+            source = XdfArtifactInspection(Path("part-0001.xdf"), "brainbit", True, "hash", (source_stream,))
+            merged = XdfArtifactInspection(Path("session.xdf"), "merged", True, "merged", (source_stream,))
+            warning = ValidationIssue("source_stream_drain_unconfirmed", "tail unknown")
+            source_report = XdfValidationReport(ok=False, issues=(warning,))
+
+            class Inspector:
+                def inspect(self, *_args, **_kwargs):
+                    return merged
+
+            with mock.patch.object(runtime, "inspect_sources", return_value=([source], source_report)), \
+                 mock.patch("study_runner.data_core.host.recording_runtime.PyXdfInspector",
+                            return_value=Inspector()):
+                result, parity = runtime.inspect_merge(paths)
+            self.assertIs(result, merged)
+            self.assertTrue(parity.ok)
+            self.assertEqual(parity.issues, ())
+
+    def test_incomplete_ledger_blocks_even_if_footer_looks_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            runtime = RecordingRuntimeService(Path(temp_dir), PROJECT_ROOT)
+            identity = SessionIdentity(
+                study_id="study", participant_id="p01", session_id="incomplete-session",
+                started_at=dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
+            )
+            paths = runtime.artifacts.reserve(identity)
+            paths.recording_plan_file.write_text(json.dumps({
+                "schema": "study-runner/recording-plan/v1", "recording_plugins": ["fixture"],
+                "required_source_keys": ["fixture"], "backup": None,
+            }), encoding="utf-8")
+            ledger = SegmentLedger(paths, "fixture")
+            record = ledger.allocate("allocation-incomplete", worker_generation=1)
+            ledger.mark_invalid(record.allocation_id, reason="worker_freeze_incomplete")
+            ledger.absolute_path(record).write_bytes(b"looks like a closed XDF")
+            readable = XdfArtifactInspection(
+                ledger.absolute_path(record), "fixture", True, "hash",
+                (StreamInspection(
+                    origin_id="fixture:part-0001.xdf:0", name="values", stream_type="TEST",
+                    source_id="study_runner.fixture.values", nominal_srate=10.0,
+                    channel_count=1, sample_count=1, first_timestamp=1.0,
+                    last_timestamp=1.0, sample_hash="sample", timestamp_hash="time",
+                    clock_offsets_hash="clock", metadata_hash="meta", stream_id="stream-1",
+                    footer_checked=True, footer_present=True, footer_sample_count=1,
+                ),),
+            )
+
+            class Inspector:
+                def inspect(self, *_args, **_kwargs):
+                    return readable
+
+            with mock.patch("study_runner.data_core.host.recording_runtime.PyXdfInspector",
+                            return_value=Inspector()):
+                _inspections, report = runtime.inspect_sources(paths)
+            self.assertIn("source_close_incomplete", {issue.code for issue in report.issues})
+
     def setUp(self) -> None:
         FakeLauncher.commands = []
 

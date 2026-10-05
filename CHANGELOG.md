@@ -5,6 +5,12 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Fixed
+
+- **Reliable XDF finalization.** A slow LSL stream now gets a bounded drain period before the recorder safely fences further writes and closes every stream with an honest footer. A safely closed but unconfirmed tail is reported by source ID and recorded sample count; only a reasoned operator acceptance lets merge, parity checks, summaries, CSV, and the manifest continue as `completed_degraded`. Missing or invalid footers, count mismatches, and a failed durable close remain blocking. Freeze retries preserve the original source outcomes.
+- A study-required sensor (e.g. AM Hub) whose machine switch is off no longer reports "switched off" when it is actually about to run: the readiness check now uses the exact formula that decides what starts (study selection or session override), not the on-disk machine flag, which the real start logic never consulted either.
+- **AM Hub timing and recording (am_hub 5.0.0, data contract change).** Every received hub event, including every normal board frame, is now also kept verbatim in `hub_events`, in addition to its numeric projection - nothing the hub sends is discarded. `hub_clock` records one row per ping attempt, successful or not, with a new `reply_valid` channel; a failed attempt invents no hub time or round trip. The dashboard's clock-offset validity now ages against the real time instead of never expiring on its own last exchange. Each board frame also records the raw radio round trip and clock offset actually used (`radio_rtt_ms`, `clock_offset_ms`) alongside the combined `latency_ms`, and a board status older than 2 s no longer stands in for a current radio RTT. Documentation and UI text now consistently call this latency an estimate, not a measurement.
+
 ## 1.7.3 - 2026-10-05
 
 ### Fixed

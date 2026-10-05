@@ -98,7 +98,7 @@ def row(stream: str, sample: list) -> dict[str, float]:
 # ------------------------------------------------------------ data model
 
 def test_recorded_channels_are_the_hub_codec_topics_plus_bookkeeping():
-    bookkeeping = ["rssi", "seq", "hub_timestamp", "latency_ms", "correction_ms"]
+    bookkeeping = ["rssi", "seq", "hub_timestamp", "latency_ms", "radio_rtt_ms", "clock_offset_ms", "correction_ms"]
     for stream, topics in HUB_TOPICS.items():
         contract = adapter.STREAM_CONTRACTS[stream]
         assert contract["channels"] == [address.rsplit("/", 1)[-1] for address in topics] + bookkeeping
@@ -111,10 +111,13 @@ def test_recorded_channels_are_the_hub_codec_topics_plus_bookkeeping():
 
 def test_a_board_frame_is_exactly_one_sample_in_its_stream_with_its_own_values():
     outlets = active()
-    adapter._handle_sse_event(frame("radar", 7, {"/sensor/presMoveEnergy": 0, "/sensor/t1speed": -12,
-                                                "/sensor/rssiRadar": -61}, t=1700000000.125))
-    adapter._handle_sse_event(frame("bio", 3, {"/sensor/heartBpm": 72, "/sensor/bioDist": 85}))
-    adapter._handle_sse_event(frame("solenoid", 1, {"/solenoid/CH3": 1}))
+    radar_event = frame("radar", 7, {"/sensor/presMoveEnergy": 0, "/sensor/t1speed": -12,
+                                      "/sensor/rssiRadar": -61}, t=1700000000.125)
+    bio_event = frame("bio", 3, {"/sensor/heartBpm": 72, "/sensor/bioDist": 85})
+    solenoid_event = frame("solenoid", 1, {"/solenoid/CH3": 1})
+    adapter._handle_sse_event(radar_event)
+    adapter._handle_sse_event(bio_event)
+    adapter._handle_sse_event(solenoid_event)
     radar, bio, valves = (outlets[key].rows for key in ("radar", "bio", "valves"))
     assert len(radar) == len(bio) == len(valves) == 1
     radar_row = row("radar", radar[0])
@@ -125,10 +128,12 @@ def test_a_board_frame_is_exactly_one_sample_in_its_stream_with_its_own_values()
     assert math.isnan(radar_row["personDist"])  # not in this frame: missing, never 0
     # No hub clock known yet: no latency, and the timestamp is the arrival.
     assert math.isnan(radar_row["latency_ms"]) and radar_row["correction_ms"] == 0
+    assert math.isnan(radar_row["radio_rtt_ms"]) and math.isnan(radar_row["clock_offset_ms"])
     assert outlets["radar"].timestamps == [1000.0]
     assert row("bio", bio[0])["bioDist"] == 85
     assert row("valves", valves[0])["CH3"] == 1 and math.isnan(row("valves", valves[0])["CH0"])
-    assert outlets["hub_events"].rows == []
+    # Every received event, including a normal frame, is also kept verbatim.
+    assert outlets["hub_events"].rows == [[radar_event], [bio_event], [solenoid_event]]
 
 
 def test_other_hub_events_are_kept_verbatim_in_hub_events():
@@ -307,17 +312,83 @@ def test_each_answered_ping_is_one_hub_clock_sample():
     assert rows[0]["rtt_ms"] == pytest.approx(4.0)
     assert rows[0]["exchange_offset_s"] == pytest.approx(HUB_OFFSET)
     assert [r["offset_valid"] for r in rows] == [0.0, 0.0, 0.0, 1.0]  # four exchanges needed
+    assert all(r["reply_valid"] == 1.0 for r in rows)
     assert rows[-1]["clock_offset_s"] == pytest.approx(HUB_OFFSET)
     assert rows[-1]["correction_enabled"] == 0.0
     assert outlets["hub_clock"].timestamps == pytest.approx([990.004, 991.004, 992.004, 993.004])
 
 
-def test_a_ping_without_the_hub_clock_still_records_the_round_trip():
+def test_a_malformed_reply_still_records_the_round_trip_but_not_the_hub_clock():
+    """http_ok (a reply came back) but no usable server_now in it: the round
+    trip is real and recorded, the hub time and exchange are not."""
     outlets = active()
     adapter._record_ping(10.0, 10.006, None)
     recorded = row("hub_clock", outlets["hub_clock"].rows[0])
     assert recorded["rtt_ms"] == pytest.approx(6.0)
     assert math.isnan(recorded["hub_clock_s"]) and recorded["offset_valid"] == 0.0
+    assert recorded["reply_valid"] == 0.0
+
+
+def test_a_timed_out_or_http_error_ping_still_gets_its_own_row():
+    """Neither a round trip nor a hub time is invented for an attempt that
+    never got a usable reply at all - but the attempt is still recorded,
+    unlike before, instead of silently producing no row."""
+    outlets = active()
+    adapter._record_ping(10.0, 10.006, None, http_ok=False)
+    recorded = row("hub_clock", outlets["hub_clock"].rows[0])
+    assert math.isnan(recorded["rtt_ms"]) and math.isnan(recorded["hub_clock_s"])
+    assert recorded["offset_valid"] == 0.0 and recorded["reply_valid"] == 0.0
+
+
+def test_ping_loop_records_a_row_for_every_attempt_including_failures():
+    """successful, malformed, HTTP-error and timed-out pings each produce
+    exactly one hub_clock row, through the real loop (not _record_ping
+    called directly)."""
+    outlets = active()
+    adapter._generation += 1
+    generation = adapter._generation
+    adapter._running = True
+
+    class OkResponse:
+        ok = True
+
+        def json(self):
+            return {"server_now": 990.002 + HUB_OFFSET}
+
+    class MalformedResponse:
+        ok = True
+
+        def json(self):
+            return {}
+
+    class ErrorResponse:
+        ok = False
+
+        def json(self):
+            raise AssertionError("must not be parsed when not ok")
+
+    responses = iter([OkResponse(), MalformedResponse(), ErrorResponse(), TimeoutError("timed out")])
+
+    def get(_session, _url, **_kwargs):
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    stop_after = {"calls": 0}
+
+    def wait(_seconds):
+        stop_after["calls"] += 1
+        if stop_after["calls"] >= 4:
+            adapter._running = False  # _alive() becomes False: the loop condition itself
+
+    with mock.patch("requests.Session.get", autospec=True, side_effect=get), \
+         mock.patch.object(adapter._stop_event, "wait", side_effect=wait):
+        adapter._ping_loop(generation)
+    rows = [row("hub_clock", r) for r in outlets["hub_clock"].rows]
+    assert [r["reply_valid"] for r in rows] == [1.0, 0.0, 0.0, 0.0]
+    assert math.isfinite(rows[1]["rtt_ms"])  # malformed: round trip still real
+    assert math.isnan(rows[2]["rtt_ms"]) and math.isnan(rows[3]["rtt_ms"])  # HTTP error, timeout: no round trip
 
 
 def test_the_latency_is_hub_transit_plus_half_the_radio_round_trip():
@@ -332,6 +403,36 @@ def test_the_latency_is_hub_transit_plus_half_the_radio_round_trip():
     assert outlets["radar"].timestamps == [1000.0] and recorded["correction_ms"] == 0.0
     assert adapter.get_status()["timing"]["latency_ms"]["radar"] == pytest.approx(45.0, abs=0.1)
     assert adapter.get_status()["hub_boards"]["radar"]["latency_ms"] == pytest.approx(45.0, abs=0.1)
+    # The raw parts actually used travel with the frame, alongside the combined latency.
+    assert recorded["radio_rtt_ms"] == pytest.approx(10.0)
+    assert recorded["clock_offset_ms"] == pytest.approx(HUB_OFFSET * 1000.0, rel=1e-6)
+
+
+def test_a_stale_board_status_still_records_the_frame_with_no_latency():
+    """Older than STATUS_STALE_SECONDS: the radio RTT no longer answers for
+    *this* frame, so latency_ms is NaN and no timestamp correction applies -
+    the frame itself is still recorded, never dropped."""
+    outlets = active()
+    known_hub_clock(link_rtt_ms=10.0)
+    adapter._correction_active = True
+    LSL.clock = 1000.0
+    with mock.patch.object(adapter.time, "time", return_value=time.time() + 3.0):
+        adapter._handle_sse_event(frame("radar", 1, {"/sensor/presence": 1}, t=999.960 + HUB_OFFSET))
+    recorded = row("radar", outlets["radar"].rows[0])
+    assert math.isnan(recorded["latency_ms"]) and math.isnan(recorded["radio_rtt_ms"])
+    assert outlets["radar"].timestamps == [1000.0] and recorded["correction_ms"] == 0.0
+
+
+def test_dashboard_offset_validity_ages_even_without_a_fresh_exchange():
+    """The bug this guards against: _timing_status used to age the estimate
+    to its own last exchange, so a hub that stopped answering pings could
+    show clock_offset_valid forever. Aging it to a real `now` instead must
+    make it expire."""
+    active()
+    known_hub_clock()
+    assert adapter.get_status()["timing"]["clock_offset_valid"] is True
+    LSL.clock = 1000.0 + adapter._clock.max_age_s + 1.0  # long past the estimator's own max age
+    assert adapter.get_status()["timing"]["clock_offset_valid"] is False
 
 
 def test_with_the_correction_on_the_timestamp_is_reversible():
@@ -498,7 +599,8 @@ def test_sse_byte_chunks_arrive_as_whole_events():
 
     assert adapter._read_sse_events(Response(), adapter._generation)
     assert row("bio", outlets["bio"].rows[0])["heartBpm"] == 70
-    assert outlets["hub_events"].rows == [['{"type":"gap","dropped":1}']]
+    # The frame itself is now also kept verbatim, in addition to the gap event.
+    assert outlets["hub_events"].rows == [[event], ['{"type":"gap","dropped":1}']]
 
 
 # ------------------------------------------------------------ XDF boundary
@@ -521,7 +623,7 @@ def test_replayed_frames_reach_the_xdf_writer_once_in_order(tmp_path):
             self.rows = []
 
         def write_samples(self, stream_id, timestamps, rows, *, channel_format, channel_count):
-            assert channel_format == "double64" and channel_count == 27
+            assert channel_format == "double64" and channel_count == 29
             self.rows.extend(zip(timestamps, rows))
 
         def write_clock_offset(self, *_args):

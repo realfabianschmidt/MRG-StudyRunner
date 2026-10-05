@@ -22,6 +22,9 @@ PERSON_VITALS = ("bioDist", "heartBpm", "breathRate")
 # A value older than this no longer counts as "now" for person detection.
 PERSON_STALE_SECONDS = 2.5
 HUB_ROLES = ("radar", "bio", "solenoid")
+# A board-status reply older than this no longer answers for the board's
+# *current* radio round trip (adapter.py uses this to gate latency_ms).
+STATUS_STALE_SECONDS = 2.0
 
 
 def channel_name(address: str) -> str:
@@ -58,7 +61,7 @@ class AmHubMonitor:
             if kind == "frame":
                 self._frame(event, received)
             elif kind in ("status", "hello"):
-                self._boards(event.get("devices") if kind == "status" else event.get("status"))
+                self._boards(event.get("devices") if kind == "status" else event.get("status"), received)
                 if kind == "hello" and isinstance(event.get("host"), dict):
                     self.hub_host = dict(event["host"])
             elif kind == "valves":
@@ -86,7 +89,7 @@ class AmHubMonitor:
         for address, value in values.items():
             self.values[str(address)] = {"value": _number(value), "received_at": received}
 
-    def _boards(self, devices: Any) -> None:
+    def _boards(self, devices: Any, received: float) -> None:
         if not isinstance(devices, dict):
             return
         for info in devices.values():
@@ -102,13 +105,28 @@ class AmHubMonitor:
                 "link_rtt_ms": _number(info.get("link_rtt_ms")),
                 "hub_latency_ms": _number(info.get("hub_latency_ms")),
                 "detail": info.get("detail"),
+                "status_at": received,
             }
 
-    def link_rtt_ms(self, role: str) -> float | None:
-        """The radio round trip hub <-> board the hub measured last (None: unknown)."""
+    def link_rtt_ms(self, role: str, now: float | None = None) -> float | None:
+        """The radio round trip hub <-> board the hub measured last.
+
+        ``None`` when unknown, the board is not connected, or (with ``now``
+        given) the status that reported it is older than
+        ``STATUS_STALE_SECONDS`` - a stale reply must not stand in for a
+        current radio RTT.
+        """
         with self.lock:
             board = self.hub_boards.get(role) or {}
-            return board.get("link_rtt_ms") if board.get("connected") else None
+            if not board.get("connected"):
+                return None
+            rtt = board.get("link_rtt_ms")
+            if rtt is None:
+                return None
+            status_at = board.get("status_at")
+            if now is not None and status_at is not None and now - status_at > STATUS_STALE_SECONDS:
+                return None
+            return rtt
 
     def _lost_this_session(self, role: str, gap_count: float | None) -> float | None:
         """The hub counts lost packets since it started; show only this connection's."""

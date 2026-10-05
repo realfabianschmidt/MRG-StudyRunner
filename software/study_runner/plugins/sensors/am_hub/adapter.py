@@ -7,22 +7,37 @@ records what arrives, through the shared ``SensorStreams``:
   that board's numeric stream (``radar``, ``bio``, ``valves``), stamped with
   the time it arrived here. The values are the ones the ESP sent: no tick, no
   unit conversion, nothing carried forward; a value missing from the frame is
-  NaN. ``seq``, the hub's own ``t``, the measured latency and the applied
-  correction travel along as bookkeeping channels.
-- every other hub event (status, hello, valves, scene, gap, ...) -> verbatim
-  JSON in ``hub_events``, like BrainBit's ``diagnostics``. A frame with a value
-  its board stream does not declare goes there as well, so nothing is lost.
-- once per second a ping to the hub -> one sample in ``hub_clock``: the hub's
-  clock, the round trip and the clock offset estimated from it.
+  NaN. ``seq``, the hub's own ``t``, the estimated latency and its raw parts,
+  and the applied correction travel along as bookkeeping channels.
+- every received ``data:`` event, without exception, including every board
+  frame -> its received JSON text, verbatim, in ``hub_events``, like
+  BrainBit's ``diagnostics``. "Verbatim" means the JSON text as received, not
+  the hub's radio/UART bytes. This is in addition to, never instead of, the
+  numeric projection above - nothing the hub sent is ever discarded.
+- once per ping attempt to the hub, successful or not -> one sample in
+  ``hub_clock``: the hub's clock, the round trip and the clock offset
+  estimated from it when the attempt succeeded; ``reply_valid`` says whether
+  it did, and a failed attempt invents neither a hub time nor a usable
+  offset for that row.
 
-Latency (board -> Study Runner) has two measured parts:
+Latency (board -> Study Runner) is an *estimate* from two parts, neither a
+direct measurement of the board's own acquisition instant:
 ``(arrival - t on our clock) + link_rtt_ms / 2``. The hub stamps ``t`` when a
 board's packet reaches it; the pings' clock offset maps ``t`` onto this
 computer's LSL clock. The hub pings each board itself and reports the radio
-round trip as ``link_rtt_ms``. By default the timestamp stays the arrival
-time and the latency is only recorded. With the machine setting
-``timestamp_correction`` the timestamp becomes ``arrival - latency``; the
-``correction_ms`` channel keeps it reversible.
+round trip as ``link_rtt_ms``; halving it assumes the up and down legs take
+roughly the same time, which radio rarely guarantees exactly. The raw
+``radio_rtt_ms`` and ``clock_offset_ms`` actually used travel with every
+frame, separately from the combined ``latency_ms``, so a later analysis can
+tell which part was stale or missing. A hub board-status reply older than
+``STATUS_STALE_SECONDS`` no longer counts as a usable radio RTT; the frame is
+still recorded, with ``latency_ms = NaN`` and no timestamp correction. By
+default the timestamp stays the arrival time and the latency is only
+recorded. With the machine setting ``timestamp_correction`` the timestamp
+becomes ``arrival - latency``, clamped to never move a stream's timestamps
+backwards - which can make the applied ``correction_ms`` smaller than the
+estimated ``latency_ms`` for that same frame; ``correction_ms`` keeps the
+applied amount reversible (add it back to recover the arrival time).
 
 What the dashboard shows is ``monitor.py``'s job and the core's live view;
 this module never derives a recorded value from them.
@@ -57,7 +72,13 @@ BOARD_STREAMS = {"radar": "radar", "bio": "bio", "solenoid": "valves"}
 EVENTS_STREAM = "hub_events"
 CLOCK_STREAM = "hub_clock"
 # Channels every board stream carries besides the board's own values.
-BOOKKEEPING_CHANNELS = ("rssi", "seq", "hub_timestamp", "latency_ms", "correction_ms")
+BOOKKEEPING_CHANNELS = (
+    "rssi", "seq", "hub_timestamp", "latency_ms", "radio_rtt_ms", "clock_offset_ms", "correction_ms",
+)
+# A hub board-status reply older than this no longer answers for the board's
+# *current* radio RTT - the frame still gets recorded, just without a usable
+# radio RTT (latency_ms = NaN, no timestamp correction).
+STATUS_STALE_SECONDS = 2.0
 # Over WiFi each board appends its signal strength under its own address.
 RSSI_ADDRESSES = {"/sensor/rssiRadar", "/sensor/rssiBio", "/solenoid/rssi"}
 BOARD_CHANNELS = {
@@ -445,37 +466,45 @@ def _handle_sse_event(data: str) -> None:
     role = str(event.get("role") or "")
     stream = BOARD_STREAMS.get(role) if event.get("type") == "frame" else None
     values = event.get("values") if isinstance(event.get("values"), dict) else None
+    # Every received event is kept verbatim, with no exception for a normal
+    # frame: the numeric projection below is in addition to this, never
+    # instead of it.
+    _streams.push(EVENTS_STREAM, [data], arrival)
     if stream and values is not None:
-        latency_ms = _latency_ms(event, role, arrival)
-        row, complete = _board_row(stream, event, values, latency_ms)
+        latency_ms, radio_rtt_ms, clock_offset_ms = _frame_timing(event, role, arrival)
+        row, complete = _board_row(stream, event, values, latency_ms, radio_rtt_ms, clock_offset_ms)
         _streams.push(stream, row, _frame_timestamp(arrival, latency_ms), arrival=arrival)
         if math.isfinite(latency_ms):
             _latencies[stream].append(latency_ms)
         _history.append({"_epoch": received, "stream": stream, **dict(zip(STREAM_CONTRACTS[stream]["channels"], row))})
-        if not complete:
-            _streams.push(EVENTS_STREAM, [data], arrival)
-    else:
-        _streams.push(EVENTS_STREAM, [data], arrival)
     _monitor.observe(event, received)
 
 
-def _latency_ms(event: dict[str, Any], role: str, arrival: float) -> float:
-    """Board -> Study Runner latency of one frame; NaN when a part is unknown.
+def _frame_timing(event: dict[str, Any], role: str, arrival: float) -> tuple[float, float, float]:
+    """One frame's ``(latency_ms, radio_rtt_ms, clock_offset_ms)``; NaN where unknown.
 
+    ``radio_rtt_ms`` and ``clock_offset_ms`` are the raw parts *actually
+    used* for ``latency_ms`` - recorded alongside it so a stale or missing
+    part is visible instead of silently folded into one number.
     ``arrival - t`` (both on this computer's LSL clock, through the pings'
     clock offset) is the time from the hub to here, including the hub's own
     handling; ``link_rtt_ms / 2`` is the radio part from the board to the
-    hub, measured by the hub's own pings (older board firmware has none).
+    hub, measured by the hub's own pings (older board firmware has none, and
+    a board-status reply older than ``STATUS_STALE_SECONDS`` no longer
+    counts either).
     """
     hub_time = event.get("t")
-    link_rtt = _monitor.link_rtt_ms(role)
+    link_rtt = _monitor.link_rtt_ms(role, time.time())
+    radio_rtt_ms = link_rtt if link_rtt is not None else math.nan
     estimate = _clock.estimate(arrival)
+    clock_offset_ms = estimate.offset_s * 1000.0 if estimate.valid and estimate.offset_s is not None else math.nan
     if not estimate.valid or link_rtt is None or isinstance(hub_time, bool) or not isinstance(hub_time, (int, float)):
-        return math.nan
+        return math.nan, radio_rtt_ms, clock_offset_ms
     local_hub_time = estimate.to_local(float(hub_time))
     if local_hub_time is None:
-        return math.nan
-    return (arrival - local_hub_time) * 1000.0 + link_rtt / 2.0
+        return math.nan, radio_rtt_ms, clock_offset_ms
+    latency_ms = (arrival - local_hub_time) * 1000.0 + link_rtt / 2.0
+    return latency_ms, radio_rtt_ms, clock_offset_ms
 
 
 def _frame_timestamp(arrival: float, latency_ms: float) -> float:
@@ -486,13 +515,19 @@ def _frame_timestamp(arrival: float, latency_ms: float) -> float:
 
 
 def _board_row(
-    stream: str, event: dict[str, Any], values: dict[str, Any], latency_ms: float = math.nan,
+    stream: str,
+    event: dict[str, Any],
+    values: dict[str, Any],
+    latency_ms: float = math.nan,
+    radio_rtt_ms: float = math.nan,
+    clock_offset_ms: float = math.nan,
 ) -> tuple[list[float], bool]:
     """The frame's values in the stream's channel order; NaN where the frame has none.
 
     ``complete`` is False when the frame carries a value this stream does not
-    declare -- the caller then also keeps the whole frame in ``hub_events``.
-    ``correction_ms`` is filled in by ``SensorStreams`` when it publishes.
+    declare -- the whole frame is kept verbatim in ``hub_events`` regardless
+    (every event is, not only incomplete ones). ``correction_ms`` is filled
+    in by ``SensorStreams`` when it publishes.
     """
     by_name: dict[str, Any] = {}
     complete = True
@@ -506,6 +541,8 @@ def _board_row(
     by_name["seq"] = event.get("seq")
     by_name["hub_timestamp"] = event.get("t")
     by_name["latency_ms"] = latency_ms
+    by_name["radio_rtt_ms"] = radio_rtt_ms
+    by_name["clock_offset_ms"] = clock_offset_ms
     return [_number(by_name.get(channel)) for channel in STREAM_CONTRACTS[stream]["channels"]], complete
 
 
@@ -776,12 +813,18 @@ def _link_status(now: float) -> dict[str, Any]:
 
 
 def _ping_loop(generation: int) -> None:
-    """Ping the hub once per second: round trip and the hub's clock, recorded.
+    """Ping the hub once per second: one ``hub_clock`` sample per attempt.
 
     ``/api/v2/ping`` answers with ``server_now``, the hub's wall clock. With
-    the send and receive times on this computer's LSL clock, each answer is
-    one exchange for the clock-offset estimate (``shared/clock_offset.py``)
-    and one ``hub_clock`` sample.
+    the send and receive times on this computer's LSL clock, a reply with a
+    usable ``server_now`` is one exchange for the clock-offset estimate
+    (``shared/clock_offset.py``). Every attempt gets a row, successful or
+    not: an HTTP error or a timeout has no round trip to report either
+    (``http_ok`` false); a reply that came back but carries no usable
+    ``server_now`` still reports its round trip, just no hub time or
+    exchange - either way, ``reply_valid`` says whether this row's hub time
+    and clock offset are real, so a failure is visible rather than a row
+    silently missing.
     """
     import requests
 
@@ -792,14 +835,15 @@ def _ping_loop(generation: int) -> None:
         try:
             response = session.get(f"{_config['base_url']}/api/v2/ping", timeout=PING_TIMEOUT_SECONDS)
             received = _streams.now()
-            server_now = _ping_server_now(response) if response.ok else None
-            ok = response.ok
+            http_ok = bool(response.ok)
+            server_now = _ping_server_now(response) if http_ok else None
         except Exception:
-            received, server_now, ok = _streams.now(), None, False
-        if ok and _alive(generation):
-            _record_ping(sent, received, server_now)
+            received, http_ok, server_now = _streams.now(), False, None
+        if _alive(generation):
+            _record_ping(sent, received, server_now, http_ok=http_ok)
+        if http_ok:
             answered += 1
-        elif not ok:
+        else:
             _hub_rtts.clear()  # an old round trip must not stand in for a failing one
         _stop_event.wait(QUICK_PING_INTERVAL_SECONDS if answered < QUICK_PINGS else PING_INTERVAL_SECONDS)
     session.close()
@@ -813,12 +857,23 @@ def _ping_server_now(response: Any) -> float | None:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) else None
 
 
-def _record_ping(sent: float, received: float, server_now: float | None) -> None:
-    """One answered ping: the round trip, the offset estimate, one hub_clock sample."""
-    rtt_ms = (received - sent) * 1000.0
-    _hub_rtts.append(rtt_ms)
+def _record_ping(sent: float, received: float, server_now: float | None, *, http_ok: bool = True) -> None:
+    """One ping attempt, successful or not: the offset estimate, one hub_clock sample.
+
+    ``http_ok`` false (HTTP error or timeout) means no round trip either -
+    the attempt never got far enough to measure one. ``http_ok`` true with
+    ``server_now`` absent is a reply that came back with no usable hub time:
+    the round trip is still real and recorded, only the hub time and
+    exchange are not. ``reply_valid`` (derived from ``server_now``) is the
+    one channel that tells the two apart from the rest of the row.
+    """
+    reply_valid = server_now is not None
+    rtt_ms = math.nan
     exchange_offset = math.nan
-    if server_now is not None:
+    if http_ok:
+        rtt_ms = (received - sent) * 1000.0
+        _hub_rtts.append(rtt_ms)
+    if reply_valid:
         exchange = ClockExchange(sent=sent, received=received, remote=server_now)
         exchange_offset = exchange.offset
         estimate = _clock.add(exchange)
@@ -833,6 +888,7 @@ def _record_ping(sent: float, received: float, server_now: float | None) -> None
         "offset_valid": 1.0 if estimate.valid else 0.0,
         "offset_steps": estimate.steps,
         "correction_enabled": 1.0 if _correction_active else 0.0,
+        "reply_valid": 1.0 if reply_valid else 0.0,
     })
     _streams.push(CLOCK_STREAM, row, received)
 
@@ -843,8 +899,14 @@ def _hub_rtt_ms() -> float | None:
 
 
 def _timing_status() -> dict[str, Any]:
-    """What the dashboard shows about timing: offset, round trip, latencies, correction."""
-    estimate = _clock.estimate()
+    """What the dashboard shows about timing: offset, round trip, latencies, correction.
+
+    Ages the estimate to *now*, not to its own last exchange: without a real
+    ``now``, a hub that stopped answering pings would keep reporting
+    ``clock_offset_valid`` forever, because an estimate aged to itself never
+    gets older.
+    """
+    estimate = _clock.estimate(_streams.now())
     return {
         "hub_rtt_ms": _hub_rtt_ms(),
         "clock_offset_valid": estimate.valid,

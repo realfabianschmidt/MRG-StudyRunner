@@ -163,11 +163,14 @@ class ReadinessTests(unittest.TestCase):
         self.assertNotIn("notion.setting_missing", codes(report))
         self.assertTrue(report["ready"])
 
-    def test_sensor_disabled_machine_side_warns_but_does_not_block(self) -> None:
-        """A required sensor the operator never turned on is a warning, not a
-        hard block: the admin can still choose "start anyway" (see
-        admin-run-control.js), matching the live counterpart's behaviour in
-        live_sensor_readiness.py."""
+    def test_a_study_required_sensor_matches_even_with_the_machine_switch_off(self) -> None:
+        """Root-cause regression test: the actual start logic
+        (_start_study_sensor_runtime / build_sensor_runtime_state) never
+        consults the on-disk machine `enabled` flag when the study already
+        selects the sensor - it falls back to the study's own selection, not
+        the machine config. Reporting a blocker here from the machine flag
+        alone would describe a sensor as "switched off" that is about to run
+        normally; this check must use the identical formula instead."""
         report = check_study_readiness(
             study(sensors_enabled=True, sensors={"brainbit": True, "mini_radar": False, "camera_emotion": False}),
             hardware(brainbit={"enabled": False}),
@@ -175,11 +178,8 @@ class ReadinessTests(unittest.TestCase):
             https_active=True,
         )
 
-        self.assertIn("sensor_machine_disabled", codes(report))
-        self.assertEqual(report["blockers"][0]["sensor"], "brainbit")
-        self.assertFalse(report["blockers"][0]["blocking"])
-        self.assertFalse(report["start_blocked"])
-        self.assertFalse(report["ready"])
+        self.assertNotIn("sensor_machine_disabled", codes(report))
+        self.assertTrue(report["ready"])
 
     def test_session_override_satisfies_a_machine_disabled_sensor(self) -> None:
         """The exact bug this guards against: a required sensor is off in the
@@ -346,6 +346,10 @@ class ReadinessTests(unittest.TestCase):
             hardware(notion={"enabled": False}, brainbit={"enabled": False}),
             {},
             https_active=True,
+            # An override is required to still see sensor_machine_disabled here:
+            # a study-selected sensor alone no longer triggers it (see
+            # test_a_study_required_sensor_matches_even_with_the_machine_switch_off).
+            session_overrides={"brainbit": False},
         )
 
         for expected in ("notion.credential_missing", "notion.setting_missing", "notion.machine_disabled",

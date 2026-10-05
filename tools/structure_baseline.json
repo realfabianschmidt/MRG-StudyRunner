@@ -52,11 +52,11 @@
       "path": "software/study_runner/data_core/contract/worker_protocol.py"
     },
     "data_core.host": {
-      "lines": 1350,
+      "lines": 1390,
       "path": "software/study_runner/data_core/host/recording_runtime.py"
     },
     "data_core.worker": {
-      "lines": 1008,
+      "lines": 1087,
       "path": "software/study_runner/data_core/worker/lsl_recording.py"
     },
     "plugin_framework": {
@@ -108,15 +108,15 @@
     "contracts": 3059,
     "data_core": 16,
     "data_core.contract": 1184,
-    "data_core.host": 6698,
-    "data_core.worker": 2413,
+    "data_core.host": 6789,
+    "data_core.worker": 2507,
     "plugin_framework": 4077,
     "plugins": 0,
     "plugins.cards": 1465,
     "plugins.destinations": 1897,
     "plugins.outputs": 142,
-    "plugins.sensors": 11426,
-    "runtime_core": 15873,
+    "plugins.sensors": 11506,
+    "runtime_core": 15875,
     "shared": 606,
     "updates": 696
   }

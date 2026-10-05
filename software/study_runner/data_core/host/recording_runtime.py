@@ -36,6 +36,7 @@ from study_runner.data_core.contract.worker_protocol import (
 from study_runner.data_core.host.xdf import (
     NativeWorkerXdfBackend,
     PyXdfInspector,
+    ValidationIssue,
     XdfArtifactInspection,
     XdfValidationReport,
     validate_merge_parity,
@@ -62,6 +63,7 @@ from .recording_quality import (
     backup_source_checks as _backup_source_checks,
     recording_lease_quality_checks as _recording_lease_quality_checks,
     scientific_source_checks as _scientific_source_checks,
+    split_validation_issues,
 )
 from .recording_runtime_support import (
     RECORDING_COMMAND_TIMEOUT_SECONDS,
@@ -1071,6 +1073,20 @@ class RecordingRuntimeService:
     def freeze_worker(self, paths: ArtifactPaths, *, command_id: str) -> dict[str, Any]:
         plan = self._load_plan(paths)
         if plan.get("status") == "frozen":
+            saved = plan.get("freeze_result")
+            if isinstance(saved, Mapping):
+                return {"already_frozen": True, **dict(saved)}
+            attention_path = paths.root / "recording-worker-attention.json"
+            if attention_path.is_file():
+                try:
+                    attention = _read_object(attention_path)
+                    if attention.get("reason") == "recording_freeze_quality_failure":
+                        return {
+                            "already_frozen": True,
+                            "quality_failures": list(attention.get("failures") or []),
+                        }
+                except RecordingRuntimeError:
+                    pass
             return {"already_frozen": True}
         lease_path = paths.recording_lease_file
         lease_store = RecordingLeaseStore(lease_path)
@@ -1102,6 +1118,11 @@ class RecordingRuntimeService:
             status="frozen",
             frozen_at_epoch=self._clock(),
             freeze_mode=freeze_mode,
+            freeze_result={
+                key: details[key]
+                for key in ("quality_failures", "source_outcomes", "worker_unavailable", "error")
+                if key in details
+            },
         )
         atomic_write_json(paths.recording_plan_file, plan)
         return details
@@ -1149,6 +1170,24 @@ class RecordingRuntimeService:
         if isinstance(plan.get("backup"), Mapping):
             required.append("derived_backup")
         report = validate_sources(inspections, required_source_keys=required)
+        incomplete_segments = [
+            ValidationIssue(
+                code="source_close_incomplete",
+                message=f"source segment {record.relative_path} was not durably closed",
+                source_key=str(plugin_key),
+            )
+            for plugin_key in plan.get("recording_plugins") or []
+            for record in SegmentLedger(paths, str(plugin_key)).records()
+            if record.state == "invalid" and record.close_reason == "worker_freeze_incomplete"
+        ]
+        if incomplete_segments:
+            report = XdfValidationReport(
+                ok=False,
+                issues=tuple([*report.issues, *incomplete_segments]),
+                checked_artifacts=report.checked_artifacts,
+                checked_streams=report.checked_streams,
+                metrics=report.metrics,
+            )
         scientific_issues, scientific_metrics = _scientific_source_checks(plan, inspections)
         lease_issues, lease_metrics = _recording_lease_quality_checks(paths, plan)
         quality_issues = [*scientific_issues, *lease_issues]
@@ -1188,7 +1227,8 @@ class RecordingRuntimeService:
 
     def inspect_merge(self, paths: ArtifactPaths) -> tuple[XdfArtifactInspection, Any]:
         source_inspections, source_report = self.inspect_sources(paths)
-        if not source_report.ok:
+        blocking, _warnings = split_validation_issues(source_report.issues)
+        if blocking:
             return (
                 PyXdfInspector().inspect(paths.merged_xdf, source_key="merged", merged_artifact=True),
                 source_report,
@@ -1227,7 +1267,7 @@ class RecordingRuntimeService:
         if endpoint is None:
             raise RecordingRuntimeError("recording worker state is missing")
         return NativeWorkerXdfBackend(
-            RecordingCoordinator(paths, LoopbackWorkerClient(endpoint, timeout_seconds=15.0))
+            RecordingCoordinator(paths, LoopbackWorkerClient(endpoint, timeout_seconds=45.0))
         )
 
     def _backend_for_merge(self, paths: ArtifactPaths) -> NativeWorkerXdfBackend:

@@ -6,8 +6,10 @@ from dataclasses import dataclass, field
 import json
 import math
 from pathlib import Path
+import sys
 import threading
 import time
+import traceback
 from typing import Any, Callable, Mapping, Sequence
 from xml.etree import ElementTree
 from xml.sax.saxutils import escape
@@ -43,6 +45,7 @@ INLET_BUFFER_SECONDS = 360
 IRREGULAR_INLET_BUFFER_SAMPLES = INLET_BUFFER_SECONDS * 100
 DRAIN_GRACE_SECONDS = 0.35
 DRAIN_STOP_JOIN_TIMEOUT_SECONDS = 0.65
+DRAIN_TOTAL_STOP_TIMEOUT_SECONDS = 5.0
 ABORT_JOIN_TIMEOUT_SECONDS = 0.25
 
 SUPPORTED_FORMATS = frozenset(
@@ -186,6 +189,11 @@ class StreamRuntimeState:
     last_error: str | None = None
     last_clock_error: str | None = None
     last_sample_monotonic: float | None = None
+    write_gate: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    writer_quiescent: threading.Event = field(default_factory=threading.Event, repr=False)
+    writes_fenced: bool = False
+    drain_confirmed: bool = True
+    cutoff_location: str | None = None
 
     def public_dict(self) -> dict[str, Any]:
         return {
@@ -196,6 +204,8 @@ class StreamRuntimeState:
             "stream_id": self.stream_id,
             "header_written": self.header_written,
             "footer_written": self.footer_written,
+            "drain_confirmed": self.drain_confirmed,
+            "cutoff_location": self.cutoff_location,
             "connected": self.connected,
             "sample_count": self.sample_count,
             "first_timestamp": self.first_timestamp,
@@ -245,6 +255,7 @@ class LslSourceRecorder:
         journals: SessionJournalWriter | None = None,
         generation: int = 1,
         session_root: Path | None = None,
+        phase_log: Callable[[str, Mapping[str, Any]], None] | None = None,
     ) -> None:
         if not plugin_key.strip():
             raise ValueError("plugin_key is required")
@@ -269,6 +280,7 @@ class LslSourceRecorder:
         self._cache = cache
         self._pylsl = pylsl_module
         self._clock = clock
+        self._phase_log = phase_log
         self._stop = threading.Event()
         self._drain_requested = threading.Event()
         self._drain_until_monotonic = 0.0
@@ -302,6 +314,7 @@ class LslSourceRecorder:
         self._threads: list[threading.Thread] = []
         self._checkpoint_thread: threading.Thread | None = None
         self._closed = False
+        self._aborted = False
         self._fatal_error: str | None = None
         self._readiness = threading.Condition(self._lock)
 
@@ -347,33 +360,36 @@ class LslSourceRecorder:
                         raise RuntimeError("LSL returned mismatched samples and timestamps")
                     rows = [tuple(row) for row in samples]
                     received = self._clock()
-                    self._writer.write_samples(
-                        state.stream_id,
-                        timestamps,
-                        rows,
-                        channel_format=state.spec.channel_format,
-                        channel_count=len(state.spec.channels),
-                    )
-                    with self._lock:
-                        for row, timestamp in zip(rows, timestamps, strict=True):
-                            if len(row) != len(state.spec.channels):
-                                raise RuntimeError("LSL sample channel count changed")
-                            sequence += 1
-                            self._cache.update(
-                                self.plugin_key,
-                                state.spec,
-                                row,
-                                received_monotonic=received,
-                                source_timestamp=float(timestamp),
-                                fallback_sequence=sequence,
-                            )
-                        state.sample_count += len(rows)
-                        state.first_timestamp = state.first_timestamp or float(timestamps[0])
-                        state.last_timestamp = float(timestamps[-1])
-                        state.last_sample_monotonic = received
-                        state.last_error = None
-                        self._readiness.notify_all()
-                    self._observe_quality(state, timestamps, received)
+                    with state.write_gate:
+                        if state.writes_fenced:
+                            break
+                        self._writer.write_samples(
+                            state.stream_id,
+                            timestamps,
+                            rows,
+                            channel_format=state.spec.channel_format,
+                            channel_count=len(state.spec.channels),
+                        )
+                        with self._lock:
+                            for row, timestamp in zip(rows, timestamps, strict=True):
+                                if len(row) != len(state.spec.channels):
+                                    raise RuntimeError("LSL sample channel count changed")
+                                sequence += 1
+                                self._cache.update(
+                                    self.plugin_key,
+                                    state.spec,
+                                    row,
+                                    received_monotonic=received,
+                                    source_timestamp=float(timestamp),
+                                    fallback_sequence=sequence,
+                                )
+                            state.sample_count += len(rows)
+                            state.first_timestamp = state.first_timestamp or float(timestamps[0])
+                            state.last_timestamp = float(timestamps[-1])
+                            state.last_sample_monotonic = received
+                            state.last_error = None
+                            self._readiness.notify_all()
+                        self._observe_quality(state, timestamps, received)
                     if (
                         self._drain_requested.is_set()
                         and time.monotonic() >= self._drain_until_monotonic
@@ -392,23 +408,23 @@ class LslSourceRecorder:
                     try:
                         correction = float(inlet.time_correction(timeout=0.1))
                         local_time = float(self._pylsl.local_clock())
-                        self._writer.write_clock_offset(state.stream_id, local_time, correction)
-                        with self._lock:
-                            state.clock_offsets.append((local_time - correction, correction))
-                            state.last_clock_error = None
-                        # The same observation the XDF carries, also in
-                        # timing.jsonl: readable without parsing XDF, and
-                        # present even if this session never merges.
-                        self._append_timing(
-                            timing_record(
-                                observation=OBSERVATION_CLOCK_OFFSET,
-                                monotonic=now,
-                                plugin_key=self.plugin_key,
-                                stream_key=state.spec.key,
-                                lsl_local_clock=local_time,
-                                correction_seconds=correction,
+                        with state.write_gate:
+                            if state.writes_fenced:
+                                break
+                            self._writer.write_clock_offset(state.stream_id, local_time, correction)
+                            with self._lock:
+                                state.clock_offsets.append((local_time - correction, correction))
+                                state.last_clock_error = None
+                            self._append_timing(
+                                timing_record(
+                                    observation=OBSERVATION_CLOCK_OFFSET,
+                                    monotonic=now,
+                                    plugin_key=self.plugin_key,
+                                    stream_key=state.spec.key,
+                                    lsl_local_clock=local_time,
+                                    correction_seconds=correction,
+                                )
                             )
-                        )
                     except Exception as error:
                         # Clock-offset diagnostics may be temporarily
                         # unavailable while sample transport remains healthy.
@@ -421,7 +437,7 @@ class LslSourceRecorder:
                     state.connected = False
                     state.last_error = f"{type(error).__name__}: {error}"
                     state.reconnect_count += 1
-                if inlet is not None:
+                if inlet is not None and not self._drain_requested.is_set():
                     try:
                         inlet.close_stream()
                     except Exception:
@@ -431,13 +447,15 @@ class LslSourceRecorder:
                     break
                 if self._stop.wait(0.25):
                     break
+        with self._lock:
+            state.connected = False
+        # liblsl cleanup may block after the last possible XDF write.
+        state.writer_quiescent.set()
         if inlet is not None:
             try:
                 inlet.close_stream()
             except Exception:
                 pass
-        with self._lock:
-            state.connected = False
 
     def _connect(self, state: StreamRuntimeState) -> Any | None:
         matches = self._pylsl.resolve_byprop(
@@ -476,13 +494,22 @@ class LslSourceRecorder:
             except Exception:
                 pass
             raise
-        with self._lock:
-            if not state.header_written:
-                self._writer.write_stream_header(state.stream_id, header_xml)
-                state.header_written = True
-            state.connected = True
-            state.last_error = None
-            self._readiness.notify_all()
+        with state.write_gate:
+            should_close = state.writes_fenced or self._stop.is_set()
+            if not should_close:
+                with self._lock:
+                    if not state.header_written:
+                        self._writer.write_stream_header(state.stream_id, header_xml)
+                        state.header_written = True
+                    state.connected = True
+                    state.last_error = None
+                    self._readiness.notify_all()
+        if should_close:
+            try:
+                inlet.close_stream()
+            except Exception:
+                pass
+            return None
         return inlet
 
     def _validate_info(self, spec: StreamSpec, info: Any) -> str:
@@ -682,6 +709,8 @@ class LslSourceRecorder:
                 self._readiness.wait(timeout=min(0.1, remaining))
 
     def freeze(self, *, reason: str) -> dict[str, Any]:
+        freeze_started = time.monotonic()
+        self._phase("drain_requested")
         with self._lock:
             if self._closed:
                 return self.status()
@@ -694,18 +723,40 @@ class LslSourceRecorder:
         # deadline defines their deterministic cutover; stop then gets a
         # second bounded join window before any native writer is touched.
         self._stop.set()
-        stop_deadline = time.monotonic() + DRAIN_STOP_JOIN_TIMEOUT_SECONDS
+        stopped_at = time.monotonic()
+        self._phase("stop_requested")
+        initial_deadline = stopped_at + DRAIN_STOP_JOIN_TIMEOUT_SECONDS
+        stop_deadline = stopped_at + DRAIN_TOTAL_STOP_TIMEOUT_SECONDS
         for thread in self._threads:
-            thread.join(timeout=max(0.0, stop_deadline - time.monotonic()))
+            thread.join(timeout=max(0.0, initial_deadline - time.monotonic()))
         if self._checkpoint_thread is not None:
             self._checkpoint_thread.join(timeout=max(0.0, stop_deadline - time.monotonic()))
-        alive = [thread.name for thread in self._threads if thread.is_alive()]
         if self._checkpoint_thread is not None and self._checkpoint_thread.is_alive():
-            alive.append(self._checkpoint_thread.name)
-        if alive:
             with self._lock:
-                self._fatal_error = f"LSL recorder drain timed out: {', '.join(alive)}"
+                self._fatal_error = (
+                    "LSL recorder checkpoint writer did not stop: "
+                    + self._thread_location(self._checkpoint_thread)
+                )
             raise RuntimeError(self._fatal_error)
+        self._phase("checkpoint_stopped")
+        for state in self._states:
+            state.writer_quiescent.wait(timeout=max(0.0, stop_deadline - time.monotonic()))
+        for state, thread in zip(self._states, self._threads, strict=True):
+            if state.writer_quiescent.is_set():
+                continue
+            if not state.write_gate.acquire(blocking=False):
+                with self._lock:
+                    self._fatal_error = "LSL recorder writer could not be fenced: " + self._thread_location(thread)
+                self._phase("fence_failed", stream_key=state.spec.key, location=self._thread_location(thread))
+                raise RuntimeError(self._fatal_error)
+            try:
+                state.writes_fenced = True
+                state.drain_confirmed = False
+                state.cutoff_location = self._thread_location(thread)
+                state.writer_quiescent.set()
+                self._phase("stream_fenced", stream_key=state.spec.key, location=state.cutoff_location)
+            finally:
+                state.write_gate.release()
         try:
             with self._lock:
                 for state in self._states:
@@ -713,9 +764,11 @@ class LslSourceRecorder:
                         continue
                     self._writer.write_stream_footer(state.stream_id, self._footer_xml(state, reason))
                     state.footer_written = True
+                self._phase("footers_written")
                 self._writer.boundary()
                 self._writer.close(durable=True)
                 self._closed = True
+                self._phase("durable_closed")
         finally:
             if self._closed:
                 self._writer.destroy()
@@ -730,7 +783,24 @@ class LslSourceRecorder:
         # checkpoint knows there is no unconfirmed tail to report.
         if self._closed:
             self._write_checkpoint(self._clock(), reason="freeze")
-        return self.status()
+        result = self.status()
+        result["freeze_duration_seconds"] = time.monotonic() - freeze_started
+        return result
+
+    def _phase(self, phase: str, **details: Any) -> None:
+        if self._phase_log is not None:
+            try:
+                self._phase_log(phase, details)
+            except Exception:
+                pass  # Diagnostics must never change the writer lifecycle.
+
+    @staticmethod
+    def _thread_location(thread: threading.Thread) -> str:
+        frame = sys._current_frames().get(thread.ident) if thread.ident is not None else None
+        if frame is None:
+            return thread.name
+        location = traceback.extract_stack(frame)[-1]
+        return f"{thread.name} at {Path(location.filename).name}:{location.lineno} ({location.name})"
 
     @staticmethod
     def _footer_xml(state: StreamRuntimeState, reason: str) -> str:
@@ -745,6 +815,7 @@ class LslSourceRecorder:
             f"<first_timestamp>{first:.17g}</first_timestamp>"
             f"<last_timestamp>{last:.17g}</last_timestamp>"
             f"<sample_count>{state.sample_count}</sample_count>"
+            f"<study_runner_drain_confirmed>{str(state.drain_confirmed).lower()}</study_runner_drain_confirmed>"
             f"<clock_offsets>{offsets}</clock_offsets>"
             f"<study_runner_close_reason>{escape(reason)}</study_runner_close_reason>"
             f"<reconnect_count>{state.reconnect_count}</reconnect_count>"
@@ -757,6 +828,11 @@ class LslSourceRecorder:
                 "plugin_key": self.plugin_key,
                 "target_path": str(self.target_path),
                 "closed": self._closed,
+                "close_outcome": (
+                    "incomplete" if self._aborted
+                    else "closed_unconfirmed" if self._closed and any(not state.drain_confirmed for state in self._states)
+                    else "closed_confirmed" if self._closed else "incomplete" if self._fatal_error else "recording"
+                ),
                 "fatal_error": self._fatal_error,
                 "streams": [state.public_dict() for state in self._states],
             }
@@ -772,6 +848,8 @@ class LslSourceRecorder:
         if self._checkpoint_thread is not None:
             self._checkpoint_thread.join(timeout=max(0.0, deadline - time.monotonic()))
         alive = [thread.name for thread in self._threads if thread.is_alive()]
+        if self._checkpoint_thread is not None and self._checkpoint_thread.is_alive():
+            alive.append(self._checkpoint_thread.name)
         if alive:
             with self._lock:
                 self._fatal_error = f"LSL recorder abort timed out: {', '.join(alive)}"
@@ -784,6 +862,7 @@ class LslSourceRecorder:
             self._writer.destroy()
             with self._lock:
                 self._closed = True
+                self._aborted = True
 
 
 class BackupRecorder:

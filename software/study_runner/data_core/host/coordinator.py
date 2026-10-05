@@ -294,10 +294,20 @@ class RecordingCoordinator:
             command_id=command_id,
         )
         if response.ok:
+            outcomes = response.result.get("source_outcomes") or {}
+            sources = response.result.get("sources") or {}
             for ledger in self._all_ledgers():
                 for record in ledger.records():
                     if record.state in _OPEN_STATES:
-                        ledger.mark_closed(record.allocation_id, reason="worker_freeze")
+                        outcome = outcomes.get(ledger.plugin_key, {}) if isinstance(outcomes, Mapping) else {}
+                        status = outcome.get("status") if isinstance(outcome, Mapping) else None
+                        if status is None and isinstance(sources, Mapping):
+                            source = sources.get(ledger.plugin_key)
+                            status = "closed_confirmed" if isinstance(source, Mapping) and source.get("closed") else None
+                        if status in {"closed_confirmed", "closed_unconfirmed"}:
+                            ledger.mark_closed(record.allocation_id, reason=str(status))
+                        elif status == "incomplete":
+                            ledger.mark_invalid(record.allocation_id, reason="worker_freeze_incomplete")
         return response
 
     def merge(

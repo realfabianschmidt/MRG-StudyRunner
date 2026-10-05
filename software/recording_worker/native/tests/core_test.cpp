@@ -151,6 +151,29 @@ int main() {
 		const fs::path merged = root / "merged.xdf";
 		write_numeric_source(numeric);
 		write_string_source(strings);
+		const fs::path close_contract = root / "close-contract.xdf";
+		sr_xdf_writer *contract_writer = nullptr;
+		require_ok(sr_xdf_writer_open_exclusive(utf8(close_contract).c_str(), &contract_writer),
+			"open close contract source");
+		const std::string contract_header =
+			stream_header("contract", "float32", 1, 1.0, "contract-1");
+		require_ok(sr_xdf_writer_write_stream_header(contract_writer, 1,
+			reinterpret_cast<const std::uint8_t *>(contract_header.data()), contract_header.size()),
+			"close contract header");
+		require(sr_xdf_writer_close(contract_writer, 1) == SR_XDF_INVALID_STATE,
+			"native core closed a stream without its footer");
+		require_ok(sr_xdf_writer_write_stream_footer(contract_writer, 1,
+			reinterpret_cast<const std::uint8_t *>(footer.data()), footer.size()),
+			"close contract footer");
+		const double late_timestamp[] = {3.0};
+		const float late_value[] = {9.0F};
+		require(sr_xdf_writer_write_numeric_samples(contract_writer, 1, late_timestamp, 1,
+			late_value, 1, 1, SR_XDF_FLOAT32) == SR_XDF_INVALID_STATE,
+			"native core accepted samples after a footer");
+		require(sr_xdf_writer_write_clock_offset(contract_writer, 1, 3.0, 0.0) ==
+			SR_XDF_INVALID_STATE, "native core accepted a clock offset after a footer");
+		require_ok(sr_xdf_writer_close(contract_writer, 1), "close contract source");
+		sr_xdf_writer_destroy(contract_writer);
 		const fs::path partial = root / "partial.xdf";
 		sr_xdf_writer *partial_writer = nullptr;
 		require_ok(sr_xdf_writer_open_exclusive(utf8(partial).c_str(), &partial_writer),

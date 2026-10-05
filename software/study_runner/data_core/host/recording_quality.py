@@ -51,6 +51,8 @@ BLOCKING_ISSUE_CODES = frozenset(
         "source_footer_missing",
         "source_footer_sample_count_missing",
         "source_footer_sample_count_mismatch",
+        "source_footer_drain_status_invalid",
+        "source_close_incomplete",
         "non_monotonic_timestamps",
         "nominal_rate_mismatch",
         "missing_required_source",
@@ -73,6 +75,7 @@ BLOCKING_ISSUE_CODES = frozenset(
 QUALITY_WARNING_CODES = frozenset(
     {
         "insufficient_time_coverage",
+        "source_stream_drain_unconfirmed",
         "severe_sample_loss",
         "empty_declared_stream",
         "missing_declared_stream",

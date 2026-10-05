@@ -338,20 +338,33 @@ Parasite AM Hub forwarded (radar LD2450/LD2410B and bio MR60 at about 10 Hz,
 valves on change), with the values and units the ESP firmware sent; nothing is
 resampled, converted or carried forward. Timestamps are this computer's LSL
 time on arrival and include radio (BLE/WiFi), hub and network delay. That
-delay is measured per frame and recorded in `latency_ms`: half the radio round
-trip the hub measures to each board, plus the time from the hub to this
+delay is **estimated** per frame and recorded in `latency_ms`: half the radio
+round trip the hub measures to each board (`radio_rtt_ms`, assuming the up and
+down legs take roughly the same time), plus the time from the hub to this
 computer, using the hub's clock (`hub_timestamp`) mapped onto this computer's
-clock by a ping every second (the `hub_clock` stream holds every ping, its
-round trip and the clock-offset estimate). With the AM Hub setting "Correct
-timestamps by the measured latency" (off by default), a frame's timestamp is
-its arrival time minus that latency, and `correction_ms` records what was
-taken off, so the arrival time can always be rebuilt. `seq` makes losses
-countable. The ESP
+clock by a ping every second (`clock_offset_ms`; the `hub_clock` stream holds
+one row per ping *attempt*, successful or not, with its round trip, the
+clock-offset estimate and a `reply_valid` flag for failures). Both raw parts
+travel with every frame alongside the combined `latency_ms`, so a stale or
+missing part is visible instead of folded invisibly into one number; a board
+status older than 2 s no longer counts as a current radio RTT, and the frame
+is still recorded with `latency_ms = NaN`. With the AM Hub setting "Correct
+timestamps by the estimated latency" (off by default), a frame's timestamp is
+its arrival time minus that latency, clamped to never move backwards - which
+can make the applied `correction_ms` smaller than `latency_ms` for that same
+frame - and `correction_ms` records what was actually taken off, so the
+arrival time can always be rebuilt (`timestamp + correction_ms`). `seq` makes
+losses countable. Every received hub event, including every normal frame, is
+additionally kept verbatim (as received, not as radio/UART bytes) in
+`hub_events`, so nothing the hub sent is ever discarded. The ESP
 sends 0 when it has no value (its own 2 s timeout) and repeats its latest
 values, so a 0 or a repeated value is not necessarily a new measurement; card
 averages leave such zeros out, the XDF keeps them. Heart and breathing rate of
 the MR60 are radar estimates, not a clinical measurement. The hub's version is
-recorded in `hub_events` (`hello` event).
+recorded in `hub_events` (`hello` event). Neither `latency_ms` nor
+`hub_timestamp` reveals the exact instant of radar or bio acquisition on the
+ESP board itself - both describe when the frame reached the hub or this
+computer.
 
 **MR60 mini radar (heart rate, breathing, distance).** One sample per packet
 the MR60 board sends (about 10 Hz over BLE or serial) in `vitals` and

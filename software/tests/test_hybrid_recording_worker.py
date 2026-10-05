@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 import uuid
 from xml.etree import ElementTree
 
@@ -21,6 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from study_runner.data_core.worker.core import NativeXdfCore, NativeXdfError
+from study_runner.data_core.host.xdf import PyXdfInspector, validate_merge_parity, validate_sources
 from study_runner.data_core.contract.backup_projection import (
     BackupSampler,
     STATUS_DEGRADED,
@@ -71,6 +73,51 @@ def _footer(sample_count: int, first: float, last: float) -> str:
 
 @unittest.skipUnless(os.environ.get("STUDY_RUNNER_XDF_CORE_TEST"), "native core path not provided")
 class NativeCoreSmokeTests(unittest.TestCase):
+    def test_synthetic_six_five_one_one_source_layout_preserves_cutoff(self) -> None:
+        core = NativeXdfCore(Path(os.environ["STUDY_RUNNER_XDF_CORE_TEST"]))
+        root = REPOSITORY_ROOT / ".tmp" / f"native-multisource-{uuid.uuid4().hex}"
+        root.mkdir(parents=True)
+        try:
+            sources = []
+            inspections = []
+            for source_key, count in (("brainbit", 6), ("am_hub", 5), ("markers", 1), ("backup", 1)):
+                path = root / f"{source_key}.xdf"
+                writer = core.create_writer(path)
+                try:
+                    for index in range(count):
+                        stream_id = index + 1
+                        writer.write_stream_header(
+                            stream_id,
+                            _stream_header(f"{source_key}-{index}",
+                                           f"study_runner.{source_key}.{index}", 10.0, "float32"),
+                        )
+                        writer.write_samples(stream_id, [100.0], [[float(index)]],
+                                             channel_format="float32", channel_count=1)
+                    for index in range(count):
+                        stream_id = index + 1
+                        footer = _footer(1, 100.0, 100.0)
+                        confirmed = not (source_key == "brainbit" and index == 5)
+                        footer = footer.replace(
+                            "</info>",
+                            f"<study_runner_drain_confirmed>{str(confirmed).lower()}</study_runner_drain_confirmed></info>",
+                        )
+                        writer.write_stream_footer(stream_id, footer)
+                    writer.close(durable=True)
+                finally:
+                    writer.destroy()
+                sources.append((source_key, path))
+                inspections.append(PyXdfInspector().inspect(path, source_key=source_key))
+
+            source_report = validate_sources(inspections, required_source_keys=tuple(key for key, _ in sources))
+            self.assertEqual([issue.code for issue in source_report.issues],
+                             ["source_stream_drain_unconfirmed"])
+            merged_path = root / "session.xdf"
+            self.assertEqual(core.merge(sources, merged_path)["stream_count"], 13)
+            merged = PyXdfInspector().inspect(merged_path, source_key="merged", merged_artifact=True)
+            self.assertTrue(validate_merge_parity(inspections, merged).ok)
+        finally:
+            shutil.rmtree(root)
+
     def test_all_xdf_base_types_round_trip_through_pyxdf(self) -> None:
         import pyxdf
 
@@ -449,15 +496,23 @@ class _FakeWriter:
         self.closed = False
 
     def write_stream_header(self, stream_id, xml):
+        if self.closed:
+            raise RuntimeError("writer is closed")
         self.headers.append((stream_id, xml))
 
     def write_samples(self, stream_id, timestamps, samples, **_kwargs):
+        if self.closed or any(item[0] == stream_id for item in self.footers):
+            raise RuntimeError("stream is closed")
         self.samples.append((stream_id, list(timestamps), [tuple(row) for row in samples]))
 
-    def write_clock_offset(self, *_args):
+    def write_clock_offset(self, stream_id, *_args):
+        if self.closed or any(item[0] == stream_id for item in self.footers):
+            raise RuntimeError("stream is closed")
         return None
 
     def write_stream_footer(self, stream_id, xml):
+        if self.closed or any(item[0] == stream_id for item in self.footers):
+            raise RuntimeError("stream is closed")
         self.footers.append((stream_id, xml))
 
     def boundary(self):
@@ -467,6 +522,8 @@ class _FakeWriter:
         return None
 
     def close(self, **_kwargs):
+        if {item[0] for item in self.headers} != {item[0] for item in self.footers}:
+            raise RuntimeError("stream has no footer")
         self.closed = True
 
     def abort(self, **_kwargs):
@@ -552,6 +609,45 @@ class _FakePylsl:
 
 
 class LslSourceRecorderTests(unittest.TestCase):
+    def test_worker_freeze_retry_replays_original_failure(self) -> None:
+        class BrokenRecorder:
+            attempts = 0
+
+            def freeze(self, *, reason):
+                self.attempts += 1
+                raise RuntimeError("native write did not stop")
+
+            def abort(self):
+                return None
+
+        class Journals:
+            def append_timing(self, _record):
+                return None
+
+            def flush(self, **_kwargs):
+                return None
+
+        recorder = BrokenRecorder()
+        runtime = RecordingWorkerRuntime.__new__(RecordingWorkerRuntime)
+        runtime._lock = threading.RLock()
+        runtime._frozen = False
+        runtime._freeze_result = None
+        runtime._freeze_reason = None
+        runtime._sources = {"broken": recorder}
+        runtime._backup = None
+        runtime.journals = Journals()
+        runtime.session_id = "retry-session"
+        runtime._wall_clock = time.time
+        runtime._log = lambda *_args, **_kwargs: None
+        runtime._write_attention = lambda *_args, **_kwargs: None
+
+        first = runtime.freeze(reason="test")
+        repeated = runtime.freeze(reason="retry")
+        self.assertEqual(recorder.attempts, 1)
+        self.assertEqual(first["source_outcomes"]["broken"]["status"], "incomplete")
+        self.assertEqual(repeated["quality_failures"], first["quality_failures"])
+        self.assertEqual(repeated["source_outcomes"], first["source_outcomes"])
+
     def test_projection_cache_respects_a_recorded_valid_channel(self) -> None:
         stream = StreamSpec.from_manifest({
             "key": "values",
@@ -860,7 +956,7 @@ class LslSourceRecorderTests(unittest.TestCase):
         self.assertEqual(rows, [(1.0,), (99.0,)])
         self.assertTrue(core.writer.closed)
 
-    def test_hung_inlet_causes_bounded_drain_failure_without_writer_use_after_free(self) -> None:
+    def test_hung_pull_is_fenced_and_footer_reports_unconfirmed_drain(self) -> None:
         class HungInlet(_FakeInlet):
             def __init__(self, sample_seen):
                 super().__init__(sample_seen)
@@ -875,7 +971,7 @@ class LslSourceRecorderTests(unittest.TestCase):
                     return [[1.0]], [50.0]
                 self.hung.set()
                 self.release.wait(5.0)
-                return [], []
+                return [[99.0]], [51.0]
 
         class HungPylsl(_FakePylsl):
             def __init__(self):
@@ -890,16 +986,105 @@ class LslSourceRecorderTests(unittest.TestCase):
         recorder = self._recorder(core, pylsl)
         recorder.start()
         self.assertTrue(pylsl.inlet.hung.wait(1.0))
-        started = time.monotonic()
-        with self.assertRaisesRegex(RuntimeError, "drain timed out"):
-            recorder.freeze(reason="hung_test")
-        self.assertLess(time.monotonic() - started, 2.0)
-        self.assertFalse(core.writer.closed)
+        with mock.patch(
+            "study_runner.data_core.worker.lsl_recording.DRAIN_TOTAL_STOP_TIMEOUT_SECONDS", 0.1
+        ):
+            result = recorder.freeze(reason="hung_test")
+        self.assertEqual(result["close_outcome"], "closed_unconfirmed")
+        self.assertFalse(result["streams"][0]["drain_confirmed"])
+        self.assertIn("<study_runner_drain_confirmed>false</study_runner_drain_confirmed>", core.writer.footers[0][1])
+        self.assertEqual(result["streams"][0]["sample_count"], 1)
         pylsl.inlet.release.set()
         for thread in recorder._threads:
             thread.join(timeout=1.0)
-        recorder.abort()
+        self.assertEqual(len(core.writer.samples), 1)
         self.assertTrue(core.writer.closed)
+
+    def test_blocked_inlet_cleanup_does_not_hold_xdf_open(self) -> None:
+        class SlowCloseInlet(_FakeInlet):
+            def __init__(self, sample_seen):
+                super().__init__(sample_seen)
+                self.closing = threading.Event()
+                self.release = threading.Event()
+
+            def close_stream(self):
+                self.closing.set()
+                self.release.wait(5.0)
+
+        class SlowClosePylsl(_FakePylsl):
+            def __init__(self):
+                super().__init__()
+                self.inlet = SlowCloseInlet(self.sample_seen)
+
+            def StreamInlet(self, *_args, **_kwargs):  # noqa: N802 - pylsl API
+                return self.inlet
+
+        core = _FakeCore()
+        pylsl = SlowClosePylsl()
+        recorder = self._recorder(core, pylsl)
+        recorder.start()
+        self.assertTrue(pylsl.sample_seen.wait(1.0))
+        result = recorder.freeze(reason="slow_cleanup")
+        self.assertTrue(pylsl.inlet.closing.wait(1.0))
+        self.assertEqual(result["close_outcome"], "closed_confirmed")
+        self.assertTrue(core.writer.closed)
+        pylsl.inlet.release.set()
+        for thread in recorder._threads:
+            thread.join(timeout=1.0)
+
+    def test_unfenceable_writer_keeps_incomplete_fragment(self) -> None:
+        class BlockedWriter(_FakeWriter):
+            def __init__(self):
+                super().__init__()
+                self.writing = threading.Event()
+                self.release = threading.Event()
+
+            def write_samples(self, stream_id, timestamps, samples, **kwargs):
+                self.writing.set()
+                self.release.wait(5.0)
+                super().write_samples(stream_id, timestamps, samples, **kwargs)
+
+        core = _FakeCore()
+        core.writer = BlockedWriter()
+        recorder = self._recorder(core, _FakePylsl())
+        recorder.start()
+        self.assertTrue(core.writer.writing.wait(1.0))
+        with mock.patch(
+            "study_runner.data_core.worker.lsl_recording.DRAIN_TOTAL_STOP_TIMEOUT_SECONDS", 0.1
+        ):
+            with self.assertRaisesRegex(RuntimeError, "writer could not be fenced"):
+                recorder.freeze(reason="blocked_writer")
+        self.assertFalse(core.writer.footers)
+        core.writer.release.set()
+        for thread in recorder._threads:
+            thread.join(timeout=1.0)
+        recorder.abort()
+        self.assertEqual(recorder.status()["close_outcome"], "incomplete")
+        self.assertEqual(recorder.freeze(reason="retry")["close_outcome"], "incomplete")
+
+    def test_active_checkpoint_writer_blocks_all_footers(self) -> None:
+        core = _FakeCore()
+        recorder = self._recorder(core, _FakePylsl())
+        release = threading.Event()
+        entered = threading.Event()
+
+        def checkpoint() -> None:
+            entered.set()
+            release.wait(5.0)
+
+        recorder._checkpoint_thread = threading.Thread(target=checkpoint, name="blocked-checkpoint")
+        recorder._checkpoint_thread.start()
+        self.assertTrue(entered.wait(1.0))
+        with mock.patch(
+            "study_runner.data_core.worker.lsl_recording.DRAIN_TOTAL_STOP_TIMEOUT_SECONDS", 0.1
+        ):
+            with self.assertRaisesRegex(RuntimeError, "checkpoint writer did not stop"):
+                recorder.freeze(reason="blocked_checkpoint")
+        self.assertFalse(core.writer.footers)
+        release.set()
+        recorder._checkpoint_thread.join(timeout=1.0)
+        recorder.abort()
+        self.assertEqual(recorder.status()["close_outcome"], "incomplete")
 
     def test_continuous_stream_uses_grace_cutover_and_closes_normally(self) -> None:
         class ContinuousInlet(_FakeInlet):

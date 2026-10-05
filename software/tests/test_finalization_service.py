@@ -132,6 +132,21 @@ class QualityWarningRecordingAdapter(SuccessfulRecordingAdapter):
         )
 
 
+class UnconfirmedDrainRecordingAdapter(SuccessfulRecordingAdapter):
+    def validate_sources(self, context):
+        super().validate_sources(context)
+        raise QualityAttentionError(
+            "XDF source validation failed: source_stream_drain_unconfirmed",
+            issues=[{
+                "code": "source_stream_drain_unconfirmed",
+                "message": "stream 'study_runner.brainbit.bands' was safely cut off after 1 recorded samples",
+                "source_key": "brainbit",
+                "origin_id": "brainbit:part-0001.xdf:0",
+            }],
+            details={"checked_streams": 1},
+        )
+
+
 class LegacyCoverageFailureAdapter(SuccessfulRecordingAdapter):
     """How earlier versions reported the same warning: as a plain failure."""
 
@@ -594,6 +609,46 @@ class FinalizationServiceTests(unittest.TestCase):
             self.assertEqual(destination.calls.count("nextcloud"), 2)
             self.assertFalse(done["can_continue_with_warnings"])
             self.assertFalse(done["can_continue_processing"])
+
+    def test_unconfirmed_drain_acceptance_finishes_all_core_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = self._service(root, recording_adapter=UnconfirmedDrainRecordingAdapter())
+            job = service.commit_submission(SUBMISSION, config_data={"study_settings": {}}, recording_expected=True)
+            session_root = root / job["session_path"]
+            backup = session_root / "raw" / "backup" / "part-0001.xdf"
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            backup.write_bytes(b"synthetic backup fixture")
+
+            def export_csv(_source, target):
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("timestamp,value\n1.0,2.0\n", encoding="utf-8")
+                return {"row_count": 1, "channel_count": 1}
+
+            with mock.patch(
+                "study_runner.runtime_core.delivery.finalization_service.write_backup_csv",
+                side_effect=export_csv,
+            ):
+                service.process_due_jobs_once()
+                attention = service.get(job["job_id"])
+                self.assertTrue(attention["can_continue_with_warnings"])
+                self.assertEqual(attention["quality_acceptance"]["issues"][0]["code"],
+                                 "source_stream_drain_unconfirmed")
+                service.confirm_degraded(job["job_id"], reason="Tail reviewed", confirmed_by="operator-1")
+                service.process_due_jobs_once()
+
+            done = service.get(job["job_id"])
+            self.assertEqual(done["status"], "completed_degraded")
+            self.assertEqual(done["quality_status"], "degraded")
+            steps = {step["key"]: step for step in done["steps"]}
+            for key in ("merge_xdf", "validate_merge", "build_card_summary", "export_csv", "write_result_manifest"):
+                self.assertEqual(steps[key]["status"], "done", key)
+            self.assertEqual(steps["purge_local_sources"]["status"], "skipped")
+            self.assertEqual(steps["validate_sources"]["details"]["accepted_with_warnings"]["reason"],
+                             "Tail reviewed")
+            for path in ("derived/session.xdf", "answers/card-summary.json", "answers/result.json",
+                         "session_1hz.csv", "meta/manifest.json"):
+                self.assertTrue((session_root / path).is_file(), path)
 
     def test_blocking_failure_cannot_continue_with_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

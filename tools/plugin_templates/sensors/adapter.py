@@ -17,6 +17,12 @@ record what the device sends about itself (here ``seq``) as channels.
 
 Replace ``_read_device`` with your device's read. It must never invent a
 value: a sample that did not arrive is simply not pushed.
+
+The shared recording worker owns XDF shutdown. Keep outlets available until
+the session end marker has been sent and the worker has drained its inlets.
+``stop()`` stops device acquisition; it must not write XDF footers or claim
+that buffered LSL samples were captured. A worker cutoff is recorded in the
+XDF footer and requires operator review before downstream use.
 """
 from __future__ import annotations
 

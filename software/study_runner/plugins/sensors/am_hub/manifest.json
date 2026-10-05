@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "am_hub",
-  "version": "4.1.1",
+  "version": "5.0.0",
   "category": "biosignal",
   "config_key": "am_hub",
   "runtime": {
@@ -38,7 +38,7 @@
   },
   "ui": {
     "label": "AM Hub",
-    "description": "Radar, bio and valve frames from the Parasite AM Hub (one sample per real frame) with the measured board-to-Study-Runner latency, the hub's own events, and the hub clock from a ping every second. Stimulus cards can also start and stop the hub's actuators.",
+    "description": "Radar, bio and valve frames from the Parasite AM Hub (one sample per real frame) with the estimated board-to-Study-Runner latency, the hub's own events (including every frame verbatim), and the hub clock from a ping every second. Stimulus cards can also start and stop the hub's actuators.",
     "help_key": "pluginHelp.amHub.intro",
     "order": 120,
     "visibility": {
@@ -211,6 +211,8 @@
         "seq",
         "hub_timestamp",
         "latency_ms",
+        "radio_rtt_ms",
+        "clock_offset_ms",
         "correction_ms"
       ],
       "channel_units": [
@@ -240,6 +242,8 @@
         "count",
         "second",
         "millisecond",
+        "millisecond",
+        "millisecond",
         "millisecond"
       ],
       "sequence_channel": "seq",
@@ -265,6 +269,8 @@
         "seq",
         "hub_timestamp",
         "latency_ms",
+        "radio_rtt_ms",
+        "clock_offset_ms",
         "correction_ms"
       ],
       "channel_units": [
@@ -276,6 +282,8 @@
         "decibel_milliwatt",
         "count",
         "second",
+        "millisecond",
+        "millisecond",
         "millisecond",
         "millisecond"
       ],
@@ -305,6 +313,8 @@
         "seq",
         "hub_timestamp",
         "latency_ms",
+        "radio_rtt_ms",
+        "clock_offset_ms",
         "correction_ms"
       ],
       "channel_units": [
@@ -320,6 +330,8 @@
         "count",
         "second",
         "millisecond",
+        "millisecond",
+        "millisecond",
         "millisecond"
       ],
       "sequence_channel": "seq",
@@ -334,7 +346,7 @@
       "source_id": "study_runner.am_hub.hub_events",
       "type": "HUB_EVENTS",
       "nominal_rate_hz": 0,
-      "estimated_bytes_per_second": 16384,
+      "estimated_bytes_per_second": 49152,
       "clock_domain": "lsl",
       "channel_format": "string",
       "channels": [
@@ -362,7 +374,8 @@
         "offset_uncertainty_ms",
         "offset_valid",
         "offset_steps",
-        "correction_enabled"
+        "correction_enabled",
+        "reply_valid"
       ],
       "channel_units": [
         "second",
@@ -372,6 +385,7 @@
         "millisecond",
         "boolean",
         "count",
+        "boolean",
         "boolean"
       ],
       "timing": {
