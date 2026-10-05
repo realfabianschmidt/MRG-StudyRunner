@@ -16,6 +16,7 @@ INITIAL_STATUS = "loaded"
 RUNNING_STATUS = "running"
 COMPLETED_STATUS = "completed"
 STOPPED_STATUS = "stopped"
+ABORTING_STATUS = "aborting"
 # A deliberate, reason-carrying stop by the admin, distinct from the plain
 # STOPPED_STATUS a card-prepare failure or a manual "stop" leaves behind --
 # the participant page shows the reason instead of an empty waiting room.
@@ -56,7 +57,7 @@ class StudyRunStateStore:
         """Initialize state for the current config without disturbing a run."""
         normalized = _clean_study_id(study_id)
         with self._lock:
-            if self._state.get("status") == RUNNING_STATUS and self._state.get("study_id") == normalized:
+            if self._state.get("status") in {RUNNING_STATUS, ABORTING_STATUS} and self._state.get("study_id") == normalized:
                 return self.public()
             if self._state.get("study_id") == normalized and self._state.get("status") in {
                 INITIAL_STATUS,
@@ -103,6 +104,8 @@ class StudyRunStateStore:
         client_id = str(active_client_id or "").strip()
         now = self._now()
         with self._lock:
+            if self._state.get("status") == ABORTING_STATUS:
+                raise ValueError("The previous run is still stopping. Retry its abort before starting another run.")
             if self._state.get("status") == RUNNING_STATUS and self._state.get("study_id") == normalized:
                 return self.public()
 
@@ -194,6 +197,38 @@ class StudyRunStateStore:
                 "updated_at": _format_time(now),
                 "updated_at_epoch": now,
             }
+            self._persist_locked()
+            return self.public()
+
+    def begin_abort(self, reason: str) -> dict[str, Any]:
+        """Persist the start barrier before stopping any trial side effects."""
+        normalized_reason = str(reason or "").strip()
+        if not normalized_reason:
+            raise ValueError("An abort reason is required.")
+        with self._lock:
+            status = self._state.get("status")
+            if status == ABORTING_STATUS:
+                return self.public()
+            if status != RUNNING_STATUS:
+                raise ValueError("No study is currently running.")
+            now = self._now()
+            self._state = {
+                **self._state,
+                "status": ABORTING_STATUS,
+                "aborted_reason": normalized_reason,
+                "abort_error": "",
+                "sequence": int(self._state.get("sequence") or 0) + 1,
+                "updated_at": _format_time(now),
+                "updated_at_epoch": now,
+            }
+            self._persist_locked()
+            return self.public()
+
+    def record_abort_error(self, error: str) -> dict[str, Any]:
+        with self._lock:
+            if self._state.get("status") != ABORTING_STATUS:
+                return self.public()
+            self._state = {**self._state, "abort_error": str(error or "")}
             self._persist_locked()
             return self.public()
 

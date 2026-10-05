@@ -2,7 +2,7 @@
 
 Without this, all sensor data for a running session exists only in the
 in-memory history deques and is lost the moment the process dies -
-answers survive per-card (``_partial/``), but biosignals do not. Every
+answers survive per-card (``_work/partial/``), but biosignals do not. Every
 ``interval_seconds`` this re-exports each active session's full history
 (session start to now) and atomically overwrites one flush file per
 sensor, so a crash never loses more than one interval's worth of data.
@@ -20,7 +20,7 @@ from study_runner.plugin_framework.registry import build_context, export_interva
 
 from study_runner.shared.atomic_io import atomic_write_json
 from study_runner.shared.filename_sanitizer import sanitize_identifier_for_filename
-from study_runner.data_core.host.artifacts import study_storage_dir
+from study_runner.data_core.host.artifacts import study_work_dir
 
 DEFAULT_INTERVAL_SECONDS = 60
 
@@ -115,7 +115,7 @@ class SensorFlushService:
             return 0
 
         safe_session_id = sanitize_identifier_for_filename(session_id)
-        flush_dir = study_storage_dir(self.app.config["DATA_DIR"], study_id) / "_flush"
+        flush_dir = study_work_dir(self.app.config["DATA_DIR"], study_id, "flush")
 
         for export in exports:
             suffix = str(export.get("filename_suffix") or export.get("plugin_key"))
@@ -147,20 +147,15 @@ def discard_session_flush_files(
 ) -> None:
     """Remove flush files once a session's results are safely saved (or discarded).
 
-    ``study_dir`` names the study folder directly (recovery already knows it);
-    otherwise both the current folder and the pre-1.5 folder are cleaned. An
-    emptied ``_flush`` folder is removed as well.
+    ``study_dir`` names the study folder directly (recovery already knows it).
     """
     if not session_id or not (study_id or study_dir):
         return
     safe_session_id = sanitize_identifier_for_filename(session_id)
     if study_dir is not None:
-        candidates = [Path(study_dir) / "_flush"]
+        candidates = [Path(study_dir) / "_work" / "flush"]
     else:
-        candidates = [
-            study_storage_dir(data_dir, study_id) / "_flush",
-            Path(data_dir) / sanitize_identifier_for_filename(study_id) / "_flush",
-        ]
+        candidates = [study_work_dir(data_dir, study_id, "flush")]
     for flush_dir in dict.fromkeys(candidates):
         if not flush_dir.is_dir():
             continue

@@ -254,6 +254,9 @@ class FinalizationServiceTests(unittest.TestCase):
             self.assertTrue((session_root / "meta" / "checksums.sha256").is_file())
             self.assertTrue((session_root / "COMPLETE.json").is_file())
             self.assertFalse((session_root / "ATTENTION_REQUIRED.json").exists())
+            index = session_root.parent.parent / "sessions-index.csv"
+            self.assertTrue(index.is_file())
+            self.assertIn(created["session_path"], index.read_text(encoding="utf-8-sig"))
 
             restarted = self._service(root)
             self.assertEqual(restarted.get(created["job_id"])["status"], "completed")

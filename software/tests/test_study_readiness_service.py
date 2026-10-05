@@ -163,7 +163,11 @@ class ReadinessTests(unittest.TestCase):
         self.assertNotIn("notion.setting_missing", codes(report))
         self.assertTrue(report["ready"])
 
-    def test_sensor_disabled_machine_side_blocks(self) -> None:
+    def test_sensor_disabled_machine_side_warns_but_does_not_block(self) -> None:
+        """A required sensor the operator never turned on is a warning, not a
+        hard block: the admin can still choose "start anyway" (see
+        admin-run-control.js), matching the live counterpart's behaviour in
+        live_sensor_readiness.py."""
         report = check_study_readiness(
             study(sensors_enabled=True, sensors={"brainbit": True, "mini_radar": False, "camera_emotion": False}),
             hardware(brainbit={"enabled": False}),
@@ -173,6 +177,39 @@ class ReadinessTests(unittest.TestCase):
 
         self.assertIn("sensor_machine_disabled", codes(report))
         self.assertEqual(report["blockers"][0]["sensor"], "brainbit")
+        self.assertFalse(report["blockers"][0]["blocking"])
+        self.assertFalse(report["start_blocked"])
+        self.assertFalse(report["ready"])
+
+    def test_session_override_satisfies_a_machine_disabled_sensor(self) -> None:
+        """The exact bug this guards against: a required sensor is off in the
+        on-disk machine config, but the operator already started it for this
+        session via the dashboard (a session override). That must read as
+        fully ready, not as "switched off"."""
+        report = check_study_readiness(
+            study(sensors_enabled=True, sensors={"brainbit": True, "mini_radar": False, "camera_emotion": False}),
+            hardware(brainbit={"enabled": False}),
+            {},
+            https_active=True,
+            session_overrides={"brainbit": True},
+        )
+
+        self.assertNotIn("sensor_machine_disabled", codes(report))
+        self.assertTrue(report["ready"])
+
+    def test_session_override_can_also_turn_a_required_sensor_off(self) -> None:
+        """The reverse must work too: an operator-set override is honoured
+        even when the on-disk machine config says the sensor is on."""
+        report = check_study_readiness(
+            study(sensors_enabled=True, sensors={"brainbit": True, "mini_radar": False, "camera_emotion": False}),
+            hardware(brainbit={"enabled": True}),
+            {},
+            https_active=True,
+            session_overrides={"brainbit": False},
+        )
+
+        self.assertIn("sensor_machine_disabled", codes(report))
+        self.assertFalse(report["blockers"][0]["blocking"])
 
     def test_camera_without_https_blocks(self) -> None:
         report = check_study_readiness(

@@ -324,7 +324,7 @@ class CardAnswerSubmissionRecoveryTests(_FixtureFaultCardMixin, unittest.TestCas
                 failed = client.post("/api/results", json=submission)
                 self.assertEqual(failed.status_code, 400, failed.get_data(as_text=True))
                 self.assertEqual(failed.get_json()["error_code"], "invalid_input")
-                recovery_files = list(Path(data_dir).rglob("_recovery/*.json"))
+                recovery_files = list(Path(data_dir).rglob("_work/recovery/*.json"))
                 self.assertEqual(len(recovery_files), 1)
                 self.assertEqual(json.loads(recovery_files[0].read_text(encoding="utf-8")), submission)
 
@@ -372,6 +372,15 @@ class UnrelatedWorkStaysAvailableDuringACardFaultTests(_FixtureFaultCardMixin, u
             self._install_catalog(stack, catalog)
             with tempfile.TemporaryDirectory() as data_dir:
                 app = self._make_app(data_dir)
+                # Warm the healthy Card processes first; this test measures
+                # fault isolation, not cold process startup on a busy host.
+                warmup = self._save_config(
+                    app.test_client(),
+                    {"type": "participant-id"},
+                    {"type": "text", "prompt": "Warmup"},
+                    {"type": "finish"},
+                )
+                self.assertEqual(warmup.status_code, 200, warmup.get_data(as_text=True))
                 with ThreadPoolExecutor(max_workers=1) as executor:
                     future = executor.submit(
                         self._save_config,

@@ -34,42 +34,45 @@ normalized when a study is loaded.
 New results use one collision-safe session folder:
 
 ```text
-software/saved_results/
-  <study>/participants/<participant>/sessions/
-    <YYYYMMDDTHHMMSSZ>__<session-id>/
-      answers/
-        submission.json
-        result.json
-        card-summary.json
-      meta/
-        session-identity.json
-        manifest.json
-        checksums.sha256
-        finalization-state.json
-        quality.jsonl
-        timing.jsonl
-        logs/finalization.jsonl
-      raw/plugins/<plugin>/part-0001.xdf
-      raw/backup/slowest-grid_<rate>hz.xdf
-      derived/session.xdf
-      <session-id>.csv
-      COMPLETE.json | ATTENTION_REQUIRED.json
+<configured DATA_DIR>/
+  <study>/
+    sessions-index.csv
+    _work/{partial,flush,recovery}/
+    <participant>/
+      <YYYYMMDDTHHMMSSZ>__<session-id>/
+        answers/
+          submission.json
+          result.json
+          card-summary.json
+        meta/
+          session-identity.json
+          manifest.json
+          checksums.sha256
+          finalization-state.json
+          quality.jsonl
+          timing.jsonl
+          logs/finalization.jsonl
+        raw/plugins/<plugin>/part-0001.xdf
+        raw/backup/slowest-grid_<rate>hz.xdf
+        derived/session.xdf
+        session_1hz.csv
+        COMPLETE.json | ATTENTION_REQUIRED.json | WITHDRAWN.json
 ```
 
 `answers/` holds everything a participant contributed; `meta/` holds
-internal/operational state nobody needs to read by hand. `<session-id>.csv`
-is a convenience export of the already-synchronized backup grid (see
-[plugin-recording-architecture.md](plugin-recording-architecture.md)) for
-loading straight into SPSS/R -- the raw per-sensor XDF under `raw/plugins/`
-stays the source of truth and can always be reprocessed at full resolution.
+internal/operational state nobody needs to read by hand. `session_1hz.csv`
+contains selected synchronized sensor channels and quality fields on the
+backup grid (see [plugin-recording-architecture.md](plugin-recording-architecture.md)).
+The XDF files retain the higher-resolution recordings. `sessions-index.csv`
+is an atomic, rebuildable overview of the study's completed sessions; `_work/`
+holds partial checkpoints, periodic flushes and recovery dumps separately.
 Status markers (`COMPLETE.json`/`ATTENTION_REQUIRED.json`/`WITHDRAWN.json`)
 stay at the session root, same as before.
 
 The original pseudonymous participant ID is preserved in JSON. Sanitized path
 components, UTC start, and immutable session ID prevent collisions when one
-participant repeats a study. Pre-1.0 flat result folders are an archival compatibility surface: they stay
-readable but are not moved and are not part of the canonical completed-session
-browser.
+participant repeats a study. The data directory can be outside the installation.
+Only the bundled demo result is seeded automatically into a newly configured data directory.
 
 `submission.json` is the atomic local participant commit. `result.json` is the
 published result view. `manifest.json` and `checksums.sha256` record provenance
@@ -80,7 +83,7 @@ Answers in the canonical submission have passed each Card's validator and may
 therefore be normalized (for example, whitespace, numeric types or omitted
 optional answers). They are not a byte-for-byte copy of the browser's draft.
 An optional Card left unanswered is explicitly listed as skipped. The
-versioned `_partial/<session>.json` checkpoint is a recovery artifact for
+versioned `_work/partial/<session>.json` checkpoint is a recovery artifact for
 acknowledged Cards; its unfinished Card draft is deliberately excluded and
 must be completed again after a reload. Older partial files remain available
 for operator recovery but are not silently promoted to verified checkpoints.

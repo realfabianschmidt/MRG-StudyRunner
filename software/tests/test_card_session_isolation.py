@@ -51,6 +51,31 @@ class CardSessionIsolationRuleTests(unittest.TestCase):
         self.assertEqual(len(violations), 4)
         self.assertTrue(violations[0].startswith("line 1:"))
 
+    def test_scanner_flags_a_top_level_iife_hiding_state(self) -> None:
+        """A top-level IIFE's body sits past column 0, so the column-0 scan
+        alone would miss a ``let`` hidden inside it. The IIFE itself must be
+        flagged on sight instead."""
+        source = "\n".join(
+            [
+                "const api = (function () {",
+                "  let cache = {};",
+                "  return { get: () => cache };",
+                "})();",
+                "(() => {",
+                "  console.log('side effect at import time');",
+                "})();",
+                "function f() {",
+                "  const helper = (function () { return 1; })();",
+                "  return helper;",
+                "}",
+            ]
+        )
+        violations = find_session_state_violations(source)
+        self.assertEqual(len(violations), 2)
+        self.assertTrue(violations[0].startswith("line 1:"))
+        self.assertIn("api", violations[0])
+        self.assertTrue(violations[1].startswith("line 5:"))
+
     def test_discovery_refuses_a_card_that_keeps_module_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             bundle = Path(tmp) / "example_card"

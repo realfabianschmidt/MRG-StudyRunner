@@ -1,0 +1,2 @@
+﻿study_id,participant_id,session_id,saved_at,session_path,status,quality_status,raw_xdf_present,upload_failures
+Demo Completed Study,ac89c1703e034cfb,02ec4b00debe496680afb8cffed52dea,2026-08-11T16:33:56.637835Z,Demo_Completed_Study/ac89c1703e034cfb/20260811T163356Z__study-session-02ec4b00debe496680afb8cffed52dea,completed,,True,

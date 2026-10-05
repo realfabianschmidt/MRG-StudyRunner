@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import math
 from pathlib import Path
 import sys
 import tempfile
@@ -34,6 +35,26 @@ BACKUP_STREAM = {
 
 
 class WriteBackupCsvTests(unittest.TestCase):
+    def test_one_hz_rows_keep_quality_and_repeated_fresh_values_but_not_stale_values(self) -> None:
+        stream = {
+            "stream_key": "backup.slowest_grid",
+            "channels": ["sensor.value", "sensor.status"],
+            "timestamps": [100.0, 101.0, 102.0],
+            "samples": [
+                {"sensor.value": 7.0, "sensor.status": 1.0},
+                {"sensor.value": 7.0, "sensor.status": 1.0},
+                {"sensor.value": math.nan, "sensor.status": 2.0},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "session_1hz.csv"
+            write_backup_csv(Path(temp_dir) / "backup.xdf", target, sample_reader=FixtureReader([stream]))
+            with target.open(encoding="utf-8", newline="") as source:
+                rows = list(csv.DictReader(source))
+        self.assertEqual([row["timestamp"] for row in rows], ["100.0", "101.0", "102.0"])
+        self.assertEqual([row["sensor.value"] for row in rows], ["7.0", "7.0", "nan"])
+        self.assertEqual([row["sensor.status"] for row in rows], ["1.0", "1.0", "2.0"])
+
     def test_writes_one_row_per_timestamp_and_one_column_per_channel(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "session.csv"

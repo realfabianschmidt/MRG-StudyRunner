@@ -264,6 +264,15 @@ class SessionStore:
                 if session.get("status") == "active"
             ]
 
+    def list_uncompleted(self) -> list[dict[str, Any]]:
+        """Include stale sessions so a restarted server can finish an abort."""
+        with self._lock:
+            return [
+                deepcopy(session)
+                for session in self._sessions.values()
+                if session.get("status") in {"active", "stale"}
+            ]
+
     def _commit_session_locked(self, session: dict[str, Any], event: str) -> None:
         """Durably append first, then update the replaceable projection.
 

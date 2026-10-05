@@ -96,7 +96,7 @@ class RuntimeConfigTests(unittest.TestCase):
     def test_external_data_dir_gets_the_demo_result_only_when_empty(self) -> None:
         with tempfile.TemporaryDirectory() as base_dir, tempfile.TemporaryDirectory() as data_dir:
             base = Path(base_dir)
-            demo = base / "saved_results" / "Demo_Completed_Study" / "participants" / "p" / "sessions" / "s"
+            demo = base / "saved_results" / "Demo_Completed_Study" / "p" / "20260731T100000Z__s"
             (demo / "answers").mkdir(parents=True)
             (demo / "answers" / "result.json").write_text("{}", encoding="utf-8")
 
@@ -104,7 +104,7 @@ class RuntimeConfigTests(unittest.TestCase):
                 paths = resolve_runtime_paths(base)
                 initialize_runtime_storage(paths)
             copied = Path(data_dir) / "saved_results" / "Demo_Completed_Study"
-            self.assertTrue((copied / "participants" / "p" / "sessions" / "s" / "answers" / "result.json").is_file())
+            self.assertTrue((copied / "p" / "20260731T100000Z__s" / "answers" / "result.json").is_file())
 
         with tempfile.TemporaryDirectory() as base_dir, tempfile.TemporaryDirectory() as data_dir:
             base = Path(base_dir)
@@ -113,6 +113,14 @@ class RuntimeConfigTests(unittest.TestCase):
             with patch.dict(os.environ, {"STUDY_RUNNER_DATA_DIR": data_dir}, clear=True):
                 initialize_runtime_storage(resolve_runtime_paths(base))
             self.assertFalse((Path(data_dir) / "saved_results" / "Demo_Completed_Study").exists())
+
+    def test_bundled_demo_has_a_three_level_session_path_and_index(self) -> None:
+        demo_root = PROJECT_ROOT / "saved_results" / "Demo_Completed_Study"
+        index = demo_root / "sessions-index.csv"
+        self.assertTrue(index.is_file())
+        sessions = list(demo_root.glob("*/*/answers/result.json"))
+        self.assertEqual(len(sessions), 1)
+        self.assertIn("Demo_Completed_Study/", index.read_text(encoding="utf-8-sig"))
 
 
 if __name__ == "__main__":

@@ -400,13 +400,23 @@ function renderFileList(session) {
     return;
   }
 
-  container.innerHTML = files.map((file) => `
-    <div class="session-file-row">
-      <i class="iconoir-page"></i>
-      <span class="session-file-name">${escapeHtml(file.name)}</span>
-      <span class="session-file-meta">${escapeHtml(formatFileSize(file.size))} &middot; ${escapeHtml(formatDateTime(file.modified_at))}</span>
-    </div>
-  `).join('');
+  const groups = [
+    ['raw', t('sessions.files.raw', 'Sensor recordings')],
+    ['low_rate', t('sessions.files.lowRate', '1 Hz data')],
+    ['other', t('sessions.files.other', 'Results and checks')],
+  ];
+  const fileGroup = (name) => name.startsWith('raw/plugins/') || name === 'derived/session.xdf' ? 'raw'
+    : name.startsWith('raw/backup/') || name === 'session_1hz.csv' ? 'low_rate' : 'other';
+  container.innerHTML = groups.map(([key, label]) => {
+    const members = files.filter((file) => fileGroup(String(file.name || '')) === key);
+    if (!members.length) return '';
+    return `<section class="session-file-group"><h3>${escapeHtml(label)}</h3>${members.map((file) => `
+      <div class="session-file-row">
+        <i class="iconoir-page"></i>
+        <span class="session-file-name">${escapeHtml(file.name)}</span>
+        <span class="session-file-meta">${escapeHtml(formatFileSize(file.size))} &middot; ${escapeHtml(formatDateTime(file.modified_at))}</span>
+      </div>`).join('')}</section>`;
+  }).join('');
 }
 
 async function renderTimeline(session) {

@@ -314,7 +314,7 @@ class WithdrawnSessionVisibilityTests(unittest.TestCase):
     """A withdrawn session must not simply vanish from the list."""
 
     def _tombstoned_tree(self, data_dir: Path) -> Path:
-        session = data_dir / "study-a" / "participants" / "p1" / "sessions" / SESSION_ID
+        session = data_dir / "study-a" / "p1" / SESSION_ID
         _populate_session(session)
         WithdrawalService(data_dir).withdraw(session_id=SESSION_ID, session_root=session)
         return session
@@ -359,7 +359,7 @@ class WithdrawnSessionVisibilityTests(unittest.TestCase):
     def test_an_aborted_session_is_listed_with_its_own_kind(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             data_dir = Path(temp_dir)
-            session = data_dir / "study-a" / "participants" / "p1" / "sessions" / SESSION_ID
+            session = data_dir / "study-a" / "p1" / SESSION_ID
             _populate_session(session)
             WithdrawalService(data_dir).abort(session_id=SESSION_ID, session_root=session, reason="stuck")
 
@@ -376,7 +376,7 @@ class WithdrawnSessionVisibilityTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as temp_dir:
             data_dir = Path(temp_dir)
-            session = data_dir / "study-a" / "participants" / "p1" / "sessions" / SESSION_ID
+            session = data_dir / "study-a" / "p1" / SESSION_ID
             session.mkdir(parents=True)
             raw = session / "raw" / "plugins" / "fixture"
             raw.mkdir(parents=True)

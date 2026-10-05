@@ -92,7 +92,7 @@ class ResultsRoutesTests(unittest.TestCase):
             self.assertIsNotNone(recovery_file)
             recovered = json.loads(Path(recovery_file).read_text(encoding="utf-8"))
             self.assertEqual(recovered, submission)
-            self.assertIn("_recovery", recovery_file)
+            self.assertIn(str(Path("_work") / "recovery"), recovery_file)
 
     def test_successful_save_removes_partial_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
@@ -122,8 +122,7 @@ class ResultsRoutesTests(unittest.TestCase):
             self.assertFalse(snapshot_path.exists(), "partial snapshot should be removed after final save")
 
     def test_study_with_capitals_and_spaces_gets_exactly_one_folder(self) -> None:
-        # The test session of 2026-09-28 left "Example_Sensors_Study/_partial"
-        # (empty) next to "Example_Sensors_Study--4c0f6e4eac/participants/...".
+        # A partial and its final result must share the same study folder.
         study_id = "Example Sensors Study"
         with tempfile.TemporaryDirectory() as data_dir:
             app = self._make_app(data_dir)
@@ -153,8 +152,8 @@ class ResultsRoutesTests(unittest.TestCase):
             study_folders = sorted(path.name for path in saved_results.iterdir() if path.name.startswith("Example"))
             self.assertEqual(len(study_folders), 1, study_folders)
             study_folder = saved_results / study_folders[0]
-            self.assertTrue((study_folder / "participants").is_dir())
-            self.assertFalse((study_folder / "_partial").exists(), "empty _partial folder must be removed")
+            self.assertTrue((study_folder / "p01").is_dir())
+            self.assertFalse((study_folder / "_work" / "partial").exists(), "empty partial folder must be removed")
 
     def test_successful_save_marks_study_session_completed(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
@@ -233,7 +232,7 @@ class ResultsRoutesTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 202)
             job = response.get_json()["finalization_job"]
-            self.assertIn("/participants/p01/", job["session_path"].replace("\\", "/"))
+            self.assertIn("/p01/", job["session_path"].replace("\\", "/"))
             submission = json.loads(
                 (Path(app.config["DATA_DIR"]) / job["session_path"] / "answers" / "submission.json").read_text(encoding="utf-8")
             )

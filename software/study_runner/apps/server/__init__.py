@@ -292,30 +292,18 @@ def _end_finalization_producers(app: Flask, context) -> dict:
 
 
 def _stop_recording_for_withdrawal(app: Flask, session_id: str) -> dict:
-    """Best-effort: end any recording still writing this session (package 5i/A3).
-
-    Consent can be withdrawn mid-recording, so this runs before anything is
-    deleted. Freeze closes the native writer the same way a normal study
-    completion does (footers, boundary, durable close); shutdown then tears
-    down the worker process. Internal failures are captured in the returned
-    dict rather than raised -- ``WithdrawalService`` treats a raised error
-    from this callable as a hard failure worth stopping the whole withdrawal
-    for, which "there was nothing recording" and "the freeze command itself
-    failed" are not.
-    """
+    """Stop the writer before an abort or consent withdrawal can succeed."""
     recording_runtime: RecordingRuntimeService = app.config["RECORDING_RUNTIME_SERVICE"]
-    try:
-        paths = recording_runtime.find_paths(session_id)
-    except Exception as error:
-        return {"status": "lookup_failed", "error": f"{type(error).__name__}: {error}"}
-    if paths is None:
+    current = recording_runtime.status_for_session(session_id)
+    if not current or current.get("status") == "frozen" or current.get("session_id") != session_id:
         return {"status": "no_active_recording"}
-    try:
-        freeze_result = recording_runtime.freeze_worker(paths, command_id=f"withdraw-{session_id}")
-    except Exception as error:
-        freeze_result = {"error": f"{type(error).__name__}: {error}"}
-    try:
-        shutdown_result = recording_runtime.shutdown_worker(paths)
-    except Exception as error:
-        shutdown_result = {"error": f"{type(error).__name__}: {error}"}
+    paths = recording_runtime.find_paths(session_id)
+    if paths is None:
+        raise RuntimeError("The active recording folder could not be located.")
+    freeze_result = recording_runtime.freeze_worker(paths, command_id=f"withdraw-{session_id}")
+    if freeze_result.get("worker_unavailable"):
+        raise RuntimeError(f"Recording freeze could not be confirmed: {freeze_result.get('error')}")
+    shutdown_result = recording_runtime.shutdown_worker(paths)
+    if shutdown_result.get("ok") is not True:
+        raise RuntimeError(f"Recording shutdown could not be confirmed: {shutdown_result.get('warning')}")
     return {"status": "stopped", "freeze": freeze_result, "shutdown": shutdown_result}

@@ -12,6 +12,12 @@ module and every other JavaScript file the card declares, so a card that
 breaks it is refused instead of silently leaking data. It is a line-based
 scan of top-level declarations (column 0), which is how every card module is
 written.
+
+A top-level IIFE (``const x = (function () { ... })();`` or a bare
+``(() => { ... })();``) is flagged on sight rather than scanned into: its body
+is exactly where mutable module state could hide from a column-0 scan (a
+``let`` inside it sits past column 0), so the IIFE itself counts as the
+violation instead of trying to parse what is inside it.
 """
 from __future__ import annotations
 
@@ -26,6 +32,12 @@ _TOP_LEVEL_LET = re.compile(r"^(?:export\s+)?(?:let|var)\s+([A-Za-z_$][\w$]*)")
 _TOP_LEVEL_EMPTY_CONTAINER = re.compile(
     r"^(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:\{\s*\}|\[\s*\]|new\s+(?:Map|Set|WeakMap|WeakSet)\b)"
 )
+_TOP_LEVEL_IIFE = re.compile(
+    r"^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\(\s*(?:async\s+)?function\b"
+    r"|^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\(\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>"
+    r"|^\(\s*(?:async\s+)?function\b"
+    r"|^\(\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>"
+)
 
 
 def find_session_state_violations(source: str) -> list[str]:
@@ -39,6 +51,14 @@ def find_session_state_violations(source: str) -> list[str]:
         match = _TOP_LEVEL_EMPTY_CONTAINER.match(line)
         if match:
             violations.append(f"line {line_number}: module-level container '{match.group(1)}'")
+            continue
+        match = _TOP_LEVEL_IIFE.match(line)
+        if match:
+            name = match.group(1) or match.group(2) or "(anonymous)"
+            violations.append(
+                f"line {line_number}: module-level IIFE '{name}' "
+                "(this check cannot see inside it; it can hide mutable state the same way a top-level variable would)"
+            )
     return violations
 
 

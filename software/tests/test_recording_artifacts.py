@@ -29,14 +29,16 @@ class RecordingArtifactTests(unittest.TestCase):
             second = store.reserve(identity)
 
             self.assertEqual(first.root, second.root)
-            self.assertIn("participants", first.root.parts)
-            self.assertIn("sessions", first.root.parts)
+            self.assertEqual(first.root.parent.name, first.identity.participant_component)
+            self.assertEqual(first.root.parent.parent.name, first.identity.study_component)
+            self.assertNotIn("participants", first.root.parts)
             self.assertTrue(first.root.name.startswith("20260731T180203Z__"))
             self.assertNotIn("/", first.identity.participant_component)
             payload = json.loads(first.identity_file.read_text(encoding="utf-8"))
             self.assertEqual(payload["participant_id"], "P/01")
             self.assertTrue(first.raw_plugins_dir.is_dir())
             self.assertEqual(first.merged_xdf.name, "session.xdf")
+            self.assertEqual(first.csv_export_file.name, "session_1hz.csv")
 
     def test_normalized_identifiers_keep_collision_digest(self) -> None:
         started = dt.datetime(2026, 7, 31, tzinfo=dt.timezone.utc)
@@ -53,6 +55,12 @@ class RecordingArtifactTests(unittest.TestCase):
 
         self.assertNotEqual(lower.participant_component.casefold(), upper.participant_component.casefold())
         self.assertNotEqual(reserved.participant_component.casefold(), "con.txt")
+
+    def test_internal_folder_names_cannot_be_used_as_study_or_participant_components(self) -> None:
+        started = dt.datetime(2026, 7, 31, tzinfo=dt.timezone.utc)
+        self.assertNotEqual(SessionIdentity("runtime", "p01", "one", started).study_component, "runtime")
+        self.assertNotEqual(SessionIdentity("upload_jobs", "p01", "one", started).study_component, "upload_jobs")
+        self.assertNotEqual(SessionIdentity("study", "_work", "one", started).participant_component, "_work")
 
 
 if __name__ == "__main__":

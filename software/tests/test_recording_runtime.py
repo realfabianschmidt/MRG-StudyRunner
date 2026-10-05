@@ -177,7 +177,7 @@ class RecordingRuntimeTests(unittest.TestCase):
             self.assertIn("mini_radar.vitals.status", channel_names)
             self.assertNotIn("valid", channel_names)
 
-            session_roots = list((root / "saved_results" / "study" / "participants").glob("*/sessions/*"))
+            session_roots = list((root / "saved_results" / "study").glob("*/*"))
             self.assertEqual(len(session_roots), 1)
             self.assertTrue((session_roots[0] / "raw/plugins/brainbit/segments.json").is_file())
             plan = json.loads(
@@ -258,7 +258,7 @@ class RecordingRuntimeTests(unittest.TestCase):
                 },
             )
 
-            plan_path = next((root / "saved_results").glob("*/participants/*/sessions/*/meta/recording-plan.json"))
+            plan_path = next((root / "saved_results").glob("*/*/*/meta/recording-plan.json"))
             contract = load_recording_contract(json.loads(plan_path.read_text(encoding="utf-8")))
             self.assertIsNotNone(contract)
 
@@ -361,7 +361,7 @@ class RecordingRuntimeTests(unittest.TestCase):
             )
 
             self.assertEqual(recovered["worker"]["generation"], 2)
-            session_root = next((root / "saved_results").glob("*/participants/*/sessions/*"))
+            session_root = next((root / "saved_results").glob("*/*/*/meta/session-identity.json")).parent.parent
             ledger = json.loads(
                 (session_root / "raw/plugins/brainbit/segments.json").read_text(encoding="utf-8")
             )
@@ -933,7 +933,7 @@ class RecordingRuntimeTests(unittest.TestCase):
                 config,
                 {"lsl": {"enabled": True}},
             )
-            session_root = next((root / "saved_results").glob("*/participants/*/sessions/*"))
+            session_root = next((root / "saved_results").glob("*/*/*/meta/session-identity.json")).parent.parent
             plan_path = session_root / "meta" / "recording-plan.json"
             plan = json.loads(plan_path.read_text(encoding="utf-8"))
             plan["status"] = "frozen"

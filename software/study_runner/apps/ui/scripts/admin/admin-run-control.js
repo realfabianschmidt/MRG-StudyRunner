@@ -250,7 +250,7 @@ export function createAdminRunControl(context) {
       hint.textContent = runStatusHint(status, runState);
     }
     if (startButton) {
-      const running = status === 'running';
+      const running = status === 'running' || status === 'aborting';
       const gateBlocksStart = status !== 'running' && tabletGate.can_start !== true;
       // Keep Play visible so a click can explain the blocker. The backend is the
       // authoritative gate for required plugins and recording infrastructure.
@@ -262,7 +262,7 @@ export function createAdminRunControl(context) {
     // Only while a study is actually running is there a live recording to end
     // -- offering it any earlier would have nothing to target.
     if (abortButton) {
-      abortButton.hidden = status !== 'running';
+      abortButton.hidden = status !== 'running' && status !== 'aborting';
     }
     renderReadinessCta();
     if (startLabel) {
@@ -282,6 +282,7 @@ export function createAdminRunControl(context) {
     if (status === 'running') return t('hub.runStatus.running', 'RUNNING');
     if (status === 'completed') return t('hub.runStatus.completed', 'COMPLETED');
     if (status === 'aborted') return t('hub.runStatus.aborted', 'ABORTED');
+    if (status === 'aborting') return t('hub.runStatus.aborting', 'STOPPING');
     if (status === 'stopped') return t('hub.runStatus.stopped', 'STOPPED');
     return t('hub.runStatus.loaded', 'LOADED');
   }
@@ -303,6 +304,12 @@ export function createAdminRunControl(context) {
       return reason
         ? t('hub.runHint.aborted', 'Aborted: {reason}').replace('{reason}', reason)
         : t('hub.runHint.abortedNoReason', 'Aborted. The tablet waits for the next start.');
+    }
+    if (status === 'aborting') {
+      const error = runState?.abort_error || '';
+      return error
+        ? t('hub.runHint.abortFailed', 'Stop not confirmed: {reason}. Retry abort.').replace('{reason}', error)
+        : t('hub.runHint.aborting', 'Stopping stimulus and recording. Do not start another run yet.');
     }
     if (status === 'stopped') {
       return gateHint || t('hub.runHint.stopped', 'The run was stopped. The tablet waits for the next start.');
@@ -540,4 +547,3 @@ export function createAdminRunControl(context) {
     startStudyRunPolling,
   };
 }
-

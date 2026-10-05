@@ -136,6 +136,7 @@ class WithdrawalService:
             "schema": WITHDRAWAL_STATE_SCHEMA,
             "session_id": safe_id,
             "session_path": str(root),
+            "study_id": _study_id_for_root(root, self.data_dir),
             "requested_at_epoch": float(self._clock()),
             "requested_by": str(requested_by or ""),
             "reason": str(reason or ""),
@@ -168,6 +169,13 @@ class WithdrawalService:
         state["status"] = "withdrawn"
         state["completed_at_epoch"] = float(self._clock())
         self._persist(state)
+        try:
+            from study_runner.runtime_core.studies.session_index_csv import rebuild_study_index
+            study_id = str(state.get("study_id") or "")
+            if study_id:
+                rebuild_study_index(self.data_dir, study_id)
+        except Exception as error:
+            print(f"[WITHDRAWAL] Could not refresh session index: {error}")
         return state
 
     def abort(
@@ -303,6 +311,16 @@ def _safe_session_id(session_id: Any) -> str:
     if not value or Path(value).name != value or value in {".", ".."}:
         raise WithdrawalError("a withdrawal needs a concrete, single-segment session_id")
     return value
+
+
+def _study_id_for_root(root: Path, data_dir: Path) -> str:
+    try:
+        identity = json.loads((root / "meta" / "session-identity.json").read_text(encoding="utf-8"))
+        if isinstance(identity, dict) and identity.get("study_id"):
+            return str(identity["study_id"])
+    except (OSError, ValueError):
+        pass
+    return root.parent.parent.name if root.parent.parent.parent.resolve() == data_dir.resolve() else ""
 
 
 def _fsync_directory(directory: Path) -> None:

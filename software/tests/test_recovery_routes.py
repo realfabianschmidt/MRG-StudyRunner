@@ -46,7 +46,7 @@ def _load_a_study(client) -> None:
 
 def _write_partial(data_dir: Path, session_id: str) -> None:
     atomic_write_json(
-        data_dir / "study-a" / "_partial" / f"{session_id}.json",
+        data_dir / "study-a" / "_work" / "partial" / f"{session_id}.json",
         {
             "session_id": session_id,
             "study_id": "study-a",
@@ -165,7 +165,7 @@ class RecoveryRoutesTests(unittest.TestCase):
             self.assertTrue(response.get_json()["ok"])
             self.assertEqual(after.get_json()["candidates"], [])
             self.assertTrue(
-                Path(app.config["DATA_DIR"], "study-a", "_recovery", "discarded", "session-1.json").is_file()
+                Path(app.config["DATA_DIR"], "study-a", "_work", "recovery", "discarded", "session-1.json").is_file()
             )
 
     def test_discard_unknown_recovery_id_is_not_found(self) -> None:

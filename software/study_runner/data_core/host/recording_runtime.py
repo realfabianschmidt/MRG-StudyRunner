@@ -1300,6 +1300,17 @@ class RecordingRuntimeService:
         _validate_recording_contract_in_plan(plan)
         return plan
 
+    def status_for_session(self, session_id: str) -> dict[str, Any] | None:
+        """Read a specific persisted plan, including after a server restart."""
+        paths = self.find_paths(session_id)
+        if paths is None:
+            return None
+        try:
+            plan = _read_object(paths.recording_plan_file)
+        except RecordingRuntimeError:
+            return None
+        return {"session_id": session_id, "status": plan.get("status")}
+
     def find_paths(self, session_id: str) -> ArtifactPaths | None:
         """Resolve one session's on-disk paths from its id alone.
 
@@ -1316,7 +1327,7 @@ class RecordingRuntimeService:
         if root is not None:
             candidates = (root / "meta" / "session-identity.json",)
         else:
-            candidates = self.data_dir.glob("*/participants/*/sessions/*/meta/session-identity.json")
+            candidates = self.data_dir.glob("*/*/*/meta/session-identity.json")
         for identity_file in candidates:
             try:
                 payload = _read_object(identity_file)
@@ -1324,12 +1335,15 @@ class RecordingRuntimeService:
                 continue
             if str(payload.get("session_id") or "") != session_key:
                 continue
-            identity = SessionIdentity(
-                study_id=str(payload["study_id"]),
-                participant_id=str(payload["participant_id"]),
-                session_id=session_key,
-                started_at=_parse_utc(str(payload["started_at"])),
-            )
+            try:
+                identity = SessionIdentity(
+                    study_id=str(payload["study_id"]),
+                    participant_id=str(payload["participant_id"]),
+                    session_id=session_key,
+                    started_at=_parse_utc(str(payload["started_at"])),
+                )
+            except (KeyError, ValueError, TypeError):
+                continue
             paths = self.artifacts.paths_for(identity)
             self._active_paths[session_key] = paths.root
             return paths

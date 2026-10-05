@@ -79,7 +79,7 @@ class RecoveryServiceTests(unittest.TestCase):
             "card_events": [],
         }
         payload.update(overrides)
-        path = self.data_dir / "study-a" / "_partial" / f"{session_id}.json"
+        path = self.data_dir / "study-a" / "_work" / "partial" / f"{session_id}.json"
         atomic_write_json(path, payload)
         return path
 
@@ -97,7 +97,7 @@ class RecoveryServiceTests(unittest.TestCase):
             "samples": [{"server_received_epoch": 1_000_050.0, "heartRate": 72}],
         }
         payload.update(overrides)
-        path = self.data_dir / "study-a" / "_flush" / f"{session_id}_{payload['filename_suffix']}.json"
+        path = self.data_dir / "study-a" / "_work" / "flush" / f"{session_id}_{payload['filename_suffix']}.json"
         atomic_write_json(path, payload)
         return path
 
@@ -114,7 +114,7 @@ class RecoveryServiceTests(unittest.TestCase):
             "card_events": [],
         }
         payload.update(overrides)
-        path = self.data_dir / "study-a" / "_recovery" / f"{name}.json"
+        path = self.data_dir / "study-a" / "_work" / "recovery" / f"{name}.json"
         atomic_write_json(path, payload)
         return path
 
@@ -137,7 +137,7 @@ class RecoveryServiceTests(unittest.TestCase):
         folder = study_storage_dir(self.data_dir, study_id)
         self.assertNotEqual(folder.name, "Example_Sensors_Study")
         atomic_write_json(
-            folder / "_partial" / "session-9.json",
+            folder / "_work" / "partial" / "session-9.json",
             {
                 "session_id": "session-9",
                 "study_id": study_id,
@@ -148,7 +148,7 @@ class RecoveryServiceTests(unittest.TestCase):
             },
         )
         atomic_write_json(
-            folder / "_flush" / "session-9_mr60_signals.json",
+            folder / "_work" / "flush" / "session-9_mr60_signals.json",
             {"session_id": "session-9", "study_id": study_id, "sensor": "mr60", "samples": []},
         )
 
@@ -157,7 +157,7 @@ class RecoveryServiceTests(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
         self.assertEqual(candidates[0]["study_id"], study_id)
         discard_recovery_candidate(self.data_dir, candidates[0]["recovery_id"])
-        self.assertFalse((folder / "_flush").exists(), "emptied _flush folder must be removed")
+        self.assertFalse((folder / "_work" / "flush").exists(), "emptied flush folder must be removed")
         self.assertEqual(list_recovery_candidates(self.data_dir), [])
 
     def test_partial_snapshot_lists_its_flushed_sensors(self) -> None:
@@ -325,8 +325,8 @@ class RecoveryServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(list_recovery_candidates(self.data_dir), [])
-        self.assertTrue((self.data_dir / "study-a" / "_partial" / "finalized" / "session-1.json").is_file())
-        self.assertFalse((self.data_dir / "study-a" / "_partial" / "session-1.json").is_file())
+        self.assertTrue((self.data_dir / "study-a" / "_work" / "partial" / "finalized" / "session-1.json").is_file())
+        self.assertFalse((self.data_dir / "study-a" / "_work" / "partial" / "session-1.json").is_file())
 
     def test_finalize_splices_in_flushed_sensor_data(self) -> None:
         self._write_partial("session-1")
@@ -351,7 +351,7 @@ class RecoveryServiceTests(unittest.TestCase):
             self.data_dir, _config_data(), {}, _context(self.data_dir), "partial:study-a:session-1"
         )
 
-        self.assertEqual(list((self.data_dir / "study-a" / "_flush").glob("*.json")), [])
+        self.assertEqual(list((self.data_dir / "study-a" / "_work" / "flush").glob("*.json")), [])
 
     def test_finalize_recovery_dump_reuses_its_complete_payload(self) -> None:
         self._write_recovery_dump("p01_dump", session_id="session-dump")
@@ -388,9 +388,9 @@ class RecoveryServiceTests(unittest.TestCase):
         result = discard_recovery_candidate(self.data_dir, "partial:study-a:session-1")
 
         self.assertTrue(result["ok"])
-        self.assertTrue((self.data_dir / "study-a" / "_recovery" / "discarded" / "session-1.json").is_file())
-        self.assertFalse((self.data_dir / "study-a" / "_partial" / "session-1.json").is_file())
-        self.assertEqual(list((self.data_dir / "study-a" / "_flush").glob("*.json")), [])
+        self.assertTrue((self.data_dir / "study-a" / "_work" / "recovery" / "discarded" / "session-1.json").is_file())
+        self.assertFalse((self.data_dir / "study-a" / "_work" / "partial" / "session-1.json").is_file())
+        self.assertEqual(list((self.data_dir / "study-a" / "_work" / "flush").glob("*.json")), [])
         self.assertEqual(list_recovery_candidates(self.data_dir), [])
 
     def test_discard_unknown_recovery_id_raises(self) -> None:

@@ -16,6 +16,8 @@ from study_runner.shared.atomic_io import atomic_write_json
 IDENTITY_SCHEMA = "study-runner/session-identity/v1"
 _UNSAFE_COMPONENT = re.compile(r"[^A-Za-z0-9._-]+")
 _MAX_COMPONENT_LENGTH = 80
+_RESERVED_STUDY_COMPONENTS = {"runtime", "upload_jobs", "_work"}
+_RESERVED_PARTICIPANT_COMPONENTS = {"sessions-index.csv", "_work"}
 _WINDOWS_RESERVED_COMPONENTS = {
     "con",
     "prn",
@@ -73,12 +75,20 @@ def safe_path_component(value: str, *, fallback: str) -> str:
 def study_storage_dir(data_dir: Path | str, study_id: str) -> Path:
     """The one folder per study inside the data folder.
 
-    Sessions (``participants/...``), answer snapshots (``_partial``), sensor
-    flush files (``_flush``) and raw recovery dumps (``_recovery``) all live
-    here. Before, the helper folders used a differently sanitized name, so a
-    study with capitals or spaces got a second, mostly empty folder.
+    Results and recovery work share the same validated study component.
     """
-    return Path(data_dir) / safe_path_component(str(study_id or ""), fallback="study")
+    original = str(study_id or "")
+    component = safe_path_component(original, fallback="study")
+    if component in _RESERVED_STUDY_COMPONENTS:
+        digest = hashlib.sha256(original.encode("utf-8")).hexdigest()[:10]
+        component = f"{component}--{digest}"
+    return Path(data_dir) / component
+
+
+def study_work_dir(data_dir: Path | str, study_id: str, kind: str) -> Path:
+    if kind not in {"partial", "flush", "recovery"}:
+        raise ValueError("Unknown study work area.")
+    return study_storage_dir(data_dir, study_id) / "_work" / kind
 
 
 @dataclass(frozen=True)
@@ -106,11 +116,15 @@ class SessionIdentity:
 
     @property
     def study_component(self) -> str:
-        return safe_path_component(self.study_id, fallback="study")
+        return study_storage_dir(Path(), self.study_id).name
 
     @property
     def participant_component(self) -> str:
-        return safe_path_component(self.participant_id, fallback="participant")
+        component = safe_path_component(self.participant_id, fallback="participant")
+        if component in _RESERVED_PARTICIPANT_COMPONENTS:
+            digest = hashlib.sha256(self.participant_id.encode("utf-8")).hexdigest()[:10]
+            component = f"{component}--{digest}"
+        return component
 
     @property
     def session_component(self) -> str:
@@ -250,8 +264,7 @@ class ArtifactPaths:
 
     @property
     def csv_export_file(self) -> Path:
-        component = safe_path_component(self.identity.session_id, fallback="session")
-        return self.root / f"{component}.csv"
+        return self.root / "session_1hz.csv"
 
     def plugin_dir(self, plugin_key: str) -> Path:
         component = safe_path_component(plugin_key, fallback="plugin")
@@ -274,9 +287,7 @@ class ArtifactStore:
         session_root = (
             self.root
             / identity.study_component
-            / "participants"
             / identity.participant_component
-            / "sessions"
             / identity.session_component
         )
         return ArtifactPaths(root=session_root, identity=identity)

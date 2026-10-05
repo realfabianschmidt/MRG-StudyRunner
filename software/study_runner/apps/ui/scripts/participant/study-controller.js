@@ -320,12 +320,7 @@ function startFreshParticipantPage(reason) {
 }
 
 function handleStudyRunState(runState) {
-  if (!runState || typeof runState !== 'object') {
-    return;
-  }
-  if (state.freshPageRequested) {
-    return;
-  }
+  if (!runState || typeof runState !== 'object' || state.freshPageRequested) return;
   const previousRunId = state.studyRunState?.run_id || '';
   const nextRunId = runState.run_id || '';
   const runChanged = Boolean(previousRunId && nextRunId && previousRunId !== nextRunId);
@@ -353,9 +348,15 @@ function handleStudyRunState(runState) {
     });
     return;
   }
-  if (state.completedLocally) {
+  if (runState.status === 'aborting') {
+    void stopActiveStimulus({ shouldSendStop: false });
+    showWaitingForAdminStart({
+      title: t('study.aborting.title', 'The supervisor is stopping this study'),
+      body: t('study.aborting.body', 'Please wait. No new stimulus can start while the session is being stopped.'),
+    });
     return;
   }
+  if (state.completedLocally) return;
   if (isStudyRunRunning(runState)) {
     if (state.waitingForAdminStart || !state.questionsBuilt) {
       void activateStudyUiAfterAdminStart();
@@ -770,7 +771,6 @@ async function startTrial(options = {}) {
     showStudyNotice(t('study.saveFailedBody', 'Your answers could not be saved. Please tell the study supervisor - your answers are still on this screen.'), 'error', 10000);
     return;
   }
-
   showScreen('questions');
 }
 

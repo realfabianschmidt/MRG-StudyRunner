@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ from study_runner.runtime_core.studies.sessions_index_service import (
     min_max_envelope,
 )
 from study_runner.runtime_core.studies import sessions_index_service
+from study_runner.runtime_core.studies.session_index_csv import rebuild_study_index
 
 
 class SessionsRouteTests(unittest.TestCase):
@@ -85,7 +87,7 @@ class SessionsRouteTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def _canonical_session(self, folder: str, result: dict) -> Path:
-        root = self.data_dir / "study-a" / "participants" / "p01" / "sessions" / folder
+        root = self.data_dir / "study-a" / "p01" / folder
         (root / "derived").mkdir(parents=True)
         (root / "answers").mkdir(parents=True)
         (root / "meta").mkdir(parents=True)
@@ -139,7 +141,7 @@ class SessionsRouteTests(unittest.TestCase):
     def test_list_only_returns_canonical_marked_sessions(self) -> None:
         response = self.client.get("/api/admin/sessions")
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200, response.get_json())
         sessions = response.get_json()
         self.assertEqual([item["session_id"] for item in sessions], ["session-2", "session-1"])
         self.assertEqual(sessions[0]["session_folder"], self.session_two.name)
@@ -147,7 +149,16 @@ class SessionsRouteTests(unittest.TestCase):
         self.assertTrue(sessions[0]["recovered"])
         self.assertNotIn("legacy-session", {item["session_id"] for item in sessions})
         self.assertTrue((self.data_dir / "study-a" / "p01" / "p01.json").is_file())
-        self.assertTrue(all("/participants/" in f"/{item['session_path']}/" for item in sessions))
+        self.assertTrue(all(item["session_path"].replace("\\", "/").startswith("study-a/p01/") for item in sessions))
+
+    def test_study_csv_index_is_rebuildable_and_reports_raw_availability(self) -> None:
+        index = rebuild_study_index(self.data_dir, "study-a")
+        with index.open(encoding="utf-8-sig", newline="") as source:
+            rows = list(csv.DictReader(source))
+        self.assertEqual({row["session_id"] for row in rows}, {"session-1", "session-2"})
+        self.assertTrue(all(row["raw_xdf_present"] == "True" for row in rows))
+        self.assertTrue(all(row["session_path"].startswith("study-a/p01/") for row in rows))
+        self.assertEqual(index.read_bytes(), rebuild_study_index(self.data_dir, "study-a").read_bytes())
 
     def test_detail_uses_session_folder_and_returns_xdf_stream_metadata(self) -> None:
         with patch.object(sessions_index_service, "_read_merged_streams", side_effect=self._fixture_streams):
@@ -244,7 +255,7 @@ class SessionsRouteTests(unittest.TestCase):
             query_string={"session_folder": self.session_one.name},
             json={"confirm_session_id": "session-1", "reason": "participant request"},
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200, response.get_json())
         payload = response.get_json()
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["status"], "withdrawn")
@@ -253,6 +264,9 @@ class SessionsRouteTests(unittest.TestCase):
 
         listed = {item["session_id"]: item for item in self.client.get("/api/admin/sessions").get_json()}
         self.assertEqual(listed["session-1"]["lifecycle"], "WITHDRAWN")
+        with (self.data_dir / "study-a" / "sessions-index.csv").open(encoding="utf-8-sig", newline="") as source:
+            indexed = {row["session_id"]: row for row in csv.DictReader(source)}
+        self.assertEqual(indexed["session-1"]["status"], "withdrawn")
 
     def test_withdraw_of_an_unknown_session_is_a_404(self) -> None:
         response = self.client.post(

@@ -12,13 +12,12 @@ class FolderOpenError(RuntimeError):
 
 
 def resolve_session_folder(data_dir: Path, session_path: str) -> Path:
-    """Resolve one canonical v3 session without accepting traversal.
+    """Resolve one session without accepting traversal.
 
     ``session_path`` comes from durable finalization state or the admin
     session index, but this boundary still treats it as untrusted. It must
-    name the exact v3 layout below ``DATA_DIR`` (``study/participants/<id>/
-    sessions/<folder>``) rather than a study- or participant-wide directory --
-    there is no flat legacy layout to resolve any more.
+    name the exact layout below ``DATA_DIR`` (``study/participant/session``),
+    not a study- or participant-wide directory.
     """
 
     normalized = str(session_path or "").strip().replace("\\", "/")
@@ -28,15 +27,18 @@ def resolve_session_folder(data_dir: Path, session_path: str) -> Path:
         not normalized
         or relative.is_absolute()
         or any(part in {"", ".", ".."} for part in parts)
-        or len(parts) != 5
-        or parts[1] != "participants"
-        or parts[3] != "sessions"
+        or len(parts) != 3
+        or any(part.startswith("_") for part in parts)
+        or parts[0] in {"runtime", "upload_jobs"}
     ):
         raise FolderOpenError("A valid finalization session path is required.")
 
     root = Path(data_dir).resolve()
     target = (root / relative).resolve()
-    if not target.is_relative_to(root) or not target.is_dir():
+    if not target.is_relative_to(root) or not target.is_dir() or not any(
+        (target / marker).is_file()
+        for marker in ("meta/session-identity.json", "COMPLETE.json", "ATTENTION_REQUIRED.json", "WITHDRAWN.json")
+    ):
         raise FolderOpenError("The session folder was not found on this computer.")
     return target
 

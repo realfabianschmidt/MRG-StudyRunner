@@ -3,11 +3,11 @@
 Three kinds of on-disk artifact can outlive a session that never reached a
 normal save:
 
-- ``_partial/<session_id>.json`` - the answers-so-far snapshot the tablet
+- ``_work/partial/<session_id>.json`` - the answers-so-far snapshot the tablet
   posts after every card (``routes/results.py::save_partial_results``).
-- ``_flush/<session_id>_<suffix>.json`` - periodic sensor exports written
+- ``_work/flush/<session_id>_<suffix>.json`` - periodic sensor exports written
   every interval while the session was active (``sensor_flush_service.py``).
-- ``_recovery/*.json`` - a raw, complete submission that reached the server
+- ``_work/recovery/*.json`` - a raw, complete submission that reached the server
   but could not be saved (e.g. a full disk), from
   ``routes/results.py::_write_results_recovery_file``.
 
@@ -41,6 +41,7 @@ from .results_service import (
 )
 from study_runner.shared.filename_sanitizer import sanitize_identifier_for_filename
 from study_runner.data_core.host.sensor_flush_service import discard_session_flush_files
+from study_runner.data_core.host.artifacts import study_work_dir
 from .sessions_index_service import list_sessions
 from .validation import skipped_optional_questions_for_result
 
@@ -169,7 +170,7 @@ def finalize_recovery_candidate(
     data_dir = Path(data_dir)
     kind, study_id, token = _parse_recovery_id(recovery_id)
     study_dir = data_dir / study_id
-    source_path = study_dir / ("_partial" if kind == "partial" else "_recovery") / f"{token}.json"
+    source_path = study_dir / "_work" / ("partial" if kind == "partial" else "recovery") / f"{token}.json"
     if not source_path.is_file():
         raise RecoveryError("This interrupted session was already handled.")
 
@@ -235,7 +236,7 @@ def discard_recovery_candidate(data_dir: Path, recovery_id: str) -> dict[str, An
     data_dir = Path(data_dir)
     kind, study_id, token = _parse_recovery_id(recovery_id)
     study_dir = data_dir / study_id
-    source_path = study_dir / ("_partial" if kind == "partial" else "_recovery") / f"{token}.json"
+    source_path = study_dir / "_work" / ("partial" if kind == "partial" else "recovery") / f"{token}.json"
     if not source_path.is_file():
         raise RecoveryError("This interrupted session was already handled.")
 
@@ -249,7 +250,7 @@ def discard_recovery_candidate(data_dir: Path, recovery_id: str) -> dict[str, An
     if kind == "partial":
         discard_session_flush_files(data_dir, study_id, session_id, study_dir=study_dir)
 
-    _archive_source(source_path, study_dir / "_recovery" / "discarded")
+    _archive_source(source_path, study_dir / "_work" / "recovery" / "discarded")
     return {"ok": True, "session_id": session_id}
 
 
@@ -261,10 +262,10 @@ def _partial_candidates(
     stuck_active: set[str],
     hardware_config: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
-    partial_dir = study_dir / "_partial"
+    partial_dir = study_dir / "_work" / "partial"
     if not partial_dir.is_dir():
         return []
-    flush_dir = study_dir / "_flush"
+    flush_dir = study_dir / "_work" / "flush"
 
     candidates = []
     for path in sorted(partial_dir.glob("*.json")):
@@ -322,7 +323,7 @@ def _recovery_dump_candidates(
     already_saved: set[tuple[str, str]],
     hardware_config: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
-    recovery_dir = study_dir / "_recovery"
+    recovery_dir = study_dir / "_work" / "recovery"
     if not recovery_dir.is_dir():
         return []
 
@@ -378,7 +379,7 @@ def _apply_flushed_sidecars(
     just before the crash, reusing the same sidecar writer the live path
     uses so the resulting file is indistinguishable from a normal one.
     """
-    flush_dir = Path(data_dir) / sanitize_identifier_for_filename(study_id) / "_flush"
+    flush_dir = study_work_dir(data_dir, study_id, "flush")
     if not flush_dir.is_dir():
         return
 

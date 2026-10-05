@@ -37,6 +37,7 @@ from .destination_plugin_service import (
     validate_destination_definitions,
 )
 from ..studies.results_service import sanitize_canonical_submission_sensor_summaries
+from ..studies.session_index_csv import rebuild_study_index
 
 
 FINALIZATION_SCHEMA = "study-runner/finalization-state/v1"
@@ -1626,6 +1627,11 @@ class FinalizationService:
         paths = self.data_dir / state["session_path"]
         atomic_write_json(paths / "meta" / "finalization-state.json", state)
         self._append_log_path(paths, {**event, "job_id": state["job_id"]})
+        if (paths / "COMPLETE.json").is_file() or (paths / "ATTENTION_REQUIRED.json").is_file():
+            try:
+                rebuild_study_index(self.data_dir, str(state["study_id"]))
+            except Exception as error:
+                print(f"[FINALIZATION] Could not refresh session index: {error}")
 
     def _append_log(self, paths: ArtifactPaths, event: dict[str, Any]) -> None:
         self._append_log_path(paths.root, event)

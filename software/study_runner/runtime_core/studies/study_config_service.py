@@ -43,7 +43,7 @@ def study_busy_reason(runtime_config: Mapping[str, Any]) -> str:
     """Read run/recording activity without changing the loaded study state."""
 
     run_store = runtime_config.get("STUDY_RUN_STATE")
-    if run_store is not None and run_store.public().get("status") == "running":
+    if run_store is not None and run_store.public().get("status") in {"running", "aborting"}:
         return "A study run is active. Stop or finish it before changing the study."
     recording = runtime_config.get("RECORDING_RUNTIME_SERVICE")
     if recording is not None:

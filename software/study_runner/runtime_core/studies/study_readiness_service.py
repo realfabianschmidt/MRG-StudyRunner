@@ -11,6 +11,13 @@ state. Two reasons: it must give the same answer before anything is started,
 and "connected right now" changes second by second, which belongs on the
 dashboard rather than in a gate that blocks the Play button.
 
+The one exception is ``session_overrides``: an operator already decided, via
+the dashboard, to run a sensor on or off for this session only, before this
+check runs. That decision does not change second by second, so it is read
+here like any other stored setting - without it, a sensor the study requires
+and the operator already started would be reported as switched off just
+because the on-disk machine config was never touched.
+
 Only conditions that would *certainly* fail are reported. A missing Nextcloud
 password is not one of them - public shares legitimately have none.
 """
@@ -25,7 +32,11 @@ from typing import Any
 from ..settings.runtime_config import is_https_enabled
 from .study_plugin_config import normalize_study_settings_plugins
 from study_runner.plugin_framework.plugin_secrets import list_study_credential_state, resolve_plugin_secret
-from study_runner.data_core.host.study_sensor_runtime import STUDY_SENSOR_KEYS, normalize_study_sensors
+from study_runner.data_core.host.study_sensor_runtime import (
+    STUDY_SENSOR_KEYS,
+    normalize_session_overrides,
+    normalize_study_sensors,
+)
 
 # Which left-hand panel of the study settings shell fixes each blocker, so the
 # UI can send the operator straight there instead of making them hunt. Only
@@ -50,6 +61,7 @@ def check_study_readiness(
     https_active: bool | None = None,
     recording_preflight: dict[str, Any] | None = None,
     platform_target: str | None = None,
+    session_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Report what would stop this study from delivering a complete result."""
     study_settings = study_config.get("study_settings") or {}
@@ -141,6 +153,7 @@ def check_study_readiness(
                 add(f"{plugin_key}.machine_disabled", panel=plugin_key, destination=plugin_key)
 
     sensors = normalize_study_sensors(study_settings)
+    overrides = normalize_session_overrides(session_overrides)
     for sensor_key in STUDY_SENSOR_KEYS:
         if not sensors.get(sensor_key):
             continue
@@ -150,8 +163,15 @@ def check_study_readiness(
         section = section if isinstance(section, dict) else {}
         selection = selected_plugins.get(sensor_key) if isinstance(selected_plugins, dict) else None
         required = bool(selection.get("required", True)) if isinstance(selection, dict) else True
-        if not section.get("enabled"):
-            add("sensor_machine_disabled", blocking=required, sensor=sensor_key)
+        # An explicit session override reflects what the operator already set
+        # up for this run and wins over the on-disk machine setting. Whether a
+        # required sensor ends up active is only a warning, never a hard
+        # block: the operator sees it and can still start on purpose (the
+        # live counterpart of this check, live_sensor_readiness.py, follows
+        # the same "warn, don't block" rule for the sensor's live connection).
+        effective_enabled = bool(overrides[sensor_key]) if sensor_key in overrides else bool(section.get("enabled"))
+        if not effective_enabled:
+            add("sensor_machine_disabled", blocking=False, sensor=sensor_key, required=required)
 
         # `readiness` renamed to `runtime_modes` in api_version 5 (Phase 3.4)
         # to stop colliding with the unrelated `readiness_requirements`

@@ -47,10 +47,11 @@ class FinalizationRoutesTests(unittest.TestCase):
     def test_job_details_expose_manifest_artifacts_without_rehashing_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            session_path = "study/participants/p01/sessions/20260731T100000Z__session-1"
+            session_path = "study/p01/20260731T100000Z__session-1"
             session_root = root / session_path
             session_root.mkdir(parents=True)
             (session_root / "meta").mkdir(parents=True, exist_ok=True)
+            (session_root / "COMPLETE.json").write_text("{}", encoding="utf-8")
             (session_root / "meta" / "manifest.json").write_text(
                 json.dumps(
                     {
@@ -78,13 +79,13 @@ class FinalizationRoutesTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         artifacts = response.get_json()["job"]["artifacts"]
-        self.assertEqual([item["path"] for item in artifacts], ["derived/session.xdf", "meta/manifest.json"])
-        self.assertEqual(artifacts[0]["sha256"], "a" * 64)
+        self.assertEqual([item["path"] for item in artifacts], ["COMPLETE.json", "derived/session.xdf", "meta/manifest.json"])
+        self.assertEqual(artifacts[1]["sha256"], "a" * 64)
 
     def test_open_folder_uses_job_session_path_not_client_identifiers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            session_path = "study/participants/p01/sessions/20260731T100000Z__session-1"
+            session_path = "study/p01/20260731T100000Z__session-1"
             (root / session_path).mkdir(parents=True)
             job = {"job_id": "finalization-1", "session_path": session_path}
             app = self._app(root, job)

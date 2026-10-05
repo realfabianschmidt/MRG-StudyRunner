@@ -216,12 +216,13 @@ class FolderOpenServiceTests(unittest.TestCase):
     def test_session_folder_resolution_requires_exact_canonical_layout(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            relative = Path("study") / "participants" / "p01" / "sessions" / "20260731T100000Z__session-1"
+            relative = Path("study") / "p01" / "20260731T100000Z__session-1"
             expected = root / relative
             expected.mkdir(parents=True)
+            (expected / "COMPLETE.json").write_text("{}", encoding="utf-8")
 
             self.assertEqual(resolve_session_folder(root, relative.as_posix()), expected.resolve())
-            for unsafe in ("../study", "study/participants/p01", "study/participants/p01/sessions/../../escape"):
+            for unsafe in ("../study", "study/p01", "study/p01/../../escape"):
                 with self.subTest(path=unsafe), self.assertRaises(FolderOpenError):
                     resolve_session_folder(root, unsafe)
 
@@ -261,16 +262,16 @@ class UploadRoutesTests(unittest.TestCase):
             app = self._app(temp_dir)
             with patch(
                 "study_runner.apps.server.routes.uploads.open_session_folder",
-                return_value={"ok": True, "path": "/results/study/participants/p01/sessions/session-1"},
+                return_value={"ok": True, "path": "/results/study/p01/session-1"},
             ) as opener:
                 response = app.test_client().post(
                     "/api/admin/system/open-results-folder",
-                    json={"session_path": "study/participants/p01/sessions/session-1"},
+                    json={"session_path": "study/p01/session-1"},
                 )
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["ok"])
-        opener.assert_called_once_with(app.config["DATA_DIR"], "study/participants/p01/sessions/session-1")
+        opener.assert_called_once_with(app.config["DATA_DIR"], "study/p01/session-1")
 
     def test_open_folder_route_resolves_a_real_v3_session_on_disk(self) -> None:
         """The regression this guards: the route used to target the flat
@@ -283,8 +284,9 @@ class UploadRoutesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             app = self._app(temp_dir)
             data_dir = Path(app.config["DATA_DIR"])
-            session_relative = "study/participants/p01/sessions/20260811T163356Z__session-1"
+            session_relative = "study/p01/20260811T163356Z__session-1"
             (data_dir / session_relative).mkdir(parents=True)
+            (data_dir / session_relative / "COMPLETE.json").write_text("{}", encoding="utf-8")
 
             with patch("study_runner.runtime_core.settings.folder_open_service.os.startfile", create=True),                  patch("study_runner.runtime_core.settings.folder_open_service.subprocess.Popen"):
                 response = app.test_client().post(
@@ -302,7 +304,7 @@ class UploadRoutesTests(unittest.TestCase):
             app = self._app(temp_dir)
             response = app.test_client().post(
                 "/api/admin/system/open-results-folder",
-                json={"session_path": "study/participants/p01/sessions/never-recorded"},
+                json={"session_path": "study/p01/never-recorded"},
             )
 
         self.assertEqual(response.status_code, 400)

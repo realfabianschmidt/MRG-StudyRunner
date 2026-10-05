@@ -351,7 +351,6 @@ export function createParticipantSessionRecovery(context) {
         <p class="screen-sub">${escapeHtml(t('study.recoveryBody', 'A running study session was found for this tablet. Continue only if this was an accidental reload. Active stimulus timing is marked as interrupted.'))}</p>
         <div class="dashboard-actions">
           <button class="btn-secondary" type="button" id="btn-recover-session">${escapeHtml(t('study.recoveryContinue', 'Continue study'))}</button>
-          <button class="btn-secondary" type="button" id="btn-recover-discard">${escapeHtml(t('study.recoveryRestart', 'Start over'))}</button>
         </div>
       </div>`;
     getElement('btn-prev').disabled = true;
@@ -359,10 +358,6 @@ export function createParticipantSessionRecovery(context) {
     getElement('btn-next-label').textContent = t('study.next', 'Next');
     getElement('btn-next-icon').className = 'iconoir-lock';
     getElement('btn-recover-session')?.addEventListener('click', () => void resumeAfterReload(snapshot));
-    getElement('btn-recover-discard')?.addEventListener('click', () => {
-      clearSessionSnapshot();
-      buildQuestions({ markInitialShown: false, startFirstStimulus: false });
-    });
     return true;
   }
 
@@ -480,7 +475,7 @@ export function createParticipantSessionRecovery(context) {
       startParticipantExtensionMonitors('session_recovered');
     } catch (error) {
       console.error('[study] Could not resume study session:', error);
-      showStudyNotice(t('study.recoveryFailed', 'Could not resume the study session.'));
+      showStudyNotice(t('study.recoveryFailed', 'Could not resume this session. Please contact the study supervisor.'));
     }
   }
 

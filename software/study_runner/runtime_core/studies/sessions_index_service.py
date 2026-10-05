@@ -2,7 +2,7 @@
 
 Legacy flat result directories are intentionally never scanned. They remain
 untouched on disk, while this browser only exposes the immutable v3 layout:
-``<study>/participants/<participant>/sessions/<UTC>__<session-id>``.
+``<study>/<participant>/<UTC>__<session-id>``.
 """
 from __future__ import annotations
 
@@ -229,8 +229,8 @@ def _withdrawn_payload(session_root: Path, marker: Path) -> dict[str, Any]:
     """
     payload = _optional_json(marker)
     return {
-        "study_id": session_root.parents[3].name,
-        "participant_id": session_root.parents[1].name,
+        "study_id": session_root.parent.parent.name,
+        "participant_id": session_root.parent.name,
         "session_id": str(payload.get("session_id") or session_root.name),
         "answers": {},
         "withdrawn": True,
@@ -245,14 +245,12 @@ def _canonical_session_roots(data_root: Path) -> list[Path]:
     if not data_root.is_dir():
         return roots
     for study_dir in data_root.iterdir():
-        sessions_by_participant = study_dir / "participants"
-        if not study_dir.is_dir() or study_dir.name.startswith("_") or not sessions_by_participant.is_dir():
+        if not study_dir.is_dir() or study_dir.name.startswith("_") or study_dir.name in {"runtime", "upload_jobs"}:
             continue
-        for participant_dir in sessions_by_participant.iterdir():
-            sessions_dir = participant_dir / "sessions"
-            if not participant_dir.is_dir() or not sessions_dir.is_dir():
+        for participant_dir in study_dir.iterdir():
+            if not participant_dir.is_dir() or participant_dir.name.startswith("_"):
                 continue
-            for session_root in sessions_dir.iterdir():
+            for session_root in participant_dir.iterdir():
                 if not session_root.is_dir() or session_root.name.startswith(".") or not _has_final_marker(session_root):
                     continue
                 resolved = session_root.resolve()
@@ -341,8 +339,8 @@ def _session_summary(
     answers = payload.get("answers")
     answer_details = payload.get("answer_details")
     return {
-        "study_id": str(payload.get("study_id") or identity.get("study_id") or session_root.parents[3].name),
-        "participant_id": str(payload.get("participant_id") or identity.get("participant_id") or session_root.parents[1].name),
+        "study_id": str(payload.get("study_id") or identity.get("study_id") or session_root.parent.parent.name),
+        "participant_id": str(payload.get("participant_id") or identity.get("participant_id") or session_root.parent.name),
         "session_id": str(payload.get("session_id") or identity.get("session_id") or session_root.name),
         "session_folder": session_root.name,
         "session_path": session_root.relative_to(data_root).as_posix(),
@@ -504,6 +502,9 @@ def _has_final_marker(session_root: Path) -> bool:
 
 
 def _marker_payload(session_root: Path) -> dict[str, Any]:
+    withdrawal = session_root / WITHDRAWN_MARKER
+    if withdrawal.is_file():
+        return _optional_json(withdrawal)
     attention = session_root / "ATTENTION_REQUIRED.json"
     return _optional_json(attention if attention.is_file() else session_root / "COMPLETE.json")
 

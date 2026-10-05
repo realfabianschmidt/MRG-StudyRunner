@@ -5,6 +5,18 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Changed
+
+- Admin aborts enter a durable `aborting` state, stop open stimulus attempts and the active recorder before reporting success, and can be retried after a failed stop.
+- New result folders use `<DATA_DIR>/<study>/<participant>/<UTC>__<session-id>/`; per-study recovery work lives in `_work/`, and a rebuildable `sessions-index.csv` provides an overview. The bundled demo result follows the new layout.
+- The session file list separates high-resolution recordings, 1-Hz exports, and operational files. The CSV is named `session_1hz.csv`.
+- Interrupted tablets offer only checkpoint continuation; a fresh run requires an admin abort and new start.
+
+### Fixed
+
+- A worker-mode crash (`--emotion-worker`, `--recording-worker`, `--plugin-driver`, `--brainbit-cli`, `--apply-update`, and related CLI modes) now prints which mode failed and exits with a clear error instead of a bare traceback.
+- The card session-isolation check now also refuses a card that hides mutable state inside a top-level IIFE, which the previous column-0 scan could not see into.
+
 ## 1.7.0 - 2026-10-04
 
 ### Added

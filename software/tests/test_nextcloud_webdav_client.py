@@ -171,7 +171,7 @@ class NextcloudServiceTests(unittest.TestCase):
                 folder,
                 study_id="Study",
                 participant_id="P01",
-                session_relative_path="Study/participants/P01/sessions/20260731T120000Z__s1",
+                session_relative_path="Study/P01/20260731T120000Z__s1",
             )
 
         put_urls = [call["url"] for call in session.calls if call["method"] == "PUT"]
@@ -181,7 +181,7 @@ class NextcloudServiceTests(unittest.TestCase):
             "ATTENTION_REQUIRED.json",
         )
         self.assertIn("raw/plugins/sensor/part-0001.xdf", result["remote_sha256"])
-        self.assertEqual(result["remote_path"], "Study/participants/P01/sessions/20260731T120000Z__s1")
+        self.assertEqual(result["remote_path"], "Study/P01/20260731T120000Z__s1")
 
     def test_existing_immutable_artifact_with_different_hash_is_never_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

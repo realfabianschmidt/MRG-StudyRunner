@@ -29,6 +29,7 @@ from study_runner.plugin_framework.plugin_secrets import (
 )
 from study_runner.data_core.host.study_sensor_runtime import STUDY_SENSOR_KEYS
 from study_runner.runtime_core.studies.validation import validate_and_normalize_config
+from study_runner.runtime_core.studies.trial_service import stop_trial_session
 from .helpers import (
     _clear_session_overrides,
     _exit_process_soon,
@@ -322,6 +323,7 @@ def admin_study_readiness():
         hardware_config,
         local_secrets,
         recording_preflight=recording_preflight,
+        session_overrides=_session_overrides(),
     )
     report["credentials"] = describe_credentials(config_data, hardware_config, local_secrets)
     return jsonify({"ok": True, **report})
@@ -450,6 +452,8 @@ def admin_start_study_run():
 
 
 def _admin_start_study_run_locked():
+    if current_app.config["STUDY_RUN_STATE"].public().get("status") == "aborting":
+        return jsonify({"ok": False, "code": "study_aborting", "error": "Finish the pending abort before starting another run."}), 409
     try:
         config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
     except Exception as error:
@@ -464,6 +468,7 @@ def _admin_start_study_run_locked():
         recording_preflight=(
             recording_runtime.preflight(config_data, hardware_config) if recording_runtime else None
         ),
+        session_overrides=_session_overrides(),
     )
     if readiness.get("start_blocked"):
         return (
@@ -534,6 +539,8 @@ def admin_study_run_live_check():
 @bp.route("/api/admin/study-run/stop", methods=["POST"])
 def admin_stop_study_run():
     with locked_study_change():
+        if current_app.config["STUDY_RUN_STATE"].public().get("status") == "aborting":
+            return jsonify({"ok": False, "code": "study_aborting", "error": "Retry the pending abort instead of stopping the run."}), 409
         run_state = _stop_study_run()
         # Stopping the run keeps the study loaded, so its sensors keep running.
         sensor_result = _end_study_sensor_session(notify=True, options={"reason": "run_stopped"})
@@ -551,7 +558,7 @@ def admin_abort_study_run():
 def _admin_abort_study_run_locked():
     """End the running study on the admin's word, reason required.
 
-    Works whenever the run shows ``running``: a recording session is frozen
+    Works when the run is ``running`` or retrying ``aborting``: a recording session is frozen
     with an ``admin_abort`` tombstone, and a run whose session never started
     recording is simply closed (see runtime_core/studies/study_run_abort.py).
     """
@@ -564,6 +571,8 @@ def _admin_abort_study_run_locked():
             session_store=current_app.config["SESSION_STORE"],
             recording_runtime=current_app.config.get("RECORDING_RUNTIME_SERVICE"),
             withdrawal_service=current_app.config["WITHDRAWAL_SERVICE"],
+            trial_event_service=current_app.config["TRIAL_EVENT_SERVICE"],
+            trial_stopper=stop_trial_session,
         )
     except StudyRunAbortError as error:
         return jsonify({"ok": False, "error": str(error)}), error.status_code

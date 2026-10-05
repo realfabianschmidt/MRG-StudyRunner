@@ -22,6 +22,7 @@ from study_runner.runtime_core.studies.study_config_service import (
 )
 from study_runner.runtime_core.studies.study_readiness_service import check_study_readiness
 from study_runner.runtime_core.studies.study_assets_service import StudyAssetError, require_assets
+from .helpers import _session_overrides
 from study_runner.data_core.host.recording_runtime import required_recording_plugins
 from study_runner.runtime_core.studies.trial_service import send_trial_marker, start_trial_session, stop_trial_session
 from study_runner.runtime_core.studies.trial_service import TrialDispatchError
@@ -200,6 +201,7 @@ def _start_study_session_locked():
             if recording_runtime
             else None
         ),
+        session_overrides=_session_overrides(),
     )
     if readiness.get("start_blocked"):
         return refuse("Required plugins or recording infrastructure are not ready.", 409, readiness=readiness)
@@ -504,6 +506,12 @@ def study_runtime():
 
 @bp.route("/api/start", methods=["POST"])
 def start_trial():
+    with locked_study_change():
+        blocked = _abort_trial_start_response()
+        return blocked if blocked is not None else _start_trial_locked()
+
+
+def _start_trial_locked():
     ingress_epoch_ms = time.time() * 1000.0
     _refresh_trial_runtime()
     options = validate_and_normalize_trial_options(request.get_json())
@@ -579,6 +587,12 @@ def start_trial():
 
 @bp.route("/api/trial/prepare", methods=["POST"])
 def prepare_trial():
+    with locked_study_change():
+        blocked = _abort_trial_start_response()
+        return blocked if blocked is not None else _prepare_trial_locked()
+
+
+def _prepare_trial_locked():
     """Durably register planned timing before the visual onset is shown."""
     ingress_epoch_ms = time.time() * 1000.0
     _refresh_trial_runtime()
@@ -637,6 +651,16 @@ def prepare_trial():
             "server_epoch_ms": ingress_epoch_ms,
         }
     )
+
+
+def _abort_trial_start_response():
+    if _study_run_state_store().public().get("status") != "aborting":
+        return None
+    return jsonify({
+        "ok": False,
+        "code": "study_aborting",
+        "error": "The study is being aborted; no new stimulus may start.",
+    }), 409
 
 
 @bp.route("/api/trial/prepare/cancel", methods=["POST"])

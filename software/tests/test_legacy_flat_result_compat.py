@@ -19,7 +19,7 @@ Two behaviors are pinned, both already correct today:
    that was already saved by the old flat path as a crash-recovery candidate
    (`recovery_service.list_recovery_candidates`).
 2. The canonical session browser must still ignore it -- it only ever indexes
-   the v3 `<study>/participants/<participant>/sessions/<...>` layout
+   the current `<study>/<participant>/<UTC>__<session-id>` layout
    (`sessions_index_service.list_sessions`).
 
 If a future change removes the read in (1), this test fails instead of that
@@ -70,7 +70,7 @@ class LegacyFlatResultCompatTests(unittest.TestCase):
         self.assertIsInstance(payload["answers"], dict)
 
     def test_recovery_does_not_reoffer_an_already_saved_flat_result(self) -> None:
-        partial_path = self.data_dir / FIXTURE_STUDY / "_partial" / f"{FIXTURE_SESSION_ID}.json"
+        partial_path = self.data_dir / FIXTURE_STUDY / "_work" / "partial" / f"{FIXTURE_SESSION_ID}.json"
         atomic_write_json(
             partial_path,
             {
@@ -105,8 +105,7 @@ class LegacyFlatResultCompatTests(unittest.TestCase):
         self.assertNotIn(
             FIXTURE_SESSION_ID,
             session_ids,
-            "the v3 session browser must only ever index the canonical "
-            "participants/<id>/sessions/<...> layout",
+            "the session browser must only index marked canonical session folders",
         )
 
 

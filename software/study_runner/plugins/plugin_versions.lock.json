@@ -69,9 +69,9 @@
       "contract_sha256": "edbf1a5eb1341da231294bdf214689d415f9ea8c78b31f06c61ff315369fdba7"
     },
     "nextcloud": {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "path": "software/study_runner/plugins/destinations/nextcloud_upload",
-      "content_sha256": "868bc062a1479ef5de305c6b911a30db26d3f58da6045c91d284ec8011aa82a4",
+      "content_sha256": "7af33ee55a73abe0ce5a95242395b68c24591f6fc113bdef87ed2a190cf7f146",
       "contract_sha256": "1aa2b4f4f583229552b8dc07021ab1a63385ed37f1efd1ccd71cbfc7467f6b60"
     },
     "notion": {

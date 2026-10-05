@@ -61,7 +61,7 @@ class SensorFlushServiceTests(unittest.TestCase):
                 written = service.flush_once()
 
             self.assertEqual(written, 1)
-            flush_path = data_dir / "study-a" / "_flush" / "session-1_mr60_signals.json"
+            flush_path = data_dir / "study-a" / "_work" / "flush" / "session-1_mr60_signals.json"
             self.assertTrue(flush_path.is_file())
             payload = json.loads(flush_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["sensor"], "mr60")
@@ -79,7 +79,7 @@ class SensorFlushServiceTests(unittest.TestCase):
                 written = service.flush_once()
 
             self.assertEqual(written, 0)
-            self.assertFalse((data_dir / "study-a" / "_flush").exists())
+            self.assertFalse((data_dir / "study-a" / "_work" / "flush").exists())
 
     def test_flush_once_skips_sessions_without_a_start_epoch(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -96,7 +96,7 @@ class SensorFlushServiceTests(unittest.TestCase):
     def test_discard_session_flush_files_removes_only_that_sessions_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             data_dir = Path(temp_dir) / "saved_results"
-            flush_dir = data_dir / "study-a" / "_flush"
+            flush_dir = data_dir / "study-a" / "_work" / "flush"
             flush_dir.mkdir(parents=True)
             (flush_dir / "session-1_mr60_signals.json").write_text("{}", encoding="utf-8")
             (flush_dir / "session-2_mr60_signals.json").write_text("{}", encoding="utf-8")

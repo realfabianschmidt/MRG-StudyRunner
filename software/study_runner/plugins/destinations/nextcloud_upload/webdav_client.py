@@ -426,9 +426,9 @@ def _safe_remote_segment(value: str, label: str) -> str:
 def _session_remote_parts(value: str) -> tuple[str, ...]:
     normalized = str(value or "").replace("\\", "/").strip("/")
     raw_parts = tuple(part for part in normalized.split("/") if part)
-    if len(raw_parts) != 5 or raw_parts[1] != "participants" or raw_parts[3] != "sessions":
+    if len(raw_parts) != 3 or any(part.startswith("_") for part in raw_parts):
         raise ValueError(
-            "session_relative_path must be <study>/participants/<participant>/sessions/<session>."
+            "session_relative_path must be <study>/<participant>/<session>."
         )
     return tuple(_safe_remote_segment(part, "session_relative_path") for part in raw_parts)
 

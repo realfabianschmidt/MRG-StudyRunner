@@ -22,7 +22,7 @@ from study_runner.plugin_framework.registry import (
 )
 from study_runner.shared.atomic_io import atomic_write_json
 from study_runner.shared.filename_sanitizer import sanitize_identifier_for_filename
-from study_runner.data_core.host.artifacts import study_storage_dir
+from study_runner.data_core.host.artifacts import study_work_dir
 from study_runner.data_core.host.sensor_flush_service import discard_session_flush_files
 from study_runner.runtime_core.delivery.finalization_service import SubmissionConflictError
 from study_runner.runtime_core.studies.results_service import (
@@ -55,7 +55,7 @@ def _write_results_recovery_file(result_payload: dict) -> str | None:
     try:
         study_id = str(result_payload.get("study_id") or "unknown-study")
         participant_id = sanitize_identifier_for_filename(str(result_payload.get("participant_id") or "participant"))
-        recovery_dir = study_storage_dir(current_app.config["DATA_DIR"], study_id) / "_recovery"
+        recovery_dir = study_work_dir(current_app.config["DATA_DIR"], study_id, "recovery")
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         recovery_path = recovery_dir / f"{participant_id}_{timestamp}_{uuid.uuid4().hex[:8]}.json"
         atomic_write_json(recovery_path, result_payload)
@@ -72,35 +72,23 @@ def _partial_snapshot_path(payload: dict):
         return None
     study_id = str(payload.get("study_id") or "unknown-study")
     safe_session = sanitize_identifier_for_filename(session_id)
-    return study_storage_dir(current_app.config["DATA_DIR"], study_id) / "_partial" / f"{safe_session}.json"
-
-
-def _legacy_partial_snapshot_path(payload: dict):
-    """Where versions before 1.5 kept the snapshot (a second study folder)."""
-    session_id = str(payload.get("session_id") or "").strip()
-    if not session_id:
-        return None
-    study_id = sanitize_identifier_for_filename(str(payload.get("study_id") or "unknown-study"))
-    safe_session = sanitize_identifier_for_filename(session_id)
-    return current_app.config["DATA_DIR"] / study_id / "_partial" / f"{safe_session}.json"
+    return study_work_dir(current_app.config["DATA_DIR"], study_id, "partial") / f"{safe_session}.json"
 
 
 def _discard_partial_snapshot(payload: dict) -> None:
     """Remove the incremental snapshot once the full results are safely on disk.
 
-    The ``_partial`` folder goes too once it is empty, so a finished study
+    The ``_work/partial`` folder goes too once it is empty, so a finished study
     leaves no empty helper folders behind.
     """
-    for locate in (_partial_snapshot_path, _legacy_partial_snapshot_path):
-        try:
-            snapshot_path = locate(payload)
-            if snapshot_path is None:
-                continue
+    try:
+        snapshot_path = _partial_snapshot_path(payload)
+        if snapshot_path is not None:
             if snapshot_path.is_file():
                 snapshot_path.unlink()
             _remove_empty_dir(snapshot_path.parent)
-        except Exception as cleanup_error:
-            print(f"[DATA] Could not remove partial snapshot: {cleanup_error}")
+    except Exception as cleanup_error:
+        print(f"[DATA] Could not remove partial snapshot: {cleanup_error}")
 
 
 def _remove_empty_dir(directory: Path) -> None:
@@ -292,6 +280,8 @@ def save_results():
                 "session_completed": bool((tracked_session or {}).get("status") == "completed"),
                 "post_commit_warnings": [],
             }), 202
+    if current_app.config["STUDY_RUN_STATE"].public().get("status") == "aborting":
+        return jsonify({"ok": False, "code": "study_aborting", "error": "The study is being aborted. Contact the supervisor."}), 409
     try:
         config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
         current_revision = study_config_revision(config_data)
