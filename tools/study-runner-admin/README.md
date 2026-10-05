@@ -1,0 +1,24 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from setuptools import find_packages, setup
+
+README = Path(__file__).with_name("README.md").read_text(encoding="utf-8")
+
+setup(
+    name="study-runner-admin",
+    version="0.1.0",
+    description="Standalone admin helper for Study Runner installation, repair, cleanup, and participant management.",
+    long_description=README,
+    long_description_content_type="text/markdown",
+    packages=find_packages(),
+    include_package_data=True,
+    install_requires=["requests>=2.32.0"],
+    entry_points={
+        "console_scripts": [
+            "study-runner-admin=study_runner_admin.cli:main",
+        ]
+    },
+    python_requires=">=3.10",
+)
