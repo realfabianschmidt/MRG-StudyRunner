@@ -6,6 +6,7 @@ All notable Study Runner changes are documented here. Release tags use
 ## Unreleased
 
 ## 1.7.5 - 2026-10-06
+Adding a (participant) device managment system and fixing a major bug who prohibits the start of a study.
 
 ## 1.7.4 - 2026-10-05
 
