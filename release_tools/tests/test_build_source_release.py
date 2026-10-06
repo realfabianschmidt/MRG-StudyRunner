@@ -555,6 +555,8 @@ class SourceReleaseTests(unittest.TestCase):
         self.assertIn("setup_recording_worker.py", full_checks)
         self.assertNotIn("build_python_onedir.py", full_checks)
         self.assertIn("promoteChangelog", helper)
+        self.assertIn("ensureReleaseNotes(nextVersion)", helper)
+        self.assertIn("release section for ${nextVersion} is empty", helper)
         self.assertIn("verifyRemoteMainCommit", helper)
         self.assertIn("`${releaseCommit}:refs/heads/main`", helper)
         self.assertIn("['tag', '-a', tagName, intendedCommit", helper)

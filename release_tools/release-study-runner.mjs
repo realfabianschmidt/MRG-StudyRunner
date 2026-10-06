@@ -205,9 +205,27 @@ function promoteChangelog(nextVersion) {
   writeText(relativePath, output);
 }
 
+function ensureReleaseNotes(nextVersion) {
+  const relativePath = 'CHANGELOG.md';
+  const input = readText(relativePath);
+  const heading = new RegExp(
+    `^## ${nextVersion.replaceAll('.', '\\.')}(?:[ \\t]+-[ \\t]+[^\\n]+)?[ \\t]*$`,
+    'm',
+  );
+  const match = heading.exec(input);
+  if (!match) fail(`${relativePath} has no release section for ${nextVersion}.`);
+  const remainder = input.slice(match.index + match[0].length);
+  const nextHeading = /^##[ \t]+/m.exec(remainder);
+  const body = remainder.slice(0, nextHeading?.index ?? remainder.length).trim();
+  if (!body) {
+    fail(`${relativePath} release section for ${nextVersion} is empty. Add release notes under Unreleased before releasing.`);
+  }
+}
+
 function bumpVersions(nextVersion) {
   replacePythonVersion(nextVersion);
   promoteChangelog(nextVersion);
+  ensureReleaseNotes(nextVersion);
 }
 
 function ensureToolchain() {

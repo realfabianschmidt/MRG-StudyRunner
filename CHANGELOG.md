@@ -5,6 +5,13 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Fixed
+
+- Participant Start now targets one selected waiting connection. Each waiting page shows a short connection ID, the movable dashboard tile lists eligible pages, and additional open pages remain waiting.
+- The dashboard distinguishes a run released by the server from a run seen by the selected Participant page. Start timeouts reconcile against durable run state, delayed responses cannot restore an older state, and an unselected page cannot bypass the server assignment.
+- Participant runtime polling and heartbeats now apply the received run state even when supplementary sensor status changes. This fixes the reproduced failure where the server was running but the selected tablet remained on its waiting screen.
+- The release helper now rejects an empty release-notes section locally, before it commits or pushes a release tag.
+
 ## 1.7.7 - 2026-10-06
 
 ## 1.7.6 - 2026-10-06
