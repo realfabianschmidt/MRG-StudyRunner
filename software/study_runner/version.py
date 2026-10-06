@@ -1,3 +1,3 @@
 """Canonical Study Runner application version."""
 
-__version__ = "1.7.6"
+__version__ = "1.7.7"

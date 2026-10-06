@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.7 - 2026-10-06
+
 ## 1.7.6 - 2026-10-06
 
 ## 1.7.5 - 2026-10-06
