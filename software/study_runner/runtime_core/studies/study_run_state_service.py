@@ -1,4 +1,4 @@
-"""Persisted operator-controlled run state for the single-tablet study flow."""
+"""Persisted operator-controlled run state and participant target."""
 from __future__ import annotations
 
 import copy
@@ -26,9 +26,8 @@ ABORTED_STATUS = "aborted"
 class StudyRunStateStore:
     """Track the loaded study and whether the admin has pressed Play.
 
-    The active study config still remains the source of truth for cards and
-    settings. This tiny state file only gates the participant page so a tablet
-    can be parked in the waiting room until the operator starts the run.
+    The active study config remains the source of truth for cards and settings.
+    This state file holds the selected waiting connection and gates its run.
     """
 
     def __init__(self, data_dir: Path, *, clock: Callable[[], float] = time.time) -> None:
@@ -63,6 +62,7 @@ class StudyRunStateStore:
                 INITIAL_STATUS,
                 COMPLETED_STATUS,
                 STOPPED_STATUS,
+                ABORTED_STATUS,
             }:
                 return self.public()
             return self.set_loaded(normalized)
@@ -86,6 +86,7 @@ class StudyRunStateStore:
                 "completed_at_epoch": None,
                 "completed_session_id": "",
                 "active_client_id": "",
+                "selected_client_id": "",
                 "updated_at": _format_time(now),
                 "updated_at_epoch": now,
             }
@@ -128,12 +129,31 @@ class StudyRunStateStore:
                 "completed_at_epoch": None,
                 "completed_session_id": "",
                 "active_client_id": client_id,
+                "selected_client_id": client_id,
                 "updated_at": _format_time(now),
                 "updated_at_epoch": now,
             }
             if started_despite:
                 # The admin started although these sensors were not live.
                 self._state["started_despite"] = list(started_despite)
+            self._persist_locked()
+            return self.public()
+
+    def select_client(self, study_id: str, client_id: str) -> dict[str, Any]:
+        """Remember the operator's target without releasing the study."""
+        with self._lock:
+            if self._state.get("study_id") != study_id:
+                raise ValueError("Load the study before selecting a participant device.")
+            if self._state.get("status") in {RUNNING_STATUS, ABORTING_STATUS}:
+                raise ValueError("The participant target cannot change during a run.")
+            now = self._now()
+            self._state = {
+                **self._state,
+                "selected_client_id": client_id,
+                "sequence": int(self._state.get("sequence") or 0) + 1,
+                "updated_at": _format_time(now),
+                "updated_at_epoch": now,
+            }
             self._persist_locked()
             return self.public()
 

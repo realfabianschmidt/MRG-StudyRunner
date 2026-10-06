@@ -1,5 +1,9 @@
 import { CLOCK_SYNC_INTERVAL_MS, createTabletClock } from './tablet-clock.js';
 
+export function isOlderRunState(incoming, current) {
+  return Number(incoming?.sequence || 0) < Number(current?.sequence || 0);
+}
+
 /**
  * Own participant clock sync, lifecycle snapshots, partial saves, and reload
  * recovery.  The controller supplies state and navigation callbacks explicitly
@@ -14,6 +18,8 @@ export function createParticipantSessionRecovery(context) {
     sendStudyBeacon,
     flushReliableStudyEvents,
     getStudyClientId,
+    onDisplayId,
+    stopPrestudyMonitors,
     resolveParticipantId,
     collectParticipantMetadata,
     collectAnswers,
@@ -101,8 +107,23 @@ export function createParticipantSessionRecovery(context) {
   }
 
   function handleHeartbeatResponse(response) {
-    if (response?.sensor_runtime) updateSensorRuntime(response.sensor_runtime);
+    if (response?.display_id) onDisplayId?.(response.display_id);
     if (response?.study_run_state) handleStudyRunState(response.study_run_state);
+    if (response?.sensor_runtime) updateSensorRuntime(response.sensor_runtime);
+  }
+
+  function showWaitingForAdminStart(options = {}) {
+    state.coverVisibleRunId = '';
+    state.completedLocally = false;
+    state.waitingForAdminStart = true;
+    state.questionsBuilt = false;
+    stopPrestudyMonitors({ reason: 'waiting_for_admin_start' });
+    const title = getElement('study-waiting-title');
+    const body = getElement('study-waiting-body');
+    if (title) title.textContent = options.title || state.config?.study_id || t('study.waiting.title', 'Study will start soon');
+    if (body) body.textContent = options.body || t('study.waiting.body', 'Please keep this page open.');
+    showScreen('waiting');
+    updateProgressBar(0, 0);
   }
 
   function startRuntimePolling() {
@@ -113,8 +134,8 @@ export function createParticipantSessionRecovery(context) {
           `/api/study/runtime?client_id=${encodeURIComponent(getStudyClientId())}`,
           { timeoutMs: constants.runtimePollTimeoutMs },
         );
-        updateSensorRuntime(runtime?.sensor_runtime || {});
         handleStudyRunState(runtime?.study_run_state);
+        updateSensorRuntime(runtime?.sensor_runtime || {});
       } catch (error) {
         console.debug('[study] Runtime poll failed:', error);
       }
@@ -493,6 +514,7 @@ export function createParticipantSessionRecovery(context) {
   }
 
   return {
+    showWaitingForAdminStart,
     bindPageLifecycleEvents,
     clearSessionSnapshot,
     closeVisibilityInterruption,

@@ -6,9 +6,9 @@ from threading import Lock
 from typing import Any
 
 
-STALE_AFTER_SECONDS = 5.0
-HIDE_AFTER_SECONDS = 15.0
-DROP_AFTER_SECONDS = 60.0
+STALE_AFTER_SECONDS = 10.0
+HIDE_AFTER_SECONDS = 30.0
+DROP_AFTER_SECONDS = 90.0
 MAX_PLUGIN_STATUSES = 64
 MAX_STATUS_FIELDS = 64
 MAX_STATUS_STRING_LENGTH = 1000
@@ -27,6 +27,7 @@ def register_heartbeat(payload: dict[str, Any], remote_addr: str | None, user_ag
 
     client_state = {
         "client_id": client_id,
+        "display_id": "",
         "participant_id": str(payload.get("participant_id") or "").strip(),
         "study_id": str(payload.get("study_id") or "").strip(),
         "current_index": payload.get("current_index"),
@@ -36,6 +37,8 @@ def register_heartbeat(payload: dict[str, Any], remote_addr: str | None, user_ag
         "study_started": bool(payload.get("study_started", False)),
         "study_run_status": str(payload.get("study_run_status") or "").strip(),
         "waiting_for_admin_start": bool(payload.get("waiting_for_admin_start", False)),
+        "observed_run_id": str(payload.get("observed_run_id") or "").strip(),
+        "participant_phase": str(payload.get("participant_phase") or "").strip()[:40],
         "clock_offset_ms": payload.get("clock_offset_ms", payload.get("client_clock_offset_ms")),
         "clock_sync_rtt_ms": payload.get("clock_sync_rtt_ms"),
         "session_id": str(payload.get("session_id") or "").strip(),
@@ -48,13 +51,15 @@ def register_heartbeat(payload: dict[str, Any], remote_addr: str | None, user_ag
     }
 
     with _lock:
+        previous = _clients.get(client_id)
+        client_state["display_id"] = previous["display_id"] if previous else _new_display_id()
         _clients[client_id] = client_state
         _drop_old_clients(now)
 
-    return {"client_id": client_id, "server_received_at": _format_time(now)}
+    return {"client_id": client_id, "display_id": client_state["display_id"], "server_received_at": _format_time(now)}
 
 
-def get_client_status(active_study_id: str = "", assigned_client_id: str = "") -> dict[str, Any]:
+def get_client_status(active_study_id: str = "", assigned_client_id: str = "", run_id: str = "") -> dict[str, Any]:
     """Return active or recently stale study clients for the admin dashboard."""
     now = time.time()
     with _lock:
@@ -68,7 +73,7 @@ def get_client_status(active_study_id: str = "", assigned_client_id: str = "") -
         "clients": clients,
         "active_count": sum(1 for client in clients if client["status"] == "active"),
         "stale_count": sum(1 for client in clients if client["status"] == "stale"),
-        "single_tablet": _single_tablet_state(clients, active_study_id, assigned_client_id),
+        "single_tablet": _single_tablet_state(clients, active_study_id, assigned_client_id, run_id),
     }
 
 
@@ -77,6 +82,7 @@ def _public_client_state(client: dict[str, Any], now: float) -> dict[str, Any]:
     status = "active" if age_seconds <= STALE_AFTER_SECONDS else "stale"
     return {
         "client_id": client.get("client_id"),
+        "display_id": client.get("display_id"),
         "participant_id": client.get("participant_id"),
         "study_id": client.get("study_id"),
         "current_index": client.get("current_index"),
@@ -86,6 +92,8 @@ def _public_client_state(client: dict[str, Any], now: float) -> dict[str, Any]:
         "study_started": client.get("study_started", False),
         "study_run_status": client.get("study_run_status", ""),
         "waiting_for_admin_start": client.get("waiting_for_admin_start", False),
+        "observed_run_id": client.get("observed_run_id", ""),
+        "participant_phase": client.get("participant_phase", ""),
         "clock_offset_ms": client.get("clock_offset_ms"),
         "clock_sync_rtt_ms": client.get("clock_sync_rtt_ms"),
         "session_id": client.get("session_id", ""),
@@ -143,18 +151,22 @@ def _drop_old_clients(now: float) -> None:
         _clients.pop(client_id, None)
 
 
-def _single_tablet_state(clients: list[dict[str, Any]], active_study_id: str, assigned_client_id: str) -> dict[str, Any]:
+def _single_tablet_state(clients: list[dict[str, Any]], active_study_id: str, assigned_client_id: str, run_id: str) -> dict[str, Any]:
     study_id = str(active_study_id or "").strip()
     assigned = str(assigned_client_id or "").strip()
     active_clients = [client for client in clients if client.get("status") == "active"]
     study_clients = [
         client
         for client in active_clients
-        if not study_id or str(client.get("study_id") or "").strip() == study_id
+        if (not study_id or str(client.get("study_id") or "").strip() == study_id)
+        and client.get("waiting_for_admin_start")
     ]
     selected = None
     if assigned:
-        selected = next((client for client in active_clients if client.get("client_id") == assigned), None)
+        selected = next((client for client in study_clients if client.get("client_id") == assigned), None)
+        if selected is None and run_id:
+            selected = next((client for client in active_clients if client.get("client_id") == assigned
+                             and client.get("study_id") == study_id), None)
     elif len(study_clients) == 1:
         selected = study_clients[0]
 
@@ -164,16 +176,16 @@ def _single_tablet_state(clients: list[dict[str, Any]], active_study_id: str, as
         if not selected or client.get("client_id") != selected.get("client_id")
     ]
 
-    if assigned and selected is None:
+    if run_id:
+        status = "observed" if selected and selected.get("observed_run_id") == run_id else "awaiting_ack"
+        can_start = False
+    elif assigned and selected is None:
         status = "assigned_missing"
         can_start = False
     elif len(study_clients) == 0:
         status = "waiting_for_tablet"
         can_start = False
     elif len(study_clients) > 1 and not assigned:
-        status = "conflict"
-        can_start = False
-    elif conflict_clients:
         status = "conflict"
         can_start = False
     else:
@@ -187,8 +199,35 @@ def _single_tablet_state(clients: list[dict[str, Any]], active_study_id: str, as
         "active_study_client_count": len(study_clients),
         "assigned_client_id": assigned,
         "selected_client_id": selected.get("client_id") if selected else "",
+        "selected_display_id": selected.get("display_id") if selected else "",
+        "observed": bool(run_id and any(
+            client.get("client_id") == assigned and client.get("observed_run_id") == run_id
+            for client in active_clients
+        )),
         "conflict_client_ids": [client.get("client_id") for client in conflict_clients],
     }
+
+
+def eligible_client(client_id: str, study_id: str) -> bool:
+    """Only a live page that finished loading this study may be selected."""
+    status = get_client_status(active_study_id=study_id)
+    return any(
+        client["client_id"] == client_id
+        and client["status"] == "active"
+        and client["study_id"] == study_id
+        and client["waiting_for_admin_start"]
+        for client in status["clients"]
+    )
+
+
+def _new_display_id() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    used = {client.get("display_id") for client in _clients.values()}
+    while True:
+        value = uuid.uuid4().int
+        code = "D-" + "".join(alphabet[(value >> (index * 5)) & 31] for index in range(5))
+        if code not in used:
+            return code
 
 
 def _format_time(timestamp: float) -> str:

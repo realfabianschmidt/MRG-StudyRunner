@@ -329,3 +329,12 @@ body:not(:has(#screen-questions.active)) .q-nav,
   max-width: 960px;
 }
 body.i18n-loading .screen { visibility: hidden; }
+.study-device-id {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  font-size: .75rem;
+  letter-spacing: .06em;
+  opacity: .65;
+  pointer-events: none;
+}

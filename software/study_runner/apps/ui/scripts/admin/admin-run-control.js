@@ -1,4 +1,5 @@
 /** Run gating, readiness, and active-run controls for the admin UI. */
+import { submitStartRequest } from './study-start-request.js';
 export function createAdminRunControl(context) {
   const {
     state,
@@ -325,11 +326,13 @@ export function createAdminRunControl(context) {
     if (status === 'ready') {
       return t('hub.tabletGate.ready', 'One tablet is waiting. Press Play to start it.');
     }
+    if (status === 'observed') return t('hub.tabletGate.observed', 'The selected tablet received the start signal.');
+    if (status === 'awaiting_ack') return t('hub.tabletGate.awaitingAck', 'Released by the server; waiting for the selected tablet to acknowledge.');
     if (status === 'waiting_for_tablet') {
       return t('hub.tabletGate.waiting', 'Open the participant page on one tablet before pressing Play.');
     }
     if (status === 'conflict') {
-      return t('hub.tabletGate.conflict', 'More than one tablet is connected. Keep only the tablet that should run this study.');
+      return t('hub.tabletGate.conflict', 'More than one participant page is waiting. Select a device on the dashboard.');
     }
     if (status === 'assigned_missing') {
       return t('hub.tabletGate.assignedMissing', 'The assigned tablet is no longer visible. Stop or reload before starting again.');
@@ -403,7 +406,7 @@ export function createAdminRunControl(context) {
       state.studyRunState = response?.run_state || null;
       state.tabletGate = response?.tablet_gate || state.tabletGate;
       renderStudyRunState();
-      showToast(t('toast.studyStarted', 'Study started'), 'success');
+      showToast(t('toast.studyReleased', 'Start released; waiting for the device to acknowledge.'), 'success');
       if (goToDashboard) await switchView('view-dashboard');
     } catch (error) {
       console.error('[admin] Could not start study run:', error);
@@ -430,7 +433,7 @@ export function createAdminRunControl(context) {
   // the admin cancels.
   async function postStartStudyRun() {
     try {
-      return await postJson('/api/admin/study-run/start', {}, { timeoutMs: 4000 });
+      return await submitStartRequest({ postJson, getJson, payload: {}, previousRunId: state.studyRunState?.run_id || '' });
     } catch (error) {
       const issues = error.status === 409 ? error.payload?.live_issues : null;
       if (!Array.isArray(issues) || !issues.length) throw error;
@@ -454,7 +457,7 @@ export function createAdminRunControl(context) {
         cancelLabel: t('common.cancel', 'Cancel'),
       });
       if (!proceed) return null;
-      return postJson('/api/admin/study-run/start', { override_live_check: true }, { timeoutMs: 4000 });
+      return submitStartRequest({ postJson, getJson, payload: { override_live_check: true }, previousRunId: state.studyRunState?.run_id || '' });
     }
   }
   

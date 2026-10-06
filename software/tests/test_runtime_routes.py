@@ -312,6 +312,66 @@ class RuntimeRoutesTests(unittest.TestCase):
         self.assertEqual(conflict.status_code, 409)
         self.assertEqual(conflict.get_json()["tablet_gate"]["status"], "conflict")
 
+    def test_operator_selects_one_of_two_waiting_connections_and_sees_ack(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+            client = app.test_client()
+            client.post("/api/config", json={
+                "study_id": "study-a",
+                "questions": [{"type": "participant-id"}, {"type": "finish"}],
+            })
+            self.assertEqual(client.post("/api/admin/study-run/target", json=[]).status_code, 400)
+            client.post("/api/study-client/heartbeat", json={
+                "client_id": "loading", "study_id": "", "waiting_for_admin_start": False,
+            })
+            self.assertEqual(client.post("/api/admin/study-run/target", json={"client_id": "loading"}).status_code, 409)
+            client.post("/api/study-client/heartbeat", json={
+                "client_id": "other-study", "study_id": "study-b", "waiting_for_admin_start": True,
+            })
+            self.assertEqual(client.post("/api/admin/study-run/target", json={"client_id": "other-study"}).status_code, 409)
+            for client_id in ("tablet-1", "tablet-2"):
+                response = client.post("/api/study-client/heartbeat", json={
+                    "client_id": client_id, "study_id": "study-a", "waiting_for_admin_start": True,
+                })
+                self.assertRegex(response.get_json()["display_id"], r"^D-[A-Z2-9]{5}$")
+            self.assertEqual(client.post("/api/admin/study-run/start", json={}).status_code, 409)
+            selected = client.post("/api/admin/study-run/target", json={"client_id": "tablet-2"})
+            self.assertEqual(selected.status_code, 200, selected.get_json())
+            started = client.post("/api/admin/study-run/start", json={})
+            self.assertEqual(started.status_code, 200, started.get_json())
+            run = started.get_json()["run_state"]
+            self.assertEqual(run["active_client_id"], "tablet-2")
+            before = client.get("/api/admin/study-run").get_json()["tablet_gate"]
+            self.assertFalse(before["observed"])
+            wrong = client.post("/api/study/session/start", json={
+                "client_id": "tablet-1", "participant_id": "p01", "study_id": "study-a",
+            })
+            self.assertEqual(wrong.status_code, 409)
+            client.post("/api/study-client/heartbeat", json={
+                "client_id": "tablet-2", "study_id": "study-a",
+                "observed_run_id": run["run_id"], "waiting_for_admin_start": False,
+            })
+            after = client.get("/api/admin/study-run").get_json()["tablet_gate"]
+            self.assertTrue(after["observed"])
+            self.assertEqual(client.post("/api/admin/study-run/start", json={}).get_json()["run_state"]["run_id"], run["run_id"])
+            client.post("/api/admin/study-run/stop", json={})
+            moved = client.post("/api/admin/study-run/target", json={"client_id": "tablet-1"})
+            self.assertEqual(moved.status_code, 200)
+            self.assertEqual(client.get("/api/admin/study-run").get_json()["tablet_gate"]["selected_client_id"], "tablet-1")
+            next_run = client.post("/api/admin/study-run/start", json={}).get_json()["run_state"]
+            self.assertEqual(next_run["active_client_id"], "tablet-1")
+            allowed = client.post("/api/study/session/start", json={
+                "client_id": "tablet-1", "participant_id": "p02", "study_id": "study-a",
+                "study_run_id": next_run["run_id"], "require_admin_start": True,
+            })
+            self.assertEqual(allowed.status_code, 200, allowed.get_json())
+
     def test_non_assigned_tablet_is_blocked_after_admin_start(self) -> None:
         with tempfile.TemporaryDirectory() as data_dir:
             env = {

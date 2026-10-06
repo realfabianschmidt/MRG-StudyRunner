@@ -5,6 +5,41 @@ const DEFAULT_INTERVAL_MS = 2000;
 
 let heartbeatTimer = null;
 let sequenceNumber = 0;
+let cachedClientId = null;
+let identityChannel = null;
+const pageToken = createRandomId();
+const pageStartedAt = performance.timeOrigin || Date.now();
+
+export async function prepareStudyClientIdentity() {
+  getStudyClientId();
+  if (typeof BroadcastChannel !== 'function') return;
+  try {
+    identityChannel = new BroadcastChannel('study-runner-participant-identity');
+  } catch {
+    return;  // A denied channel must not prevent the study page from loading.
+  }
+  identityChannel.onmessage = ({ data }) => {
+    if (data?.clientId !== cachedClientId || data?.pageToken === pageToken) return;
+    const otherIsOlder = shouldYieldIdentity(
+      { startedAt: pageStartedAt, pageToken }, data,
+    );
+    if (otherIsOlder) {
+      cachedClientId = `study-client-${createRandomId()}`;
+      try { window.sessionStorage.setItem(CLIENT_ID_KEY, cachedClientId); } catch { /* memory identity remains stable */ }
+      identityChannel.postMessage({ clientId: cachedClientId, pageToken, startedAt: pageStartedAt });
+    } else if (data.type === 'claim') {
+      identityChannel.postMessage({ type: 'reply', clientId: cachedClientId, pageToken, startedAt: pageStartedAt });
+    }
+  };
+  identityChannel.postMessage({ type: 'claim', clientId: cachedClientId, pageToken, startedAt: pageStartedAt });
+  // A cloned tab must settle its identity before claiming a dashboard slot.
+  await new Promise((resolve) => window.setTimeout(resolve, 180));
+}
+
+export function shouldYieldIdentity(local, remote) {
+  return remote.startedAt < local.startedAt
+    || (remote.startedAt === local.startedAt && remote.pageToken < local.pageToken);
+}
 
 export function startStudyClientHeartbeat(getPayload, options = {}) {
   stopStudyClientHeartbeat();
@@ -54,17 +89,20 @@ function safePayload(getPayload) {
 }
 
 export function getStudyClientId() {
+  if (cachedClientId) return cachedClientId;
   try {
     const existing = window.sessionStorage.getItem(CLIENT_ID_KEY);
     if (existing) {
-      return existing;
+      cachedClientId = existing;
+      return cachedClientId;
     }
 
-    const created = `study-client-${createRandomId()}`;
-    window.sessionStorage.setItem(CLIENT_ID_KEY, created);
-    return created;
+    cachedClientId = `study-client-${createRandomId()}`;
+    window.sessionStorage.setItem(CLIENT_ID_KEY, cachedClientId);
+    return cachedClientId;
   } catch {
-    return `study-client-${createRandomId()}`;
+    cachedClientId ||= `study-client-${createRandomId()}`;
+    return cachedClientId;
   }
 }
 

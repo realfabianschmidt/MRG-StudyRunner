@@ -4,7 +4,7 @@ import { resetAllCardState } from '../cards/session-state.js';
 import { dispatchCardHook as dispatchSharedCardHook, mountCard } from '../cards/card-mount.js';
 import { escapeHtml } from '../shared/dom-utils.js';
 import { renderMediaLayout } from '../shared/rich-text.js';
-import { getStudyClientId, startStudyClientHeartbeat } from './study-client-heartbeat.js';
+import { getStudyClientId, prepareStudyClientIdentity, startStudyClientHeartbeat } from './study-client-heartbeat.js';
 import { setLanguage, t } from '../shared/i18n.js';
 import { startDeadlineTimer, remainingWholeSeconds } from '../shared/deadline-timer.js';
 import {
@@ -24,7 +24,7 @@ import { createParticipantPluginExtensionManager } from '../shared/participant-p
 import { startAmbientBubbles, stopAmbientBubbles } from '../shared/ambient-bubbles.js';
 import { applyFonts, loadBranding, renderFunderLogos, renderGroupLogo } from '../shared/branding.js';
 import { createModal } from '../shared/modal.js';
-import { createParticipantSessionRecovery } from './participant-session-recovery.js';
+import { createParticipantSessionRecovery, isOlderRunState } from './participant-session-recovery.js';
 import { createParticipantResultSubmission } from './participant-result-submission.js';
 import { createParticipantStimulusExecution } from './participant-stimulus-execution.js';
 import { createPendingSubmissionStore } from './participant-pending-submission.js';
@@ -121,23 +121,23 @@ function getElement(id) {
   return document.getElementById(id);
 }
 
+function updateSensorRuntime(runtime) {
+  if (runtime && typeof runtime === 'object') state.sensorRuntime = runtime;
+}
+
 async function init() {
   bindEvents();
   initFullscreenUi();
-  // The heartbeat is what claims the single tablet slot, so a preview must not
-  // send one - otherwise looking at your own study blocks starting it.
-  if (!IS_PREVIEW) {
-    startStudyClientHeartbeat(getStudyClientHeartbeatPayload, { onHeartbeat: handleHeartbeatResponse });
-  }
+  if (!IS_PREVIEW) await prepareStudyClientIdentity();
   bindPageLifecycleEvents();
   // Repeated four-timestamp exchanges establish the tablet/server estimate.
   void syncClock();
 
   try {
-    if (!IS_PREVIEW) startRuntimePolling();
     await loadStudyConfig();
     if (isWaitingForAdminStart()) {
       showWaitingForAdminStart();
+      startParticipantConnection();
       return;
     }
     if (IS_PREVIEW) {
@@ -147,6 +147,7 @@ async function init() {
       // Start here, so it advances itself.
       await showPreviewWaitingSlide();
     }
+    startParticipantConnection();
     await activateStudyUiAfterAdminStart();
   } catch (error) {
     document.body.classList.remove('i18n-loading');
@@ -170,7 +171,8 @@ async function loadStudyConfig() {
   state.config = config;
   state.studyRevision = config._revision || '';
   document.body.classList.toggle('study-card-frame--off', config.study_settings?.card_frame_enabled === false);
-  state.studyRunState = state.config._runtime?.study_run_state || null;
+  const loadedRun = state.config._runtime?.study_run_state;
+  if (loadedRun && !isOlderRunState(loadedRun, state.studyRunState)) state.studyRunState = loadedRun;
   state.sensorRuntime = state.config._runtime?.sensor_runtime || {};
   // Participant extensions are optional. Their asset loading/initialization may
   // never delay the generic participant UI or its monotonic timers.
@@ -212,26 +214,6 @@ function showPreviewBanner() {
   banner.className = 'study-preview-banner';
   banner.textContent = t('study.previewBanner', 'Preview - nothing is recorded and no session is started.');
   document.body.appendChild(banner);
-}
-
-function showWaitingForAdminStart(options = {}) {
-  state.coverVisibleRunId = '';
-  state.completedLocally = false;
-  state.waitingForAdminStart = true;
-  state.questionsBuilt = false;
-  participantExtensions.stopPrestudyMonitors({ reason: 'waiting_for_admin_start' });
-  const title = getElement('study-waiting-title');
-  const body = getElement('study-waiting-body');
-  if (title) {
-    title.textContent = options.title
-      || state.config?.study_id
-      || t('study.waiting.title', 'Study will start soon');
-  }
-  if (body) {
-    body.textContent = options.body || t('study.waiting.body', 'Please keep this page open.');
-  }
-  showScreen('waiting');
-  updateProgressBar(0, 0);
 }
 
 async function activateStudyUiAfterAdminStart() {
@@ -295,6 +277,13 @@ function resetParticipantSessionState() {
   state.stimulusClockBlocked = false;
 }
 
+function startParticipantConnection() {
+  // Preview pages and pages without a loaded study must never claim a target.
+  if (IS_PREVIEW) return;
+  startStudyClientHeartbeat(getStudyClientHeartbeatPayload, { onHeartbeat: handleHeartbeatResponse });
+  startRuntimePolling();
+}
+
 function pageHoldsSession() {
   return state.questionsBuilt || state.completedLocally || Boolean(state.startTime);
 }
@@ -321,6 +310,7 @@ function startFreshParticipantPage(reason) {
 
 function handleStudyRunState(runState) {
   if (!runState || typeof runState !== 'object' || state.freshPageRequested) return;
+  if (isOlderRunState(runState, state.studyRunState)) return;
   const previousRunId = state.studyRunState?.run_id || '';
   const nextRunId = runState.run_id || '';
   const runChanged = Boolean(previousRunId && nextRunId && previousRunId !== nextRunId);
@@ -393,6 +383,7 @@ const {
   commitCheckpoint,
   showCoverPage,
   showStudyNotice,
+  showWaitingForAdminStart,
   startRuntimePolling,
   syncClock,
 } = createParticipantSessionRecovery({
@@ -403,6 +394,15 @@ const {
   sendStudyBeacon,
   flushReliableStudyEvents,
   getStudyClientId,
+  stopPrestudyMonitors: (options) => participantExtensions.stopPrestudyMonitors(options),
+  onDisplayId: (displayId) => {
+    const badge = getElement('study-device-id');
+    if (badge && displayId) {
+      badge.textContent = displayId;
+      badge.setAttribute('aria-label', t('study.deviceId', 'Device ID {id}').replace('{id}', displayId));
+      badge.hidden = false;
+    }
+  },
   resolveParticipantId: (...args) => resolveParticipantId(...args),
   collectParticipantMetadata: (...args) => collectParticipantMetadata(...args),
   collectAnswers: (...args) => collectAnswers(...args),

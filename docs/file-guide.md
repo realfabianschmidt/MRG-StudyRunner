@@ -339,11 +339,13 @@ one, unlike the plugin table above).
 | `admin/admin-run-control.js` | Readiness gates and active study-run controls | careful |
 | `admin/admin-update-handling.js` | Update status, download/install confirmation, progress, and restart handling | careful |
 | `admin/admin-study-editor.js` | Card editor/list, study persistence, packages, and recent-study behavior | careful |
-| `admin/admin-dashboard-controller.js` | Live sensor dashboard with plain-language statuses | careful |
+| `admin/admin-dashboard-controller.js` | Dashboard polling, tile placement, sensor controls, and participant target actions | careful |
+| `admin/participant-devices-panel.js` | Renders participant connections, short device codes, target choices, and start acknowledgement | careful |
+| `admin/study-start-request.js` | Reconciles an ambiguous Start request timeout with the server's saved run state | careful |
 | `admin/dashboard-ui-helpers.js` | Formatting helpers for sensor tiles and the `ui` object handed to plugin dashboard extensions | careful |
 | `admin/live-trend.js` | Draws every sensor's declared live-view series the same way (2 Hz points over 60 s) | careful |
 | `admin/sensor-columns.js` | Sensor dashboard column layout and tile placement | careful |
-| `admin/sensor-tile-order.js` | The operator's tile arrangement as two columns of plugin keys: default order, saved order applied to the plugins there are, moving a tile | careful |
+| `admin/sensor-tile-order.js` | The operator's two-column tile arrangement, including sensor and participant tiles | careful |
 | `admin/sensor-tile-drag.js` | Moving a tile by its title bar with the mouse, touch or the arrow keys; reports only the drop | careful |
 | `admin/runtime-switch-input.js` | Accessible Off/On/Restart switch behavior for live sensors | careful |
 | `admin/sensor-connection-panel.js` | The connection panel on every sensor tile: status line, Ready badge, switch, device list and guided steps; also the study bar's state | careful |

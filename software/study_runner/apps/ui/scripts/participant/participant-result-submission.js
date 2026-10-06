@@ -2,6 +2,14 @@
  * Own participant answer metrics, plugin/sensor session state, navigation
  * readiness, and final result submission.
  */
+export function acknowledgedRunId(state) {
+  const run = state.studyRunState;
+  return run?.status === 'running' && run.conflict !== true
+    && !state.waitingForAdminStart && !state.freshPageRequested
+    && (state.questionsBuilt || state.coverVisibleRunId)
+    ? run.run_id || '' : '';
+}
+
 export function createParticipantResultSubmission(context) {
   const {
     state,
@@ -53,6 +61,10 @@ export function createParticipantResultSubmission(context) {
       study_started: Boolean(state.startTime),
       study_run_status: state.studyRunState?.status || 'loaded',
       waiting_for_admin_start: Boolean(state.waitingForAdminStart),
+      observed_run_id: acknowledgedRunId(state),
+      participant_phase: state.sensorSessionStarted ? 'session_active'
+        : state.coverVisibleRunId ? 'cover'
+          : state.waitingForAdminStart ? 'waiting' : 'released',
       clock_offset_ms: getClientClockOffsetMs(),
       clock_sync_rtt_ms: getClockEvidence().clock_sync_rtt_ms,
     };

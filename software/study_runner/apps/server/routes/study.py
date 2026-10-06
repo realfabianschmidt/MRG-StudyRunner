@@ -218,10 +218,10 @@ def _start_study_session_locked():
         return refuse("The study has not been started by the admin yet.", 409)
     client_id = str(payload.get("client_id") or "").strip()
     active_client_id = str(run_state.get("active_client_id") or "").strip()
-    if payload.get("require_admin_start") and active_client_id and client_id != active_client_id:
+    if run_state.get("status") == "running" and active_client_id and client_id != active_client_id:
         return refuse("Another tablet is already assigned to this study run.", 409)
     payload_run_id = str(payload.get("study_run_id") or "").strip()
-    if payload.get("require_admin_start") and payload_run_id and payload_run_id != str(run_state.get("run_id") or ""):
+    if run_state.get("status") == "running" and payload_run_id and payload_run_id != str(run_state.get("run_id") or ""):
         return refuse("The tablet is using an older study run. Please wait for the latest start signal.", 409)
     try:
         session = _start_or_reuse_study_session({**payload, "study_id": study_id, "study_revision": study_revision})

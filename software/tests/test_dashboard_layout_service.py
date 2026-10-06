@@ -35,7 +35,7 @@ class DashboardLayoutServiceTests(unittest.TestCase):
         for payload, message in (
             (None, "list of columns"),
             ({"columns": [["am_hub"]]}, "exactly 2"),
-            ({"columns": [["am_hub"], "brainbit"]}, "list of plugin keys"),
+            ({"columns": [["am_hub"], "brainbit"]}, "list of tile keys"),
             ({"columns": [["Am-Hub"], []]}, "snake_case"),
             ({"columns": [["am_hub"], ["am_hub"]]}, "twice"),
             ({"columns": [[f"plugin_{index}" for index in range(65)], []]}, "at most 64"),
@@ -55,6 +55,12 @@ class DashboardLayoutServiceTests(unittest.TestCase):
         self.assertEqual(service.reset_layout(self.settings), {"columns": None})
         self.assertEqual(service.load_layout(self.settings), {"columns": None})
         self.assertEqual(service.reset_layout(self.settings), {"columns": None})  # nothing to forget is fine
+
+
+    def test_participant_panel_can_be_saved_with_existing_plugin_keys(self) -> None:
+        layout = {"columns": [["brainbit", "panel_participant_clients"], ["am_hub"]]}
+        self.assertEqual(service.save_layout(self.settings, layout), layout)
+        self.assertEqual(service.load_layout(self.settings), layout)
 
 
 class DashboardLayoutRouteTests(unittest.TestCase):

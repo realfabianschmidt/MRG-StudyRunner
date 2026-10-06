@@ -1,10 +1,10 @@
-"""The operator's arrangement of the dashboard's plugin tiles, kept per computer.
+"""The operator's arrangement of dashboard tiles, kept per computer.
 
 The dashboard shows its plugin tiles in two columns. An operator can drag
 them into the order that suits their work; this file remembers that order
 for this computer (``settings/dashboard_layout.local.json``), so every browser
-and every restart shows the same arrangement. It holds only plugin keys --
-never data.
+and every restart shows the same arrangement. It holds plugin keys and reserved
+panel keys, never participant data.
 
 A key that no longer belongs to an installed plugin is simply ignored by the
 dashboard, and a new plugin is placed by the dashboard's default rule, so
@@ -68,7 +68,7 @@ def _normalize(payload: Any) -> dict[str, Any]:
     normalized: list[list[str]] = []
     for column in columns:
         if not isinstance(column, list):
-            raise DashboardLayoutError("Each column must be a list of plugin keys.")
+            raise DashboardLayoutError("Each column must be a list of tile keys.")
         keys: list[str] = []
         for key in column:
             if not isinstance(key, str) or not _KEY_PATTERN.fullmatch(key):

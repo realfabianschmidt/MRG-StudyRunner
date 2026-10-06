@@ -73,6 +73,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/admin/study-run"),
     ("POST", "/api/admin/study-run/load"),
     ("POST", "/api/admin/study-run/start"),
+    ("POST", "/api/admin/study-run/target"),
     ("POST", "/api/admin/study-run/stop"),
     ("POST", "/api/admin/study-run/abort"),
     ("GET", "/api/admin/study-run/live-check"),

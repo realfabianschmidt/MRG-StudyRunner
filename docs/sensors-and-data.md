@@ -133,6 +133,25 @@ The exact file names, manifest fields and validation rules are in
 The participant flow is: waiting slide, admin release, optional **cover page**,
 Participant ID card, then the study cards.
 
+Each open participant connection shows a short device code on its waiting slide.
+The dashboard lists these codes and lets the operator choose which waiting page
+receives Start when several are open. The server records the chosen connection
+in the run state. "Released" means the server accepted Start; the dashboard
+separately shows when that page acknowledges the run. Neither event means that
+sensor recording has begun.
+
+The participant start regression was reproduced with two real browser tabs:
+both runtime polling and heartbeat handling called a missing
+`updateSensorRuntime` handler before applying the received run state. The
+result was a server-side running study with a page still waiting. The shared
+handler is now defined, and run state is applied before supplementary sensor
+status. This establishes a code-level failure path, not proof of the exact
+conditions in an earlier lab incident. Run the regression smoke test from
+`software/` with `python tests/browser/participant_start_flow.py` (Chrome or Edge
+and the optional Python `websockets` package). It checks target isolation,
+missing acknowledgement, recovery, and session assignment. Physical tablet
+browsers and lab network behaviour still require a lab smoke test.
+
 - The cover page (Study settings, Participant experience) comes before the
   Participant ID. No session, sensor recording, or marker exists yet, so the
   time spent on it is not recorded and never appears in card timing, the

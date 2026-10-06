@@ -1027,6 +1027,12 @@ body.admin::before { display: none; }
   gap: var(--s-2);
   margin-bottom: var(--s-3);
 }
+.participant-device-row { flex-wrap: wrap; }
+.participant-device-row button { margin-left: auto; }
+[data-participant-clients] .status-list + .participant-device-row {
+  border-top: 1px solid var(--ink-08);
+  padding-top: var(--s-4);
+}
 /* Study bar above the sensor tiles: what is missing, and Start. */
 .dashboard-study-bar {
   display: flex;

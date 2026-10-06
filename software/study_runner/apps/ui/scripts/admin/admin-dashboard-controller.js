@@ -9,6 +9,7 @@ import { renderLiveTrends } from './live-trend.js';
 import { placeTile, sensorColumns, updateMarquees } from './sensor-columns.js';
 import { bindSensorTileDrag } from './sensor-tile-drag.js';
 import { isDefaultLayout, mergeLayout, moveTile, rowMajorOrder } from './sensor-tile-order.js';
+import { PARTICIPANT_TILE_KEY, renderParticipantTile } from './participant-devices-panel.js';
 import {
   dashboardUiHelpers,
   fieldLabel,
@@ -65,6 +66,11 @@ export function initializeAdminDashboard(options = {}) {
     void callbacks.startStudy?.({ buttonId: 'btn-dashboard-start-study' });
   });
   elements.dashboard.addEventListener('click', (event) => {
+    const targetButton = event.target.closest('[data-participant-target]');
+    if (targetButton) {
+      void selectParticipantTarget(targetButton.dataset.participantTarget, elements, showToast);
+      return;
+    }
     const consoleButton = event.target.closest('[data-plugin-console]');
     if (consoleButton?.dataset.pluginConsole) {
       void openPluginConsole(consoleButton.dataset.pluginConsole, { showToast });
@@ -103,6 +109,22 @@ export function initializeAdminDashboard(options = {}) {
 
   refresh();
   pollTimer = window.setInterval(refresh, POLL_INTERVAL_MS);
+}
+
+async function selectParticipantTarget(clientId, elements, showToast) {
+  try {
+    const response = await postJson('/api/admin/study-run/target', { client_id: clientId });
+    statusGeneration += 1;
+    if (latestStatus) {
+      latestStatus.study_run_state = response.run_state;
+      latestStatus.study_clients.single_tablet = response.tablet_gate;
+      renderSensorTiles(elements.sensorTiles, latestStatus);
+    }
+    await refreshAdminStatus(elements, showToast);
+  } catch (error) {
+    showToast?.(error.message || t('dashboard.targetFailed', 'Could not select this device'), 'error');
+    await refreshAdminStatus(elements, showToast);
+  }
 }
 
 async function runDashboardAction(actionSource, elements, showToast) {
@@ -356,7 +378,6 @@ function getDashboardElements() {
     editView: document.getElementById('admin-edit-view'),
     dashboard: document.getElementById('admin-dashboard'),
     dashboardButton: document.getElementById('btn-admin-dashboard'),
-    clients: document.getElementById('dashboard-clients'),
     studyBar: document.getElementById('dashboard-study-bar'),
     studyName: document.getElementById('dashboard-study-name'),
     studyStatus: document.getElementById('dashboard-study-status'),
@@ -423,7 +444,6 @@ function renderAdminStatus(elements, status) {
   const clients = status.study_clients || {};
   elements.dashboardButton.hidden = false;
 
-  renderClients(elements.clients, clients.clients || []);
   renderStudyBar(elements, status);
   renderSensorTiles(elements.sensorTiles, status);
   renderPluginControls(elements.controls, status.plugins || {}, status);
@@ -489,10 +509,7 @@ export function renderSensorTiles(target, status) {
       label: plugins[manifest.plugin_key]?.label || manifest.ui?.label || manifest.plugin_key,
       manifest,
     }));
-  if (!items.length) {
-    target.innerHTML = `<p>${escapeHtml(t('dashboard.noPlugins', 'No plugins registered.'))}</p>`;
-    return;
-  }
+  items.push({ key: PARTICIPANT_TILE_KEY, label: t('dashboard.studyClient', 'Study client') });
 
   const keys = new Set(items.map((item) => item.key));
   target.querySelectorAll('[data-plugin-tile]').forEach((tile) => {
@@ -502,6 +519,14 @@ export function renderSensorTiles(target, status) {
   tileLayout = mergeLayout(savedTileLayout, items.map((item) => item.key));
   const singleColumnOrder = rowMajorOrder(tileLayout);
   items.forEach((item) => {
+    if (item.key === PARTICIPANT_TILE_KEY) {
+      const tile = renderParticipantTile(target, status);
+      if (!tileDrag?.isDragging()) {
+        const column = tileLayout.columns.findIndex((keysInColumn) => keysInColumn.includes(item.key));
+        placeTile(columns[column], tile, tileLayout.columns[column].indexOf(item.key), singleColumnOrder.indexOf(item.key));
+      }
+      return;
+    }
     const detail = renderPluginDashboardDetail(item, status);
     const icon = pluginUiIcon(item.manifest);
     let tile = [...target.querySelectorAll('[data-plugin-tile]')].find((node) => node.dataset.pluginTile === item.key);
@@ -756,27 +781,6 @@ function applyRunScope(status) {
   });
 }
 
-function renderClients(target, clients) {
-  if (!target) return;
-  if (!clients.length) {
-    target.innerHTML = `<p>${escapeHtml(t('dashboard.noClient', 'No connected study client yet.'))}</p>`;
-    return;
-  }
-
-  target.innerHTML = clients.map((client) => `
-    <div class="status-row">
-      <span class="status-pill status-pill--${escapeHtml(client.status)}">${escapeHtml(statusLabel(client.status))}</span>
-      <strong>${escapeHtml(client.participant_id || t('dashboard.noParticipantId', 'No participant ID yet'))}</strong>
-    </div>
-    <dl class="status-list">
-      <dt>${fieldLabel('study', 'Study')}</dt><dd>${escapeHtml(client.study_id || '-')}</dd>
-      <dt>${fieldLabel('card', 'Card')}</dt><dd>${formatCard(client)}</dd>
-      <dt>${fieldLabel('age', 'Age')}</dt><dd>${escapeHtml(client.age_seconds)}s</dd>
-      <dt>${fieldLabel('plugins', 'Plugins')}</dt><dd>${formatClientPluginStatus(client.plugin_status)}</dd>
-    </dl>
-  `).join('');
-}
-
 function renderPluginControls(target, plugins, status = {}) {
   if (!target) return;
   const rows = getPluginCatalog().plugins
@@ -803,7 +807,10 @@ function renderPluginControls(target, plugins, status = {}) {
   const resetButton = hasOverrides
     ? `<button type="button" class="btn-secondary btn-xs" data-dashboard-action="reset_sensor_overrides">${escapeHtml(t('dashboard.overrideReset', 'Reset to study settings'))}</button>`
     : '';
-  const tileKeys = rows.filter((row) => isPluginVisible(row.manifest, PLUGIN_UI_SURFACES.DASHBOARD)).map((row) => row.key);
+  const tileKeys = [
+    ...rows.filter((row) => isPluginVisible(row.manifest, PLUGIN_UI_SURFACES.DASHBOARD)).map((row) => row.key),
+    PARTICIPANT_TILE_KEY,
+  ];
   const tileOrderButton = savedTileLayout && !isDefaultLayout(mergeLayout(savedTileLayout, tileKeys), tileKeys)
     ? `<button type="button" class="btn-secondary btn-xs" data-dashboard-action="reset_tile_order"><i class="iconoir-menu-scale"></i> ${escapeHtml(t('dashboard.tiles.reset', 'Reset tile order'))}</button>`
     : '';
@@ -905,23 +912,6 @@ function renderXdf(target, status) {
 function showDashboard(elements) {
   elements.editView.hidden = true;
   elements.dashboard.hidden = false;
-}
-
-function formatCard(client) {
-  if (client.current_index === null || client.current_index === undefined) return '-';
-  return `#${Number(client.current_index) + 1} ${escapeHtml(client.current_type || '')}`;
-}
-
-function formatClientPluginStatus(pluginStatus) {
-  if (!pluginStatus || typeof pluginStatus !== 'object' || Array.isArray(pluginStatus)) return '-';
-  const rows = Object.entries(pluginStatus).map(([pluginKey, value]) => {
-    const label = pluginByKey(pluginKey)?.ui?.label || formatPluginName(pluginKey);
-    const status = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-    const summary = status.message || status.permission || status.state || status.status || '-';
-    const warning = status.last_error || status.error || '';
-    return `<strong>${escapeHtml(label)}</strong>: ${escapeHtml(summary)}${warning ? `<br><span class="status-warning">${escapeHtml(warning)}</span>` : ''}`;
-  });
-  return rows.length ? rows.join('<br>') : '-';
 }
 
 window.addEventListener('beforeunload', () => {

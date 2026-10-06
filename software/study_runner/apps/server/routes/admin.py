@@ -14,7 +14,7 @@ from study_runner.runtime_core.settings.admin_status_service import build_admin_
 from study_runner.runtime_core.settings.runtime_config import build_runtime_info
 from study_runner.runtime_core.settings import dashboard_layout_service, data_folder
 from study_runner.runtime_core.settings.shortcut_service import ShortcutError, create_desktop_shortcut
-from study_runner.runtime_core.studies.study_client_service import get_client_status
+from study_runner.runtime_core.studies.study_client_service import eligible_client, get_client_status
 from study_runner.runtime_core.settings.secrets_service import update_local_secrets
 from study_runner.runtime_core.studies.study_config_service import (
     delete_study, list_studies, load_config, load_study, locked_study_change,
@@ -344,7 +344,8 @@ def admin_status():
     payload["study_run_state"] = run_state
     payload["study_clients"] = get_client_status(
         active_study_id=str(run_state.get("study_id") or ""),
-        assigned_client_id=str(run_state.get("active_client_id") or ""),
+        assigned_client_id=_target_client_id(run_state),
+        run_id=str(run_state.get("run_id") or "") if run_state.get("status") == "running" else "",
     )
     recording_runtime = current_app.config.get("RECORDING_RUNTIME_SERVICE")
     payload["recording_infrastructure"] = (
@@ -367,6 +368,11 @@ def admin_status():
 
 def _settings_dir() -> Path:
     return Path(current_app.config["SETTINGS_DIR"])
+
+
+def _target_client_id(run_state: dict) -> str:
+    field = "active_client_id" if run_state.get("status") == "running" else "selected_client_id"
+    return str(run_state.get(field) or "")
 
 
 @bp.route("/api/admin/dashboard-layout", methods=["GET"])
@@ -393,9 +399,29 @@ def admin_study_run_status():
     run_state = _study_run_state()
     client_status = get_client_status(
         active_study_id=str(run_state.get("study_id") or ""),
-        assigned_client_id=str(run_state.get("active_client_id") or ""),
+        assigned_client_id=_target_client_id(run_state),
+        run_id=str(run_state.get("run_id") or "") if run_state.get("status") == "running" else "",
     )
     return jsonify({"ok": True, "run_state": run_state, "tablet_gate": client_status.get("single_tablet", {})})
+
+
+@bp.route("/api/admin/study-run/target", methods=["POST"])
+def admin_select_study_client():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "A device selection object is required."}), 400
+    client_id = str(payload.get("client_id") or "").strip()
+    with locked_study_change():
+        run_state = _study_run_state()
+        study_id = str(run_state.get("study_id") or "")
+        if not study_id or (client_id and not eligible_client(client_id, study_id)):
+            return jsonify({"ok": False, "error": "Select a live waiting page for the loaded study."}), 409
+        try:
+            run_state = current_app.config["STUDY_RUN_STATE"].select_client(study_id, client_id)
+        except ValueError as error:
+            return jsonify({"ok": False, "error": str(error)}), 409
+        status = get_client_status(study_id, client_id)
+        return jsonify({"ok": True, "run_state": run_state, "tablet_gate": status["single_tablet"]})
 
 
 @bp.route("/api/admin/notices", methods=["GET"])
@@ -452,7 +478,15 @@ def admin_start_study_run():
 
 
 def _admin_start_study_run_locked():
-    if current_app.config["STUDY_RUN_STATE"].public().get("status") == "aborting":
+    existing_run = current_app.config["STUDY_RUN_STATE"].public()
+    if existing_run.get("status") == "running":
+        status = get_client_status(
+            active_study_id=str(existing_run.get("study_id") or ""),
+            assigned_client_id=str(existing_run.get("active_client_id") or ""),
+            run_id=str(existing_run.get("run_id") or ""),
+        )
+        return jsonify({"ok": True, "run_state": existing_run, "tablet_gate": status["single_tablet"]})
+    if existing_run.get("status") == "aborting":
         return jsonify({"ok": False, "code": "study_aborting", "error": "Finish the pending abort before starting another run."}), 409
     try:
         config_data = validate_and_normalize_config(load_config(current_app.config["CONFIG_FILE"]))
@@ -494,14 +528,18 @@ def _admin_start_study_run_locked():
             ),
             409,
         )
-    client_status = get_client_status(active_study_id=str(config_data["study_id"]))
+    run_state_before = _study_run_state(config_data["study_id"])
+    client_status = get_client_status(
+        active_study_id=str(config_data["study_id"]),
+        assigned_client_id=str(run_state_before.get("selected_client_id") or ""),
+    )
     tablet_gate = client_status.get("single_tablet", {})
     if not tablet_gate.get("can_start"):
         return (
             jsonify(
                 {
                     "ok": False,
-                    "error": "Exactly one participant tablet must be connected to this study before it can start.",
+                    "error": "Select one live waiting participant device before starting this study.",
                     "tablet_gate": tablet_gate,
                 }
             ),
@@ -514,7 +552,12 @@ def _admin_start_study_run_locked():
         study_revision=study_config_revision(config_data),
     )
     print(f"[STUDY-RUN] Started study: {config_data['study_id']}")
-    return jsonify({"ok": True, "run_state": run_state, "tablet_gate": tablet_gate})
+    released_gate = get_client_status(
+        active_study_id=str(config_data["study_id"]),
+        assigned_client_id=str(run_state.get("active_client_id") or ""),
+        run_id=str(run_state.get("run_id") or ""),
+    )["single_tablet"]
+    return jsonify({"ok": True, "run_state": run_state, "tablet_gate": released_gate})
 
 
 def _live_sensor_issues(config_data: dict) -> list[dict]:
