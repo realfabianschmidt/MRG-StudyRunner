@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.8 - 2026-10-06
+
 ### Fixed
 
 - Participant Start now targets one selected waiting connection. Each waiting page shows a short connection ID, the movable dashboard tile lists eligible pages, and additional open pages remain waiting.
