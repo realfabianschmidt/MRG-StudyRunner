@@ -112,6 +112,21 @@ class RuntimeRecordingFinalizationAdapter:
             return StepResult("skipped", {"reason": "no_recording_source_selected"})
         inspections, report = self.runtime.inspect_sources(context.paths)
         details = validation_details(report, inspections=inspections)
+        write_clock_report = getattr(self.runtime, "write_clock_report", None)
+        if callable(write_clock_report):
+            end_barrier = _step_details(context, "freeze_recording").get("stream_tail")
+            try:
+                write_clock_report(
+                    context.paths,
+                    report,
+                    end_barrier=end_barrier if isinstance(end_barrier, Mapping) else None,
+                )
+                details["clock_report"] = "meta/clock-report.json"
+            except Exception as error:
+                # The report documents the data; it must never hold back the data itself.
+                warning = f"clock_report: {type(error).__name__}: {error}"
+                if warning not in context.state.setdefault("warnings", []):
+                    context.state["warnings"].append(warning)
         if not report.ok:
             blocking, warnings = split_validation_issues(report.issues)
             if warnings and not blocking:
@@ -159,6 +174,14 @@ def _marker_lsl_timestamp(end_marker: Mapping[str, Any]) -> float | None:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _step_details(context: FinalizationContext, step_key: str) -> Mapping[str, Any]:
+    for step in context.state.get("steps") or []:
+        if isinstance(step, Mapping) and step.get("key") == step_key:
+            details = step.get("details")
+            return details if isinstance(details, Mapping) else {}
+    return {}
 
 
 def step_attempt(context: FinalizationContext, step_key: str) -> int:

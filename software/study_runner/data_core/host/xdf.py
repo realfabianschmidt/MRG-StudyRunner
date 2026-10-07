@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
+from study_runner.clock_core import assessment
 from study_runner.data_core.contract.recording_errors import XdfBackendUnavailableError
 from study_runner.data_core.contract.worker_protocol import WorkerResponse
 
@@ -292,6 +293,12 @@ class StreamInspection:
     footer_present: bool = True
     footer_sample_count: int | None = None
     footer_drain_status: str = "confirmed"
+    clock_alignment: str = "legacy"
+    # Timestamps on the recorder's clock (clock_core.assessment); raw ones
+    # stay in the file and in the hashes above.
+    quality_timestamps: Any = field(default=None, repr=False, compare=False)
+    clock_correction_values: tuple[float, ...] = field(default=(), repr=False, compare=False)
+    timeline_discontinuities: Mapping[str, Any] | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -337,7 +344,9 @@ class PyXdfInspector:
         *,
         source_key: str,
         merged_artifact: bool = False,
+        recorder_local: bool = False,
     ) -> XdfArtifactInspection:
+        """``recorder_local``: the source pushed on the recorder's own clock."""
         target = Path(path)
         if not target.is_file():
             return XdfArtifactInspection(
@@ -357,11 +366,28 @@ class PyXdfInspector:
                 dejitter_timestamps=False,
                 verbose=False,
             )
+            aligned_streams: list[Mapping[str, Any]] = []
+            if not recorder_local and any(len(stream.get("clock_times", [])) for stream in streams):
+                try:
+                    aligned_streams, _ = pyxdf.load_xdf(
+                        str(target),
+                        synchronize_clocks=True,
+                        handle_clock_resets=False,
+                        dejitter_timestamps=False,
+                        verbose=False,
+                    )
+                    if len(aligned_streams) != len(streams):
+                        aligned_streams = []
+                except Exception:
+                    # Raw validation remains possible when clock reconstruction is not.
+                    aligned_streams = []
             inspected = tuple(
                 self._inspect_stream(
                     stream,
                     generated_origin=stream_origin_id(source_key, target, index),
                     require_embedded_origin=merged_artifact,
+                    aligned_stream=aligned_streams[index] if aligned_streams else None,
+                    recorder_local=recorder_local,
                 )
                 for index, stream in enumerate(streams)
             )
@@ -387,6 +413,8 @@ class PyXdfInspector:
         *,
         generated_origin: str,
         require_embedded_origin: bool,
+        aligned_stream: Mapping[str, Any] | None = None,
+        recorder_local: bool = False,
     ) -> StreamInspection:
         info = stream.get("info") if isinstance(stream.get("info"), dict) else {}
         embedded_origin = _find_metadata_value(info, "study_runner_origin_id")
@@ -406,6 +434,19 @@ class PyXdfInspector:
             "clock_values": _plain_value(stream.get("clock_values", [])),
         }
         timestamp_values = _numeric_values(timestamps)
+        clock_values = _numeric_values(stream.get("clock_values", []))
+        aligned_values = (
+            aligned_stream.get("time_stamps")
+            if aligned_stream is not None and len(aligned_stream.get("time_stamps", [])) == sample_count
+            else None
+        )
+        alignment = assessment.alignment_status(
+            recorder_local=recorder_local,
+            clock_offset_count=len(clock_values),
+            synchronized_available=aligned_values is not None,
+        )
+        quality_timestamps = aligned_values if alignment == assessment.CORRECTED else timestamps
+        nominal_srate = _float_info(info, "nominal_srate")
         monotonic, max_gap = _timestamp_quality(timestamp_values)
         channel_labels = _channel_labels(info)
         footer = stream.get("footer") if isinstance(stream.get("footer"), Mapping) else None
@@ -424,7 +465,7 @@ class PyXdfInspector:
             name=_string_info(info, "name"),
             stream_type=_string_info(info, "type"),
             source_id=_string_info(info, "source_id"),
-            nominal_srate=_float_info(info, "nominal_srate"),
+            nominal_srate=nominal_srate,
             channel_count=channel_count,
             sample_count=sample_count,
             first_timestamp=first_timestamp,
@@ -446,6 +487,10 @@ class PyXdfInspector:
             footer_present=bool(footer),
             footer_sample_count=_optional_integer_info(footer_info or {}, "sample_count"),
             footer_drain_status=_footer_drain_status(footer_info or {}),
+            clock_alignment=alignment,
+            quality_timestamps=quality_timestamps,
+            clock_correction_values=tuple(clock_values),
+            timeline_discontinuities=assessment.timeline_discontinuities(timestamps, nominal_srate),
         )
 
 

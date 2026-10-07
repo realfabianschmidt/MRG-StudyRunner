@@ -15,6 +15,9 @@ PINNED_PYLSL_VERSION = "1.18.2"
 # There is exactly one Python module for each, so unlike a discovered plugin
 # there is no "found zero" or "found two" to guard against.
 INTERNAL_RECORDING_SOURCE_KEYS = (markers.SOURCE_KEY, clock_diagnostics.SOURCE_KEY)
+# Sources written on the recorder's own LSL clock: the server pushes the
+# internal ones on this computer, and the worker writes the backup grid itself.
+RECORDER_LOCAL_SOURCE_KEYS = (*INTERNAL_RECORDING_SOURCE_KEYS, "derived_backup")
 INTERNAL_RECORDING_MANIFESTS: dict[str, dict[str, Any]] = {
     markers.SOURCE_KEY: markers.MANIFEST,
     clock_diagnostics.SOURCE_KEY: clock_diagnostics.MANIFEST,

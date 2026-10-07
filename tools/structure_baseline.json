@@ -1,9 +1,9 @@
 {
-  "cross_package_import_edges": 514,
+  "cross_package_import_edges": 526,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
-    "lines": 2711,
+    "lines": 2708,
     "path": "software/study_runner/plugins/sensors/brainbit/adapter.py"
   },
   "largest_file_per_package": {
@@ -12,7 +12,7 @@
       "path": ""
     },
     "apps.server": {
-      "lines": 1033,
+      "lines": 1038,
       "path": "software/study_runner/apps/server/routes/study.py"
     },
     "apps.ui": {
@@ -28,7 +28,7 @@
       "path": "software/study_runner/plugins/cards/participant_id/card.js"
     },
     "apps.ui.participant": {
-      "lines": 956,
+      "lines": 957,
       "path": "software/study_runner/apps/ui/scripts/participant/study-controller.js"
     },
     "apps.ui.settings": {
@@ -38,6 +38,10 @@
     "apps.ui.shared": {
       "lines": 412,
       "path": "software/study_runner/apps/ui/scripts/shared/qr-code.js"
+    },
+    "clock_core": {
+      "lines": 218,
+      "path": "software/study_runner/clock_core/assessment.py"
     },
     "contracts": {
       "lines": 1530,
@@ -52,15 +56,15 @@
       "path": "software/study_runner/data_core/contract/worker_protocol.py"
     },
     "data_core.host": {
-      "lines": 1405,
+      "lines": 1454,
       "path": "software/study_runner/data_core/host/recording_runtime.py"
     },
     "data_core.worker": {
-      "lines": 1092,
+      "lines": 1124,
       "path": "software/study_runner/data_core/worker/lsl_recording.py"
     },
     "plugin_framework": {
-      "lines": 1019,
+      "lines": 1020,
       "path": "software/study_runner/plugin_framework/process_host.py"
     },
     "plugins": {
@@ -80,7 +84,7 @@
       "path": "software/study_runner/plugins/outputs/osc_touchdesigner/adapter.py"
     },
     "plugins.sensors": {
-      "lines": 2711,
+      "lines": 2708,
       "path": "software/study_runner/plugins/sensors/brainbit/adapter.py"
     },
     "runtime_core": {
@@ -88,8 +92,8 @@
       "path": "software/study_runner/runtime_core/delivery/finalization_service.py"
     },
     "shared": {
-      "lines": 158,
-      "path": "software/study_runner/shared/clock_offset.py"
+      "lines": 144,
+      "path": "software/study_runner/shared/system_clock_probe.py"
     },
     "updates": {
       "lines": 297,
@@ -98,26 +102,27 @@
   },
   "lines_per_package": {
     "apps": 0,
-    "apps.server": 5300,
+    "apps.server": 5388,
     "apps.ui": 0,
     "apps.ui.admin": 6231,
     "apps.ui.cards": 4853,
-    "apps.ui.participant": 3403,
+    "apps.ui.participant": 3404,
     "apps.ui.settings": 1964,
-    "apps.ui.shared": 3063,
+    "apps.ui.shared": 3070,
+    "clock_core": 609,
     "contracts": 3079,
     "data_core": 16,
     "data_core.contract": 1184,
-    "data_core.host": 6872,
-    "data_core.worker": 2517,
-    "plugin_framework": 4165,
+    "data_core.host": 7056,
+    "data_core.worker": 2549,
+    "plugin_framework": 4198,
     "plugins": 0,
     "plugins.cards": 1465,
     "plugins.destinations": 1897,
     "plugins.outputs": 142,
-    "plugins.sensors": 11520,
-    "runtime_core": 15890,
-    "shared": 606,
+    "plugins.sensors": 11530,
+    "runtime_core": 15979,
+    "shared": 448,
     "updates": 696
   }
 }

@@ -43,6 +43,7 @@ from study_runner.data_core.host.xdf import (
     validate_sources,
     validator_dependency_status,
 )
+from study_runner.clock_core.assessment import build_clock_report
 from study_runner.shared.atomic_io import atomic_write_json
 from study_runner.shared.system_clock_probe import probe_system_clock
 from .recording_capacity import evaluate_capacity
@@ -54,6 +55,7 @@ from .recording_contract import (
 )
 from .recording_dependencies import (
     INTERNAL_RECORDING_SOURCE_KEYS,
+    RECORDER_LOCAL_SOURCE_KEYS,
     get_plugin_manifests_with_internal_sources,
     probe_lsl_dependencies,
     required_recording_plugins,
@@ -904,6 +906,7 @@ class RecordingRuntimeService:
             timeout_seconds=recording_timing(plan.get("recording_timing"))["start_wait_seconds"],
         )
         late_streams = list((readiness or {}).get("late_streams") or [])
+        clock_warnings = list((readiness or {}).get("clock_warnings") or [])
 
         lease_store = RecordingLeaseStore(paths.recording_lease_file)
         existing_lease = lease_store.load()
@@ -931,6 +934,7 @@ class RecordingRuntimeService:
             # Regular streams without data when the study started (e.g. a
             # derived stream before calibration). Validation reports them.
             late_streams_at_start=late_streams,
+            clock_warnings_at_start=clock_warnings,
             last_error=None,
         )
         atomic_write_json(paths.recording_plan_file, plan)
@@ -1178,7 +1182,11 @@ class RecordingRuntimeService:
         plan = self._load_plan(paths)
         inspector = PyXdfInspector()
         inspections = [
-            inspector.inspect(path, source_key=source_key)
+            inspector.inspect(
+                path,
+                source_key=source_key,
+                recorder_local=source_key in RECORDER_LOCAL_SOURCE_KEYS,
+            )
             for source_key, path in self.source_artifacts(paths)
         ]
         required = list(plan.get("required_source_keys") or [])
@@ -1224,6 +1232,47 @@ class RecordingRuntimeService:
                 metrics={**dict(report.metrics), **quality_metrics},
             )
         return inspections, report
+
+    def write_clock_report(
+        self,
+        paths: ArtifactPaths,
+        report: XdfValidationReport,
+        *,
+        end_barrier: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Persist every clock decision of the session as ``meta/clock-report.json``.
+
+        Deterministic for the same recording, so re-validating after an
+        accepted warning reproduces the already published file exactly.
+        """
+
+        plan = self._load_plan(paths)
+        try:
+            contract = load_recording_contract(plan)
+        except RecordingContractError:
+            contract = None
+        declared = (
+            contract["streams_by_source"]
+            if contract is not None
+            else {
+                key: list((manifest or {}).get("streams") or [])
+                for key, manifest in get_plugin_manifests_with_internal_sources().items()
+            }
+        )
+        metrics = dict(report.metrics or {})
+        clock_report = build_clock_report(
+            session_id=paths.identity.session_id,
+            declared_streams=declared,
+            stream_metrics=list(metrics.get("declared_streams") or []),
+            start_barrier={
+                "clock_warnings": list(plan.get("clock_warnings_at_start") or []),
+                "late_streams": list(plan.get("late_streams_at_start") or []),
+            },
+            end_barrier=end_barrier,
+            marker_window=dict(metrics.get("marker_window") or {}),
+        )
+        atomic_write_json(paths.clock_report_file, clock_report)
+        return clock_report
 
     def merge(self, paths: ArtifactPaths, *, command_id: str) -> dict[str, Any]:
         artifacts = self.source_artifacts(paths)

@@ -22,8 +22,11 @@ from study_runner.plugin_framework.process_host import (
 from study_runner.runtime_core.studies.card_extension_bridge import defaults_for_extension
 
 from .helpers import (
+    SENSOR_RESET_PENDING_MESSAGE,
+    _claim_sensor_for_setup,
     _plugin_context,
     _request_json_object,
+    _sensor_reset_pending,
     _require_secure_participant_ingest,
     _study_run_state,
 )
@@ -212,8 +215,11 @@ def plugin_admin_action(plugin_key: str, action_key: str):
     """Execute only actions explicitly advertised by the plugin manifest."""
 
     _require_installed_plugin(plugin_key)
+    if _sensor_reset_pending(plugin_key):
+        return jsonify({"ok": False, "code": "sensor_reset_pending", "error": SENSOR_RESET_PENDING_MESSAGE}), 409
     try:
         payload = _request_json_object()
+        _claim_sensor_for_setup(plugin_key, action_key)
         return jsonify(
             run_admin_action(
                 plugin_key,

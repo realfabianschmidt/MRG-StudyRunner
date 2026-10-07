@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from study_runner.shared.clock_offset import ClockExchange, RoundTripOffsetEstimator
+from study_runner.clock_core.round_trip import ClockExchange, RoundTripOffsetEstimator
 
 OFFSET = 1_700_000_000.0  # the hub's wall clock minus this computer's LSL clock
 

@@ -29,6 +29,11 @@ _PROTOCOL_OUTPUT = None
 BACKGROUND_OPERATIONS = frozenset({"publish"})
 _background_busy = threading.Event()
 
+# Which participant session's ``session_end`` this process last finished. The
+# host reads it from ``status`` to settle an end it stopped waiting for, and a
+# repeated end for the same session is not run twice.
+_session_end_ledger: dict[str, str | None] = {"in_progress": None, "last_completed": None, "last_failed": None}
+
 
 def run_plugin_driver(plugin_key: str) -> int:
     """Keep plugin/thread prints off the machine protocol's stdout pipe."""
@@ -184,7 +189,11 @@ def _dispatch(
             # The live view and stream health come from the one publishing
             # path, the same for every sensor (plugin_framework/sensor_streams.py).
             status = {**status, **streams.status_blocks()}
+        if isinstance(status, dict) and plugin.on_session_end is not None:
+            status = {**status, "session_end": dict(_session_end_ledger)}
         return status, False
+    if operation == "session_end":
+        return _run_session_end(plugin, context, payload), False
     if operation in {"start", "stop", "restart"}:
         handler = getattr(plugin, operation, None)
         if not callable(handler):
@@ -215,12 +224,11 @@ def _dispatch(
             str(payload.get("ingest") or ""),
             _dict(payload.get("payload")),
         ), False
-    if operation in {"trial_start", "trial_stop", "trial_marker", "session_end"}:
+    if operation in {"trial_start", "trial_stop", "trial_marker"}:
         handler = {
             "trial_start": plugin.on_trial_start,
             "trial_stop": plugin.on_trial_stop,
             "trial_marker": plugin.on_trial_marker,
-            "session_end": plugin.on_session_end,
         }[operation]
         if handler is None:
             return None, False
@@ -253,6 +261,24 @@ def _dispatch(
                 _emit_diagnostic(f"Plugin stop during shutdown failed: {error}", level="warning")
         return {"stopped": True}, True
     raise RuntimeError(f"unsupported operation: {operation}")
+
+
+def _run_session_end(plugin: Plugin, context: PluginContext, payload: Mapping[str, Any]) -> Any:
+    if plugin.on_session_end is None:
+        return None
+    session_id = str(payload.get("session_id") or "") or None
+    if session_id is not None and session_id == _session_end_ledger["last_completed"]:
+        return {"already_completed": True}
+    _session_end_ledger["in_progress"] = session_id
+    try:
+        result = plugin.on_session_end(context, deepcopy(dict(payload)))
+    except Exception:
+        _session_end_ledger["last_failed"] = session_id
+        raise
+    finally:
+        _session_end_ledger["in_progress"] = None
+    _session_end_ledger["last_completed"] = session_id
+    return result
 
 
 def _reset_sensor_streams(plugin: Plugin) -> None:

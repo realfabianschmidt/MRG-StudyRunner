@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  distinctFinalizationWarnings,
   finalizationProgress,
   finalizationSessionKey,
   finalizationStepLabel,
@@ -63,4 +64,19 @@ assert.equal(
   assert.equal(pickFinalizationFocus([seen, busy]).job_id, 'a');
   assert.equal(pickFinalizationFocus([{ ...seen, attention_acknowledged_at: '2026-09-23T10:00:00Z' }, busy]).job_id, 'r');
   assert.equal(pickFinalizationFocus([{ ...seen, attention_acknowledged_at: 'x' }]), null);
+}
+
+// Each finalization problem is listed once.
+{
+  const warnings = [
+    'session_end_notice: brainbit: timed out',
+    'session_end_notice: brainbit: timed out',
+    'freeze_recording: worker stopped',
+    '',
+  ];
+  assert.deepEqual(
+    distinctFinalizationWarnings(warnings, ['freeze_recording: worker stopped']),
+    ['session_end_notice: brainbit: timed out'],
+  );
+  assert.deepEqual(distinctFinalizationWarnings(undefined), []);
 }

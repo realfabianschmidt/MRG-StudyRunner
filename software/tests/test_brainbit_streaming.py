@@ -85,7 +85,8 @@ class StreamingTests(unittest.TestCase):
         adapter._streams.use_backend(lsl)
         adapter._streams.open('eeg', channels=list(cli.EEG_CHANNELS), channel_units=['microvolt'] * len(cli.EEG_CHANNELS))
         try:
-            with patch.object(adapter, '_lsl_epoch_offset', -1_700_000_000), patch.object(adapter, '_eeg_lsl_channels', cli.EEG_CHANNELS), patch.object(adapter, '_set_state'):
+            anchors = next(payload for tag, payload in lines if tag == 'CLOCK')
+            with patch.object(adapter, '_source_clock_anchors', anchors), patch.object(adapter, '_eeg_lsl_channels', cli.EEG_CHANNELS), patch.object(adapter, '_set_state'):
                 for tag,payload in lines:
                     if tag == 'EEG_BATCH':
                         adapter._mirror_line_to_lsl(tag + ' ' + json.dumps(payload))
@@ -134,7 +135,7 @@ class StreamingTests(unittest.TestCase):
                 def push_sample(self, values, timestamp):
                     writer.write_samples(2,[timestamp],[values],channel_format='string',channel_count=1)
             try:
-                with patch.object(adapter,'_lsl_outlets',{'EEG':RawOutlet(),'DIAGNOSTICS':DiagnosticOutlet()}), patch.object(adapter,'_lsl_epoch_offset',-1_700_000_000), patch.object(adapter,'_lsl_local_clock',side_effect=range(100,10000)), patch.object(adapter,'_eeg_lsl_channels',cli.EEG_CHANNELS), patch.object(adapter,'_set_state'):
+                with patch.object(adapter,'_lsl_outlets',{'EEG':RawOutlet(),'DIAGNOSTICS':DiagnosticOutlet()}), patch.object(adapter,'_source_clock_anchors',next(p for t,p in acquisition_lines() if t=='CLOCK')), patch.object(adapter,'_lsl_local_clock',side_effect=range(100,10000)), patch.object(adapter,'_eeg_lsl_channels',cli.EEG_CHANNELS), patch.object(adapter,'_set_state'):
                     for tag,payload in acquisition_lines():
                         if tag in {'EEG_BATCH','EMO_INIT','CALIB','ARTIFACT'}:
                             adapter._mirror_line_to_lsl(tag + ' ' + json.dumps(payload))

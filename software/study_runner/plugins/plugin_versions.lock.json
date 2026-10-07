@@ -9,16 +9,16 @@
       "contract_sha256": "89f20ed4b47fe8c9d324fc08de5a5a722ee8720d222876d1ed9079e198ef46f8"
     },
     "am_hub": {
-      "version": "5.0.0",
+      "version": "5.0.1",
       "path": "software/study_runner/plugins/sensors/am_hub",
-      "content_sha256": "096aed338ce4db2cebaf0d910a86923c30de696856b0d9e5fee27364055287ea",
+      "content_sha256": "908a7a4c25c9bae2d808c0620cf18d378a1d016265c16752ae0fd9fe5d397f46",
       "contract_sha256": "76736ec11c19b5fe64ff04e5035a4325cdfc2069c61c7d03a129de9bf8b09389"
     },
     "brainbit": {
-      "version": "3.0.0",
+      "version": "4.0.0",
       "path": "software/study_runner/plugins/sensors/brainbit",
-      "content_sha256": "6ae774230355f32bbbff27c27a2297f788e84c6daeb2303b6e88eb15a91ca07c",
-      "contract_sha256": "00c438f80e2d01afcf960283264955237f77d51c71a353f30a8783ba77530b9e"
+      "content_sha256": "8a91eab8c79c5fba06bfb1aeb9d3d40db4720e90e8ae48efc4fb7e90b0fd174d",
+      "contract_sha256": "9b1b6740a7a4a37b3b14d979af741e24709289b4441f25b354e677c3e6bf1836"
     },
     "camera_emotion": {
       "version": "3.0.0",

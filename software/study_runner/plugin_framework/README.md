@@ -48,6 +48,28 @@ still reports that plugin's failure without preventing unrelated plugins from
 loading. The plugin's adapter owns device-specific connection and retry code;
 the host owns process recovery, session selection, and recording boundaries.
 
+## Time and clocks
+
+A sensor plugin delivers values and says in its manifest where their times
+come from (`timing.timestamp_source`: `host_arrival`, `host_arrival_corrected`
+or `host_callback_reconstructed`). It does not relate clocks itself:
+
+- publish only through `SensorStreams` and take an arrival time from
+  `streams.now()`; never create an LSL outlet or read `pylsl.local_clock`;
+- never stamp a sample straight from `time.time()`, `time.monotonic()` or
+  `time.perf_counter()`;
+- rebuild a timeline from driver callbacks with
+  `clock_core.producer.callback_batch_start` on a `SourceClock`, and map it to
+  the LSL clock with `SourceToLsl`;
+- keep a corrected arrival time reversible with a `correction_channel`.
+
+`driver_runtime.py` also records every plugin's `session_end` by session ID in
+its status (`session_end.in_progress/last_completed/last_failed`) and runs a
+repeated end for the same session only once. The host uses it to settle an end
+it stopped waiting for. `tests/test_plugin_clock_contract.py` holds every
+plugin to these rules; `docs/recording-finalization-workflow.md` explains the
+clock responsibilities.
+
 ## Discovery and asset boundaries
 
 - **`plugin_layout.trusted_roots()` is the only place that knows where

@@ -72,6 +72,18 @@ Edit-safety legend:
 | `routes/plugins.py` | Serves the manifest-derived plugin catalog used by generic admin UI | careful |
 | `routes/helpers.py` | Shared request helpers: runtime config, sessions, sensor runtime | careful |
 
+## Clock core (`software/study_runner/clock_core/`)
+
+The one place that knows how clocks relate; see `docs/recording-finalization-workflow.md`, "Clock core and responsibilities".
+
+| File | Purpose | Edit? |
+|---|---|---|
+| `software/study_runner/clock_core/__init__.py` | Orientation: contract, producer, assessment | yes |
+| `software/study_runner/clock_core/contract.py` | Who owns which clock, the alignment states (`corrected`/`local`/`uncertain`), the coverage bases, and the named timing tolerances | no |
+| `software/study_runner/clock_core/producer.py` | Turns source times into LSL times: re-anchoring callback timelines after a pause, a plugin's `perf_counter` source clock and its mapping, and the marker outlet's wall-to-LSL mapping read on a tick edge | no |
+| `software/study_runner/clock_core/assessment.py` | Compares recorded times by one set of rules for the live start/end barriers and the offline validation, and builds `meta/clock-report.json` | no |
+| `software/study_runner/clock_core/round_trip.py` | Estimates another computer's clock from ping round trips (the NTP method): trusts the fastest recent round trip, follows drift and accepts a clock step only after three agreeing exchanges; used by the AM Hub's hub-clock pings | careful |
+
 ## Runtime and shared services (`software/study_runner/runtime_core/`, `software/study_runner/shared/`)
 
 | File | Purpose | Edit? |
@@ -92,7 +104,6 @@ Edit-safety legend:
 | `software/study_runner/data_core/contract/lsl_dependency.py` | `require_pylsl`/`lsl_version_info` shared by host preflight and worker inlet setup | no |
 | `software/study_runner/shared/system_clock_probe.py` | Package 5b preflight: system-clock plausibility bounds plus a per-platform time-sync-service check; no network access | careful |
 | `software/study_runner/runtime_core/settings/dashboard_layout_service.py` | The operator's dashboard tile order for this computer (`settings/dashboard_layout.local.json`): validate, store, reset | no |
-| `software/study_runner/shared/clock_offset.py` | Estimates another computer's clock from ping round trips (the NTP method): trusts the fastest recent round trip, follows drift and accepts a clock step only after three agreeing exchanges; used by the AM Hub's hub-clock pings | careful |
 | `software/study_runner/data_core/host/recording_capacity.py` | Package 5b preflight: predicts required storage from the negotiated recording contract's declared stream rates (never disk throughput) against the study's planned duration | careful |
 | `software/study_runner/runtime_core/studies/validation.py` | Validates study configs and submitted results (has a TOC docstring) | careful |
 | `software/study_runner/runtime_core/studies/card_extension_bridge.py` | Package 5g.B5: dispatches `card_defaults`/`card_normalize`/`card_validate_answer` to the owning card plugin's process, resolves host-supplied data (e.g. stimulus's `plugin_actions`), and turns a card process fault into `CardExtensionUnavailableError` (503) vs. an invalid answer into `CardValidationError` (400) | careful |
@@ -101,6 +112,7 @@ Edit-safety legend:
 | `software/study_runner/runtime_core/studies/session_index_csv.py` | Rebuilds each study's compact, atomic sessions-index.csv from completed session folders | careful |
 | `software/study_runner/runtime_core/studies/session_quality_summary.py` | Reduces quality.jsonl (5c) and its unconfirmed-tail entries (5h) to a UI-sized health level and structured findings | careful |
 | `software/study_runner/runtime_core/studies/session_store.py` | Persistent, rehydrating registry of active tablet study sessions | no |
+| `software/study_runner/runtime_core/studies/sensor_session_ownership.py` | Which session or operator setup owns each sensor's per-participant state, so a late `session_end` never resets the next person, and a timed-out one blocks the sensor until the plugin confirms it | no |
 | `software/study_runner/data_core/host/sensor_flush_service.py` | Periodic background export of live sensor history for crash recovery | no |
 | `software/study_runner/data_core/host/sensor_coordinator_service.py` | Central plugin lifecycle/status wrapper with manifest, backpressure, and timing diagnostics | careful |
 | `software/study_runner/data_core/host/clock_sync_service.py` | Bounded tablet/worker offset and RTT histories for timing diagnostics | careful |

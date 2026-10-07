@@ -1251,6 +1251,36 @@ class CheckpointCommitBoundaryTests(unittest.TestCase):
             recorder.abort()
             recorder._journals.close()
 
+    def test_samples_arriving_during_the_flush_are_not_claimed(self) -> None:
+        """The checkpoint counts only what was written before the durable flush began."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            session = Path(temp_dir)
+            core = _FakeCore()
+            recorder = self._recorder_with_journals(core, _FakePylsl(), session)
+            recorder._states[0].sample_count = 50
+
+            def flush_while_ingesting(**_kwargs):
+                recorder._states[0].sample_count = 75
+                recorder._stop.set()
+
+            core.writer.flush = flush_while_ingesting
+            ticks = iter([0.0, 10_000.0])
+            last = [0.0]
+
+            def clock() -> float:
+                last[0] = next(ticks, last[0] + 10_000.0)
+                return last[0]
+
+            recorder._clock = clock
+            recorder._checkpoint_loop()
+            recorder.abort()
+            recorder._journals.close()
+
+            checkpoint = last_checkpoint_for_generation(
+                read_checkpoints(session / CHECKPOINT_JOURNAL_FILENAME), generation=2
+            )
+            self.assertEqual(confirmed_stream_positions(checkpoint)["fixture.values"]["sample_count"], 50)
+
     def test_a_lost_checkpoint_leaves_the_earlier_prefix_intact(self) -> None:
         """Losing the newest claim must not retract the ones already made."""
         with tempfile.TemporaryDirectory() as temp_dir:

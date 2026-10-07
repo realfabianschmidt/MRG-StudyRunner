@@ -204,6 +204,22 @@ class NextcloudServiceTests(unittest.TestCase):
 
         self.assertFalse(any(call["method"] == "PUT" for call in session.calls))
 
+    def test_retrying_a_completed_upload_writes_nothing_again(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            folder = Path(temp_dir)
+            (folder / "signals.xdf").write_bytes(b"xdf")
+            session = FakeSession([207, 201, 405, 201, 200])
+            client = NextcloudPublicShareClient("https://cloud.example/s/token", session=session)
+            client.upload_session_folder(folder, study_id="study", participant_id="p01")
+            session.calls.clear()
+            session.statuses = [405, 405, 200]
+
+            retry = client.upload_session_folder(folder, study_id="study", participant_id="p01")
+
+        self.assertTrue(retry["ok"])
+        self.assertTrue(all(item.get("skipped_existing") for item in retry["uploaded"]))
+        self.assertFalse(any(call["method"] in {"PUT", "DELETE"} for call in session.calls))
+
     def test_connection_test_proves_the_share_is_writable_and_cleans_up(self) -> None:
         session = FakeSession([207, 201, 200, 204])
         result = test_connection("https://cloud.example/s/token", session=session)

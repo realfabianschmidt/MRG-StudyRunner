@@ -249,7 +249,8 @@ class PluginProcessRuntime:
                 if (self.is_card or operation in TERMINATE_ON_TIMEOUT_OPERATIONS) and _start_if_needed:
                     self._terminate_after_timeout(process, operation, timeout)
                 raise PluginProcessError(
-                    f"Plugin '{self.key}' timed out during {operation} after {timeout:.3f}s."
+                    f"Plugin '{self.key}' timed out during {operation} after {timeout:.3f}s.",
+                    error_kind="timeout",
                 )
             response = pending.payload or {}
             _validate_response_envelope(response, request_id=request_id, plugin_key=self.key)

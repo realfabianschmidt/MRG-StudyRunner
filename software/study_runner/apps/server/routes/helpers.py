@@ -31,6 +31,7 @@ from study_runner.runtime_core.settings.hardware_settings_service import (
 )
 from study_runner.runtime_core.settings.secrets_service import update_local_secrets
 from study_runner.runtime_core.studies.session_store import public_session
+from study_runner.runtime_core.studies.sensor_session_ownership import SensorSessionOwnership
 from study_runner.runtime_core.studies.live_sensor_readiness import declared_start_condition_issue
 from study_runner.runtime_core.studies.study_config_service import load_config
 from study_runner.plugin_framework.plugin_secrets import secret_fields
@@ -503,11 +504,46 @@ def _save_hardware_secret_payload(config_data: dict) -> tuple[dict, bool]:
     return sanitized_config, secret_updated
 
 
+# Admin actions whose result belongs to one participant (contact, calibration).
+PER_PARTICIPANT_ADMIN_ROLES = frozenset({"measure_signal", "initialize"})
+SENSOR_RESET_PENDING_MESSAGE = (
+    "This sensor is still being reset for the previous participant. Wait a moment, then try again."
+)
+
+
+def _sensor_ownership() -> SensorSessionOwnership:
+    return current_app.config.setdefault("SENSOR_SESSION_OWNERSHIP", SensorSessionOwnership())
+
+
+def _sensor_reset_pending(plugin_key: str, context=None) -> bool:
+    """True while a timed-out ``session_end`` has not been confirmed by the plugin."""
+    ownership = _sensor_ownership()
+    if ownership.unresolved(plugin_key) is None:
+        return False
+    try:
+        status = get_plugin_status(plugin_key, context or _plugin_context())
+    except Exception:
+        return True
+    return not ownership.reconcile(plugin_key, status)
+
+
+def _claim_sensor_for_setup(plugin_key: str, action_key: str) -> None:
+    """A per-participant setup action prepares the next person, unless a session owns the sensor."""
+    actions = ((get_plugin_manifest(plugin_key).get("capability_config") or {}).get("admin_actions") or {}).get("actions") or []
+    role = next((str(item.get("role") or "") for item in actions if item.get("key") == action_key), "")
+    if role in PER_PARTICIPANT_ADMIN_ROLES:
+        _sensor_ownership().claim_setup(
+            plugin_key,
+            active_session_id=current_app.config.get("ACTIVE_STUDY_SENSOR_SESSION_ID"),
+        )
+
+
 def _start_study_sensor_runtime(
     study_settings: dict,
     *,
     selected_plugins: list[str] | None = None,
     enforce_start_conditions: bool = False,
+    session_id: str | None = None,
 ) -> dict:
     base_hardware_config = current_app.config.get("HARDWARE_CONFIG", {})
     effective_hardware_config = build_effective_hardware_config(base_hardware_config, study_settings, _session_overrides())
@@ -520,6 +556,8 @@ def _start_study_sensor_runtime(
     selected_sensors = runtime_state["effective"]
     current_app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = effective_hardware_config
     current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = []
+    if session_id:
+        current_app.config["ACTIVE_STUDY_SENSOR_SESSION_ID"] = session_id
 
     if _hardware_disabled():
         disabled_config = _disable_runtime_hardware(effective_hardware_config)
@@ -536,6 +574,10 @@ def _start_study_sensor_runtime(
     _refresh_trial_runtime()
 
     context = _plugin_context(effective_hardware_config)
+    resetting = [
+        key for key in STUDY_SENSOR_KEYS
+        if selected_sensors.get(key) and _sensor_reset_pending(key, context)
+    ]
     coordinator = _sensor_coordinator()
     if coordinator:
         # Sensors were prepared before the study started (connected, contact
@@ -582,6 +624,18 @@ def _start_study_sensor_runtime(
             if issue:
                 results[sensor_key] = {**results[sensor_key], "ok": False, "error": issue}
 
+    for sensor_key in resetting:
+        results[sensor_key] = {
+            "ok": False,
+            "plugin": sensor_key,
+            "code": "sensor_reset_pending",
+            "error": SENSOR_RESET_PENDING_MESSAGE,
+        }
+    active = [key for key in current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or [] if key not in resetting]
+    current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = active
+    if session_id:
+        _sensor_ownership().claim_session(active, session_id)
+
     return {
         "sensors": selected_sensors,
         "sensor_runtime": runtime_state,
@@ -591,31 +645,52 @@ def _start_study_sensor_runtime(
     }
 
 
-def _end_study_sensor_session(*, notify: bool = True, options: dict | None = None,
+def _end_study_sensor_session(*, session_id: str | None = None, notify: bool = True,
+                              options: dict | None = None,
                               plugin_keys: list[str] | None = None) -> dict:
-    """Close the participant-session scope without stopping any sensor.
+    """Close one participant session's sensor scope without stopping any sensor.
 
     Sensors keep streaming for the next participant. With ``notify`` every
     sensor that took part hears ``session_end`` so it can reset what belonged
-    to that person (for example electrode contact and calibration). The
-    session lock (``ACTIVE_STUDY_HARDWARE_CONFIG``) is released either way.
+    to that person (for example electrode contact and calibration).
+    ``session_id`` names the session being closed (None: the current one). A
+    late call for a session that no longer owns the scope changes nothing for
+    the newer session, and a sensor already claimed for someone else is not
+    reset (``SensorSessionOwnership``).
     """
+    owner = current_app.config.get("ACTIVE_STUDY_SENSOR_SESSION_ID")
+    ending = session_id or owner
+    superseded = bool(session_id and owner and owner != session_id)
     active_hardware_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
-    active_plugins = list(dict.fromkeys(
+    session_plugins = list(dict.fromkeys(
         plugin_keys if plugin_keys is not None
-        else current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or []
+        else ([] if superseded else current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or [])
     ))
+    ownership = _sensor_ownership()
+    to_notify = [key for key in session_plugins if not ending or ownership.may_end(key, ending)]
     result: dict = {"notified_plugins": [], "runtime": {}}
-    if notify and active_plugins and not _hardware_disabled():
+    if notify and to_notify and not _hardware_disabled():
         context = _plugin_context(active_hardware_config) if active_hardware_config else _plugin_context()
+        notice = {**dict(options or {}), **({"session_id": ending} if ending else {})}
         try:
-            result = run_session_end(active_plugins, dict(options or {}), context)
+            result = run_session_end(to_notify, notice, context)
         except Exception as error:
             result = {"notified_plugins": [], "runtime": {}, "error": str(error)}
-    current_app.config.pop("ACTIVE_STUDY_HARDWARE_CONFIG", None)
-    current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = []
-    _refresh_trial_runtime()
-    return {"session_plugins": active_plugins, **result}
+        if ending:
+            for key, outcome in (result.get("runtime") or {}).items():
+                known = bool(outcome.get("ok")) or outcome.get("outcome_known", True) is not False
+                ownership.ended(key, ending, outcome_known=known)
+    if not superseded:
+        current_app.config.pop("ACTIVE_STUDY_HARDWARE_CONFIG", None)
+        current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = []
+        current_app.config.pop("ACTIVE_STUDY_SENSOR_SESSION_ID", None)
+        _refresh_trial_runtime()
+    return {
+        "session_plugins": session_plugins,
+        "superseded": superseded,
+        "not_reset_plugins": [key for key in session_plugins if key not in to_notify],
+        **result,
+    }
 
 
 def _apply_study_sensor_selection(study_settings: dict | None = None) -> dict:
@@ -709,7 +784,9 @@ def _restart_sensor_runtime_if_needed(session: dict) -> None:
         study_settings = _current_study_settings()
         selected = session.get("selected_sensor_plugins")
         runtime = _start_study_sensor_runtime(
-            study_settings, selected_plugins=selected if isinstance(selected, list) else None
+            study_settings,
+            selected_plugins=selected if isinstance(selected, list) else None,
+            session_id=str(session.get("session_id") or "") or None,
         )
         _session_store().record_sensor_plugins(session["session_id"], runtime.get("active_plugins") or [])
     except Exception as error:

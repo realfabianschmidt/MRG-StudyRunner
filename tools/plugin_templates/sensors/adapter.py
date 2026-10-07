@@ -13,7 +13,12 @@ Every sensor plugin follows the same three-part pattern
    live view of the manifest's ``live_view`` series (2 Hz, last 60 s).
 
 Take the arrival time (``_streams.now()``) the moment a sample arrives, and
-record what the device sends about itself (here ``seq``) as channels.
+record what the device sends about itself (here ``seq``) as channels. Never
+stamp a sample from ``time.time()`` or another host clock: the clock core owns
+how clocks relate. A driver that hands over batches through callbacks
+(``timing.timestamp_source: host_callback_reconstructed``) rebuilds its
+timeline with ``clock_core.producer.callback_batch_start`` on a
+``SourceClock`` and maps it with ``SourceToLsl``.
 
 Replace ``_read_device`` with your device's read. It must never invent a
 value: a sample that did not arrive is simply not pushed.

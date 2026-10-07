@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "brainbit",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "category": "biosignal",
   "config_key": "brainbit",
   "runtime": {
@@ -340,7 +340,7 @@
         "ratio"
       ],
       "timing": {
-        "timestamp_source": "host_callback_reconstructed"
+        "timestamp_source": "host_arrival"
       }
     },
     {
@@ -358,7 +358,7 @@
         "percent"
       ],
       "timing": {
-        "timestamp_source": "host_callback_reconstructed"
+        "timestamp_source": "host_arrival"
       }
     }
   ],

@@ -17,6 +17,12 @@ from xml.sax.saxutils import escape
 from study_runner.data_core.contract.backup_projection import BackupProjection, BackupSampler, projections_from_manifest
 # Runtime imports these neutral LSL helpers through this worker module; the host
 # imports them directly from data_core.contract without depending on the worker.
+from study_runner.clock_core.contract import (
+    CORRECTED,
+    CORRECTION_INTERVAL_SECONDS,
+    CORRECTION_MAX_AGE_SECONDS,
+    UNCERTAIN,
+)
 from study_runner.data_core.contract.lsl_dependency import lsl_version_info, require_pylsl
 from study_runner.contracts.quality_journal import (
     OBSERVATION_CLOCK_OFFSET,
@@ -34,7 +40,10 @@ BOUNDARY_INTERVAL_SECONDS = 10.0
 DURABLE_FLUSH_INTERVAL_SECONDS = 5.0
 RESOLVE_TIMEOUT_SECONDS = 0.5
 PULL_TIMEOUT_SECONDS = 0.25
-CLOCK_OFFSET_INTERVAL_SECONDS = 5.0
+CLOCK_OFFSET_INTERVAL_SECONDS = CORRECTION_INTERVAL_SECONDS
+# Until an inlet has its first correction, a failed attempt is retried soon:
+# the start barrier waits for it instead of warning on every session.
+FIRST_CLOCK_OFFSET_RETRY_SECONDS = 0.5
 # Seconds of data an LSL inlet may buffer before it discards the oldest.
 # Passed to StreamInlet as max_buflen; kept as a named constant because 5h
 # needs the same number to say how full that buffer is getting.
@@ -188,7 +197,12 @@ class StreamRuntimeState:
     reconnect_count: int = 0
     last_error: str | None = None
     last_clock_error: str | None = None
+    clock_correction_seconds: float | None = None
+    clock_correction_received_monotonic: float | None = None
     last_sample_monotonic: float | None = None
+    # The recorder's own LSL clock when the newest chunk arrived; comparable
+    # with the end marker even when the outlet's correction is unknown.
+    last_receipt_lsl: float | None = None
     write_gate: threading.Lock = field(default_factory=threading.Lock, repr=False)
     writer_quiescent: threading.Event = field(default_factory=threading.Event, repr=False)
     writes_fenced: bool = False
@@ -196,6 +210,11 @@ class StreamRuntimeState:
     cutoff_location: str | None = None
 
     def public_dict(self) -> dict[str, Any]:
+        correction_fresh = (
+            self.clock_correction_seconds is not None
+            and self.clock_correction_received_monotonic is not None
+            and time.monotonic() - self.clock_correction_received_monotonic <= CORRECTION_MAX_AGE_SECONDS
+        )
         return {
             "key": self.spec.key,
             "source_id": self.spec.source_id,
@@ -213,6 +232,9 @@ class StreamRuntimeState:
             "reconnect_count": self.reconnect_count,
             "last_error": self.last_error,
             "last_clock_error": self.last_clock_error,
+            "clock_status": CORRECTED if correction_fresh else UNCERTAIN,
+            "clock_correction_seconds": self.clock_correction_seconds if correction_fresh else None,
+            "last_receipt_lsl": self.last_receipt_lsl,
             "last_sample_age_seconds": (
                 max(0.0, time.monotonic() - self.last_sample_monotonic)
                 if self.last_sample_monotonic is not None
@@ -360,6 +382,7 @@ class LslSourceRecorder:
                         raise RuntimeError("LSL returned mismatched samples and timestamps")
                     rows = [tuple(row) for row in samples]
                     received = self._clock()
+                    receipt_lsl = float(self._pylsl.local_clock())
                     with state.write_gate:
                         if state.writes_fenced:
                             break
@@ -387,6 +410,7 @@ class LslSourceRecorder:
                             state.first_timestamp = state.first_timestamp or float(timestamps[0])
                             state.last_timestamp = float(timestamps[-1])
                             state.last_sample_monotonic = received
+                            state.last_receipt_lsl = receipt_lsl
                             state.last_error = None
                             self._readiness.notify_all()
                         self._observe_quality(state, timestamps, received)
@@ -415,6 +439,8 @@ class LslSourceRecorder:
                             with self._lock:
                                 state.clock_offsets.append((local_time - correction, correction))
                                 state.last_clock_error = None
+                                state.clock_correction_seconds = correction
+                                state.clock_correction_received_monotonic = time.monotonic()
                             self._append_timing(
                                 timing_record(
                                     observation=OBSERVATION_CLOCK_OFFSET,
@@ -430,7 +456,11 @@ class LslSourceRecorder:
                         # unavailable while sample transport remains healthy.
                         with self._lock:
                             state.last_clock_error = f"{type(error).__name__}: {error}"
-                    next_clock_offset = now + CLOCK_OFFSET_INTERVAL_SECONDS
+                    next_clock_offset = now + (
+                        CLOCK_OFFSET_INTERVAL_SECONDS
+                        if state.clock_correction_seconds is not None
+                        else FIRST_CLOCK_OFFSET_RETRY_SECONDS
+                    )
             except Exception as error:
                 self._cache.mark_degraded(self.plugin_key, state.spec.key)
                 with self._lock:
@@ -618,18 +648,9 @@ class LslSourceRecorder:
                 summary["details"]["peak_fill_ratio"] = round(monitor.peak_fill_ratio, 4)
             self._append_quality(summary)
 
-    def _write_checkpoint(self, now: float, *, reason: str) -> bool:
-        """Record how far this recorder's data is known to be on disk.
-
-        Read under the state lock so the counts cannot be a torn mixture of
-        two ingest threads' updates. The counts are taken *after* the
-        durable flush, so they describe the flushed file rather than the
-        in-memory state that was ahead of it.
-        """
-        if self._journals is None:
-            return False
+    def _checkpoint_commits(self) -> list[dict[str, Any]]:
         with self._lock:
-            commits = [
+            return [
                 stream_commit(
                     plugin_key=self.plugin_key,
                     stream_key=state.spec.key,
@@ -638,6 +659,20 @@ class LslSourceRecorder:
                 )
                 for state in self._states
             ]
+
+    def _write_checkpoint(
+        self, now: float, *, reason: str,
+        commits: list[dict[str, Any]] | None = None,
+    ) -> bool:
+        """Record how far this recorder's data is known to be on disk.
+
+        Periodic callers capture counts before the durable flush. New samples
+        written while it runs cannot enter that checkpoint.
+        """
+        if self._journals is None:
+            return False
+        if commits is None:
+            commits = self._checkpoint_commits()
         return self._journals.append_checkpoint(
             checkpoint_record(
                 generation=self.generation,
@@ -658,10 +693,7 @@ class LslSourceRecorder:
                     self._writer.boundary()
                     next_boundary += BOUNDARY_INTERVAL_SECONDS
                 if now >= next_flush:
-                    # Package 5h's commit order, and the order is the point:
-                    # the data reaches the disk first, then the checkpoint
-                    # claiming it did. Reversed, a surviving checkpoint could
-                    # vouch for samples that never landed.
+                    commits = self._checkpoint_commits()
                     self._writer.flush(durable=True)
                     # Quality evidence is made durable on the same tick as
                     # the data it describes, so a crash loses at most the
@@ -669,7 +701,7 @@ class LslSourceRecorder:
                     self._write_quality_summaries(now)
                     if self._journals is not None:
                         self._journals.flush(durable=True)
-                    self._write_checkpoint(now, reason="periodic")
+                    self._write_checkpoint(now, reason="periodic", commits=commits)
                     next_flush += DURABLE_FLUSH_INTERVAL_SECONDS
             except Exception as error:
                 with self._lock:

@@ -283,5 +283,46 @@ class NotionPublishContractTests(unittest.TestCase):
         self.assertIn("connection interrupted", result["error"])
 
 
+class NotionSessionIdempotencyTests(unittest.TestCase):
+    """A retried upload never adds a second page for the same session."""
+
+    MARKER = "study-runner-session-commit:S1"
+
+    def _client(self, rows, page_text):
+        client = SimpleNamespace(
+            databases=Mock(),
+            pages=Mock(),
+            blocks=SimpleNamespace(children=Mock()),
+        )
+        client.databases.query.return_value = {"results": rows}
+        client.pages.create.return_value = {"id": "new-page"}
+        client.blocks.children.list.side_effect = lambda block_id, **_: {
+            "results": [{"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": page_text.get(block_id, "")}]}}],
+            "has_more": False,
+        }
+        return client
+
+    def _upsert(self, client):
+        with (
+            patch.object(adapter, "_session_properties", return_value={}),
+            patch.object(adapter, "_session_page_blocks", return_value=[]),
+        ):
+            return adapter._upsert_session_page(client, "db", "participant", {"session_id": "S1"}, {}, {})
+
+    def test_a_complete_page_is_left_unchanged(self) -> None:
+        client = self._client([{"id": "old"}], {"old": self.MARKER})
+        self.assertEqual(self._upsert(client), "unchanged")
+        client.pages.create.assert_not_called()
+        client.pages.update.assert_not_called()
+
+    def test_a_page_cut_short_is_replaced_once(self) -> None:
+        client = self._client([{"id": "old"}], {"old": "half written"})
+        self.assertEqual(self._upsert(client), "updated")
+        client.pages.update.assert_called_once_with(page_id="old", archived=True)
+        client.pages.create.assert_called_once()
+        appended = client.blocks.children.append.call_args.kwargs["children"]
+        self.assertIn(self.MARKER, json.dumps(appended))
+
+
 if __name__ == "__main__":
     unittest.main()

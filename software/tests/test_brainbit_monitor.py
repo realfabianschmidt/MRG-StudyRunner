@@ -49,7 +49,7 @@ class MonitorTests(unittest.TestCase):
             adapter._streams.open('bands', nominal_rate_hz=25.0)
             payload = {'channels': ['delta', 'theta', 'alpha', 'beta', 'gamma'], 'samples': [[0.1, 0.2, 0.3, 0.25, 0.15]],
                        'timestamps': [1_780_000_000.0], 'sample_count': 1, 'validity': 'uncertain'}
-            with patch.object(adapter, '_lsl_epoch_offset', None), patch.object(adapter.time, 'time', return_value=1_780_000_000.04):
+            with patch.object(adapter, '_source_clock_anchors', {'epoch_anchor': 1_780_000_000.0, 'counter_anchor': 10.0, 'counter': 'perf_counter'}):
                 adapter._mirror_line_to_lsl('BANDS_BATCH ' + json.dumps(payload))
             clock[0] = 100.6
             bands = adapter._streams.status_blocks()['live']['series']['bands']
@@ -73,22 +73,25 @@ class MonitorTests(unittest.TestCase):
         args.serial_number = 'missing'
         self.assertIsNone(cli._select_sensor_info(bands, args)[1])
 
-    def test_nominal_packet_timeline_ignores_arrival_jitter_but_preserves_gaps(self):
+    def test_packet_timeline_reanchors_after_callback_pause_and_preserves_gaps(self):
         estimator = cli.SourceTimestampEstimator(250)
         first, _ = estimator.for_packets([1, 2], 100)
         second, events = estimator.for_packets([3, 5], 200)
-        self.assertAlmostEqual(second[0] - first[-1], .004)
+        self.assertAlmostEqual(second[-1], 200)
         self.assertAlmostEqual(second[1] - second[0], .008)
         self.assertEqual(events[-1]['gap_before'], 1)
+        self.assertGreater(events[0]['timing_discontinuity_seconds'], 90)
 
     def test_stable_lsl_mapping_survives_wall_clock_jump(self):
         adapter._streams.use_backend(FakePylsl(clock=100.0))
         adapter._streams.open('diagnostics')
+        anchors = {'epoch_anchor': 1_800_000_000.0, 'counter_anchor': 5.0, 'counter': 'perf_counter'}
         try:
-            with patch.object(adapter, '_lsl_epoch_offset', None), patch.object(adapter.time, 'time', return_value=1_800_000_000):
-                first = adapter._epoch_timestamps_to_lsl([1_800_000_000])[0]
-                with patch.object(adapter.time, 'time', return_value=1_900_000_000):
-                    second = adapter._epoch_timestamps_to_lsl([1_800_000_000.004])[0]
+            with patch.object(adapter, '_source_clock_anchors', anchors), patch('time.perf_counter', return_value=50.0):
+                with patch('time.time', return_value=1_800_000_000):
+                    first = adapter._source_timestamps_to_lsl([1_800_000_000])[0]
+                with patch('time.time', return_value=1_900_000_000):
+                    second = adapter._source_timestamps_to_lsl([1_800_000_000.004])[0]
         finally:
             adapter._streams.close()
         self.assertAlmostEqual(second - first, .004, places=6)

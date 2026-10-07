@@ -71,7 +71,7 @@ from the moment the board sent the frame is measured and recorded:
 
 - **The pings.** Once per second the plugin asks `/api/v2/ping`. A reply that
   carries the hub's wall clock (`server_now`) gives the round trip and one
-  clock-offset estimate (the NTP method, `shared/clock_offset.py`): the
+  clock-offset estimate (the NTP method, `clock_core/round_trip.py`): the
   fastest recent round trip is trusted, aged by a drift allowance; a jump of
   the hub clock (NTP on the hub) is accepted after three agreeing pings.
   Every ping *attempt* is one `hub_clock` sample, answered or not: a timeout,

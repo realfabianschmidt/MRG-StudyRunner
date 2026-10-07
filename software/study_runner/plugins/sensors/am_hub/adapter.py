@@ -62,7 +62,7 @@ from study_runner.plugin_framework.adapter_utils import set_state, timestamp
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 from study_runner.plugin_framework.sensor_connection import presence_sensor_connection
 from study_runner.plugin_framework.sensor_streams import SensorStreams
-from study_runner.shared.clock_offset import ClockExchange, RoundTripOffsetEstimator
+from study_runner.clock_core.round_trip import ClockExchange, RoundTripOffsetEstimator
 from .monitor import AmHubMonitor, channel_name
 
 _streams = SensorStreams.for_plugin(__file__)
@@ -818,7 +818,7 @@ def _ping_loop(generation: int) -> None:
     ``/api/v2/ping`` answers with ``server_now``, the hub's wall clock. With
     the send and receive times on this computer's LSL clock, a reply with a
     usable ``server_now`` is one exchange for the clock-offset estimate
-    (``shared/clock_offset.py``). Every attempt gets a row, successful or
+    (``clock_core/round_trip.py``). Every attempt gets a row, successful or
     not: an HTTP error or a timeout has no round trip to report either
     (``http_ok`` false); a reply that came back but carries no usable
     ``server_now`` still reports its round trip, just no hub time or

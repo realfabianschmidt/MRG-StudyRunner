@@ -11,6 +11,8 @@ import socket
 import time
 from typing import Any, Callable, Mapping
 
+from study_runner.clock_core import assessment
+from study_runner.clock_core.contract import BASIS_RECEIPT
 from study_runner.contracts.quality_journal import (
     EVENT_UNCONFIRMED_TAIL,
     QUALITY_JOURNAL_FILENAME,
@@ -91,11 +93,14 @@ def wait_for_required_worker_sources(
     By default every regular stream must already have fresh recorded samples.
     A source may declare ``primary_only`` for optional derived streams or
     ``headers_only`` when it emits irregular events without a steady rate.
+    Within the same window it waits for each stream's first LSL clock
+    correction; only one still missing then becomes a start warning.
     """
 
     deadline = monotonic() + timeout_seconds
     last_issues: list[str] = ["worker did not publish readiness state"]
     primary_ready_at: float | None = None
+    ready_health: Mapping[str, Any] | None = None
     while monotonic() < deadline or primary_ready_at is not None:
         response = client.send(
             "health",
@@ -150,29 +155,33 @@ def wait_for_required_worker_sources(
                 late.extend(secondary_issues)
         if issues:
             primary_ready_at = None
+            ready_health = None
             last_issues = issues
             if monotonic() >= deadline:
                 break
             sleeper(0.1)
             continue
-        if not late:
-            return health
-        if primary_ready_at is None:
-            primary_ready_at = monotonic()
-        if monotonic() - primary_ready_at >= secondary_grace_seconds:
-            return {**dict(health), "late_streams": late}
-        sleeper(0.05)
+        clock_warnings = _clock_warnings(source_states, required_sources)
+        ready_health = {**dict(health), "clock_warnings": clock_warnings}
+        if late:
+            ready_health["late_streams"] = late
+            if primary_ready_at is None:
+                primary_ready_at = monotonic()
+            if monotonic() - primary_ready_at < secondary_grace_seconds:
+                sleeper(0.05)
+                continue
+        if clock_warnings and monotonic() < deadline:
+            sleeper(0.05)
+            continue
+        return ready_health
+    if ready_health is not None:
+        return ready_health
     raise RecordingRuntimeError(
         "required recording sources did not become ready: " + "; ".join(last_issues)
     )
 
 
-def _stream_rate(item: Mapping[str, Any]) -> float:
-    try:
-        rate = float(item.get("nominal_rate_hz") or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
-    return rate if math.isfinite(rate) and rate > 0 else 0.0
+_stream_rate = assessment.regular_rate
 
 
 def _stream_issue(
@@ -193,17 +202,20 @@ def _stream_issue(
         fresh = False
     if not fresh:
         return f"{plugin_key}.{stream_key}: latest sample is stale"
-    if lsl_now is not None:
-        try:
-            timestamp_lag = float(lsl_now) - float(item["last_timestamp"])
-        except (KeyError, TypeError, ValueError):
-            return f"{plugin_key}.{stream_key}: latest sample has no valid LSL timestamp"
-        if not math.isfinite(timestamp_lag) or abs(timestamp_lag) > limit:
-            return (
-                f"{plugin_key}.{stream_key}: sample timestamps are "
-                f"{timestamp_lag:.3f}s from the LSL clock"
-            )
+    timestamp_lag = assessment.start_lag_seconds(item, lsl_now)
+    if timestamp_lag is not None and abs(timestamp_lag) > limit:
+        return (
+            f"{plugin_key}.{stream_key}: sample timestamps are "
+            f"{timestamp_lag:.3f}s from the LSL clock"
+        )
     return None
+
+
+def _clock_warnings(source_states: Mapping[str, Any], required_sources: set[str]) -> list[str]:
+    return [
+        f"{name}: LSL clock correction uncertain"
+        for name in assessment.uncertain_regular_streams(source_states, required_sources)
+    ]
 
 
 def split_stream_readiness_issues(
@@ -258,9 +270,24 @@ def stream_tail_issues(
     *,
     marker_lsl_timestamp: float,
 ) -> list[str]:
-    """Name every regular stream whose last sample is still before the end marker."""
+    """Name every regular stream that has not reached the end marker."""
+
+    lagging, _receipt_only = _stream_tail_status(
+        source_states, required_sources, marker_lsl_timestamp=marker_lsl_timestamp,
+    )
+    return lagging
+
+
+def _stream_tail_status(
+    source_states: Mapping[str, Any],
+    required_sources: set[str],
+    *,
+    marker_lsl_timestamp: float,
+) -> tuple[list[str], list[str]]:
+    """``(lagging, receipt_only)``: missing coverage, and coverage shown only by receipt time."""
 
     issues: list[str] = []
+    receipt_only: list[str] = []
     for plugin_key in sorted(required_sources):
         source = source_states.get(plugin_key)
         if not isinstance(source, Mapping):
@@ -278,15 +305,13 @@ def stream_tail_issues(
                 continue
             if _stream_rate(item) <= 0:
                 continue
-            stream_key = str(item.get("key") or item.get("source_id") or "stream")
-            last = item.get("last_timestamp")
-            try:
-                reached = last is not None and float(last) >= float(marker_lsl_timestamp)
-            except (TypeError, ValueError):
-                reached = False
+            name = f"{plugin_key}.{item.get('key') or item.get('source_id') or 'stream'}"
+            reached, basis = assessment.marker_coverage(item, float(marker_lsl_timestamp))
             if not reached:
-                issues.append(f"{plugin_key}.{stream_key}")
-    return issues
+                issues.append(name)
+            elif basis == BASIS_RECEIPT:
+                receipt_only.append(name)
+    return issues, receipt_only
 
 
 def wait_for_stream_tail(
@@ -306,7 +331,10 @@ def wait_for_stream_tail(
     sensors keep streaming for the next participant, and the file is closed
     only once each stream covers the marker-defined session window. A timeout
     never blocks finalization; the lagging streams are reported instead and
-    the source validation names them as a quality warning.
+    the source validation names them as a quality warning. A stream without
+    an LSL correction can only show coverage by its receipt time; it is
+    listed in ``receipt_only_streams``. The end marker is pushed on this
+    computer, so it is already on the recorder's clock.
     """
 
     deadline = monotonic() + max(0.0, timeout_seconds)
@@ -323,15 +351,17 @@ def wait_for_stream_tail(
             return {"reached": False, "lagging_streams": [], "worker_already_frozen": True}
         source_states = health.get("sources")
         source_states = source_states if isinstance(source_states, Mapping) else {}
-        lagging = stream_tail_issues(
+        lagging, receipt_only = _stream_tail_status(
             source_states,
             required_sources,
             marker_lsl_timestamp=marker_lsl_timestamp,
         )
-        if not lagging:
-            return {"reached": True, "lagging_streams": []}
-        if monotonic() >= deadline:
-            return {"reached": False, "lagging_streams": lagging}
+        if not lagging or monotonic() >= deadline:
+            return {
+                "reached": not lagging,
+                "lagging_streams": lagging,
+                "receipt_only_streams": receipt_only,
+            }
         sleeper(0.1)
 
 

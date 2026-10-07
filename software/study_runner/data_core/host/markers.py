@@ -28,6 +28,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
+from study_runner.clock_core.producer import WallToLsl
 from study_runner.shared.dependency_utils import ensure_requirements
 from study_runner.contracts.manifest import validate_and_normalize_manifest
 from study_runner.contracts.stream_contract import apply_stream_contract_desc
@@ -47,7 +48,7 @@ LSL_CHANNEL_UNITS = {stream["key"]: tuple(stream["channel_units"]) for stream in
 
 _outlet: Any = None
 _local_clock: Any = None
-_wall_to_lsl_offset: float | None = None
+_wall_to_lsl: WallToLsl | None = None
 _last_lsl_timestamp: float | None = None
 _lock = threading.RLock()
 
@@ -82,13 +83,13 @@ def initialize(hardware_config: Mapping[str, Any] | None = None) -> None:
         channel.append_child_value("unit", LSL_CHANNEL_UNITS["markers"][0])
         apply_stream_contract_desc(info, MANIFEST["streams"][0])
         outlet = StreamOutlet(info)
-        # Capture one mapping between wall time and LSL's monotonic clock.  A
-        # stable offset avoids reintroducing wall-clock jumps for every event.
+        # One stable wall-to-LSL mapping avoids reintroducing wall-clock
+        # jumps for every event (clock_core.producer.WallToLsl).
         with _lock:
-            global _local_clock, _wall_to_lsl_offset, _last_lsl_timestamp
+            global _local_clock, _wall_to_lsl, _last_lsl_timestamp
             _outlet = outlet
             _local_clock = local_clock
-            _wall_to_lsl_offset = float(local_clock()) - time.time()
+            _wall_to_lsl = WallToLsl(lsl_clock=local_clock)
             _last_lsl_timestamp = None
         print(f"[MARKERS] Outlet ready: {stream_name} ({stream_type})")
     except ImportError:
@@ -97,11 +98,11 @@ def initialize(hardware_config: Mapping[str, Any] | None = None) -> None:
 
 def stop() -> None:
     """Release the module-level LSL outlet."""
-    global _outlet, _local_clock, _wall_to_lsl_offset, _last_lsl_timestamp
+    global _outlet, _local_clock, _wall_to_lsl, _last_lsl_timestamp
     with _lock:
         _outlet = None
         _local_clock = None
-        _wall_to_lsl_offset = None
+        _wall_to_lsl = None
         _last_lsl_timestamp = None
 
 
@@ -115,7 +116,7 @@ def send_marker(value: str, *, server_epoch_ms: Any = None) -> dict[str, Any]:
     mapping is available the original ``push_sample([value])`` behavior is kept.
     """
 
-    global _last_lsl_timestamp, _wall_to_lsl_offset
+    global _last_lsl_timestamp
     with _lock:
         outlet = _outlet
         if outlet is None:
@@ -124,23 +125,12 @@ def send_marker(value: str, *, server_epoch_ms: Any = None) -> dict[str, Any]:
                 "marker_lsl_timestamp": None,
                 "marker_push_epoch_ms": None,
             }
-        host_clock_step_ms = None
-        if _local_clock is not None and _wall_to_lsl_offset is not None:
-            try:
-                local_now = float(_local_clock())
-                wall_now = time.time()
-                current_offset = local_now - wall_now
-            except (TypeError, ValueError, RuntimeError):
-                current_offset = math.nan
-            if math.isfinite(current_offset):
-                difference = current_offset - _wall_to_lsl_offset
-                if abs(difference) > 0.5:
-                    # A host wall-clock step invalidates an old wall-to-LSL
-                    # mapping. Do not backdate this marker with a guessed map.
-                    host_clock_step_ms = round(difference * 1000.0, 3)
-                    _wall_to_lsl_offset = current_offset
+        # A host wall-clock step invalidates the old mapping. Do not backdate
+        # this marker with a guessed map.
+        host_clock_step_ms = _wall_to_lsl.check_step() if _wall_to_lsl is not None else None
         requested_lsl_timestamp = (
-            None if host_clock_step_ms is not None else _mapped_lsl_timestamp(server_epoch_ms)
+            None if host_clock_step_ms is not None or _wall_to_lsl is None
+            else _wall_to_lsl.to_lsl(server_epoch_ms)
         )
         mapped_server_epoch = requested_lsl_timestamp is not None
         if requested_lsl_timestamp is None and _local_clock is not None:
@@ -175,19 +165,6 @@ def send_marker(value: str, *, server_epoch_ms: Any = None) -> dict[str, Any]:
                             else "mapped_server_epoch" if mapped_server_epoch
                             else "lsl_receipt",
     }
-
-
-def _mapped_lsl_timestamp(server_epoch_ms: Any) -> float | None:
-    if _wall_to_lsl_offset is None:
-        return None
-    try:
-        epoch_ms = float(server_epoch_ms)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(epoch_ms) or epoch_ms < 0:
-        return None
-    mapped = (epoch_ms / 1000.0) + _wall_to_lsl_offset
-    return mapped if math.isfinite(mapped) else None
 
 
 def status() -> dict[str, Any]:

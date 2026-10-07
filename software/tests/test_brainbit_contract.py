@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +23,7 @@ from neurosdk.cmn_types import (
 )
 
 from study_runner.plugins.sensors.brainbit import adapter
+from study_runner.clock_core import producer
 TESTS_ROOT = Path(__file__).resolve().parent
 if str(TESTS_ROOT) not in sys.path:
     sys.path.insert(0, str(TESTS_ROOT))
@@ -249,11 +250,20 @@ class EmotionalMathContractTests(unittest.TestCase):
         self.assertEqual(cli._result_value(Mental(), "inst_attention", "Inst_Attention"), 0.7)
 
 
+@contextmanager
+def _source_clock_now(source_now: float):
+    """The CLI announced its clock, and its ``source_now`` is this computer's LSL now."""
+    anchors = {"epoch_anchor": source_now, "counter_anchor": 7.0, "counter": "perf_counter"}
+    with (
+        mock.patch.object(adapter, "_source_clock_anchors", anchors),
+        mock.patch.object(producer.time, "perf_counter", return_value=7.0),
+    ):
+        yield
+
+
 class TimingAndLslTests(unittest.TestCase):
     def setUp(self) -> None:
-        adapter._lsl_epoch_offset = None
-        adapter._source_epoch_anchor = None
-        adapter._source_monotonic_anchor = None
+        adapter._source_clock_anchors = None
         self.lsl = FakePylsl(clock=500.0)
         adapter._streams.use_backend(self.lsl)
         adapter._eeg_lsl_channels = ()
@@ -261,9 +271,7 @@ class TimingAndLslTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         adapter._streams.close()
-        adapter._lsl_epoch_offset = None
-        adapter._source_epoch_anchor = None
-        adapter._source_monotonic_anchor = None
+        adapter._source_clock_anchors = None
         adapter._eeg_lsl_channels = ()
         adapter._lsl_stream_health = {}
 
@@ -280,17 +288,22 @@ class TimingAndLslTests(unittest.TestCase):
     def test_clock_anchor_maps_eeg_after_wall_clock_or_lsl_provider_shift(self) -> None:
         epoch_anchor = 1_800_000_000.0
         adapter._update_state_from_line(
-            f'CLOCK {{"epoch_anchor": {epoch_anchor}, "monotonic_anchor": 100.0}}'
+            f'CLOCK {{"epoch_anchor": {epoch_anchor}, "counter_anchor": 100.0, "counter": "perf_counter"}}'
         )
-        self.assertEqual(adapter._source_epoch_anchor, epoch_anchor)
+        self.assertEqual(adapter._source_clock_anchors["epoch_anchor"], epoch_anchor)
         adapter._streams.open("diagnostics")
         with (
             mock.patch.object(adapter._streams, "now", return_value=530.0),
-            mock.patch.object(adapter.time, "monotonic", return_value=200.0),
-            mock.patch.object(adapter.time, "time", return_value=epoch_anchor + 130.0),
+            mock.patch.object(producer.time, "perf_counter", return_value=200.0),
+            mock.patch.object(adapter.time, "time", return_value=epoch_anchor + 999.0),
         ):
-            converted = adapter._epoch_timestamps_to_lsl([epoch_anchor + 100.0])
+            converted = adapter._source_timestamps_to_lsl([epoch_anchor + 100.0])
         self.assertAlmostEqual(converted[0], 530.0)
+
+    def test_unannounced_source_clock_is_never_guessed(self) -> None:
+        adapter._streams.open("diagnostics")
+        self.assertIsNone(adapter._source_timestamps_to_lsl([1_800_000_000.0]))
+        self.assertIsNone(adapter._source_timestamps_to_lsl([12.5]))
 
     def test_derived_backlog_gets_distinct_25_hz_timestamps(self) -> None:
         estimator = cli.SourceTimestampEstimator(25)
@@ -314,6 +327,15 @@ class TimingAndLslTests(unittest.TestCase):
         self.assertEqual(second_events[0]["gap_before"], 2)
         self.assertEqual(estimator.packet_gap_frames_total, 2)
 
+    def test_callback_pauses_do_not_backdate_new_eeg(self) -> None:
+        for pause in (2.0, 30.0):
+            estimator = cli.SourceTimestampEstimator(250)
+            first, _ = estimator.for_packets([1, 2], 100.0)
+            second, events = estimator.for_packets([3, 4], 100.0 + pause)
+            self.assertAlmostEqual(second[-1], 100.0 + pause)
+            self.assertGreater(second[0] - first[-1], pause - 0.01)
+            self.assertIn('timing_discontinuity_seconds', events[0])
+
     def test_packet_counter_wrap_does_not_create_a_false_gap(self) -> None:
         estimator = cli.SourceTimestampEstimator(250)
 
@@ -331,7 +353,7 @@ class TimingAndLslTests(unittest.TestCase):
             "timestamps": [1_780_000_000.000, 1_780_000_000.004],
         }
 
-        with mock.patch.object(adapter.time, "time", return_value=1_780_000_000.004):
+        with _source_clock_now(1_780_000_000.004):
             adapter._mirror_line_to_lsl(f"EEG_BATCH {json.dumps(payload)}")
 
         outlet = self.lsl.outlet("study_runner.brainbit.eeg")
@@ -350,7 +372,7 @@ class TimingAndLslTests(unittest.TestCase):
             "sample_count": 2,
         }
 
-        with mock.patch.object(adapter.time, "time", return_value=1_780_000_000.040):
+        with _source_clock_now(1_780_000_000.040):
             adapter._mirror_line_to_lsl(f"BANDS_BATCH {json.dumps(payload)}")
 
         outlet = self.lsl.outlet("study_runner.brainbit.bands")
@@ -557,7 +579,8 @@ class HealthAndLoggingTests(unittest.TestCase):
             "sample_count": 1,
         }
 
-        adapter._push_eeg_chunk(payload)
+        with _source_clock_now(100.0):
+            adapter._push_eeg_chunk(payload)
 
         self.assertIn("outlet closed", adapter._latest_state["lsl_error"])
         self.assertEqual(adapter.get_status()["health"]["recording"], "failed")

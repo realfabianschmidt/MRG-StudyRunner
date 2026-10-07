@@ -223,6 +223,10 @@ class ArtifactPaths:
         return self.meta_dir / "manifest.json"
 
     @property
+    def clock_report_file(self) -> Path:
+        return self.meta_dir / "clock-report.json"
+
+    @property
     def checksums_file(self) -> Path:
         return self.meta_dir / "checksums.sha256"
 

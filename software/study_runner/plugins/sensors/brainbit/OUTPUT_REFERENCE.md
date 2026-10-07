@@ -181,9 +181,16 @@ warnings, outlet existence, and tracebacks do not count as fresh recorded EEG.
 
 `SCANNING`, `SELECTION_REQUIRED`, `CONNECTING`, `CONNECTED`, `DISCONNECTED` and
 `WAITING` describe transport lifecycle separately from calibration/contact.
-`CLOCK` provides an epoch/monotonic anchor; EEG batches also carry the observed
-`received_epoch` and `received_monotonic`, separately from reconstructed sample
-timestamps. The latter retain nominal packet spacing and observable gaps.
+`CLOCK` announces the CLI's source clock (`clock_core.producer.SourceClock`):
+`epoch_anchor`, `counter_anchor` and `counter: "perf_counter"`. Every source
+time, reconstructed sample timestamps and the callback receipt time
+`received_epoch` alike, is on that one clock, so the two can be compared
+directly. EEG batches also carry `received_monotonic` for throughput only.
+Reconstructed timestamps keep nominal packet spacing and observable gaps; when a
+callback arrives more than 0.1 s away from that timeline (a paused callback),
+the batch is re-anchored on its receipt time and `DATA_WARNING` reports
+`timing_discontinuity_seconds` with `timestamp_quality: host_callback_reconstructed`.
+No sample is invented for the pause.
 
 Derived batches carry `validity` (`valid`, `uncertain`, or `unknown` for older
 producers). Analytics drains each input frame's output before advancing, so an
@@ -200,7 +207,9 @@ bounds, `EEG_TIMING`, `PROCESS_EXIT`, `ACQUISITION_END` and `INITIALIZE_REUSED`.
 second during status/acquisition updates, so recorders joining later can obtain
 the pre-recording calibration and contact measurement. Diagnostic timestamps are
 observations in the LSL clock domain; embedded source-time bounds identify the
-metric interval. `CLOCK` allows conversion of those source epoch values to LSL.
+metric interval. `CLOCK` and `EEG_TIMING` carry `source_to_lsl_shift_s`: add
+it to a source time (including `received_epoch`) to obtain the LSL time the
+adapter used.
 
 On Windows, `3221225786` / `0xC000013A` identifies a console interruption;
 `3221225477` / `0xC0000005` identifies a native access violation. Both are

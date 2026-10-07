@@ -31,6 +31,7 @@ from .monitor import BrainBitMonitor
 from study_runner.plugin_framework.history_buffer import history_maxlen, max_gap_seconds, samples_in_interval, truncation_info
 
 from study_runner.plugin_framework.sensor_streams import SensorStreams
+from study_runner.clock_core.producer import SourceToLsl
 from .brainbit_realtime_cli import (
     EXIT_BLE_UNAVAILABLE,
     EXIT_CALLBACK_FAILURE,
@@ -184,9 +185,8 @@ _DERIVED_TAGS = {"BANDS", "MENTAL", "BANDS_BATCH", "MENTAL_BATCH"}
 _BANDS_FIELDS = ("delta", "theta", "alpha", "beta", "gamma")
 _MENTAL_FIELDS = ("Inst_Attention", "Inst_Relaxation", "Rel_Attention", "Rel_Relaxation")
 _monitor = BrainBitMonitor()
-_lsl_epoch_offset: float | None = None
-_source_epoch_anchor: float | None = None
-_source_monotonic_anchor: float | None = None
+# The CLI's CLOCK line: its source timeline's anchors (clock_core.producer).
+_source_clock_anchors: dict[str, Any] | None = None
 _last_diagnostic_snapshot = 0.0
 _DIAGNOSTIC_TAGS = {"SCANNING", "DEVICE_SELECTED", "DEVICE", "CONNECTING", "CONNECTED", "DISCONNECTED",
                     "WAITING", "CONNECT_FAILED", "SELECTION_REQUIRED", "STOPPED", "CLOCK",
@@ -1375,7 +1375,7 @@ def _remember_connected_band(payload: dict[str, Any]) -> None:
 def _update_state_from_line(line: str) -> bool:
     global _last_activity_at, _last_any_line_at, _last_sensor_activity_at
     global _last_eeg_at, _last_quality_at, _last_derived_at, _signal_started_at, _connected_at
-    global _lsl_epoch_offset, _source_epoch_anchor, _source_monotonic_anchor
+    global _source_clock_anchors
 
     important = False
     now = time.time()
@@ -1411,13 +1411,9 @@ def _update_state_from_line(line: str) -> bool:
             if tag == "CONNECTED":
                 state_update.update(retry_attempt=None, next_retry_at=None)
             if tag == "CLOCK":
-                _source_epoch_anchor = float(payload["epoch_anchor"])
-                _source_monotonic_anchor = float(payload["monotonic_anchor"])
-                _lsl_epoch_offset = None
+                _source_clock_anchors = dict(payload)
             if tag == "SCANNING":
-                _source_epoch_anchor = None
-                _source_monotonic_anchor = None
-                _lsl_epoch_offset = None
+                _source_clock_anchors = None
                 state_update.update(status="scanning", scan_candidates=[], next_retry_at=None,
                                     actual_streams=None, supported_channels=None)
                 _stream_contract_ready.clear()
@@ -1894,7 +1890,7 @@ def _mirror_line_to_lsl(line: str) -> None:
         # Recorded as they are; only the live graph shows a gap here.
         _streams.invalidate_live(_DERIVED_LIVE_SERIES)
     if tag == "CLOCK":
-        payload = {**payload, "lsl_epoch_offset": _lsl_epoch_offset}
+        payload = {**payload, "source_to_lsl_shift_s": _source_to_lsl_shift()}
     if tag in _DIAGNOSTIC_TAGS:
         _publish_diagnostic(tag, payload)
     if tag in {"BANDS_BATCH", "MENTAL_BATCH"}:
@@ -1907,7 +1903,7 @@ def _mirror_line_to_lsl(line: str) -> None:
             "ts", "end_ts", "sample_count", "received_epoch", "received_monotonic",
             "packet_gap_frames_total", "packet_counter_events", "measured_hz",
             "queue_overflow_dropped_total", "timestamp_source")}
-            | {"lsl_epoch_offset": _lsl_epoch_offset})
+            | {"source_to_lsl_shift_s": _source_to_lsl_shift()})
     _publish_diagnostic_snapshot()
 
     if tag == "EEG_BATCH":
@@ -1942,9 +1938,15 @@ def _push_sample(stream_key: str, payload: dict[str, Any], fields: tuple[str, ..
         _record_lsl_failure(stream_key, "sample payload is missing valid numeric channels")
         return
 
-    timestamp = _payload_timestamp_to_lsl(payload.get("ts"))
     valid = _validity_flag(payload) if key in _DERIVED_LIVE_SERIES else None
-    _record_push(stream_key, _streams.push(key, values, _streams.now() if timestamp is None else timestamp, valid=valid))
+    if payload.get("ts") is None:
+        _record_push(stream_key, _streams.push(key, values, _streams.now(), valid=valid))
+        return
+    converted = _source_timestamps_to_lsl([payload.get("ts")])
+    if converted is None:
+        _record_lsl_failure(stream_key, "source timestamps could not be converted to the LSL clock")
+        return
+    _record_push(stream_key, _streams.push(key, values, converted[0], valid=valid))
 
 
 def _push_eeg_chunk(payload: dict[str, Any]) -> None:
@@ -1977,7 +1979,7 @@ def _push_eeg_chunk(payload: dict[str, Any]) -> None:
         now = _streams.now()
         lsl_timestamps = [now - (len(values) - 1 - index) * period for index in range(len(values))]
     else:
-        lsl_timestamps = _epoch_timestamps_to_lsl(timestamps)
+        lsl_timestamps = _source_timestamps_to_lsl(timestamps)
         if lsl_timestamps is None:
             _record_lsl_failure("EEG", "source timestamps could not be converted to the LSL clock")
             return
@@ -2000,7 +2002,7 @@ def _push_metric_chunk(
         _streams.reject(key, f"invalid batch: {error}")
         _record_lsl_failure(stream_key, f"invalid batch: {error}")
         return
-    lsl_timestamps = _epoch_timestamps_to_lsl(timestamps)
+    lsl_timestamps = _source_timestamps_to_lsl(timestamps)
     if lsl_timestamps is None:
         _record_lsl_failure(stream_key, "source timestamps could not be converted to the LSL clock")
         return
@@ -2066,36 +2068,31 @@ def _record_lsl_failure(stream_key: str, error: str) -> None:
     )
 
 
-def _payload_timestamp_to_lsl(value: Any) -> float | None:
-    converted = _epoch_timestamps_to_lsl([value])
-    return converted[0] if converted else None
+def _source_to_lsl() -> SourceToLsl | None:
+    """The CLI's announced source clock mapped onto this computer's LSL clock."""
+    if _source_clock_anchors is None or not _streams.contracts():
+        return None
+    try:
+        return SourceToLsl(_source_clock_anchors, lsl_clock=_streams.now)
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
-def _epoch_timestamps_to_lsl(values: list[Any]) -> list[float] | None:
-    global _lsl_epoch_offset
+def _source_timestamps_to_lsl(values: list[Any]) -> list[float] | None:
+    """None when the CLI has not announced its clock: never guess a mapping."""
     try:
         timestamps = [float(value) for value in values]
     except (TypeError, ValueError):
         return None
-    if not timestamps:
-        return []
-    # Unix epoch timestamps are converted into pylsl.local_clock's domain on
-    # the host. Already-local timestamps are passed through unchanged.
-    if max(timestamps) < 100_000_000:
-        return timestamps
-    if not _streams.contracts():
+    if not all(math.isfinite(value) for value in timestamps):
         return None
-    if _source_epoch_anchor is not None and _source_monotonic_anchor is not None:
-        # The CLI's epoch timestamps use its monotonic anchor. Recompute the
-        # LSL/monotonic relation after an outlet opens or a clock provider
-        # changes; wall-clock jumps must never shift EEG against study markers.
-        _lsl_epoch_offset = (
-            float(_streams.now()) - time.monotonic()
-            + _source_monotonic_anchor - _source_epoch_anchor
-        )
-    elif _lsl_epoch_offset is None:
-        _lsl_epoch_offset = float(_streams.now()) - time.time()
-    return [timestamp + _lsl_epoch_offset for timestamp in timestamps]
+    mapping = _source_to_lsl()
+    return None if mapping is None else mapping.to_lsl(timestamps)
+
+
+def _source_to_lsl_shift() -> float | None:
+    mapping = _source_to_lsl()
+    return None if mapping is None else mapping.to_lsl([0.0])[0]
 
 
 def _publish_diagnostic(tag: str, payload: dict[str, Any]) -> None:

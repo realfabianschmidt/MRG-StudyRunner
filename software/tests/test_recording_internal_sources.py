@@ -20,6 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from study_runner.clock_core.producer import WallToLsl
 from study_runner.data_core.host import clock_diagnostics, markers
 
 
@@ -58,7 +59,7 @@ class MarkersTests(unittest.TestCase):
     def test_explicit_server_time_uses_stable_monotonic_mapping_and_order(self) -> None:
         outlet = _Outlet()
         markers._outlet = outlet
-        markers._wall_to_lsl_offset = -900.0
+        markers._wall_to_lsl = WallToLsl(lsl_clock=lambda: 100.0, wall=lambda: 1000.0)
 
         first = markers.send_marker("first", server_epoch_ms=1_000_000.0)
         second = markers.send_marker("older-retry", server_epoch_ms=999_000.0)
@@ -73,10 +74,11 @@ class MarkersTests(unittest.TestCase):
         outlet = _Outlet()
         markers._outlet = outlet
         markers._local_clock = lambda: 100.0
-        markers._wall_to_lsl_offset = -900.0
-        with patch.object(markers.time, "time", side_effect=[1000.0, 1000.0, 1002.0, 1002.0]):
-            first = markers.send_marker("before", server_epoch_ms=1_000_000.0)
-            after = markers.send_marker("after", server_epoch_ms=1_002_000.0)
+        wall = [1000.0]
+        markers._wall_to_lsl = WallToLsl(lsl_clock=lambda: 100.0, wall=lambda: wall[0])
+        first = markers.send_marker("before", server_epoch_ms=1_000_000.0)
+        wall[0] = 1002.0
+        after = markers.send_marker("after", server_epoch_ms=1_002_000.0)
         self.assertEqual(first["timestamp_source"], "mapped_server_epoch")
         self.assertEqual(after["timestamp_source"], "lsl_receipt_after_clock_step")
         self.assertEqual(after["host_clock_step_ms"], -2000.0)
@@ -203,7 +205,7 @@ class TrialServiceDispatchTests(unittest.TestCase):
         outlet = _Outlet()
         markers._outlet = outlet
         markers._local_clock = None
-        markers._wall_to_lsl_offset = -900.0
+        markers._wall_to_lsl = WallToLsl(lsl_clock=lambda: 100.0, wall=lambda: 1000.0)
         markers._last_lsl_timestamp = 100.0
 
         # Before push the wall clock is 1000.0; the fake outlet records the

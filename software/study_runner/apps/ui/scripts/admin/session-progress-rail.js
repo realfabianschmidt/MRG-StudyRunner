@@ -9,7 +9,7 @@
  */
 import { t } from '../shared/i18n.js';
 import { escapeHtml, formatDateTime } from '../shared/dom-utils.js';
-import { finalizationStepLabel } from '../shared/finalization-view-model.js';
+import { distinctFinalizationWarnings, finalizationStepLabel } from '../shared/finalization-view-model.js';
 
 const STEP_ICONS = {
   done: 'iconoir-check-circle',
@@ -60,10 +60,10 @@ export function renderSessionProgressRail(container, session, job, actions = {})
   }
 
   const problems = steps.filter((step) => step.error || step.retryable);
-  const problemMessages = new Set(problems.map((step) => `${step.key}: ${step.error}`));
-  const warnings = Array.isArray(job?.warnings)
-    ? [...new Set(job.warnings.filter(Boolean))].filter((warning) => !problemMessages.has(warning))
-    : [];
+  const warnings = distinctFinalizationWarnings(
+    job?.warnings,
+    problems.map((step) => `${step.key}: ${step.error}`),
+  );
 
   container.innerHTML = `
     <ol class="progress-rail" aria-label="${escapeHtml(t('sessions.rail.title', 'Session progress'))}">

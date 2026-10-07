@@ -66,3 +66,10 @@ function humanize(value) {
     .replace(/[._-]+/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
+
+// Each problem is shown once: as its failed step, or else once in the warnings.
+export function distinctFinalizationWarnings(warnings, problemMessages = []) {
+  const shown = new Set(problemMessages);
+  return [...new Set((Array.isArray(warnings) ? warnings : []).filter(Boolean).map(String))]
+    .filter((warning) => !shown.has(warning));
+}

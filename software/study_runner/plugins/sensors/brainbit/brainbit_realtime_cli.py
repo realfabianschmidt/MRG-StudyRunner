@@ -29,6 +29,8 @@ import threading
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from study_runner.clock_core.producer import SourceClock, callback_batch_start
+
 REQUIRED_MODULES = [
     ("neurosdk", "pyneurosdk2==1.0.15"),
     ("pythonosc", "python-osc==1.9.3"),
@@ -474,13 +476,19 @@ class SourceTimestampEstimator:
             previous = current
 
         within_batch_steps = sum(steps[1:])
-        first = float(received_epoch) - (within_batch_steps * self.sample_interval)
-        if self.last_timestamp is not None:
-            first = self.last_timestamp + (steps[0] * self.sample_interval)
+        first, spacing, discontinuity = callback_batch_start(
+            received_epoch=received_epoch,
+            within_batch_steps=within_batch_steps,
+            previous_timestamp=self.last_timestamp,
+            first_step=steps[0],
+            sample_interval=self.sample_interval,
+        )
+        if discontinuity is not None:
+            events[0]["timing_discontinuity_seconds"] = discontinuity
 
         timestamps = [first]
         for advance in steps[1:]:
-            timestamps.append(timestamps[-1] + (advance * self.sample_interval))
+            timestamps.append(timestamps[-1] + (advance * spacing))
 
         self.last_timestamp = timestamps[-1]
         self.last_packet_number = parsed[-1]
@@ -1141,12 +1149,10 @@ def _run_until_stopped(args, osc, stop_event: threading.Event) -> int:
 
 def _run_session(args, osc, stop_event: threading.Event) -> int:
     """One attempt: scan, connect, stream, disconnect. Returns an exit code."""
-    epoch_anchor, monotonic_anchor = time.time(), time.monotonic()
-    def source_now():
-        return epoch_anchor + time.monotonic() - monotonic_anchor
+    source_clock = SourceClock()
+    source_now = source_clock.now
     _print_json("SCANNING", {"scan_seconds": args.scan_seconds})
-    _print_json("CLOCK", {"epoch_anchor": epoch_anchor, "monotonic_anchor": monotonic_anchor,
-                          "timestamp_source": "host_callback_reconstructed"})
+    _print_json("CLOCK", {**source_clock.anchors(), "timestamp_source": "host_callback_reconstructed"})
     # --- Scan / select device ---
     scanner = Scanner(_brainbit_sensor_families(SensorFamily))
 
@@ -1629,7 +1635,11 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             if event.get("counter_event") in {"gap", "reset", "duplicate", "unknown"}
         ]
         packet_gap_frames = sum(int(event.get("gap_before") or 0) for event in packet_timing)
-        if decode_errors or packet_events:
+        timing_discontinuity = next(
+            (event["timing_discontinuity_seconds"] for event in packet_timing
+             if "timing_discontinuity_seconds" in event), None
+        )
+        if decode_errors or packet_events or timing_discontinuity is not None:
             warning: dict[str, Any] = {
                 "phase": "signal_integrity",
                 "discarded_frames": len(decode_errors),
@@ -1638,6 +1648,9 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
                 "packet_counter_reset_total": timestamp_estimator.packet_counter_reset_total,
                 "packet_counter_events": packet_events[:16],
             }
+            if timing_discontinuity is not None:
+                warning["timing_discontinuity_seconds"] = timing_discontinuity
+                warning["timestamp_quality"] = "host_callback_reanchored"
             if decode_errors:
                 warning["decode_error"] = decode_errors[0]
             _print_json("DATA_WARNING", warning)
@@ -1661,7 +1674,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             output_rows.append(
                 {
                     "timestamp": timestamp,
-                    "received_epoch": time.time(),
+                    "received_epoch": now,
                     "received_monotonic": monotonic_now,
                     "pack": _json_number(_safe(pkt, "PackNum")),
                     "marker": _json_number(_safe(pkt, "Marker")),
@@ -1844,7 +1857,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             )
 
     def on_fpg(s, data):
-        ts = time.time()
+        ts = source_now()
         for pkt in _iter(data):
             row = {"ts": round(ts, 3), "pack": _safe(pkt, "PackNum"),
                    "IrAmplitude": _safe(pkt, "IrAmplitude"), "RedAmplitude": _safe(pkt, "RedAmplitude")}
@@ -1853,7 +1866,7 @@ def _run_session(args, osc, stop_event: threading.Event) -> int:
             _send_num(osc, "FPG", "RedAmplitude", row["RedAmplitude"])
 
     def on_mems(s, data):
-        ts = time.time()
+        ts = source_now()
         for pkt in _iter(data):
             acc = _safe(pkt, "Accelerometer"); gyr = _safe(pkt, "Gyroscope")
             row = {"ts": round(ts, 3), "pack": _safe(pkt, "PackNum"),

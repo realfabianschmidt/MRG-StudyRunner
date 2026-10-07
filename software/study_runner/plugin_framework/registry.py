@@ -276,7 +276,13 @@ def run_session_end(
         try:
             plugin.on_session_end(context, dict(options))
         except Exception as error:
-            runtime[plugin.key] = {"ok": False, "error": str(error)}
+            # A timeout leaves the outcome unknown: the plugin may still be
+            # resetting. Any other failure is a finished, reported attempt.
+            runtime[plugin.key] = {
+                "ok": False,
+                "error": str(error),
+                "outcome_known": getattr(error, "error_kind", "") != "timeout",
+            }
             print(f"[INTEGRATION] {plugin.key} session end failed: {error}")
         else:
             runtime[plugin.key] = {"ok": True}

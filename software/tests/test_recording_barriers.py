@@ -65,6 +65,8 @@ def _stream(key, rate, *, count=0, age=None, last=None, primary=False):
         "sample_count": count,
         "last_sample_age_seconds": age,
         "last_timestamp": last,
+        "clock_status": "corrected",
+        "clock_correction_seconds": 0.0,
     }
 
 
@@ -203,7 +205,8 @@ class StartBarrierTests(unittest.TestCase):
             monotonic=clock.monotonic,
             sleeper=clock.sleep,
         )
-        self.assertEqual(result, health)
+        self.assertEqual(result["sources"], health["sources"])
+        self.assertEqual(result["clock_warnings"], [])
 
 
 class EndBarrierTests(unittest.TestCase):
@@ -223,6 +226,76 @@ class EndBarrierTests(unittest.TestCase):
             stream_tail_issues(sources, {"brainbit"}, marker_lsl_timestamp=self.MARKER),
             ["brainbit.bands"],
         )
+
+    def test_remote_clock_correction_is_used_for_end_coverage(self) -> None:
+        stream = _stream("eeg", 250, last=self.MARKER - 10.0)
+        stream["clock_correction_seconds"] = 10.1
+        self.assertEqual(
+            stream_tail_issues({"brainbit": {"streams": [stream]}}, {"brainbit"}, marker_lsl_timestamp=self.MARKER),
+            [],
+        )
+
+    def test_without_correction_only_the_recorder_receipt_time_is_compared(self) -> None:
+        # The outlet timestamp (30 s behind) is on an unknown clock, so it is
+        # not compared at all; receipt after the marker is the only evidence.
+        stream = _stream("eeg", 250, count=100, age=0.01, last=self.MARKER - 30.0)
+        stream.update(clock_status="uncertain", clock_correction_seconds=None, last_receipt_lsl=self.MARKER + 0.2)
+        result = wait_for_stream_tail(
+            _Client(_health([stream])), session_id="s", generation=1,
+            required_sources={"brainbit"}, marker_lsl_timestamp=self.MARKER,
+        )
+        self.assertTrue(result["reached"])
+        self.assertEqual(result["lagging_streams"], [])
+        self.assertEqual(result["receipt_only_streams"], ["brainbit.eeg"])
+
+    def test_without_correction_and_without_later_receipt_the_stream_lags(self) -> None:
+        clock = _Clock()
+        stream = _stream("eeg", 250, count=100, age=0.01, last=self.MARKER + 5.0)
+        stream.update(clock_status="uncertain", clock_correction_seconds=None, last_receipt_lsl=self.MARKER - 0.5)
+        result = wait_for_stream_tail(
+            _Client(_health([stream])), session_id="s", generation=1,
+            required_sources={"brainbit"}, marker_lsl_timestamp=self.MARKER,
+            timeout_seconds=0.3, monotonic=clock.monotonic, sleeper=clock.sleep,
+        )
+        self.assertFalse(result["reached"])
+        self.assertEqual(result["lagging_streams"], ["brainbit.eeg"])
+
+    def test_corrected_remote_clock_is_used_for_start_readiness(self) -> None:
+        stream = _stream("eeg", 250, count=100, age=0.01, last=90.0, primary=True)
+        stream["clock_correction_seconds"] = 10.0
+        health = _health([stream])
+        health["lsl_now"] = 100.0
+        result = wait_for_required_worker_sources(
+            _Client(health), session_id="s", generation=1,
+            manifests=MANIFESTS, required_sources={"brainbit"},
+        )
+        self.assertEqual(result["clock_warnings"], [])
+
+    def test_start_waits_for_the_first_clock_correction(self) -> None:
+        clock = _Clock()
+        uncorrected = _stream("eeg", 250, count=100, age=0.01, last=99.9, primary=True)
+        uncorrected.update(clock_status="uncertain", clock_correction_seconds=None)
+        corrected = _stream("eeg", 250, count=120, age=0.01, last=99.95, primary=True)
+        client = _Client(_health([uncorrected]), _health([uncorrected]), _health([corrected]))
+        result = wait_for_required_worker_sources(
+            client, session_id="s", generation=1, manifests=MANIFESTS, required_sources={"brainbit"},
+            monotonic=clock.monotonic, sleeper=clock.sleep,
+        )
+        self.assertEqual(result["clock_warnings"], [])
+        self.assertEqual(client.calls, 3)
+
+    def test_a_correction_still_missing_at_the_deadline_starts_with_a_warning(self) -> None:
+        clock = _Clock()
+        stream = _stream("eeg", 250, count=100, age=0.01, last=99.9, primary=True)
+        stream.update(clock_status="uncertain", clock_correction_seconds=None)
+        health = _health([stream])
+        health["lsl_now"] = 100.0
+        result = wait_for_required_worker_sources(
+            _Client(health), session_id="s", generation=1, manifests=MANIFESTS,
+            required_sources={"brainbit"}, timeout_seconds=0.5,
+            monotonic=clock.monotonic, sleeper=clock.sleep,
+        )
+        self.assertEqual(result["clock_warnings"], ["brainbit.eeg: LSL clock correction uncertain"])
 
     def test_missing_worker_source_cannot_report_a_reached_tail(self) -> None:
         self.assertEqual(

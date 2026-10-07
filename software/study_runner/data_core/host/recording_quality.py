@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Iterable, Mapping
 
+from study_runner.clock_core import assessment
+from study_runner.clock_core import contract as clock_contract
 from study_runner.data_core.host import markers
 from study_runner.data_core.host.artifacts import ArtifactPaths
 from study_runner.data_core.contract.backup_projection import BackupSampler, projections_from_manifest
@@ -78,6 +80,8 @@ QUALITY_WARNING_CODES = frozenset(
         "source_stream_drain_unconfirmed",
         "severe_sample_loss",
         "empty_declared_stream",
+        "clock_alignment_uncertain",
+        "clock_uncertain_at_start",
         "missing_declared_stream",
         "web_server_lease_expired",
         "recording_lease_unreadable",
@@ -253,6 +257,13 @@ def scientific_source_checks(
                     "sample_count": 0,
                     "first_timestamp": None,
                     "last_timestamp": None,
+                    "aligned_first_timestamp": None,
+                    "aligned_last_timestamp": None,
+                    "clock_alignments": set(),
+                    "clock_correction_values": [],
+                    "discontinuity_count": 0,
+                    "largest_discontinuity_seconds": None,
+                    "quality_timestamp_segments": [],
                     "nominal_rate_hz": stream.nominal_srate,
                     "name": stream.name,
                     "timestamps_monotonic": True,
@@ -264,6 +275,30 @@ def scientific_source_checks(
                 },
             )
             item["sample_count"] += stream.sample_count
+            item["clock_alignments"].add(stream.clock_alignment)
+            item["clock_correction_values"].extend(stream.clock_correction_values)
+            jumps = stream.timeline_discontinuities or {}
+            item["discontinuity_count"] += int(jumps.get("count") or 0)
+            if jumps.get("largest_seconds") is not None:
+                item["largest_discontinuity_seconds"] = max(
+                    float(item["largest_discontinuity_seconds"] or 0.0),
+                    float(jumps["largest_seconds"]),
+                )
+            quality_times = stream.quality_timestamps
+            if quality_times is not None:
+                item["quality_timestamp_segments"].append(quality_times)
+            aligned_first = float(quality_times[0]) if quality_times is not None and len(quality_times) else stream.first_timestamp
+            aligned_last = float(quality_times[-1]) if quality_times is not None and len(quality_times) else stream.last_timestamp
+            if aligned_first is not None:
+                item["aligned_first_timestamp"] = (
+                    aligned_first if item["aligned_first_timestamp"] is None
+                    else min(item["aligned_first_timestamp"], aligned_first)
+                )
+            if aligned_last is not None:
+                item["aligned_last_timestamp"] = (
+                    aligned_last if item["aligned_last_timestamp"] is None
+                    else max(item["aligned_last_timestamp"], aligned_last)
+                )
             if stream.first_timestamp is not None:
                 item["first_timestamp"] = (
                     stream.first_timestamp
@@ -288,12 +323,19 @@ def scientific_source_checks(
                 item["sequence_drop_count"] = int(item.get("sequence_drop_count") or 0) + int(
                     stream.sequence_drop_count
                 )
-            if stream.first_timestamp is not None and stream.last_timestamp is not None:
+            if aligned_first is not None and aligned_last is not None:
                 item["segment_bounds"].append(
-                    (stream.first_timestamp, stream.last_timestamp)
+                    (aligned_first, aligned_last)
                 )
 
     for item in aggregated.values():
+        alignments = item.pop("clock_alignments")
+        item["clock_alignment"] = (
+            clock_contract.UNCERTAIN if clock_contract.UNCERTAIN in alignments
+            else clock_contract.CORRECTED if clock_contract.CORRECTED in alignments
+            else clock_contract.LOCAL if clock_contract.LOCAL in alignments
+            else clock_contract.UNCERTAIN
+        )
         bounds = sorted(item.pop("segment_bounds", []))
         for previous, current in zip(bounds, bounds[1:]):
             boundary_gap = float(current[0]) - float(previous[1])
@@ -307,12 +349,17 @@ def scientific_source_checks(
         item
         for (source_key, _source_id), item in aggregated.items()
         if source_key in marker_keys
-        and item["first_timestamp"] is not None
-        and item["last_timestamp"] is not None
+        and item["aligned_first_timestamp"] is not None
+        and item["aligned_last_timestamp"] is not None
     ]
-    marker_start = min((item["first_timestamp"] for item in marker_ranges), default=None)
-    marker_end = max((item["last_timestamp"] for item in marker_ranges), default=None)
+    marker_start = min((item["aligned_first_timestamp"] for item in marker_ranges), default=None)
+    marker_end = max((item["aligned_last_timestamp"] for item in marker_ranges), default=None)
     issues: list[ValidationIssue] = []
+    for warning in plan.get("clock_warnings_at_start") or []:
+        issues.append(ValidationIssue(
+            code="clock_uncertain_at_start",
+            message=str(warning),
+        ))
     metrics: list[dict[str, Any]] = []
     for plugin_key in sorted(required):
         for declared in streams_by_source.get(plugin_key) or []:
@@ -332,6 +379,17 @@ def scientific_source_checks(
             expected_count = None
             missing_count = None
             sample_coverage = None
+            window_sample_count = None
+            if (
+                marker_start is not None
+                and marker_end is not None
+                and actual["clock_alignment"] != clock_contract.UNCERTAIN
+            ):
+                segments = actual["quality_timestamp_segments"]
+                window_sample_count = sum(
+                    assessment.window_sample_count(segment, marker_start, marker_end)
+                    for segment in segments
+                ) if segments else int(actual["sample_count"])
             if (
                 expected_rate > 0
                 and marker_start is not None
@@ -339,16 +397,26 @@ def scientific_source_checks(
                 and marker_end >= marker_start
             ):
                 expected_count = max(1, int(round((marker_end - marker_start) * expected_rate)))
-                missing_count = max(0, expected_count - int(actual["sample_count"]))
-                sample_coverage = min(1.0, int(actual["sample_count"]) / expected_count)
+                if window_sample_count is not None:
+                    missing_count = max(0, expected_count - window_sample_count)
+                    sample_coverage = min(1.0, window_sample_count / expected_count)
             metrics.append(
                 {
                     "source_key": plugin_key,
                     "source_id": source_id,
                     "nominal_rate_hz": actual["nominal_rate_hz"],
                     "sample_count": actual["sample_count"],
+                    "window_sample_count": window_sample_count,
                     "first_timestamp": actual["first_timestamp"],
                     "last_timestamp": actual["last_timestamp"],
+                    "aligned_first_timestamp": actual["aligned_first_timestamp"],
+                    "aligned_last_timestamp": actual["aligned_last_timestamp"],
+                    "clock_alignment": actual["clock_alignment"],
+                    "clock_corrections": assessment.correction_summary(actual["clock_correction_values"]),
+                    "timeline_discontinuities": {
+                        "count": actual["discontinuity_count"],
+                        "largest_seconds": actual["largest_discontinuity_seconds"],
+                    },
                     "expected_sample_count": expected_count,
                     "missing_sample_count": missing_count,
                     "sample_coverage": sample_coverage,
@@ -386,6 +454,12 @@ def scientific_source_checks(
                         source_key=plugin_key,
                     )
                 )
+            if actual["clock_alignment"] == clock_contract.UNCERTAIN and expected_rate > 0:
+                issues.append(ValidationIssue(
+                    code="clock_alignment_uncertain",
+                    message=f"stream {source_id!r} has no reliable LSL clock correction",
+                    source_key=plugin_key,
+                ))
             if sample_coverage is not None and sample_coverage < 0.5:
                 issues.append(
                     ValidationIssue(
@@ -402,11 +476,12 @@ def scientific_source_checks(
                 and expected_rate > 0
                 and marker_start is not None
                 and marker_end is not None
+                and actual["clock_alignment"] != clock_contract.UNCERTAIN
                 and (
-                    actual["first_timestamp"] is None
-                    or actual["last_timestamp"] is None
-                    or actual["first_timestamp"] > marker_start + 1.0 / expected_rate
-                    or actual["last_timestamp"] < marker_end - 1.0 / expected_rate
+                    actual["aligned_first_timestamp"] is None
+                    or actual["aligned_last_timestamp"] is None
+                    or actual["aligned_first_timestamp"] > marker_start + 1.0 / expected_rate
+                    or actual["aligned_last_timestamp"] < marker_end - 1.0 / expected_rate
                 )
             ):
                 issues.append(
@@ -414,8 +489,8 @@ def scientific_source_checks(
                         code="insufficient_time_coverage",
                         message=_coverage_message(
                             source_id,
-                            actual["first_timestamp"],
-                            actual["last_timestamp"],
+                            actual["aligned_first_timestamp"],
+                            actual["aligned_last_timestamp"],
                             marker_start,
                             marker_end,
                         ),
@@ -426,6 +501,7 @@ def scientific_source_checks(
     return issues, {
         "recording_contract": contract_metrics,
         "declared_streams": metrics,
+        "marker_window": {"start": marker_start, "end": marker_end, "clock": "recorder_lsl"},
         "derived_backup": backup_metrics,
     }
 

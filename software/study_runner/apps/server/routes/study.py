@@ -243,12 +243,13 @@ def _start_study_session_locked():
         config_data.get("study_settings", {}),
         selected_plugins=selected_plugins if isinstance(selected_plugins, list) else None,
         enforce_start_conditions=True,
+        session_id=session["session_id"],
     )
     required_failures = _required_sensor_runtime_failures(config_data, result.get("runtime") or {})
     if required_failures:
         # The session stays open: the tablet's retry reuses it (same session
         # id, same data folder) instead of creating a new folder per attempt.
-        _end_study_sensor_session(notify=False)
+        _end_study_sensor_session(session_id=session["session_id"], notify=False)
         details = "; ".join(f"{failure['plugin']}: {failure['error']}" for failure in required_failures)
         message = f"A required sensor plugin could not start ({details})."
         return refuse(message, 503, plugin_failures=required_failures)
@@ -258,7 +259,7 @@ def _start_study_session_locked():
             session["session_id"], result.get("active_plugins") or [], result.get("sensors") or {}
         )
     except Exception as error:
-        _end_study_sensor_session(notify=False)
+        _end_study_sensor_session(session_id=session["session_id"], notify=False)
         return refuse(f"Session sensor selection could not be saved: {error}", 503)
 
     recording_result: dict = {"recording_expected": False, "status": "skipped", "plugins": []}
@@ -275,7 +276,7 @@ def _start_study_session_locked():
             )
         except Exception as error:
             # Keep the session: a retry reattaches to the same plan and folder.
-            _end_study_sensor_session(notify=False)
+            _end_study_sensor_session(session_id=session["session_id"], notify=False)
             return refuse(
                 f"Canonical XDF recording could not start: {error}",
                 503,
@@ -344,8 +345,9 @@ def stop_study_session():
     session_id = str(payload.get("session_id") or "").strip()
     _stop_study_session_tracking(session_id)
     result = _end_study_sensor_session(
+        session_id=session_id or None,
         notify=True,
-        options={"reason": "session_stopped", "session_id": session_id},
+        options={"reason": "session_stopped"},
     )
     return jsonify({"ok": True, **result})
 
@@ -373,13 +375,16 @@ def resume_study_session():
     session = _resume_study_session(payload)
     if session is None:
         return jsonify({"ok": False, "error": "No active study session was found for this tablet."}), 404
-    sensor_result = _start_study_sensor_runtime(config_data.get("study_settings", {}))
+    sensor_result = _start_study_sensor_runtime(
+        config_data.get("study_settings", {}),
+        session_id=session["session_id"],
+    )
     required_failures = _required_sensor_runtime_failures(
         config_data,
         sensor_result.get("runtime") or {},
     )
     if required_failures:
-        _end_study_sensor_session(notify=False)
+        _end_study_sensor_session(session_id=session["session_id"], notify=False)
         return (
             jsonify(
                 {

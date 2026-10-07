@@ -5,6 +5,18 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Fixed
+
+- Participant pages load again and appear under connected devices. Since 1.7.9 a script error left the page blank after the certificate warning, so no device could connect.
+- BrainBit EEG no longer falls behind real time after a paused device callback. A paused batch is re-anchored on its arrival time and reported as a timing discontinuity; no sample is invented. Receipt and measurement times now use the same clock, and the quality and battery streams are declared with their real arrival timestamps (BrainBit plugin 4.0.0).
+- Start and end checks compare a sensor's timestamps with the end marker only through a recorded LSL clock correction. Without one, the end check uses the recorder's own receipt time and the session is flagged for review as clock-uncertain, never as data loss. The start check waits for the first correction instead of warning on every session.
+- A late session end from one participant can no longer reset sensors already claimed by the next session or by the operator's setup for the next person. A sensor whose reset timed out is held back until the plugin confirms the reset.
+- A recording checkpoint counts only samples written before its durable flush.
+
+### Changed
+
+- New clock core: one module defines who owns each clock, maps plugin source times and server marker times onto the LSL clock without coarse system-clock rounding, and holds the comparison rules shared by live checks and offline validation. Every session gains `meta/clock-report.json` with each stream's declared timestamp source, clock corrections, timeline discontinuities and both boundary checks. Plugin rules for clocks are documented and enforced by tests for every plugin (AM Hub plugin 5.0.1: import path only).
+
 ## 1.7.9 - 2026-10-07
 
 ### Fixed

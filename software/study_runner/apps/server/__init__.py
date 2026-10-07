@@ -289,11 +289,11 @@ def _end_finalization_producers(app: Flask, context) -> dict:
                 plugin_keys = list(plan["session_sensor_plugins"])
 
         return _end_study_sensor_session(
+            session_id=str(context.state.get("session_id") or "") or None,
             notify=True,
             plugin_keys=plugin_keys,
             options={
                 "reason": "session_finalized",
-                "session_id": context.state.get("session_id"),
                 "participant_id": context.state.get("participant_id"),
                 "study_id": context.state.get("study_id"),
             },
