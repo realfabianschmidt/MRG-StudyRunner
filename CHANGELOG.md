@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.10 - 2026-10-07
+
 ### Fixed
 
 - Participant pages load again and appear under connected devices. Since 1.7.9 a script error left the page blank after the certificate warning, so no device could connect.
