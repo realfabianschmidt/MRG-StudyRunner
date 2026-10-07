@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.9 - 2026-10-07
+
 ### Fixed
 
 - Recording start now follows each selected plugin's manifest: only declared start conditions are checked, and the recorder opens all sources before checking real samples from required regular streams. The machine settings provide bounded start and end wait times.
