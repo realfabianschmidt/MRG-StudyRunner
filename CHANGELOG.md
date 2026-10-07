@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.13 - 2026-10-07
+
 ### Fixed
 
 - A sensor whose calibration finished is ready to start even if its contact measurement before was poor. Contact that was not measured for the current participant still blocks the start (BrainBit plugin 4.0.1).
