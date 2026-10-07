@@ -109,7 +109,7 @@
     "apps.ui.participant": 3404,
     "apps.ui.settings": 1964,
     "apps.ui.shared": 3070,
-    "clock_core": 609,
+    "clock_core": 635,
     "contracts": 3079,
     "data_core": 16,
     "data_core.contract": 1184,
@@ -121,8 +121,8 @@
     "plugins.destinations": 1897,
     "plugins.outputs": 142,
     "plugins.sensors": 11530,
-    "runtime_core": 15979,
-    "shared": 448,
+    "runtime_core": 15988,
+    "shared": 466,
     "updates": 696
   }
 }
