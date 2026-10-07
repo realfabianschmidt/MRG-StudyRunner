@@ -23,6 +23,7 @@ from study_runner.runtime_core.settings.plugin_settings_service import (
     build_plugin_settings_schema,
 )
 from study_runner.data_core.host.study_sensor_runtime import SESSION_OVERRIDE_KEYS, STUDY_SENSOR_KEYS
+from study_runner.data_core.host.recording_timing import recording_timing
 from .helpers import (
     _apply_session_override_runtime,
     _copy_config,
@@ -121,6 +122,48 @@ def update_plugin_settings(plugin_key):
     })
 
 
+@bp.route("/api/admin/recording-timing", methods=["GET", "POST"])
+def recording_timing_settings():
+    """Machine-wide waits; every session freezes its effective values."""
+
+    if request.method == "GET":
+        hardware = current_app.config.get("HARDWARE_CONFIG", {})
+        try:
+            settings = recording_timing(hardware.get("recording_timing"))
+        except ValueError as error:
+            return jsonify({"ok": False, "error": str(error)}), 500
+        return jsonify({
+            "ok": True,
+            "settings": settings,
+            "revision": hardware_config_revision(hardware),
+        })
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("settings"), dict):
+        return jsonify({"ok": False, "error": "settings must be an object."}), 400
+    try:
+        def apply_settings(hardware):
+            existing = hardware.get("recording_timing")
+            merged = {**(existing if isinstance(existing, dict) else {}), **payload["settings"]}
+            hardware["recording_timing"] = recording_timing(merged)
+
+        hardware, _, revision = update_hardware_config_transaction(
+            current_app.config["HARDWARE_CONFIG_FILE"],
+            apply_settings,
+            expected_revision=(str(payload["revision"]) if payload.get("revision") is not None else None),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    except HardwareRevisionConflict as error:
+        return jsonify({"ok": False, "error": str(error), "code": "hardware_revision_conflict"}), 409
+    current_app.config["HARDWARE_CONFIG"] = hardware
+    return jsonify({
+        "ok": True,
+        "settings": hardware["recording_timing"],
+        "revision": revision,
+    })
+
+
 @bp.route("/api/hardware-config", methods=["POST"])
 def update_hardware_config():
     config_data = request.get_json()
@@ -133,6 +176,7 @@ def update_hardware_config():
         def merge_update(current_config):
             sanitized, secret_updated = _save_hardware_secret_payload(incoming)
             merged = _merge_hardware_config_preserving_unknown(current_config, sanitized)
+            recording_timing(merged.get("recording_timing"))
             current_config.clear()
             current_config.update(merged)
             return secret_updated
@@ -154,6 +198,8 @@ def update_hardware_config():
                 "current_revision": hardware_config_revision(current),
             }
         ), 409
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
     current_app.config["HARDWARE_CONFIG"] = sanitized_config
     _refresh_trial_runtime()
 
@@ -345,7 +391,7 @@ def _run_plugin_action_json(plugin_key: str, action: str):
             # A sensor switched on against the loaded study was set up while
             # disabled; initialize it with the new configuration first. For an
             # unchanged configuration this is a no-op (process_host guard).
-            initialize_plugin(plugin_key, context)
+            initialize_plugin(plugin_key, context, strict=True)
         coordinator = current_app.config.get("SENSOR_COORDINATOR")
         if coordinator:
             result = coordinator.run_action(plugin_key, action, context)

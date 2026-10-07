@@ -21,6 +21,11 @@ import { refreshCertificateStatus } from './certificate-settings-controller.js';
 import { refreshBrandingSettings, renderBrandingSettingsPanel } from './branding-settings-controller.js';
 import { refreshFontSettings, renderFontSettingsPanel } from './font-settings-controller.js';
 import { refreshDataFolderSettings, renderDataFolderSettingsPanel } from './data-folder-settings-controller.js';
+import {
+  bindRecordingTimingPanel,
+  refreshRecordingTimingPanel,
+  renderRecordingTimingPanel,
+} from './recording-timing-panel.js';
 import { fieldLabel, fieldPlaceholder, openPluginHelp, renderPluginHelpButton } from '../../shared/plugin-help.js';
 import {
   PLUGIN_UI_SURFACES,
@@ -119,6 +124,8 @@ export function renderSettingsHubShell() {
     button.addEventListener('click', () => openPluginHelp(getPluginCatalog().plugins_by_key?.[button.dataset.pluginHelp]));
   });
   root?.querySelector('[data-settings-retry]')?.addEventListener('click', () => void loadSettingsHubStatus());
+  bindRecordingTimingPanel(root);
+  onSettingsPanelShown(host.state.settingsHubActiveTab);
 }
 
 /**
@@ -176,6 +183,7 @@ function onSettingsPanelShown(key) {
   if (key === 'branding') void refreshBrandingSettings();
   if (key === 'fonts') void refreshFontSettings();
   if (key === 'data-folder') void refreshDataFolderSettings();
+  if (key === 'recording-timing') void refreshRecordingTimingPanel();
   if (key === 'update') void host.loadUpdateStatus({ silent: true });
 }
 
@@ -190,6 +198,7 @@ function settingsHubEntries() {
     { key: 'branding', icon: 'iconoir-media-image', label: t('branding.title', 'Logos'), group: groupThisComputer },
     { key: 'fonts', icon: 'iconoir-text-size', label: t('fonts.title', 'Fonts'), group: groupThisComputer },
     { key: 'data-folder', icon: 'iconoir-folder', label: t('dataFolder.title', 'Data folder'), group: groupThisComputer },
+    { key: 'recording-timing', icon: 'iconoir-microphone', label: t('recordingTiming.title', 'Recording waits'), group: groupThisComputer },
     ...settingsHubPlugins().map((plugin) => ({
       key: `plugin:${plugin.key}`,
       icon: pluginIcon(plugin),
@@ -218,6 +227,7 @@ function settingsHubPanels() {
     renderShellPanel('branding', renderBrandingSettingsPanel(), active !== 'branding'),
     renderShellPanel('fonts', renderFontSettingsPanel(), active !== 'fonts'),
     renderShellPanel('data-folder', renderDataFolderSettingsPanel(), active !== 'data-folder'),
+    renderShellPanel('recording-timing', renderRecordingTimingPanel(), active !== 'recording-timing'),
     ...(getPluginCatalog().invalid_plugins.length ? [renderShellPanel(
       'plugin-problems',
       renderInvalidPlugins(),

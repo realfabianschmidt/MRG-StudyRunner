@@ -205,7 +205,11 @@ def _normalize_pyxdf_stream(stream: dict[str, Any], index: int) -> dict[str, Any
         if declared_unit:
             channel_units[str(label)] = str(declared_unit)
 
-    series = _plain_sequence(stream.get("time_series"))
+    raw_series = stream.get("time_series")
+    # pyxdf represents an empty multichannel stream as (channels, 0).
+    # Iterating its first axis invents one empty row per channel.
+    shape = getattr(raw_series, "shape", ())
+    series = [] if len(shape) == 2 and shape[1] == 0 else _plain_sequence(raw_series)
     if series and not labels:
         first_row = _plain_sequence(series[0])
         width = len(first_row) if first_row else 1

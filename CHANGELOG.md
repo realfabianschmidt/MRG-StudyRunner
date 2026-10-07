@@ -5,6 +5,16 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Fixed
+
+- Recording start now follows each selected plugin's manifest: only declared start conditions are checked, and the recorder opens all sources before checking real samples from required regular streams. The machine settings provide bounded start and end wait times.
+- BrainBit recalculates its source-clock to LSL-clock mapping when publishing samples, avoiding a stale offset after an outlet opens. At study end, the server writes one end marker, waits for regular streams to pass it, and freezes the recorder before notifying sensor plugins that the participant session ended.
+- Finalization completes and validates local artifacts before queuing independent destination uploads. Failed Nextcloud or Notion publication stays retryable without repeating a successful upload or blocking a participant's finish screen. The admin sees one consolidated error per problem.
+
+### Changed
+
+- Plugin manifests and shared runtime contracts define the same lifecycle and sample policies for future sensors, cards, outputs, and backup destinations. Plugin templates and recording workflow documentation follow these contracts.
+
 ## 1.7.8 - 2026-10-06
 
 ### Fixed

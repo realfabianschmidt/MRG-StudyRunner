@@ -185,6 +185,8 @@ _BANDS_FIELDS = ("delta", "theta", "alpha", "beta", "gamma")
 _MENTAL_FIELDS = ("Inst_Attention", "Inst_Relaxation", "Rel_Attention", "Rel_Relaxation")
 _monitor = BrainBitMonitor()
 _lsl_epoch_offset: float | None = None
+_source_epoch_anchor: float | None = None
+_source_monotonic_anchor: float | None = None
 _last_diagnostic_snapshot = 0.0
 _DIAGNOSTIC_TAGS = {"SCANNING", "DEVICE_SELECTED", "DEVICE", "CONNECTING", "CONNECTED", "DISCONNECTED",
                     "WAITING", "CONNECT_FAILED", "SELECTION_REQUIRED", "STOPPED", "CLOCK",
@@ -1373,7 +1375,7 @@ def _remember_connected_band(payload: dict[str, Any]) -> None:
 def _update_state_from_line(line: str) -> bool:
     global _last_activity_at, _last_any_line_at, _last_sensor_activity_at
     global _last_eeg_at, _last_quality_at, _last_derived_at, _signal_started_at, _connected_at
-    global _lsl_epoch_offset
+    global _lsl_epoch_offset, _source_epoch_anchor, _source_monotonic_anchor
 
     important = False
     now = time.time()
@@ -1408,10 +1410,14 @@ def _update_state_from_line(line: str) -> bool:
                 state_update.update(status_detail_key=None, status_detail_hint_key=None)
             if tag == "CONNECTED":
                 state_update.update(retry_attempt=None, next_retry_at=None)
-            if tag == "CLOCK" and _streams.is_open("diagnostics"):
-                _lsl_epoch_offset = (float(_streams.now()) - time.monotonic()
-                                     + float(payload["monotonic_anchor"]) - float(payload["epoch_anchor"]))
+            if tag == "CLOCK":
+                _source_epoch_anchor = float(payload["epoch_anchor"])
+                _source_monotonic_anchor = float(payload["monotonic_anchor"])
+                _lsl_epoch_offset = None
             if tag == "SCANNING":
+                _source_epoch_anchor = None
+                _source_monotonic_anchor = None
+                _lsl_epoch_offset = None
                 state_update.update(status="scanning", scan_candidates=[], next_retry_at=None,
                                     actual_streams=None, supported_channels=None)
                 _stream_contract_ready.clear()
@@ -2079,7 +2085,15 @@ def _epoch_timestamps_to_lsl(values: list[Any]) -> list[float] | None:
         return timestamps
     if not _streams.contracts():
         return None
-    if _lsl_epoch_offset is None:
+    if _source_epoch_anchor is not None and _source_monotonic_anchor is not None:
+        # The CLI's epoch timestamps use its monotonic anchor. Recompute the
+        # LSL/monotonic relation after an outlet opens or a clock provider
+        # changes; wall-clock jumps must never shift EEG against study markers.
+        _lsl_epoch_offset = (
+            float(_streams.now()) - time.monotonic()
+            + _source_monotonic_anchor - _source_epoch_anchor
+        )
+    elif _lsl_epoch_offset is None:
         _lsl_epoch_offset = float(_streams.now()) - time.time()
     return [timestamp + _lsl_epoch_offset for timestamp in timestamps]
 

@@ -10,6 +10,8 @@ Card defaults, config normalization, and answer validation all live here,
 in the plugin's own process (Phase 5g.B5) -- never as a type-specific
 branch in core code (CONTRIBUTING.md #7). See docs/developer-guide.md,
 "Adding A Card Type".
+The child process checks these declared callbacks at startup and accepts only
+operations listed by the manifest's capabilities.
 """
 from __future__ import annotations
 

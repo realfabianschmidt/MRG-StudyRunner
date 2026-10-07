@@ -225,8 +225,9 @@ class FixturePluginBlueprintAcceptanceTests(FixturePluginRootMixin, unittest.Tes
                 Path(fixture_source["payload"]["target_path"]).relative_to(paths.root).as_posix(),
                 f"raw/plugins/{PLUGIN_KEY}/part-0001.xdf",
             )
-            self.assertTrue(fixture_source["payload"]["require_stream_headers"])
-            self.assertTrue(fixture_source["payload"]["require_fresh_primary_sample"])
+            self.assertFalse(fixture_source["payload"]["require_stream_headers"])
+            self.assertFalse(fixture_source["payload"]["require_fresh_primary_sample"])
+            self.assertIn("health", [command["name"] for command in commands])
             self.assertEqual(
                 fixture_source["payload"]["streams"][0]["source_id"],
                 f"study_runner.{PLUGIN_KEY}.measurements",
@@ -351,11 +352,32 @@ class FixturePluginBlueprintAcceptanceTests(FixturePluginRootMixin, unittest.Tes
         def transport(_endpoint, body, _headers, _timeout):
             command = json.loads(body.decode("utf-8"))
             commands.append(command)
+            result = {}
+            if command["name"] == "health":
+                result = {
+                    "readiness_contract": "fresh-primary/v1",
+                    "frozen": False,
+                    "sources": {
+                        source["payload"]["plugin_key"]: {
+                            "streams": [
+                                {
+                                    "key": stream["key"],
+                                    "header_written": True,
+                                    "sample_count": 1,
+                                    "last_sample_age_seconds": 0.0,
+                                    "nominal_rate_hz": stream["nominal_rate_hz"],
+                                }
+                                for stream in source["payload"]["streams"]
+                            ]
+                        }
+                        for source in commands if source["name"] == "start_recording_source"
+                    },
+                }
             return {
                 "protocol_version": 1,
                 "command_id": command["command_id"],
                 "ok": True,
-                "result": {},
+                "result": result,
                 "error": None,
                 "replayed": False,
             }

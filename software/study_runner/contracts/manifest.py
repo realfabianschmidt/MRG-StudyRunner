@@ -1395,6 +1395,12 @@ def _validate_capability_contracts(
     if "recording_source" in capabilities:
         _reject_canonical_recording_disable_settings(settings)
         recording_source = capabilities["recording_source"]
+        sample_policy = recording_source.get("start_sample_policy", "all_regular")
+        if sample_policy not in {"all_regular", "primary_only", "headers_only"}:
+            raise PluginManifestError(
+                "recording_source.start_sample_policy must be all_regular, primary_only, or headers_only"
+            )
+        recording_source["start_sample_policy"] = sample_policy
         primary_stream = _optional_text(recording_source.get("primary_stream"))
         if primary_stream and primary_stream not in {stream["key"] for stream in streams}:
             raise PluginManifestError(
@@ -1432,6 +1438,20 @@ def _validate_capability_contracts(
         for key in ("default_enabled", "default_required"):
             if key in study_sensor and not isinstance(study_sensor[key], bool):
                 raise PluginManifestError(f"study_sensor.{key} must be boolean")
+        start_condition = study_sensor.get("start_condition")
+        if start_condition is not None:
+            if not isinstance(start_condition, dict) or set(start_condition) != {"path", "equals"}:
+                raise PluginManifestError(
+                    "study_sensor.start_condition must contain path and equals"
+                )
+            path = start_condition["path"]
+            expected = start_condition["equals"]
+            if not isinstance(path, str) or not re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*", path):
+                raise PluginManifestError("study_sensor.start_condition.path must be a dotted status field")
+            if not isinstance(expected, bool) and not (
+                isinstance(expected, str) and expected.strip()
+            ):
+                raise PluginManifestError("study_sensor.start_condition.equals must be a boolean or non-empty string")
 
 
 def _reject_canonical_recording_disable_settings(

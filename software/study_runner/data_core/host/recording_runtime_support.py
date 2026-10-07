@@ -86,20 +86,11 @@ def wait_for_required_worker_sources(
     monotonic: Callable[[], float] = time.monotonic,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> Mapping[str, Any]:
-    """Gate the study-start marker until every regular sensor stream is being written.
+    """Gate the start marker according to each source's manifest sample policy.
 
-    Waiting for the primary stream alone was not enough: derived streams (for
-    example band power at 25 Hz) open their LSL inlet a little later, so their
-    first sample landed after the marker and the session failed its
-    time-coverage check although every sample was recorded.
-
-    The primary stream of each required study sensor must hold a fresh sample
-    within ``timeout_seconds``; otherwise the start fails. Every other regular
-    stream (``nominal_rate_hz > 0``) is then waited for up to
-    ``secondary_grace_seconds`` more. A derived stream may legitimately be
-    silent (for example before a calibration), so after the grace the start
-    continues and the silent streams are returned as ``late_streams``; the
-    source validation reports them as a quality warning.
+    By default every regular stream must already have fresh recorded samples.
+    A source may declare ``primary_only`` for optional derived streams or
+    ``headers_only`` when it emits irregular events without a steady rate.
     """
 
     deadline = monotonic() + timeout_seconds
@@ -114,7 +105,7 @@ def wait_for_required_worker_sources(
         require_worker_ok(response.ok, response.error, "report recording readiness")
         health = response.result
         if health.get("readiness_contract") != "fresh-primary/v1":
-            return health
+            raise RecordingRuntimeError("recording worker did not provide the required readiness contract")
         if health.get("frozen"):
             raise RecordingRuntimeError("recording worker froze before study onset")
         source_states = health.get("sources")
@@ -139,13 +130,24 @@ def wait_for_required_worker_sources(
             capabilities = set((manifests.get(plugin_key) or {}).get("capabilities") or [])
             if "study_sensor" not in capabilities:
                 continue
+            source_contract = (
+                ((manifests.get(plugin_key) or {}).get("capability_config") or {})
+                .get("recording_source") or {}
+            )
+            sample_policy = str(source_contract.get("start_sample_policy") or "all_regular")
+            if sample_policy == "headers_only":
+                continue
             primary_issues, secondary_issues = split_stream_readiness_issues(
                 plugin_key,
                 streams,
                 maximum_age_seconds=maximum_primary_age_seconds,
+                lsl_now=health.get("lsl_now"),
             )
             issues.extend(primary_issues)
-            late.extend(secondary_issues)
+            if sample_policy == "all_regular":
+                issues.extend(secondary_issues)
+            else:
+                late.extend(secondary_issues)
         if issues:
             primary_ready_at = None
             last_issues = issues
@@ -173,7 +175,12 @@ def _stream_rate(item: Mapping[str, Any]) -> float:
     return rate if math.isfinite(rate) and rate > 0 else 0.0
 
 
-def _stream_issue(plugin_key: str, item: Mapping[str, Any], maximum_age_seconds: float) -> str | None:
+def _stream_issue(
+    plugin_key: str,
+    item: Mapping[str, Any],
+    maximum_age_seconds: float,
+    lsl_now: Any = None,
+) -> str | None:
     rate = _stream_rate(item)
     stream_key = str(item.get("key") or item.get("source_id") or "stream")
     if int(item.get("sample_count") or 0) < 1:
@@ -184,7 +191,19 @@ def _stream_issue(plugin_key: str, item: Mapping[str, Any], maximum_age_seconds:
         fresh = age is not None and 0.0 <= float(age) <= limit
     except (TypeError, ValueError):
         fresh = False
-    return None if fresh else f"{plugin_key}.{stream_key}: latest sample is stale"
+    if not fresh:
+        return f"{plugin_key}.{stream_key}: latest sample is stale"
+    if lsl_now is not None:
+        try:
+            timestamp_lag = float(lsl_now) - float(item["last_timestamp"])
+        except (KeyError, TypeError, ValueError):
+            return f"{plugin_key}.{stream_key}: latest sample has no valid LSL timestamp"
+        if not math.isfinite(timestamp_lag) or abs(timestamp_lag) > limit:
+            return (
+                f"{plugin_key}.{stream_key}: sample timestamps are "
+                f"{timestamp_lag:.3f}s from the LSL clock"
+            )
+    return None
 
 
 def split_stream_readiness_issues(
@@ -192,6 +211,7 @@ def split_stream_readiness_issues(
     streams: list[Any],
     *,
     maximum_age_seconds: float = 2.0,
+    lsl_now: Any = None,
 ) -> tuple[list[str], list[str]]:
     """Return ``(primary issues, other regular stream issues)``.
 
@@ -209,7 +229,7 @@ def split_stream_readiness_issues(
     primary_issues: list[str] = []
     secondary_issues: list[str] = []
     for item in regular:
-        issue = _stream_issue(plugin_key, item, maximum_age_seconds)
+        issue = _stream_issue(plugin_key, item, maximum_age_seconds, lsl_now)
         if issue is None:
             continue
         (primary_issues if item is primary else secondary_issues).append(issue)
@@ -244,10 +264,19 @@ def stream_tail_issues(
     for plugin_key in sorted(required_sources):
         source = source_states.get(plugin_key)
         if not isinstance(source, Mapping):
+            issues.append(f"{plugin_key}: worker has no source state")
             continue
+        if source.get("fatal_error"):
+            issues.append(f"{plugin_key}: {source['fatal_error']}")
         streams = source.get("streams")
-        for item in streams if isinstance(streams, list) else []:
-            if not isinstance(item, Mapping) or _stream_rate(item) <= 0:
+        if not isinstance(streams, list) or not streams:
+            issues.append(f"{plugin_key}: worker has no stream state")
+            continue
+        for item in streams:
+            if not isinstance(item, Mapping):
+                issues.append(f"{plugin_key}: worker has an invalid stream state")
+                continue
+            if _stream_rate(item) <= 0:
                 continue
             stream_key = str(item.get("key") or item.get("source_id") or "stream")
             last = item.get("last_timestamp")

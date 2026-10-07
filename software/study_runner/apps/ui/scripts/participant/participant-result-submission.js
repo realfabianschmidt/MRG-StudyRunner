@@ -624,9 +624,14 @@ export function createParticipantResultSubmission(context) {
     }
     updateNavigation();
   
+    let submitted = false;
     try {
-      await recordQuestionCompletion(state.currentIndex);
-      await commitCheckpoint({ nextIndex: state.currentIndex, completedIndex: state.currentIndex });
+      try {
+        await recordQuestionCompletion(state.currentIndex);
+        await commitCheckpoint({ nextIndex: state.currentIndex, completedIndex: state.currentIndex });
+      } catch (error) {
+        console.error('[study] Final checkpoint could not be confirmed:', error);
+      }
       const sessionId = state.sessionId;
       const participantId = resolveParticipantId();
       const studyId = state.config.study_id;
@@ -654,51 +659,44 @@ export function createParticipantResultSubmission(context) {
           answer_events: collectAnswerEvents(),
           card_events: collectCardEvents(),
         };
-        persistPendingSubmission(submission);
+        try {
+          participantExtensions.beforeSubmit({
+            submission,
+            session: getParticipantSessionContext(),
+          });
+        } finally {
+          persistPendingSubmission(submission);
+        }
       }
-      participantExtensions.beforeSubmit({
-        submission,
-        session: getParticipantSessionContext(),
-      });
       const response = await postJson('/api/results', submission);
       state.studyRunState = response?.study_run_state || state.studyRunState;
-      state.completedLocally = true;
+      submitted = true;
       state.completedRunId = state.studyRunState?.run_id || '';
       clearPendingSubmission();
-      clearSessionSnapshot();
-      state.startTime = null;
-      state.sessionId = '';
-      // Finalization now owns end-marker, producer stop, worker drain, and XDF
-      // footer ordering. Calling /session/stop here would recreate the old race.
-      state.sensorSessionStarted = false;
-      // The submission is on the server; nothing of it stays in this page.
-      resetParticipantSessionState();
-      void participantExtensions.dispose('submission_committed');
-  
-      const finishIndex = (state.config.questions || []).findIndex(q => q.type === 'finish');
-      if (finishIndex !== -1) {
-        await goTo(finishIndex, { force: true, lockNavigation: false });
-      } else {
-        showScreen('done'); // Fallback when the finish card is missing
-      }
-      state.submitInFlight = false;
-      updateNavigation();
     } catch (error) {
       console.error('[study] Could not save results:', error);
-      showStudyNotice(t('study.saveFailedBody', 'Your answers could not be saved. Please tell the study supervisor - your answers are still on this screen.'), 'error', 10000);
-      state.submitInFlight = false;
-      state.navigationBusy = false;
       participantExtensions.onSubmitFailed({
         error,
         submission: state.pendingSubmission,
         session: getParticipantSessionContext(),
       });
-      if (btn) {
-        btn.disabled = false;
-        getElement('btn-next-label').textContent = t('study.submit', 'Submit');
-      }
-      updateNavigation();
     }
+    clearSessionSnapshot();
+    state.startTime = null;
+    state.sessionId = '';
+    state.sensorSessionStarted = false;
+    state.completedLocally = true;
+    resetParticipantSessionState();
+    void participantExtensions.dispose(submitted ? 'submission_committed' : 'submission_queued');
+    const finishIndex = (state.config.questions || []).findIndex(q => q.type === 'finish');
+    if (finishIndex !== -1) {
+      await goTo(finishIndex, { force: true, lockNavigation: false, localOnly: true });
+    } else {
+      showScreen('done');
+    }
+    state.submitInFlight = false;
+    state.navigationBusy = false;
+    updateNavigation();
   }
   
 

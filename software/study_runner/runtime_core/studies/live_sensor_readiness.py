@@ -17,6 +17,34 @@ from typing import Any, Mapping
 LIVE_STATUSES = frozenset({"connected", "ready", "receiving", "streaming", "recording"})
 
 
+def declared_start_condition_issue(
+    manifest: Mapping[str, Any], status: Mapping[str, Any]
+) -> str | None:
+    """Check only the status condition a sensor declared in its manifest."""
+
+    condition = (
+        ((manifest.get("capability_config") or {}).get("study_sensor") or {})
+        .get("start_condition")
+    )
+    if not isinstance(condition, Mapping):
+        return None
+    path = str(condition.get("path") or "")
+    actual: Any = status
+    for part in path.split("."):
+        actual = actual.get(part) if isinstance(actual, Mapping) else None
+    expected = condition.get("equals")
+    if type(actual) is type(expected) and actual == expected:
+        return None
+    connection = status.get("connection")
+    detail = (
+        _connection_problem(connection, status)
+        if path == "connection.ready" and isinstance(connection, Mapping)
+        else str(status.get("last_message") or status.get("error") or "").strip()
+    )
+    message = f"declared start condition {path}={expected!r} is not met"
+    return f"{message}: {detail}" if detail else message
+
+
 def selected_study_sensors(config_data: Mapping[str, Any], manifests: Mapping[str, Any]) -> list[str]:
     settings = config_data.get("study_settings") or {}
     selections = settings.get("plugins") if isinstance(settings, Mapping) else {}
@@ -48,17 +76,18 @@ def live_sensor_issues(
             continue
         value = str(status.get("status") or "unknown").strip().lower()
         connection = status.get("connection")
-        if isinstance(connection, Mapping):
-            # The same "ready" the dashboard shows for this sensor.
-            if connection.get("ready"):
+        condition = ((manifest.get("capability_config") or {}).get("study_sensor") or {}).get("start_condition")
+        if isinstance(condition, Mapping):
+            problem = declared_start_condition_issue(manifest, status)
+            if problem is None:
                 continue
             issues.append(
                 {
                     "plugin": plugin_key,
                     "label": label,
-                    "status": str(connection.get("phase") or value),
-                    "next_step": connection.get("next_step"),
-                    "problem": _connection_problem(connection, status),
+                    "status": str(connection.get("phase") or value) if isinstance(connection, Mapping) else value,
+                    "next_step": connection.get("next_step") if isinstance(connection, Mapping) else None,
+                    "problem": problem,
                 }
             )
             continue

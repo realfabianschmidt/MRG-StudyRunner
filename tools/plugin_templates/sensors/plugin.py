@@ -28,6 +28,12 @@ to have the shared panel draw them. Sensors keep streaming between
 participants; `on_session_end` is where per-person state (e.g. a
 calibration) is reset -- never stop acquisition there.
 
+Recording mode comes from the manifest: a positive-rate primary stream must
+deliver a fresh LSL timestamp before the session starts and continue past its
+end marker. A 0 Hz primary stream is event-only and has no boundary-sample
+requirement. Declare `runtime.trial_events: ["session_end"]` only when this
+plugin needs its per-person reset callback.
+
 Stimulus cards (the same for every sensor): a sensor records continuously
 and declares no trial `start`/`stop`; a card only marks its phases with
 markers in the recording. Declaring `start` and `stop` would make the plugin

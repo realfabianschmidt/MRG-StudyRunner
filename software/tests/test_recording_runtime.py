@@ -69,15 +69,38 @@ class FakeLauncher:
             generation=generation,
         )
         paths.worker_state_file.write_text(json.dumps(endpoint.as_dict()), encoding="utf-8")
+        sources = {}
 
         def transport(_endpoint, body, _headers, _timeout):
             command = json.loads(body.decode("utf-8"))
             self.commands.append(command)
+            result = {}
+            if command["name"] == "start_recording_source":
+                payload = command["payload"]
+                sources[payload["plugin_key"]] = {
+                    "streams": [
+                        {
+                            **stream,
+                            "header_written": True,
+                            "sample_count": 1,
+                            "last_sample_age_seconds": 0.0,
+                            "last_timestamp": 100.0,
+                        }
+                        for stream in payload["streams"]
+                    ]
+                }
+            elif command["name"] == "health":
+                result = {
+                    "readiness_contract": "fresh-primary/v1",
+                    "sources": sources,
+                    "lsl_now": 100.0,
+                    "frozen": False,
+                }
             return {
                 "protocol_version": 1,
                 "command_id": command["command_id"],
                 "ok": True,
-                "result": {},
+                "result": result,
                 "error": None,
                 "replayed": False,
             }
@@ -272,7 +295,9 @@ class RecordingRuntimeTests(unittest.TestCase):
                     "started_at_epoch": 1_753_920_000.0,
                 },
                 config,
-                {"lsl": {"enabled": True}},
+                {"lsl": {"enabled": True}, "recording_timing": {
+                    "start_wait_seconds": 12, "end_tail_wait_seconds": 15,
+                }},
             )
 
             self.assertEqual(result["status"], "recording")
@@ -304,6 +329,9 @@ class RecordingRuntimeTests(unittest.TestCase):
             plan = json.loads(
                 (session_roots[0] / "meta" / "recording-plan.json").read_text(encoding="utf-8")
             )
+            self.assertEqual(plan["recording_timing"], {
+                "start_wait_seconds": 12.0, "end_tail_wait_seconds": 15.0,
+            })
             contract = load_recording_contract(plan)
             self.assertIsNotNone(contract)
             self.assertEqual(contract["schema"], "study-runner/recording-contract/v1")
@@ -443,6 +471,21 @@ class RecordingRuntimeTests(unittest.TestCase):
         self.assertFalse(report["available"])
         self.assertEqual(report["required_plugins"], ["brainbit"])
         self.assertIn(WORKER_UNAVAILABLE_REASON, report["reason"])
+
+    def test_preflight_uses_effective_sensor_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime = RecordingRuntimeService(root / "saved_results", root, system_clock_probe=_always_ok_clock)
+            report = runtime.preflight(
+                {"study_settings": {"plugins": {
+                    "brainbit": {"enabled": True, "required": True, "settings": {}}
+                }}},
+                selected_sensors={"brainbit": False},
+            )
+        self.assertFalse(report["recording_expected"])
+        self.assertEqual(report["selected_plugins"], [])
+        self.assertTrue(report["ready"])
+        self.assertIsNone(report["reason"])
 
     def test_reused_session_replaces_dead_worker_and_opens_part_0002(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -760,7 +803,7 @@ class RecordingRuntimeTests(unittest.TestCase):
 
         # The file is frozen only after every stream passed the end marker,
         # and the sensors hear that the session ended only after that.
-        self.assertEqual(calls, ["marker", "tail:8510.52:3.0", "freeze", "session_end"])
+        self.assertEqual(calls, ["marker", "tail:8510.52:None", "freeze", "session_end"])
         self.assertEqual(result.status, "done")
         self.assertTrue(result.details["stream_tail"]["reached"])
 
@@ -801,6 +844,18 @@ class RecordingRuntimeTests(unittest.TestCase):
             "session_end_notice: runtime.brainbit: notice timeout",
             context.state["warnings"],
         )
+
+    def test_session_end_notifies_study_sensor_without_recording_source(self) -> None:
+        calls = []
+        adapter = RuntimeRecordingFinalizationAdapter(
+            object(), end_session_producers=lambda _context: calls.append("session_end") or {"runtime": {}}
+        )
+        context = type("Context", (), {"recording_expected": False, "state": {"warnings": []}})()
+
+        result = adapter.freeze(context)
+
+        self.assertEqual(result.status, "skipped")
+        self.assertEqual(calls, ["session_end"])
 
     def test_worker_freeze_quality_failure_fails_finalization_step(self) -> None:
         class Runtime:

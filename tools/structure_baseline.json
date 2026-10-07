@@ -1,9 +1,9 @@
 {
-  "cross_package_import_edges": 509,
+  "cross_package_import_edges": 514,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
-    "lines": 2697,
+    "lines": 2711,
     "path": "software/study_runner/plugins/sensors/brainbit/adapter.py"
   },
   "largest_file_per_package": {
@@ -12,7 +12,7 @@
       "path": ""
     },
     "apps.server": {
-      "lines": 996,
+      "lines": 1033,
       "path": "software/study_runner/apps/server/routes/study.py"
     },
     "apps.ui": {
@@ -28,7 +28,7 @@
       "path": "software/study_runner/plugins/cards/participant_id/card.js"
     },
     "apps.ui.participant": {
-      "lines": 1000,
+      "lines": 956,
       "path": "software/study_runner/apps/ui/scripts/participant/study-controller.js"
     },
     "apps.ui.settings": {
@@ -40,7 +40,7 @@
       "path": "software/study_runner/apps/ui/scripts/shared/qr-code.js"
     },
     "contracts": {
-      "lines": 1510,
+      "lines": 1530,
       "path": "software/study_runner/contracts/manifest.py"
     },
     "data_core": {
@@ -52,11 +52,11 @@
       "path": "software/study_runner/data_core/contract/worker_protocol.py"
     },
     "data_core.host": {
-      "lines": 1390,
+      "lines": 1405,
       "path": "software/study_runner/data_core/host/recording_runtime.py"
     },
     "data_core.worker": {
-      "lines": 1087,
+      "lines": 1092,
       "path": "software/study_runner/data_core/worker/lsl_recording.py"
     },
     "plugin_framework": {
@@ -80,11 +80,11 @@
       "path": "software/study_runner/plugins/outputs/osc_touchdesigner/adapter.py"
     },
     "plugins.sensors": {
-      "lines": 2697,
+      "lines": 2711,
       "path": "software/study_runner/plugins/sensors/brainbit/adapter.py"
     },
     "runtime_core": {
-      "lines": 1984,
+      "lines": 1886,
       "path": "software/study_runner/runtime_core/delivery/finalization_service.py"
     },
     "shared": {
@@ -98,25 +98,25 @@
   },
   "lines_per_package": {
     "apps": 0,
-    "apps.server": 5163,
+    "apps.server": 5300,
     "apps.ui": 0,
-    "apps.ui.admin": 6228,
+    "apps.ui.admin": 6231,
     "apps.ui.cards": 4853,
-    "apps.ui.participant": 3322,
-    "apps.ui.settings": 1887,
+    "apps.ui.participant": 3403,
+    "apps.ui.settings": 1964,
     "apps.ui.shared": 3063,
-    "contracts": 3059,
+    "contracts": 3079,
     "data_core": 16,
     "data_core.contract": 1184,
-    "data_core.host": 6789,
-    "data_core.worker": 2507,
-    "plugin_framework": 4077,
+    "data_core.host": 6872,
+    "data_core.worker": 2517,
+    "plugin_framework": 4165,
     "plugins": 0,
     "plugins.cards": 1465,
     "plugins.destinations": 1897,
     "plugins.outputs": 142,
-    "plugins.sensors": 11506,
-    "runtime_core": 15934,
+    "plugins.sensors": 11520,
+    "runtime_core": 15890,
     "shared": 606,
     "updates": 696
   }

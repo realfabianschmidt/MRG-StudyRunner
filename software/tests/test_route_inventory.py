@@ -50,6 +50,8 @@ EXPECTED_ROUTES = {
     ("DELETE", "/api/admin/plugins/<plugin_key>/config"),
     ("POST", "/api/admin/plugins/<plugin_key>/enabled"),
     ("GET", "/api/admin/plugin-settings"),
+    ("GET", "/api/admin/recording-timing"),
+    ("POST", "/api/admin/recording-timing"),
     ("POST", "/api/admin/plugin-settings/<plugin_key>"),
     ("POST", "/api/admin/plugins/<plugin_key>/actions/<action_key>"),
     ("GET", "/api/admin/plugins/<plugin_key>/console"),

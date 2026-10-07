@@ -47,9 +47,8 @@ def _load_sensor_study(client) -> None:
             "study_settings": {
                 "sensors_enabled": True,
                 "sensors": {"brainbit": True, "mini_radar": False, "camera_emotion": False},
-                # This test exercises sensor-runtime recovery, not the native
-                # XDF release gate. Optional keeps that independent contract
-                # runnable without a packaged worker binary.
+                # This test exercises sensor-runtime recovery. The native XDF
+                # gate is mocked at the start boundary below.
                 "plugins": {
                     "brainbit": {"enabled": True, "required": False, "settings": {}},
                 },
@@ -258,6 +257,8 @@ class StudySessionRouteTests(unittest.TestCase):
                 patch("study_runner.apps.server.initialize_plugins"),
                 patch("study_runner.data_core.host.sensor_coordinator_service.initialize_plugin") as initialize_plugin,
                 patch("study_runner.data_core.host.sensor_coordinator_service.run_runtime_action", return_value={"ok": True}) as run_action,
+                patch("study_runner.data_core.host.recording_runtime.RecordingRuntimeService.start_session",
+                      return_value={"recording_expected": True, "status": "running", "plugins": ["brainbit"]}),
                 # After a restart the sensor process is gone, so it reports not running.
                 patch("study_runner.data_core.host.sensor_coordinator_service.get_plugin_status", return_value={"running": False}),
             ):
@@ -294,6 +295,28 @@ class StudySessionRouteTests(unittest.TestCase):
         self.assertIsNotNone(second_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG"))
         self.assertGreater(initialize_plugin.call_count, 0)
         self.assertGreater(run_action.call_count, 0)
+
+    def test_start_retry_keeps_the_original_sensor_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch(
+                "study_runner.data_core.host.recording_runtime.RecordingRuntimeService.start_session",
+                return_value={"recording_expected": True, "status": "running", "plugins": ["brainbit"]},
+            ) as start_recording:
+                app = _app(temp_dir)
+                client = app.test_client()
+                _load_sensor_study(client)
+                payload = {
+                    "study_id": "study-a", "participant_id": "hash1234",
+                    "client_id": "tablet-1", "current_index": 0,
+                    "current_type": "participant-id",
+                }
+                first = client.post("/api/study/session/start", json=payload)
+                self.assertEqual(first.status_code, 200, first.get_json())
+                app.config["SESSION_SENSOR_OVERRIDES"] = {"brainbit": False}
+                retry = client.post("/api/study/session/start", json=payload)
+                self.assertEqual(retry.status_code, 200, retry.get_json())
+                self.assertEqual(first.get_json()["session"]["session_id"], retry.get_json()["session"]["session_id"])
+                self.assertTrue(start_recording.call_args.kwargs["selected_sensors"]["brainbit"])
 
     def test_session_start_does_not_touch_hardware_when_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

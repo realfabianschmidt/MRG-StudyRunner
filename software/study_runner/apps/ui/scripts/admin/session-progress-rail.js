@@ -60,7 +60,10 @@ export function renderSessionProgressRail(container, session, job, actions = {})
   }
 
   const problems = steps.filter((step) => step.error || step.retryable);
-  const warnings = Array.isArray(job?.warnings) ? job.warnings.filter(Boolean) : [];
+  const problemMessages = new Set(problems.map((step) => `${step.key}: ${step.error}`));
+  const warnings = Array.isArray(job?.warnings)
+    ? [...new Set(job.warnings.filter(Boolean))].filter((warning) => !problemMessages.has(warning))
+    : [];
 
   container.innerHTML = `
     <ol class="progress-rail" aria-label="${escapeHtml(t('sessions.rail.title', 'Session progress'))}">

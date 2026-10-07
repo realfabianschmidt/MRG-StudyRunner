@@ -146,6 +146,7 @@ Edit-safety legend:
 | `software/study_runner/data_core/host/recording_dependencies.py` | liblsl dependency probe and capability-based selection of study/internal recording providers | no |
 | `software/study_runner/data_core/host/recording_worker_launcher.py` | Detached Python/self worker process command, isolation flags, and startup health handshake | no |
 | `software/study_runner/data_core/host/recording_runtime_support.py` | Shared recording error, constants, safe session-path/JSON helpers, recovery grid, and required-source readiness gate | no |
+| `software/study_runner/data_core/host/recording_timing.py` | Validates the machine's bounded start and end wait settings for recording | careful |
 | `software/study_runner/data_core/host/recording_quality.py` | Scientific source, backup, gap/drop, lease-expiry, and finalization quality checks | no |
 | `software/study_runner/runtime_core/delivery/recording_finalization_adapter.py` | Thin bridge from persistent finalization steps to recording freeze, validation, merge, and shutdown | no |
 | `software/study_runner/runtime_core/studies/study_plugin_config.py` | Migrates legacy sensor/upload/card fields into the manifest-driven plugin settings shape | careful |
@@ -228,6 +229,7 @@ browser module a manifest declares under `ui.extensions`.
 | `plugin_layout.py` | Defines trusted plugin category roots shared by discovery, drivers, UI assets, and self-check | no |
 | `card_session_isolation.py` | Refuses a card whose `card.js` keeps mutable module-level state, so no answer can reach the next participant | careful |
 | `driver_runtime.py` | Runtime used by the single `driver.py` entry point every API-v5 plugin process runs | careful |
+| `runtime_contract.py` | Manifest-derived operation allowlist and startup checks for every plugin callback | careful |
 | `process_host.py` | Host-side supervisor for API-v5 drivers: start/stop/restart, line-oriented console, reserved-prefix RPC; cards additionally get no app context and terminate their process on an RPC timeout, everyone else does not | careful |
 | `card_catalog.py` | Package 5g.B5: `card_bindings()` -- the manifest-driven `question_type -> (catalog entry, card_contract)` lookup every card-aware caller reads instead of a hardcoded type list; `QuestionTypes` is the live set view `ALLOWED_QUESTION_TYPES`/`NON_ANSWER_QUESTION_TYPES` wrap | careful |
 | `history_buffer.py` | Session-sized ring buffers + gap/truncation detection for all sensors | careful |
@@ -332,6 +334,7 @@ one, unlike the plugin table above).
 | `participant/tablet-clock.js` | Repeated tablet-server clock exchanges, low-delay selection, freshness, and event-time evidence | careful |
 | `participant/participant-event-payload.js` | Shared participant marker and trial payload with timing provenance | careful |
 | `participant/participant-pending-submission.js` | Durable browser-side retry state for a final result submission | careful |
+| `participant/participant-navigation.js` | Card navigation and local finish transition after submission | careful |
 | `participant/participant-session-recovery.js` | Clock sync, partial snapshots, lifecycle events, cover page, and reload recovery | careful |
 | `participant/participant-stimulus-execution.js` | Prepared-trial timing, stimulus content lifecycle, and the end of the time: auto-advance or overtime until Next, with the time-up marker and one actuator stop | careful |
 | `participant/participant-result-submission.js` | Answer/card metrics, sensor and plugin session state, navigation readiness, and submission | careful |
@@ -350,6 +353,7 @@ one, unlike the plugin table above).
 | `admin/runtime-switch-input.js` | Accessible Off/On/Restart switch behavior for live sensors | careful |
 | `admin/sensor-connection-panel.js` | The connection panel on every sensor tile: status line, Ready badge, switch, device list and guided steps; also the study bar's state | careful |
 | `settings/machine/machine-settings-panel.js` | Machine settings shell: nav, generated sensor forms, tablet links | careful |
+| `settings/machine/recording-timing-panel.js` | Machine settings for recording start and end wait times | careful |
 | `settings/machine/certificate-settings-controller.js` | Certificate status, setup, export, and import, inside the machine settings shell | no |
 | `settings/machine/branding-settings-controller.js` | Upload and remove the group and funder logos, inside the machine settings shell | no |
 | `settings/study/study-settings-panel.js` | Per-study settings shell (editor only): sensors, participant, data destinations, export. Destination plugin settings (Notion, Nextcloud, ...) are generated here from the catalog, not from a per-destination file | careful |

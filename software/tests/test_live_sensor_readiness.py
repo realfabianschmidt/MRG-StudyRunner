@@ -9,11 +9,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.runtime_core.studies.live_sensor_readiness import live_sensor_issues
+from study_runner.runtime_core.studies.live_sensor_readiness import (
+    declared_start_condition_issue,
+    live_sensor_issues,
+)
 
 
 MANIFESTS = {
-    "eeg": {"capabilities": {"study_sensor": {}}, "ui": {"label": "EEG headband"}},
+    "eeg": {"capabilities": {"study_sensor": {}}, "capability_config": {"study_sensor": {"start_condition": {"path": "connection.ready", "equals": True}}}, "ui": {"label": "EEG headband"}},
     "radar": {"capabilities": {"study_sensor": {}}, "ui": {"label": "Radar"}},
     "notion": {"capabilities": {"upload_destination": {}}},
 }
@@ -24,6 +27,17 @@ def _config(**selections):
 
 
 class LiveSensorReadinessTests(unittest.TestCase):
+    def test_only_manifest_declared_status_is_a_start_condition(self) -> None:
+        status = {"connection": {"ready": False, "phase": "connected", "next_step": "initialize"}}
+        self.assertIsNone(declared_start_condition_issue({"capability_config": {"study_sensor": {}}}, status))
+        manifest = {
+            "capability_config": {
+                "study_sensor": {"start_condition": {"path": "connection.ready", "equals": True}}
+            }
+        }
+        self.assertIn("Initialize", declared_start_condition_issue(manifest, status))
+        self.assertIsNone(declared_start_condition_issue(manifest, {"connection": {"ready": True}}))
+
     def test_only_selected_sensors_that_are_not_live_are_reported(self) -> None:
         issues = live_sensor_issues(
             _config(eeg={"enabled": True}, radar={"enabled": True}, notion={"enabled": True}),
@@ -33,10 +47,8 @@ class LiveSensorReadinessTests(unittest.TestCase):
             },
             MANIFESTS,
         )
-        self.assertEqual(
-            issues,
-            [{"plugin": "eeg", "label": "EEG headband", "status": "waiting", "problem": "Headband not found."}],
-        )
+        self.assertEqual([issue["plugin"] for issue in issues], ["eeg"])
+        self.assertIn("connection.ready", issues[0]["problem"])
 
     def test_a_disabled_selection_or_missing_status_is_handled(self) -> None:
         issues = live_sensor_issues(_config(eeg={"enabled": False}, radar={"enabled": True}), {}, MANIFESTS)
@@ -53,7 +65,7 @@ class LiveSensorReadinessTests(unittest.TestCase):
                     "status": "connected",
                     "connection": {"phase": "connected", "ready": False, "next_step": "measure_signal"},
                 },
-                "radar": {"status": "waiting", "connection": {"phase": "connected", "ready": True}},
+                "radar": {"status": "connected", "connection": {"phase": "connected", "ready": False}},
             },
             MANIFESTS,
         )

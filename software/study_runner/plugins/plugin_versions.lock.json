@@ -15,9 +15,9 @@
       "contract_sha256": "76736ec11c19b5fe64ff04e5035a4325cdfc2069c61c7d03a129de9bf8b09389"
     },
     "brainbit": {
-      "version": "2.1.0",
+      "version": "3.0.0",
       "path": "software/study_runner/plugins/sensors/brainbit",
-      "content_sha256": "67529cef978a44d54207c5b11d8a038d786a1b6e8da98e3898375fc722ed1a10",
+      "content_sha256": "6ae774230355f32bbbff27c27a2297f788e84c6daeb2303b6e88eb15a91ca07c",
       "contract_sha256": "00c438f80e2d01afcf960283264955237f77d51c71a353f30a8783ba77530b9e"
     },
     "camera_emotion": {
@@ -69,9 +69,9 @@
       "contract_sha256": "edbf1a5eb1341da231294bdf214689d415f9ea8c78b31f06c61ff315369fdba7"
     },
     "nextcloud": {
-      "version": "1.0.1",
+      "version": "1.1.0",
       "path": "software/study_runner/plugins/destinations/nextcloud_upload",
-      "content_sha256": "7af33ee55a73abe0ce5a95242395b68c24591f6fc113bdef87ed2a190cf7f146",
+      "content_sha256": "d1b523f16ee5f375fb51720a18c55089b509ebd2b64255af2702b9d67ba7b9af",
       "contract_sha256": "1aa2b4f4f583229552b8dc07021ab1a63385ed37f1efd1ccd71cbfc7467f6b60"
     },
     "notion": {

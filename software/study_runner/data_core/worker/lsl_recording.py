@@ -696,10 +696,15 @@ class LslSourceRecorder:
                     state.header_written for state in self._states
                 )
                 primary = self._states[self._primary_index]
+                primary_rate = primary.spec.nominal_rate_hz
+                primary_age_limit = max(
+                    maximum_sample_age_seconds,
+                    5.0 / primary_rate if primary_rate > 0 else maximum_sample_age_seconds,
+                )
                 primary_ready = not require_fresh_primary_sample or (
                     primary.sample_count >= 1
                     and primary.last_sample_monotonic is not None
-                    and now - primary.last_sample_monotonic <= maximum_sample_age_seconds
+                    and now - primary.last_sample_monotonic <= primary_age_limit
                 )
                 if headers_ready and primary_ready:
                     return True

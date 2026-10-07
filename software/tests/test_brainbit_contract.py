@@ -252,6 +252,8 @@ class EmotionalMathContractTests(unittest.TestCase):
 class TimingAndLslTests(unittest.TestCase):
     def setUp(self) -> None:
         adapter._lsl_epoch_offset = None
+        adapter._source_epoch_anchor = None
+        adapter._source_monotonic_anchor = None
         self.lsl = FakePylsl(clock=500.0)
         adapter._streams.use_backend(self.lsl)
         adapter._eeg_lsl_channels = ()
@@ -260,6 +262,8 @@ class TimingAndLslTests(unittest.TestCase):
     def tearDown(self) -> None:
         adapter._streams.close()
         adapter._lsl_epoch_offset = None
+        adapter._source_epoch_anchor = None
+        adapter._source_monotonic_anchor = None
         adapter._eeg_lsl_channels = ()
         adapter._lsl_stream_health = {}
 
@@ -272,6 +276,21 @@ class TimingAndLslTests(unittest.TestCase):
         self.assertAlmostEqual(first[1] - first[0], 0.004)
         self.assertAlmostEqual(second[0] - first[-1], 0.004)
         self.assertEqual(first + second, sorted(first + second))
+
+    def test_clock_anchor_maps_eeg_after_wall_clock_or_lsl_provider_shift(self) -> None:
+        epoch_anchor = 1_800_000_000.0
+        adapter._update_state_from_line(
+            f'CLOCK {{"epoch_anchor": {epoch_anchor}, "monotonic_anchor": 100.0}}'
+        )
+        self.assertEqual(adapter._source_epoch_anchor, epoch_anchor)
+        adapter._streams.open("diagnostics")
+        with (
+            mock.patch.object(adapter._streams, "now", return_value=530.0),
+            mock.patch.object(adapter.time, "monotonic", return_value=200.0),
+            mock.patch.object(adapter.time, "time", return_value=epoch_anchor + 130.0),
+        ):
+            converted = adapter._epoch_timestamps_to_lsl([epoch_anchor + 100.0])
+        self.assertAlmostEqual(converted[0], 530.0)
 
     def test_derived_backlog_gets_distinct_25_hz_timestamps(self) -> None:
         estimator = cli.SourceTimestampEstimator(25)

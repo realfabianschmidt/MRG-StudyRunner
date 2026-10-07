@@ -121,6 +121,8 @@ class SensorCoordinator:
             try:
                 status = get_plugin_status(sensor_key, context)
                 if plugin_is_running(status):
+                    if str(status.get("status") or "").lower() in {"failed", "exited", "unavailable"}:
+                        raise RuntimeError(str(status.get("last_message") or "Sensor runtime has failed."))
                     result = {
                         "ok": True,
                         "plugin": sensor_key,
@@ -129,7 +131,7 @@ class SensorCoordinator:
                         "status": status,
                     }
                 else:
-                    initialize_plugin(sensor_key, context)
+                    initialize_plugin(sensor_key, context, strict=True)
                     result = self.run_action(sensor_key, "start", context)
                 runtime[sensor_key] = result
                 if result.get("ok"):

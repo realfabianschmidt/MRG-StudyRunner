@@ -316,7 +316,10 @@ def admin_study_readiness():
     local_secrets = current_app.config.get("LOCAL_SECRETS", {})
     recording_runtime = current_app.config.get("RECORDING_RUNTIME_SERVICE")
     recording_preflight = (
-        recording_runtime.preflight(config_data, hardware_config) if recording_runtime else None
+        recording_runtime.preflight(
+            config_data, hardware_config,
+            selected_sensors=_sensor_runtime_state(config_data.get("study_settings", {}))["effective"],
+        ) if recording_runtime else None
     )
     report = check_study_readiness(
         config_data,
@@ -500,7 +503,10 @@ def _admin_start_study_run_locked():
         hardware_config,
         local_secrets,
         recording_preflight=(
-            recording_runtime.preflight(config_data, hardware_config) if recording_runtime else None
+            recording_runtime.preflight(
+                config_data, hardware_config,
+                selected_sensors=_sensor_runtime_state(config_data.get("study_settings", {}))["effective"],
+            ) if recording_runtime else None
         ),
         session_overrides=_session_overrides(),
     )

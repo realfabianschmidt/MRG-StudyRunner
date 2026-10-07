@@ -75,6 +75,50 @@ def _card_manifest(plugin_key: str, question_type: str) -> dict:
 
 
 class PluginManifestTests(unittest.TestCase):
+    def test_sensor_start_rules_are_validated_and_manifest_driven(self) -> None:
+        path = PROJECT_ROOT / "study_runner" / "plugins" / "sensors" / "brainbit" / "manifest.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        normalized = validate_and_normalize_manifest(payload, directory_name="brainbit")
+        self.assertEqual(
+            normalized["capability_config"]["study_sensor"]["start_condition"],
+            {"path": "connection.ready", "equals": True},
+        )
+        self.assertEqual(
+            normalized["capability_config"]["recording_source"]["start_sample_policy"],
+            "all_regular",
+        )
+        payload["capabilities"]["study_sensor"]["start_condition"]["path"] = "connection.missing-field!"
+        with self.assertRaisesRegex(PluginManifestError, "start_condition.path"):
+            validate_and_normalize_manifest(payload, directory_name="brainbit")
+
+    def test_every_recording_sensor_declares_a_primary_stream_for_its_mode(self) -> None:
+        sensor_root = PROJECT_ROOT / "study_runner" / "plugins" / "sensors"
+        manifests = list(sensor_root.glob("*/manifest.json"))
+        manifests.append(PROJECT_ROOT.parent / "tools" / "plugin_templates" / "sensors" / "manifest.json")
+        for path in manifests:
+            with self.subTest(plugin=path.parent.name):
+                manifest = json.loads(path.read_text(encoding="utf-8"))
+                capabilities = manifest["capabilities"]
+                if "recording_source" not in capabilities:
+                    continue
+                self.assertIn("study_sensor", capabilities)
+                self.assertIn("lsl_stream_provider", capabilities)
+                primary = capabilities["recording_source"]["primary_stream"]
+                streams = [stream for stream in manifest["streams"] if stream["key"] == primary]
+                self.assertEqual(len(streams), 1)
+                self.assertGreaterEqual(float(streams[0]["nominal_rate_hz"]), 0)
+
+    def test_every_destination_waits_for_completed_local_data(self) -> None:
+        destination_root = PROJECT_ROOT / "study_runner" / "plugins" / "destinations"
+        manifests = list(destination_root.glob("*/manifest.json"))
+        manifests.append(PROJECT_ROOT.parent / "tools" / "plugin_templates" / "destinations" / "manifest.json")
+        for path in manifests:
+            with self.subTest(plugin=path.parent.name):
+                capability = json.loads(path.read_text(encoding="utf-8"))["capabilities"]["upload_destination"]
+                self.assertTrue(capability["requires_valid_result"])
+                self.assertFalse(capability["publish_on_attention"])
+                self.assertFalse(capability["republish_on_degraded"])
+
     def test_card_contract_is_closed_and_normalized(self) -> None:
         payload = _card_manifest("fixture_card", "fixture-card")
         payload["capabilities"]["card_contract"].update(

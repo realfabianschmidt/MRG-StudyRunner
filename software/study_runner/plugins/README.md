@@ -32,7 +32,7 @@ stop other plugins or the server from loading.
 | `destinations/notion_upload/` | `notion` | Session summaries and tables in Notion |
 | `destinations/nextcloud_upload/` | `nextcloud` | Upload of finished session folders to Nextcloud |
 | `outputs/osc_touchdesigner/` | `osc` | Live trial markers and signals over OSC |
-| `cards/<type>/` (13 folders) | card type | Study cards: choice, finish, info, likert, mood_meter, multi_slider, participant_id, ranking, semantic, slider, stimulus, text, word_cloud |
+| `cards/<type>/` (14 folders) | card type | Study cards: affect_map, choice, finish, info, likert, mood_meter, multi_slider, participant_id, ranking, semantic, slider, stimulus, text, word_cloud |
 
 Sensor, destination and output plugins each have a `README.md` in their
 folder; card plugins are described by their manifest and
@@ -55,9 +55,26 @@ Every current manifest uses `api_version: 5` and declares identity, plugin versi
 category, config key, `runtime.entrypoint` for its process driver, UI metadata,
 settings schemas, timing limits, and capabilities. Important capability names are:
 
+The child process accepts only the operations declared by these capabilities
+and `runtime.actions`/`runtime.trial_events`. It checks the matching Python
+handlers before serving requests, including `get_status` when `health` is
+declared. A sensor's device adapter may reconnect internally, while the shared
+process host handles a crashed child process and the coordinator handles study
+selection and session boundaries.
+
 - `study_sensor`: selectable for a study, required by default when selected.
+- `study_sensor.start_condition`: optional path and expected value in that
+  plugin's status. BrainBit declares `connection.ready = true` because its
+  preparation includes contact measurement and calibration. Other sensors do
+  not inherit that condition. The server evaluates the declaration without
+  recognizing the plugin's name; the XDF worker sees only stream data.
 - `lsl_stream_provider`: owns stable stream/source IDs and channel metadata.
 - `recording_source`: contributes native XDF segments.
+- `recording_source.start_sample_policy`: `all_regular` by default; every
+  declared stream above 0 Hz must deliver fresh, recorded samples before the
+  start marker. `primary_only` permits late secondary streams with a warning;
+  `headers_only` waits for headers only. Event-only 0 Hz sources never require
+  an event exactly at a session boundary.
 - `backup_projection`: declares the numeric channels the core samples on its fixed 1 Hz backup grid.
 - `live_view`: declares up to four series of recorded channels the dashboard draws live (2 Hz, last 60 s).
 - `acquisition_transport`: declares how samples reach LSL; browser sources also
@@ -144,9 +161,9 @@ Every sensor is prepared, shown and recorded the same way:
 
 Browser ingest manifests declare acceptable source timestamp fields and the
 route also requires a sequence number. Upload destinations declare their queue
-key, legacy load-only aliases, and the policies `requires_valid_result`,
-`publish_on_attention`, `republish_on_degraded`, and
-`purge_verified_sources`. Only one installed destination may grant verified
+key, legacy load-only aliases, and the policies `requires_valid_result` and
+`purge_verified_sources`. All destinations run after local finalization, and
+independent destination jobs can run concurrently. Only one installed destination may grant verified
 source purge. Adding a destination needs no upload-runtime or finalization key
 change: discovery registers its handler and persists a `publish_<plugin-key>`
 step. A destination that needs a secret declares `credentials`, and a

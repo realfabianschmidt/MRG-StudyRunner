@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "nextcloud",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "category": "storage",
   "config_key": "nextcloud",
   "runtime": {
@@ -38,9 +38,9 @@
     "upload_destination": {
       "destination": "nextcloud",
       "default_enabled": false,
-      "requires_valid_result": false,
-      "publish_on_attention": true,
-      "republish_on_degraded": true,
+      "requires_valid_result": true,
+      "publish_on_attention": false,
+      "republish_on_degraded": false,
       "purge_verified_sources": false,
       "legacy": {
         "enabled_field": "nextcloud_enabled",

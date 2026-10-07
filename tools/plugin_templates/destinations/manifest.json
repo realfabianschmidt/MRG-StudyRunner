@@ -17,7 +17,11 @@
   },
   "capabilities": {
     "upload_destination": {
-      "destination": "example_destination"
+      "destination": "example_destination",
+      "requires_valid_result": true,
+      "publish_on_attention": false,
+      "republish_on_degraded": false,
+      "purge_verified_sources": false
     },
     "health": {},
     "readiness_requirements": {

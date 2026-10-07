@@ -80,6 +80,7 @@ from .recording_runtime_support import (
     wait_for_required_worker_sources as _wait_for_required_worker_sources,
     wait_for_stream_tail as _wait_for_stream_tail,
 )
+from .recording_timing import recording_timing
 from .recording_worker_launcher import (
     DetachedWorkerLauncher,
     WorkerLaunchSpec,
@@ -344,11 +345,15 @@ class RecordingRuntimeService:
         self,
         config_data: Mapping[str, Any],
         hardware_config: Mapping[str, Any] | None = None,
+        selected_sensors: Mapping[str, bool] | None = None,
     ) -> dict[str, Any]:
-        selected = selected_recording_plugins(config_data)
-        required = required_recording_plugins(config_data)
+        selected = [
+            key for key in selected_recording_plugins(config_data)
+            if selected_sensors is None or selected_sensors.get(key, False)
+        ]
+        required = [key for key in required_recording_plugins(config_data) if key in selected]
         availability = self.availability()
-        reasons = [str(availability.get("reason") or "")] if not availability["available"] else []
+        reasons = [str(availability.get("reason") or "")] if selected and not availability["available"] else []
         ready = not selected or bool(availability["available"])
 
         # Advisory only -- no plan exists yet at this point, so there is no
@@ -413,12 +418,17 @@ class RecordingRuntimeService:
         config_data: Mapping[str, Any],
         hardware_config: Mapping[str, Any],
         runtime_source_status: Mapping[str, Mapping[str, Any]] | None = None,
+        selected_sensors: Mapping[str, bool] | None = None,
+        session_sensor_plugins: list[str] | None = None,
     ) -> dict[str, Any]:
         identity = _identity_from_session(session)
         candidate_paths = self.artifacts.paths_for(identity)
         existing_plan = (candidate_paths.recording_plan_file).is_file()
-        selected = list(selected_recording_plugins(config_data))
-        required = list(required_recording_plugins(config_data))
+        selected = [
+            key for key in selected_recording_plugins(config_data)
+            if selected_sensors is None or selected_sensors.get(key, False)
+        ]
+        required = [key for key in required_recording_plugins(config_data) if key in selected]
         if not selected and not existing_plan:
             return {"recording_expected": False, "status": "skipped", "plugins": []}
 
@@ -525,9 +535,13 @@ class RecordingRuntimeService:
                 # this session (plugin versions are in recording_contract).
                 "study_runner_version": __version__,
                 "recording_plugins": selected,
+                "session_sensor_plugins": list(dict.fromkeys(session_sensor_plugins or [])),
                 "required_source_keys": required,
                 "recording_contract": recording_contract,
                 "planned_session_duration_minutes": planned_duration,
+                "recording_timing": recording_timing(
+                    (hardware_config or {}).get("recording_timing")
+                ),
                 "backup": None,
                 "worker": None,
                 "last_error": None,
@@ -767,8 +781,6 @@ class RecordingRuntimeService:
         optional_source_warnings: list[dict[str, Any]] = []
         backend = NativeWorkerXdfBackend(RecordingCoordinator(paths, client))
         for plugin_key in recording_plugins:
-            manifest = manifests.get(plugin_key) or {}
-            capabilities = set(manifest.get("capabilities") or [])
             required_source = plugin_key in required_sources
             response = backend.start_source(
                 plugin_key,
@@ -776,10 +788,10 @@ class RecordingRuntimeService:
                 command_id=(
                     f"start-source-{paths.identity.session_id}-{plugin_key}-g{generation}"
                 ),
-                require_stream_headers=required_source,
-                require_fresh_primary_sample=(
-                    required_source and "study_sensor" in capabilities
-                ),
+                # The host checks every required source together after all
+                # inlets have opened. The worker only starts and reports facts.
+                require_stream_headers=False,
+                require_fresh_primary_sample=False,
             )
             _require_worker_ok(response.ok, response.error, f"start source {plugin_key}")
             if not required_source:
@@ -889,6 +901,7 @@ class RecordingRuntimeService:
             generation=generation,
             manifests=manifests,
             required_sources=required_sources,
+            timeout_seconds=recording_timing(plan.get("recording_timing"))["start_wait_seconds"],
         )
         late_streams = list((readiness or {}).get("late_streams") or [])
 
@@ -1032,7 +1045,7 @@ class RecordingRuntimeService:
         paths: ArtifactPaths,
         marker_lsl_timestamp: float | None,
         *,
-        timeout_seconds: float = 3.0,
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         """Hold the freeze until every regular sensor stream passed the end marker.
 
@@ -1046,6 +1059,8 @@ class RecordingRuntimeService:
             plan = self._load_plan(paths)
         except RecordingRuntimeError as error:
             return {"reached": False, "skipped": str(error)}
+        if timeout_seconds is None:
+            timeout_seconds = recording_timing(plan.get("recording_timing"))["end_tail_wait_seconds"]
         if plan.get("status") == "frozen":
             return {"reached": False, "skipped": "already_frozen"}
         sensor_sources = {

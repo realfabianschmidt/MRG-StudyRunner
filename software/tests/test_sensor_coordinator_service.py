@@ -343,7 +343,7 @@ class SensorCoordinatorTests(unittest.TestCase):
             # A prepared, running sensor is recorded as it is: no initialize,
             # no restart. Only the stopped selected sensor is started, and the
             # unselected one is not stopped by a participant session.
-            initialize.assert_called_once_with("am_hub", context)
+            initialize.assert_called_once_with("am_hub", context, strict=True)
             runtime_action.assert_called_once_with("am_hub", "start", context)
             self.assertEqual(started["active_plugins"], ["brainbit", "am_hub"])
             self.assertTrue(started["runtime"]["brainbit"]["already_running"])
@@ -379,7 +379,7 @@ class SensorCoordinatorTests(unittest.TestCase):
                 )
                 stopped = coordinator.stop_plugins(["brainbit"], context)
 
-            initialize.assert_called_once_with("brainbit", context)
+            initialize.assert_called_once_with("brainbit", context, strict=True)
             runtime_action.assert_has_calls(
                 [
                     call("brainbit", "start", context),
@@ -392,6 +392,47 @@ class SensorCoordinatorTests(unittest.TestCase):
             self.assertEqual(applied["active_plugins"], ["brainbit"])
             self.assertEqual(stopped["stopped_plugins"], ["brainbit"])
             self.assertEqual(stopped["coordinator"]["brainbit"]["last_action"], "stop")
+        finally:
+            coordinator.close(wait=True)
+
+    def test_failed_initialization_never_counts_as_an_active_sensor(self) -> None:
+        context = _context()
+        coordinator = SensorCoordinator(monotonic_clock=FakeClock(1.0))
+        try:
+            with (
+                patch(
+                    "study_runner.data_core.host.sensor_coordinator_service.get_plugin_status",
+                    return_value={"running": False},
+                ),
+                patch(
+                    "study_runner.data_core.host.sensor_coordinator_service.initialize_plugin",
+                    side_effect=RuntimeError("device unavailable"),
+                ) as initialize,
+                patch("study_runner.data_core.host.sensor_coordinator_service.run_runtime_action") as action,
+            ):
+                outcome = coordinator.ensure_running({"sensor": True}, ["sensor"], context)
+            initialize.assert_called_once_with("sensor", context, strict=True)
+            action.assert_not_called()
+            self.assertEqual(outcome["active_plugins"], [])
+            self.assertFalse(outcome["runtime"]["sensor"]["ok"])
+            self.assertIn("device unavailable", outcome["runtime"]["sensor"]["error"])
+        finally:
+            coordinator.close(wait=True)
+
+    def test_running_process_with_failed_sensor_status_is_not_active(self) -> None:
+        coordinator = SensorCoordinator(monotonic_clock=FakeClock(1.0))
+        try:
+            with (
+                patch(
+                    "study_runner.data_core.host.sensor_coordinator_service.get_plugin_status",
+                    return_value={"running": True, "status": "failed", "last_message": "LSL outlet failed"},
+                ),
+                patch("study_runner.data_core.host.sensor_coordinator_service.initialize_plugin") as initialize,
+            ):
+                outcome = coordinator.ensure_running({"sensor": True}, ["sensor"], _context())
+            initialize.assert_not_called()
+            self.assertEqual(outcome["active_plugins"], [])
+            self.assertIn("LSL outlet failed", outcome["runtime"]["sensor"]["error"])
         finally:
             coordinator.close(wait=True)
 

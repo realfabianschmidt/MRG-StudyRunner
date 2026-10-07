@@ -280,8 +280,17 @@ def _end_finalization_producers(app: Flask, context) -> dict:
     with app.app_context():
         from .routes.helpers import _end_study_sensor_session
 
+        session = app.config["SESSION_STORE"].get(context.state["session_id"]) or {}
+        plugin_keys = session.get("sensor_plugins") if isinstance(session.get("sensor_plugins"), list) else None
+        plan_path = context.paths.recording_plan_file
+        if plugin_keys is None and plan_path.is_file():
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            if "session_sensor_plugins" in plan:
+                plugin_keys = list(plan["session_sensor_plugins"])
+
         return _end_study_sensor_session(
             notify=True,
+            plugin_keys=plugin_keys,
             options={
                 "reason": "session_finalized",
                 "session_id": context.state.get("session_id"),

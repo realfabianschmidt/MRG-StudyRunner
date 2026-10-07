@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -54,6 +55,25 @@ def job_arguments() -> dict:
 
 
 class UploadJobServiceTests(unittest.TestCase):
+    def test_independent_destinations_run_concurrently(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = UploadJobService(Path(temp_dir))
+            barrier = threading.Barrier(2)
+
+            def publish(_payload):
+                barrier.wait(timeout=5)
+                return {"ok": True}
+
+            for kind in ("notion", "fixture_export"):
+                service.register_executor(kind, publish)
+                service.enqueue(**{**job_arguments(), "kind": kind, "label": kind})
+
+            self.assertEqual(service.process_due_jobs_once(), 2)
+            self.assertEqual(
+                {job["status"] for job in service.status()["sessions"][0]["jobs"]},
+                {"done"},
+            )
+
     def test_backoff_schedule_matches_roadmap(self) -> None:
         self.assertEqual(
             [retry_delay_seconds(attempt) for attempt in range(1, 7)],

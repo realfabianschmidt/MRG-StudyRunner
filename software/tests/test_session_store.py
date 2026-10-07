@@ -64,6 +64,20 @@ class SessionStoreTests(unittest.TestCase):
             self.assertIsNotNone(found)
             self.assertEqual(found["session_id"], started["session_id"])
 
+    def test_sensor_membership_survives_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            first = SessionStore(data_dir)
+            session = first.start_or_reuse(session_payload())
+            first.record_sensor_plugins(
+                session["session_id"], ["brainbit", "am_hub"],
+                {"brainbit": True, "am_hub": True, "camera_emotion": False},
+            )
+
+            recovered = SessionStore(data_dir).get(session["session_id"])
+            self.assertEqual(recovered["sensor_plugins"], ["brainbit", "am_hub"])
+            self.assertEqual(recovered["selected_sensor_plugins"], ["brainbit", "am_hub"])
+
     def test_session_older_than_stale_window_is_marked_stale_on_rehydrate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             data_dir = Path(temp_dir)

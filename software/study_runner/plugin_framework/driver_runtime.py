@@ -15,6 +15,7 @@ from study_runner.contracts.card_validation_primitives import CardValidationErro
 from .plugin_layout import resolve_plugin
 from .plugin_secrets import resolve_plugin_secret
 from .process_host import PROTOCOL_PREFIX
+from .runtime_contract import declared_operations, validate_plugin_callbacks
 from .sensor_streams import registered as registered_sensor_streams
 
 
@@ -72,13 +73,8 @@ def _serve_plugin_driver(plugin_key: str) -> int:
         if isinstance(raw_capabilities, list):
             raw_capabilities = {name: {} for name in raw_capabilities}
         card_contract = raw_capabilities.get("card_contract")
-        if card_contract:
-            for name in ("get_card_defaults", "normalize_card_config"):
-                if not callable(getattr(plugin, name, None)):
-                    raise TypeError(f"Card extension is missing {name}")
-            if set(card_contract["question_types"]) - set(card_contract.get("answerless_types", [])):
-                if not callable(plugin.validate_card_answer):
-                    raise TypeError("Answerable card extension is missing validate_card_answer")
+        allowed_operations = declared_operations(manifest)
+        validate_plugin_callbacks(plugin, manifest)
     except Exception as error:
         print(f"Could not load plugin '{normalized}': {error}", file=sys.stderr, flush=True)
         return 3
@@ -103,6 +99,8 @@ def _serve_plugin_driver(plugin_key: str) -> int:
             payload = request.get("payload")
             payload = payload if isinstance(payload, dict) else {}
             try:
+                if operation not in allowed_operations:
+                    raise RuntimeError(f"Operation {operation!r} is not declared by this plugin")
                 if operation in {"card_defaults", "card_normalize", "card_validate_answer"}:
                     question_type = payload.get("question_type")
                     if not card_contract or question_type not in card_contract["question_types"]:
@@ -158,7 +156,7 @@ def _serve_plugin_driver(plugin_key: str) -> int:
         if context is None:
             print("Plugin is not initialized yet.", flush=True)
             continue
-        if not _handle_console_line(plugin, context, line):
+        if not _handle_console_line(plugin, context, line, allowed_operations):
             print(
                 "Unknown plugin command. Type 'help' for the generic commands; "
                 "the line was received unchanged.",
@@ -281,7 +279,9 @@ def _dispatch_card(plugin: Plugin, operation: str, payload: Mapping[str, Any]) -
     return plugin.validate_card_answer(question_type, question, payload["answer"], number)
 
 
-def _handle_console_line(plugin: Plugin, context: PluginContext, line: str) -> bool:
+def _handle_console_line(
+    plugin: Plugin, context: PluginContext, line: str, allowed_operations: set[str]
+) -> bool:
     if plugin.handle_console_line is not None:
         result = plugin.handle_console_line(context, line)
         if result is not None:
@@ -300,7 +300,7 @@ def _handle_console_line(plugin: Plugin, context: PluginContext, line: str) -> b
         return True
     if command in {"start", "stop", "restart"}:
         handler = getattr(plugin, command, None)
-        if not callable(handler):
+        if command not in allowed_operations or not callable(handler):
             print(f"Plugin does not support {command}.", flush=True)
         else:
             result = handler(context)

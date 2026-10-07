@@ -41,6 +41,7 @@ from .helpers import (
     _refresh_trial_runtime,
     _resume_study_session,
     _sensor_runtime_state,
+    _session_store,
     _session_overrides,
     _load_study_run,
     _participant_study_run_state,
@@ -191,13 +192,23 @@ def _start_study_session_locked():
             code="study_revision_conflict",
             current_revision=study_revision,
         )
+    existing = _session_store().find_active(
+        study_id, str(payload["participant_id"]), str(payload.get("client_id") or "")
+    )
+    frozen_plugins = existing.get("selected_sensor_plugins") if existing else None
+    selected_sensors = _sensor_runtime_state(config_data.get("study_settings", {}))["effective"]
+    if isinstance(frozen_plugins, list):
+        selected_sensors = {key: key in frozen_plugins for key in selected_sensors}
     recording_runtime = current_app.config.get("RECORDING_RUNTIME_SERVICE")
     readiness = check_study_readiness(
         config_data,
         current_app.config.get("HARDWARE_CONFIG", {}),
         current_app.config.get("LOCAL_SECRETS", {}),
         recording_preflight=(
-            recording_runtime.preflight(config_data, current_app.config.get("HARDWARE_CONFIG", {}))
+            recording_runtime.preflight(
+                config_data, current_app.config.get("HARDWARE_CONFIG", {}),
+                selected_sensors=selected_sensors,
+            )
             if recording_runtime
             else None
         ),
@@ -227,7 +238,12 @@ def _start_study_session_locked():
         session = _start_or_reuse_study_session({**payload, "study_id": study_id, "study_revision": study_revision})
     except ValueError as error:
         return refuse(str(error), 409, code="study_revision_conflict", current_revision=study_revision)
-    result = _start_study_sensor_runtime(config_data.get("study_settings", {}))
+    selected_plugins = session.get("selected_sensor_plugins")
+    result = _start_study_sensor_runtime(
+        config_data.get("study_settings", {}),
+        selected_plugins=selected_plugins if isinstance(selected_plugins, list) else None,
+        enforce_start_conditions=True,
+    )
     required_failures = _required_sensor_runtime_failures(config_data, result.get("runtime") or {})
     if required_failures:
         # The session stays open: the tablet's retry reuses it (same session
@@ -236,6 +252,14 @@ def _start_study_session_locked():
         details = "; ".join(f"{failure['plugin']}: {failure['error']}" for failure in required_failures)
         message = f"A required sensor plugin could not start ({details})."
         return refuse(message, 503, plugin_failures=required_failures)
+
+    try:
+        _session_store().record_sensor_plugins(
+            session["session_id"], result.get("active_plugins") or [], result.get("sensors") or {}
+        )
+    except Exception as error:
+        _end_study_sensor_session(notify=False)
+        return refuse(f"Session sensor selection could not be saved: {error}", 503)
 
     recording_result: dict = {"recording_expected": False, "status": "skipped", "plugins": []}
     if recording_runtime is not None:
@@ -246,23 +270,35 @@ def _start_study_session_locked():
                 current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
                 or current_app.config.get("HARDWARE_CONFIG", {}),
                 result.get("runtime") or {},
+                selected_sensors=result.get("sensors") or {},
+                session_sensor_plugins=result.get("active_plugins") or [],
             )
         except Exception as error:
-            required_recording = list(required_recording_plugins(config_data))
-            if required_recording:
-                # Keep the session: a retry reattaches to the same recording
-                # plan and folder rather than reserving a new one.
-                _end_study_sensor_session(notify=False)
-                return refuse(
-                    f"Canonical XDF recording could not start: {error}",
-                    503,
-                    recording={"status": "attention_required", "error": str(error)},
-                )
-            recording_result = {
-                "recording_expected": True,
-                "status": "attention_required",
-                "error": str(error),
-            }
+            # Keep the session: a retry reattaches to the same plan and folder.
+            _end_study_sensor_session(notify=False)
+            return refuse(
+                f"Canonical XDF recording could not start: {error}",
+                503,
+                recording={"status": "attention_required", "error": str(error)},
+            )
+    try:
+        _refresh_trial_runtime()
+        marker_options = {
+            "event_id": f"study-start-{session['session_id']}",
+            "session_id": session["session_id"],
+            "participant_id": session["participant_id"],
+            "study_id": study_id,
+            "marker_event": "study_start",
+            "phase": "study_start",
+        }
+        start_marker = current_app.config["TRIAL_EVENT_SERVICE"].execute(
+            marker_options["event_id"],
+            "study_start",
+            marker_options,
+            lambda persisted: send_trial_marker("study_start", persisted),
+        )
+    except Exception as error:
+        return refuse(f"The study start marker could not be recorded: {error}", 503)
     _study_run_state_store().clear_start_failure()
     return jsonify(
         {
@@ -270,6 +306,7 @@ def _start_study_session_locked():
             "session": _public_study_session(session),
             "study_run_state": _participant_study_run_state(client_id, config_data["study_id"]),
             "recording": recording_result,
+            "start_marker": start_marker,
             **result,
         }
     )

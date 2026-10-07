@@ -53,7 +53,7 @@ CORE_STEPS = (
     "export_csv",
     "write_result_manifest",
 )
-FINAL_STEPS = ("purge_local_sources", "archive_session_journals")
+FINAL_STEPS = ("archive_session_journals", "purge_local_sources")
 STEP_KEYS = ("commit_submission",) + CORE_STEPS + FINAL_STEPS
 STEP_LABELS = {
     "commit_submission": "Submission lokal sichern",
@@ -624,26 +624,6 @@ class FinalizationService:
             state = self._require_state(job_id)
             if state.get("status") != "attention_required":
                 raise InvalidTransitionError("Only an attention-required finalization can be confirmed degraded.")
-            attention_destinations = [
-                definition
-                for definition in self._destinations(state)
-                if definition.publish_on_attention
-                and _step(state, definition.step_key).get("enabled", True)
-            ]
-            unsettled = [
-                definition
-                for definition in attention_destinations
-                if _step(state, definition.step_key).get("status")
-                not in {"done", "failed", "skipped"}
-            ]
-            if unsettled:
-                labels = ", ".join(
-                    definition.destination.title() for definition in unsettled
-                )
-                raise InvalidTransitionError(
-                    f"Wait for the attention-required {labels} backup to finish or fail "
-                    "before confirming degraded completion."
-                )
             acceptance = state.get("quality_acceptance")
             if isinstance(acceptance, Mapping) and _step(
                 state, str(acceptance.get("step") or "")
@@ -681,25 +661,6 @@ class FinalizationService:
                 destination_step = _step(state, definition.step_key)
                 if destination_step["status"] == "pending":
                     destination_step.pop("blocked_by", None)
-            republish = [
-                definition
-                for definition in attention_destinations
-                if definition.republish_on_degraded
-            ]
-            if republish:
-                # The earlier attention upload is immutable generation 1.
-                # Degraded confirmation publishes a new status generation so
-                # the remote ATTENTION marker is replaced only after every
-                # now-final artifact has been hash-verified.
-                state["publication_generation"] = int(
-                    state.get("publication_generation") or 1
-                ) + 1
-                for definition in republish:
-                    destination_step = _step(state, definition.step_key)
-                    destination_step.clear()
-                    destination_step.update(
-                        _destination_step(definition, enabled=True)
-                    )
             self.manifest_store.publish_marker(
                 context.paths,
                 status="completed_degraded",
@@ -936,15 +897,16 @@ class FinalizationService:
             if state is None:
                 return
             if state.get("status") == "attention_required":
-                self._advance_attention_upload(state)
                 return
             if state.get("status") == "completed_degraded":
                 self._advance_destinations(state, degraded=True)
+                self._record_upload_failures(state)
                 return
             if state.get("status") == "completed":
                 # Only an operator retry of a failed upload brings work here;
                 # the local dataset is already complete and stays sealed.
-                self._advance_destinations(state, degraded=False)
+                if self._advance_destinations(state, degraded=False) and self._purge_due(state, self._clock()):
+                    self._run_purge(state)
                 self._record_upload_failures(state)
                 return
             state["status"] = "running"
@@ -959,14 +921,13 @@ class FinalizationService:
                 if not self._run_step(state, step_key):
                     return
 
-            # The scientific artifact set is now immutable. Publish the
-            # completion marker before network work so Nextcloud can upload it
-            # strictly last; the public job remains ``running`` until every
-            # enabled destination has independently finished. A session whose
-            # quality warnings were accepted completes as degraded.
+            # Archive local journals before publishing the immutable dataset.
+            # Every destination sees the same completed local artifacts.
             degraded = isinstance(state.get("accepted_quality_warnings"), Mapping)
             final_status = "completed_degraded" if degraded else "completed"
             quality_status = "degraded" if degraded else "valid"
+            if not self._run_journal_archive(state, finalization_status=final_status):
+                return
             if not state["runtime"].get("local_completion_published"):
                 context = self._context(state)
                 details: dict[str, Any] = {
@@ -985,8 +946,6 @@ class FinalizationService:
                 state["quality_status"] = quality_status
                 self._persist_state(state, event={"event": "local_completion_published"})
 
-            if not self._advance_destinations(state, degraded=degraded):
-                return
             if degraded:
                 purge = _step(state, "purge_local_sources")
                 if purge["status"] not in {"done", "skipped"}:
@@ -994,14 +953,13 @@ class FinalizationService:
                         status="skipped",
                         details={"reason": "local_sources_are_retained_for_degraded_sessions"},
                     )
-            elif not self._run_purge(state):
-                return
-            if not self._run_journal_archive(state, finalization_status=final_status):
-                return
+            self._persist_state(state, event={"event": "local_finalization_completed", "status": final_status})
             state["status"] = final_status
             state["quality_status"] = quality_status
-            self._record_upload_failures(state, persist=False)
             self._persist_state(state, event={"event": "finalization_completed", "status": final_status})
+            if self._advance_destinations(state, degraded=degraded) and not degraded:
+                self._run_purge(state)
+            self._record_upload_failures(state)
 
     def _record_upload_failures(self, state: dict[str, Any], *, persist: bool = True) -> None:
         """Name the uploads that failed, so lists can show it without reading steps."""
@@ -1320,38 +1278,6 @@ class FinalizationService:
         step.pop("next_attempt_epoch", None)
         self._persist_state(state, event={"event": "step_completed", "step": step_key, "status": result.status})
         return True
-
-    def _advance_attention_upload(self, state: dict[str, Any]) -> None:
-        # Recovery destinations may publish raw artifacts and the attention
-        # marker even when scientific derivation failed. Others remain pending
-        # until an operator explicitly confirms degraded completion.
-        for definition in self._destinations(state):
-            if not definition.publish_on_attention:
-                continue
-            destination_step = _step(state, definition.step_key)
-            if destination_step["status"] in {"done", "skipped", "failed"}:
-                continue
-            if (
-                destination_step["status"] == "retrying"
-                and float(destination_step.get("next_attempt_epoch") or 0)
-                > self._clock()
-            ):
-                continue
-            if self.destination_handler is None:
-                destination_step.update(
-                    status="skipped",
-                    details={"reason": "no_destination_handler_configured"},
-                )
-                self._persist_state(
-                    state,
-                    event={"event": "step_skipped", "step": definition.step_key},
-                )
-                continue
-            self._run_destination_step(
-                state,
-                definition.step_key,
-                definition.destination,
-            )
 
     def _run_purge(self, state: dict[str, Any]) -> bool:
         step = _step(state, "purge_local_sources")
@@ -1717,22 +1643,18 @@ class FinalizationService:
     def _job_has_due_work(self, state: dict[str, Any], now: float) -> bool:
         status = state.get("status")
         if status == "attention_required":
-            return any(
-                _step(state, definition.step_key)["status"]
-                in {"pending", "retrying"}
-                and float(
-                    _step(state, definition.step_key).get("next_attempt_epoch") or 0
-                )
-                <= now
-                for definition in self._destinations(state)
-                if definition.publish_on_attention
-            )
+            return False
         if status == "completed":
-            return any(
+            destinations_due = any(
                 _step(state, definition.step_key)["status"] in {"pending", "retrying"}
                 and float(_step(state, definition.step_key).get("next_attempt_epoch") or 0) <= now
                 for definition in self._destinations(state)
             )
+            destinations_terminal = all(
+                _step(state, definition.step_key)["status"] in {"done", "skipped", "failed"}
+                for definition in self._destinations(state)
+            )
+            return destinations_due or (destinations_terminal and self._purge_due(state, now))
         if status == "completed_degraded":
             return any(
                 _step(state, definition.step_key)["status"] in {"pending", "retrying"}
@@ -1760,37 +1682,16 @@ class FinalizationService:
                 return float(step.get("next_attempt_epoch") or 0) <= now
             return False
 
-        # Destinations are independent, so another destination may be due even
-        # while its sibling is delayed or waiting for an operator retry.
-        destination_due = False
-        destinations_terminal = True
-        for definition in self._destinations(state):
-            step = _step(state, definition.step_key)
-            step_status = step["status"]
-            if step_status in {"done", "skipped", "failed"}:
-                continue
-            destinations_terminal = False
-            if step_status == "pending" or (
-                step_status == "retrying"
-                and float(step.get("next_attempt_epoch") or 0) <= now
-            ):
-                destination_due = True
-        if destination_due:
-            return True
-        if not destinations_terminal:
-            return False
+        # Local completion is due regardless of remote destination state.
+        return True
 
-        for key in FINAL_STEPS:
-            step = _step(state, key)
-            step_status = step["status"]
-            if step_status in {"done", "skipped"}:
-                continue
-            if step_status == "pending":
-                return True
-            if step_status == "retrying":
-                return float(step.get("next_attempt_epoch") or 0) <= now
-            return False
-        return False
+    @staticmethod
+    def _purge_due(state: dict[str, Any], now: float) -> bool:
+        step = _step(state, "purge_local_sources")
+        return step["status"] == "pending" or (
+            step["status"] == "retrying"
+            and float(step.get("next_attempt_epoch") or 0) <= now
+        )
 
     def _require_state(self, job_id: str) -> dict[str, Any]:
         state = self._jobs.get(str(job_id or "").strip())
@@ -1817,6 +1718,7 @@ def _initial_steps(
 ) -> list[dict[str, Any]]:
     steps = [_ordinary_step("commit_submission", enabled=True)]
     steps.extend(_ordinary_step(key, enabled=True) for key in CORE_STEPS)
+    steps.append(_ordinary_step("archive_session_journals", enabled=True))
     steps.extend(
         _destination_step(
             definition,
@@ -1824,7 +1726,7 @@ def _initial_steps(
         )
         for definition in destinations
     )
-    steps.extend(_ordinary_step(key, enabled=True) for key in FINAL_STEPS)
+    steps.append(_ordinary_step("purge_local_sources", enabled=True))
     return steps
 
 

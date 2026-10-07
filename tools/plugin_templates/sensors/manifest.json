@@ -13,7 +13,7 @@
     "study_sensor": {"default_enabled": false, "default_required": true},
     "acquisition_transport": {"transport": "serial", "delivery": "host_lsl_bridge"},
     "lsl_stream_provider": {},
-    "recording_source": {"artifact": "xdf", "primary_stream": "measurements"},
+    "recording_source": {"artifact": "xdf", "primary_stream": "measurements", "start_sample_policy": "all_regular"},
     "backup_projection": {
       "stale_after_ms": 2500,
       "channels": [

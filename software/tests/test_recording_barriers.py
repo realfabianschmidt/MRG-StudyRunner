@@ -134,25 +134,76 @@ class StartBarrierTests(unittest.TestCase):
                 sleeper=clock.sleep,
             )
 
-    def test_a_silent_derived_stream_is_reported_after_a_short_grace(self) -> None:
-        # Before calibration a headband sends raw EEG but no derived values.
-        # The start must not be refused for that; the silence is reported.
+    def test_recent_arrival_with_old_lsl_timestamp_fails_the_start(self) -> None:
+        clock = _Clock()
+        health = _health([_stream("eeg", 250, count=100, age=0.01, last=70.0, primary=True)])
+        health["lsl_now"] = 100.0
+        with self.assertRaisesRegex(RecordingRuntimeError, "30.000s from the LSL clock"):
+            wait_for_required_worker_sources(
+                _Client(health),
+                session_id="s",
+                generation=1,
+                manifests=MANIFESTS,
+                required_sources={"brainbit"},
+                timeout_seconds=0.2,
+                monotonic=clock.monotonic,
+                sleeper=clock.sleep,
+            )
+
+    def test_a_silent_regular_stream_blocks_the_default_start_policy(self) -> None:
         clock = _Clock()
         client = _Client(
             _health([_stream("eeg", 250, count=100, age=0.01), _stream("mental", 25, count=0)])
         )
+        with self.assertRaisesRegex(RecordingRuntimeError, "brainbit.mental: no sample recorded yet"):
+            wait_for_required_worker_sources(
+                client,
+                session_id="s",
+                generation=1,
+                manifests=MANIFESTS,
+                required_sources={"brainbit"},
+                timeout_seconds=0.2,
+                monotonic=clock.monotonic,
+                sleeper=clock.sleep,
+            )
+
+    def test_manifest_primary_only_policy_keeps_secondary_as_a_warning(self) -> None:
+        clock = _Clock()
+        manifests = {
+            "brainbit": {
+                **MANIFESTS["brainbit"],
+                "capability_config": {"recording_source": {"start_sample_policy": "primary_only"}},
+            }
+        }
         health = wait_for_required_worker_sources(
-            client,
+            _Client(_health([_stream("eeg", 250, count=100, age=0.01, primary=True), _stream("mental", 25)])),
             session_id="s",
             generation=1,
-            manifests=MANIFESTS,
+            manifests=manifests,
             required_sources={"brainbit"},
-            secondary_grace_seconds=2.0,
+            secondary_grace_seconds=0.2,
             monotonic=clock.monotonic,
             sleeper=clock.sleep,
         )
         self.assertEqual(health["late_streams"], ["brainbit.mental: no sample recorded yet"])
-        self.assertGreaterEqual(clock.now, 2.0)
+
+    def test_event_only_source_needs_headers_but_no_boundary_sample(self) -> None:
+        clock = _Clock()
+        health = {
+            "readiness_contract": "fresh-primary/v1",
+            "frozen": False,
+            "sources": {"events": {"streams": [_stream("emotion", 0, primary=True)]}},
+        }
+        result = wait_for_required_worker_sources(
+            _Client(health),
+            session_id="s",
+            generation=1,
+            manifests={"events": {"capabilities": ["study_sensor"]}},
+            required_sources={"events"},
+            monotonic=clock.monotonic,
+            sleeper=clock.sleep,
+        )
+        self.assertEqual(result, health)
 
 
 class EndBarrierTests(unittest.TestCase):
@@ -171,6 +222,16 @@ class EndBarrierTests(unittest.TestCase):
         self.assertEqual(
             stream_tail_issues(sources, {"brainbit"}, marker_lsl_timestamp=self.MARKER),
             ["brainbit.bands"],
+        )
+
+    def test_missing_worker_source_cannot_report_a_reached_tail(self) -> None:
+        self.assertEqual(
+            stream_tail_issues({}, {"brainbit"}, marker_lsl_timestamp=self.MARKER),
+            ["brainbit: worker has no source state"],
+        )
+        self.assertEqual(
+            stream_tail_issues({"brainbit": {"streams": []}}, {"brainbit"}, marker_lsl_timestamp=self.MARKER),
+            ["brainbit: worker has no stream state"],
         )
 
     def test_the_freeze_waits_until_every_stream_passed_the_marker(self) -> None:

@@ -491,6 +491,32 @@ class FinalizationServiceTests(unittest.TestCase):
             self.assertEqual(destination.calls, ["fixture_export"])
             self.assertEqual(service.get(job["job_id"])["status"], "completed")
 
+    def test_even_legacy_attention_policy_cannot_publish_before_local_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = RecordingDestinationHandler()
+            definition = DestinationPluginDefinition(
+                plugin_key="fixture_export",
+                destination="fixture_export",
+                label="Fixture export",
+                default_enabled=True,
+                publish_on_attention=True,
+                republish_on_degraded=True,
+            )
+            service = self._service(
+                Path(temp_dir),
+                recording_adapter=FailingRecordingAdapter(),
+                destination_handler=destination,
+                destination_definitions=(definition,),
+            )
+            job = service.commit_submission(SUBMISSION, recording_expected=True)
+            service.process_due_jobs_once()
+            service.process_due_jobs_once()
+            self.assertEqual(service.get(job["job_id"])["status"], "attention_required")
+            self.assertEqual(destination.calls, [])
+            service.confirm_degraded(job["job_id"], reason="Reviewed raw data")
+            service.process_due_jobs_once()
+            self.assertEqual(destination.calls, ["fixture_export"])
+
     def test_multiple_source_purge_destinations_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             definitions = tuple(
@@ -536,7 +562,7 @@ class FinalizationServiceTests(unittest.TestCase):
             self.assertTrue((session_root / "ATTENTION_REQUIRED.json").is_file())
 
             service.process_due_jobs_once()
-            self.assertEqual(destination.calls, ["nextcloud"], "Notion must remain blocked before confirmation")
+            self.assertEqual(destination.calls, [], "Destinations wait for local completion")
             degraded = service.confirm_degraded(job["job_id"], reason="Sensor cable was removed", confirmed_by="operator-1")
             self.assertEqual(degraded["status"], "completed_degraded")
             self.assertEqual(degraded["degraded_confirmation"]["confirmed_by"], "operator-1")
@@ -567,9 +593,9 @@ class FinalizationServiceTests(unittest.TestCase):
                 "insufficient_time_coverage",
             )
             session_root = Path(temp_dir) / attention["session_path"]
-            # The attention backup may already have been uploaded.
+            # Both destinations must wait for completed local data.
             service.process_due_jobs_once()
-            self.assertEqual(destination.calls, ["nextcloud"])
+            self.assertEqual(destination.calls, [])
 
             continued = service.confirm_degraded(
                 job["job_id"],
@@ -606,7 +632,7 @@ class FinalizationServiceTests(unittest.TestCase):
             self.assertFalse((session_root / "ATTENTION_REQUIRED.json").exists())
             # Both destinations publish the finished session.
             self.assertIn("notion", destination.calls)
-            self.assertEqual(destination.calls.count("nextcloud"), 2)
+            self.assertEqual(destination.calls.count("nextcloud"), 1)
             self.assertFalse(done["can_continue_with_warnings"])
             self.assertFalse(done["can_continue_processing"])
 
@@ -712,7 +738,7 @@ class FinalizationServiceTests(unittest.TestCase):
             retried = reloaded.retry(job["job_id"])
             self.assertNotIn("attention_acknowledged_at", retried)
 
-    def test_degraded_confirmation_waits_for_attention_backup_to_settle(self) -> None:
+    def test_degraded_confirmation_does_not_wait_for_remote_backup(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             destination = DeferredNextcloudDestinationHandler()
             service = self._service(
@@ -727,12 +753,11 @@ class FinalizationServiceTests(unittest.TestCase):
             )
 
             service.process_due_jobs_once()
-            with self.assertRaisesRegex(InvalidTransitionError, "Nextcloud backup"):
-                service.confirm_degraded(job["job_id"], reason="Known sensor loss")
-
+            self.assertEqual(destination.calls, [])
+            confirmed = service.confirm_degraded(job["job_id"], reason="Known sensor loss")
+            self.assertEqual(confirmed["status"], "completed_degraded")
             service.process_due_jobs_once()
-            with self.assertRaisesRegex(InvalidTransitionError, "Nextcloud backup"):
-                service.confirm_degraded(job["job_id"], reason="Known sensor loss")
+            self.assertEqual(destination.calls, ["nextcloud"])
 
     def test_destinations_progress_independently(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -852,6 +877,19 @@ class FinalizationServiceTests(unittest.TestCase):
             source_entry = next(item for item in persisted["artifacts"] if item["path"] == relative)
             self.assertFalse(source_entry["local_present"])
             self.assertTrue(source_entry["remote_verified"])
+
+    def test_completed_job_retries_due_source_purge(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            clock = MutableClock()
+            service = self._service(Path(temp_dir), clock=clock)
+            job = service.commit_submission(SUBMISSION, recording_expected=True)
+            state = service._jobs[job["job_id"]]
+            state["status"] = "completed"
+            purge = next(step for step in state["steps"] if step["key"] == "purge_local_sources")
+            purge.update(status="retrying", next_attempt_epoch=clock.value + 5)
+
+            self.assertFalse(service._job_has_due_work(state, clock.value))
+            self.assertTrue(service._job_has_due_work(state, clock.value + 5))
 
     def test_source_purge_reconciles_crash_after_unlink_before_progress_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

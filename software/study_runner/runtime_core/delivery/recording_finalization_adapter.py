@@ -30,7 +30,7 @@ class RuntimeRecordingFinalizationAdapter:
         *,
         write_end_marker: Callable[[FinalizationContext], Mapping[str, Any] | None] | None = None,
         end_session_producers: Callable[[FinalizationContext], Mapping[str, Any] | None] | None = None,
-        tail_timeout_seconds: float = 3.0,
+        tail_timeout_seconds: float | None = None,
     ) -> None:
         self.runtime = runtime
         self.write_end_marker = write_end_marker
@@ -49,7 +49,10 @@ class RuntimeRecordingFinalizationAdapter:
         """
 
         if not context.recording_expected:
-            return StepResult("skipped", {"reason": "no_recording_source_selected"})
+            details: dict[str, Any] = {"reason": "no_recording_source_selected"}
+            if self.end_session_producers is not None:
+                details["producers"] = self._notify_session_end(context)
+            return StepResult("skipped", details)
         details: dict[str, Any] = {}
         callback_failures: list[str] = []
         end_marker: dict[str, Any] = {}
@@ -84,24 +87,25 @@ class RuntimeRecordingFinalizationAdapter:
                 if str(failure).strip()
             )
         if self.end_session_producers is not None:
-            try:
-                producer_details = dict(self.end_session_producers(context) or {})
-            except Exception as error:
-                producer_details = {"ok": False, "error": f"{type(error).__name__}: {error}"}
-            details["producers"] = producer_details
-            notice_failures = producer_stop_failures(producer_details)
-            if notice_failures:
-                warnings = context.state.setdefault("warnings", [])
-                for failure in notice_failures:
-                    message = f"session_end_notice: {failure}"
-                    if message not in warnings:
-                        warnings.append(message)
+            details["producers"] = self._notify_session_end(context)
         if callback_failures:
             raise FinalizationError(
                 "recording freeze completed with quality failures: "
                 + "; ".join(callback_failures)
             )
         return StepResult("done", details)
+
+    def _notify_session_end(self, context: FinalizationContext) -> dict[str, Any]:
+        try:
+            details = dict(self.end_session_producers(context) or {})  # type: ignore[misc]
+        except Exception as error:
+            details = {"ok": False, "error": f"{type(error).__name__}: {error}"}
+        warnings = context.state.setdefault("warnings", [])
+        for failure in producer_stop_failures(details):
+            message = f"session_end_notice: {failure}"
+            if message not in warnings:
+                warnings.append(message)
+        return details
 
     def validate_sources(self, context: FinalizationContext) -> StepResult:
         if not context.recording_expected:

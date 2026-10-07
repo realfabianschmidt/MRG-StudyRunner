@@ -6,6 +6,7 @@ keeps the participant waiting and a server restart never loses pending work.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import datetime as dt
 import json
 import os
@@ -180,8 +181,9 @@ class UploadJobService:
             ]
         if limit is not None:
             due_ids = due_ids[: max(0, int(limit))]
-        for job_id in due_ids:
-            self._run_job(job_id)
+        if due_ids:
+            with ThreadPoolExecutor(max_workers=min(4, len(due_ids))) as pool:
+                list(pool.map(self._run_job, due_ids))
         return len(due_ids)
 
     def cancel_session(self, session_id: str, *, reason: str = "withdrawn") -> dict[str, Any]:
@@ -591,4 +593,3 @@ def _safe_result(result: dict[str, Any]) -> dict[str, Any]:
 
 def _iso_time(epoch: float) -> str:
     return dt.datetime.fromtimestamp(epoch, tz=dt.timezone.utc).isoformat().replace("+00:00", "Z")
-

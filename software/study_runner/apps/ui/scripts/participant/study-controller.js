@@ -28,6 +28,7 @@ import { createParticipantSessionRecovery, isOlderRunState } from './participant
 import { createParticipantResultSubmission } from './participant-result-submission.js';
 import { createParticipantStimulusExecution } from './participant-stimulus-execution.js';
 import { createPendingSubmissionStore } from './participant-pending-submission.js';
+import { createParticipantNavigation } from './participant-navigation.js';
 import { createEventPayloadBuilder } from './participant-event-payload.js';
 
 // Preview renders real cards but suppresses participant claims and writes.
@@ -127,6 +128,7 @@ function updateSensorRuntime(runtime) {
 
 async function init() {
   bindEvents();
+  if (!IS_PREVIEW) startPendingSubmissionRetry((payload) => postJson('/api/results', payload));
   initFullscreenUi();
   if (!IS_PREVIEW) await prepareStudyClientIdentity();
   bindPageLifecycleEvents();
@@ -314,13 +316,12 @@ function handleStudyRunState(runState) {
   const previousRunId = state.studyRunState?.run_id || '';
   const nextRunId = runState.run_id || '';
   const runChanged = Boolean(previousRunId && nextRunId && previousRunId !== nextRunId);
-  const sessionOver = runChanged
-    || (state.completedLocally && runState.status === 'loaded')
-    || runState.status === 'aborted';
+  const sessionOver = runChanged || (runState.status === 'aborted' && !state.completedLocally);
   if (sessionOver && pageHoldsSession() && startFreshParticipantPage(runChanged ? 'new_run' : runState.status)) {
     return;
   }
   state.studyRunState = runState;
+  if (state.completedLocally) return;
   if (runState.conflict === true || runState.status === 'blocked') {
     showWaitingForAdminStart({
       title: t('study.tabletConflict.title', 'This tablet is not assigned'),
@@ -346,7 +347,6 @@ function handleStudyRunState(runState) {
     });
     return;
   }
-  if (state.completedLocally) return;
   if (isStudyRunRunning(runState)) {
     if (state.waitingForAdminStart || !state.questionsBuilt) {
       void activateStudyUiAfterAdminStart();
@@ -631,8 +631,7 @@ const buildEventPayload = createEventPayloadBuilder({
   getTrialPluginFields: (...args) => getTrialPluginFields(...args),
 });
 const { load: loadPendingSubmission, persist: persistPendingSubmission,
-  clear: clearPendingSubmission } = createPendingSubmissionStore(state, PENDING_SUBMISSION_STATE_KEY);
-
+  clear: clearPendingSubmission, startRetry: startPendingSubmissionRetry } = createPendingSubmissionStore(state, PENDING_SUBMISSION_STATE_KEY);
 async function sendMarker(markerEvent, questionIndex, question, phase = markerEvent, options = {}) {
   const eventId = options.eventId || createEventId(`marker-${markerEvent}`);
   try {
@@ -746,7 +745,7 @@ async function startTrial(options = {}) {
     return;
   }
   saveSessionSnapshot();
-  await sendMarker('study_start', null, null, 'study_start');
+  // The server acknowledges the start marker with the recording start barrier.
   if (rebuild) {
     buildQuestions();
   } else {
@@ -851,57 +850,14 @@ function clearCardAnimationClasses(cardElement) {
     cardElement.__cardAnimationEndHandler = null;
   }
 }
-async function goTo(targetIndex, options = {}) {
-  const total = (state.config.questions || []).length;
-  if (targetIndex < 0 || targetIndex >= total) {
-    return;
-  }
-  const lockNavigation = options.lockNavigation !== false;
-  const force = options.force === true;
-  if ((state.navigationBusy || state.submitInFlight) && !force) {
-    return;
-  }
-
-  if (lockNavigation) {
-    state.navigationBusy = true;
-    updateNavigation();
-  }
-
-  try {
-    const shouldSendStop = Boolean(state.activeStimulus?.signalStarted);
-    await stopActiveStimulus({ shouldSendStop });
-
-    const currentCard = getElement(`card-q-${state.currentIndex}`);
-    const targetCard = getElement(`card-q-${targetIndex}`);
-    if (!currentCard || !targetCard) {
-      return;
-    }
-
-    await recordQuestionCompletion(state.currentIndex);
-    await commitCheckpoint({ nextIndex: targetIndex, completedIndex: state.currentIndex });
-
-    const goingForward = targetIndex > state.currentIndex;
-
-    currentCard.classList.remove('active');
-    clearCardAnimationClasses(currentCard);
-    playCardEntrance(targetCard, goingForward ? 'enter-right' : 'enter-left');
-
-    state.currentIndex = targetIndex;
-    markQuestionShown(targetIndex);
-    updateNavigation();
-    saveSessionSnapshot();
-
-    const targetQuestion = (state.config.questions || [])[targetIndex];
-    if (targetQuestion?.type === 'stimulus') {
-      void startStimulusCard(targetIndex, targetQuestion);
-    }
-  } finally {
-    if (lockNavigation) {
-      state.navigationBusy = false;
-      updateNavigation();
-    }
-  }
-}
+const goTo = createParticipantNavigation({
+  state, getElement, updateNavigation, clearCardAnimationClasses,
+  playCardEntrance, markQuestionShown, saveSessionSnapshot,
+  stopActiveStimulus: (...args) => stopActiveStimulus(...args),
+  startStimulusCard: (...args) => startStimulusCard(...args),
+  recordQuestionCompletion: (...args) => recordQuestionCompletion(...args),
+  commitCheckpoint: (...args) => commitCheckpoint(...args),
+});
 
 const {
   prepareStimulusCard,

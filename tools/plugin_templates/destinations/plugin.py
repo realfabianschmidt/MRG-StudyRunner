@@ -5,10 +5,13 @@ and the manifest's plugin_key/config_key) before shipping;
 `tools/plugin_sdk.py new destinations <your_key>` does this substitution
 for you.
 
-`publish_destination` is the one handler `upload_destination` requires. A
+`publish_destination` is the one handler `upload_destination` requires. The
+core invokes it only after all local session artifacts are complete. A
 real destination uploads the artifacts named in `payload` to a remote
 location and reports the outcome; this example uploads nothing and always
 reports success, to prove the contract shape without any network code.
+The child process checks this callback at startup and rejects undeclared
+operations.
 See `study_runner/plugins/destinations/nextcloud_upload/plugin.py` for a
 complete, real implementation once you outgrow this template.
 """

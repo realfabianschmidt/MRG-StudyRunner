@@ -13,6 +13,8 @@ Every stimulus card then lists it under "Control actuators" automatically,
 and only the cards that select it call `on_trial_start` / `on_trial_stop`.
 Keep no per-card on/off option of your own: the card's selection decides.
 Delete both hooks and the two trial events if the plugin drives nothing.
+The child process checks the declared callbacks at startup and rejects an
+undeclared trial command.
 """
 from __future__ import annotations
 

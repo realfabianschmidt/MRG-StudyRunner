@@ -15,6 +15,7 @@ manifest and uses it to dispatch calls to the plugin runtime.
 | File | What it does |
 |---|---|
 | `plugin_catalog.py` | Discovery and manifest validation. Scans the trusted plugin folders, validates each `manifest.json` (delegating the actual rule-checking to `contracts/manifest.py`), and builds the `Plugin` objects the rest of the app uses. A broken folder becomes a visible "invalid" catalog entry, never a crashed startup. |
+| `runtime_contract.py` | Derives the process operation allowlist from each manifest and checks that every declared callback exists before the child starts serving requests. The same rule covers sensors, actuators, cards, and upload destinations. |
 | `registry.py` | The façade almost everything else calls: look a plugin up, get its status, dispatch a runtime/admin/participant action, resolve a UI asset, run the trial-start/stop/marker callbacks across every plugin at once. If a route or service needs a plugin to do something, it goes through here. |
 | `process_host.py` | Supervises a plugin's own `driver.py` subprocess: starts it, talks to it over a line-oriented stdio protocol, restarts it (up to a limit) if it dies, and exposes its live console to the admin diagnostics view — with a read-only-during-study gate that needs an explicit, logged operator unlock. |
 | `driver_runtime.py` | The other end of that same subprocess: what actually runs *inside* a plugin's `driver.py` once `process_host.py` has started it, reading its own manifest and serving commands until told to stop. |
@@ -38,6 +39,14 @@ The manifest is the single source of truth for what a plugin is called, what
 it records, which settings it exposes, and where in the interface it
 appears. `plugin_catalog.py` normalizes it once; everything downstream reads
 that one normalized shape.
+
+The child process accepts only operations declared by its manifest. A missing
+declared handler fails at plugin startup, rather than making a study fail at
+the first use of that handler. On study start, a selected sensor's
+initialization failure is returned as a failed sensor start; app-wide startup
+still reports that plugin's failure without preventing unrelated plugins from
+loading. The plugin's adapter owns device-specific connection and retry code;
+the host owns process recovery, session selection, and recording boundaries.
 
 ## Discovery and asset boundaries
 

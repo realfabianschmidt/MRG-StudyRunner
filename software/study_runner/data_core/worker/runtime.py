@@ -202,6 +202,11 @@ class RecordingWorkerRuntime:
                 "status": "healthy" if not issues else "attention_required",
                 "issues": issues,
                 "readiness_contract": "fresh-primary/v1",
+                "lsl_now": (
+                    float(self.pylsl.local_clock())
+                    if callable(getattr(getattr(self, "pylsl", None), "local_clock", None))
+                    else None
+                ),
                 "session_id": self.session_id,
                 "generation": self.generation,
                 "core": self.core.probe.as_dict(),

@@ -130,6 +130,22 @@ class SessionStore:
             session = self._sessions.get(session_id)
             return deepcopy(session) if session is not None else None
 
+    def record_sensor_plugins(self, session_id: str, plugin_keys: list[str],
+                              selected_sensors: dict[str, bool] | None = None) -> dict[str, Any]:
+        """Persist the participant's effective sensor membership for session end."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise ValueError("Session does not exist.")
+            candidate = deepcopy(session)
+            candidate["sensor_plugins"] = list(dict.fromkeys(plugin_keys))
+            if selected_sensors is not None:
+                candidate["selected_sensor_plugins"] = [
+                    key for key, enabled in selected_sensors.items() if enabled
+                ]
+            self._commit_session_locked(candidate, "session_sensors_selected")
+            return deepcopy(candidate)
+
     def start_or_reuse(self, payload: dict[str, Any]) -> dict[str, Any]:
         study_id = str(payload.get("study_id") or "").strip()
         participant_id = str(payload.get("participant_id") or "").strip()

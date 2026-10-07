@@ -31,6 +31,7 @@ from study_runner.runtime_core.settings.hardware_settings_service import (
 )
 from study_runner.runtime_core.settings.secrets_service import update_local_secrets
 from study_runner.runtime_core.studies.session_store import public_session
+from study_runner.runtime_core.studies.live_sensor_readiness import declared_start_condition_issue
 from study_runner.runtime_core.studies.study_config_service import load_config
 from study_runner.plugin_framework.plugin_secrets import secret_fields
 from study_runner.data_core.host.study_sensor_runtime import (
@@ -502,10 +503,20 @@ def _save_hardware_secret_payload(config_data: dict) -> tuple[dict, bool]:
     return sanitized_config, secret_updated
 
 
-def _start_study_sensor_runtime(study_settings: dict) -> dict:
+def _start_study_sensor_runtime(
+    study_settings: dict,
+    *,
+    selected_plugins: list[str] | None = None,
+    enforce_start_conditions: bool = False,
+) -> dict:
     base_hardware_config = current_app.config.get("HARDWARE_CONFIG", {})
     effective_hardware_config = build_effective_hardware_config(base_hardware_config, study_settings, _session_overrides())
     runtime_state = build_sensor_runtime_state(base_hardware_config, study_settings, _session_overrides())
+    if selected_plugins is not None:
+        selected = set(selected_plugins)
+        runtime_state["effective"] = {key: key in selected for key in STUDY_SENSOR_KEYS}
+        for key, enabled in runtime_state["effective"].items():
+            effective_hardware_config.setdefault(key, {})["enabled"] = enabled
     selected_sensors = runtime_state["effective"]
     current_app.config["ACTIVE_STUDY_HARDWARE_CONFIG"] = effective_hardware_config
     current_app.config["ACTIVE_STUDY_SENSOR_PLUGINS"] = []
@@ -551,6 +562,26 @@ def _start_study_sensor_runtime(study_settings: dict) -> dict:
                 results[sensor_key] = {"ok": False, "error": str(error)}
         coordinator_payload = {}
 
+    if enforce_start_conditions:
+        selections = study_settings.get("plugins") or {}
+        for sensor_key in list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or []):
+            selection = selections.get(sensor_key) if isinstance(selections, dict) else None
+            if isinstance(selection, dict) and not selection.get("required", True):
+                continue
+            if not (results.get(sensor_key) or {}).get("ok"):
+                continue
+            manifest = get_plugin_manifest(sensor_key)
+            condition = ((manifest.get("capability_config") or {}).get("study_sensor") or {}).get("start_condition")
+            if not condition:
+                continue
+            try:
+                status = get_plugin_status(sensor_key, context)
+                issue = declared_start_condition_issue(manifest, status)
+            except Exception as error:
+                issue = f"declared start status could not be checked: {error}"
+            if issue:
+                results[sensor_key] = {**results[sensor_key], "ok": False, "error": issue}
+
     return {
         "sensors": selected_sensors,
         "sensor_runtime": runtime_state,
@@ -560,7 +591,8 @@ def _start_study_sensor_runtime(study_settings: dict) -> dict:
     }
 
 
-def _end_study_sensor_session(*, notify: bool = True, options: dict | None = None) -> dict:
+def _end_study_sensor_session(*, notify: bool = True, options: dict | None = None,
+                              plugin_keys: list[str] | None = None) -> dict:
     """Close the participant-session scope without stopping any sensor.
 
     Sensors keep streaming for the next participant. With ``notify`` every
@@ -569,7 +601,10 @@ def _end_study_sensor_session(*, notify: bool = True, options: dict | None = Non
     session lock (``ACTIVE_STUDY_HARDWARE_CONFIG``) is released either way.
     """
     active_hardware_config = current_app.config.get("ACTIVE_STUDY_HARDWARE_CONFIG")
-    active_plugins = list(current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or [])
+    active_plugins = list(dict.fromkeys(
+        plugin_keys if plugin_keys is not None
+        else current_app.config.get("ACTIVE_STUDY_SENSOR_PLUGINS") or []
+    ))
     result: dict = {"notified_plugins": [], "runtime": {}}
     if notify and active_plugins and not _hardware_disabled():
         context = _plugin_context(active_hardware_config) if active_hardware_config else _plugin_context()
@@ -672,7 +707,11 @@ def _restart_sensor_runtime_if_needed(session: dict) -> None:
         return
     try:
         study_settings = _current_study_settings()
-        _start_study_sensor_runtime(study_settings)
+        selected = session.get("selected_sensor_plugins")
+        runtime = _start_study_sensor_runtime(
+            study_settings, selected_plugins=selected if isinstance(selected, list) else None
+        )
+        _session_store().record_sensor_plugins(session["session_id"], runtime.get("active_plugins") or [])
     except Exception as error:
         print(f"[SESSIONS] Could not restart sensors for resumed session: {error}")
 

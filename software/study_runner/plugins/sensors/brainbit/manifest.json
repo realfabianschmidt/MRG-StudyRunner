@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "brainbit",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "category": "biosignal",
   "config_key": "brainbit",
   "runtime": {
@@ -69,7 +69,11 @@
   "capabilities": {
     "study_sensor": {
       "default_enabled": true,
-      "default_required": true
+      "default_required": true,
+      "start_condition": {
+        "path": "connection.ready",
+        "equals": true
+      }
     },
     "acquisition_transport": {
       "transport": "ble",

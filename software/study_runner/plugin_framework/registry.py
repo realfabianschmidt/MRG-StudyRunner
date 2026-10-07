@@ -142,7 +142,7 @@ def initialize_plugins(context: PluginContext) -> None:
         initialize_plugin(plugin.key, context)
 
 
-def initialize_plugin(key: str, context: PluginContext) -> None:
+def initialize_plugin(key: str, context: PluginContext, *, strict: bool = False) -> None:
     plugin = _require_plugin(key)
     if plugin.initialize is None:
         return
@@ -150,6 +150,8 @@ def initialize_plugin(key: str, context: PluginContext) -> None:
         plugin.initialize(context)
     except Exception as error:
         print(f"[INTEGRATION] {plugin.key} initialization failed: {error}")
+        if strict:
+            raise
 
 
 def get_plugin_statuses(context: PluginContext) -> dict[str, dict[str, Any]]:
@@ -207,12 +209,21 @@ def run_runtime_action(key: str, action: str, context: PluginContext) -> dict[st
         raise ValueError(f"Plugin '{key}' does not support {normalized}.")
 
     result = handler(context)
+    status = get_plugin_status(key, context)
+    failed = isinstance(result, dict) and result.get("ok") is False
+    if normalized in {"start", "restart"}:
+        failed_statuses = {"failed", "exited", "unavailable"}
+        failed = failed or str(status.get("status") or "").lower() in failed_statuses
+        if isinstance(result, dict):
+            failed = failed or str(result.get("status") or "").lower() in failed_statuses
+    result_message = (result.get("error") or result.get("last_message")) if isinstance(result, dict) else None
     return {
-        "ok": True,
+        "ok": not failed,
         "plugin": key,
         "action": normalized,
         "result": result,
-        "status": get_plugin_status(key, context),
+        "status": status,
+        **({"error": str(result_message or status.get("last_message") or "Plugin action failed.")} if failed else {}),
     }
 
 
@@ -254,7 +265,11 @@ def run_session_end(
     """
 
     runtime: dict[str, dict[str, Any]] = {}
+    manifests = get_plugin_manifests()
     for key in plugin_keys:
+        manifest = manifests.get(key) or {}
+        if "session_end" not in set((manifest.get("runtime") or {}).get("trial_events") or []):
+            continue
         plugin = get_plugin(key)
         if plugin is None or plugin.on_session_end is None:
             continue
