@@ -139,6 +139,81 @@ class ModuleSyntaxTests(unittest.TestCase):
 
         self.assertEqual(offenders, [])
 
+    def test_no_module_level_binding_is_passed_before_it_is_declared(self) -> None:
+        # A factory argument such as `{ updateNavigation }` is read while the
+        # module evaluates; if that const is declared further down, the module
+        # throws a ReferenceError and the whole page stays blank.
+        offenders = []
+        scripts = sorted((WEB / "scripts").rglob("*.js"))
+        for path in scripts:
+            source = _blank_strings_and_comments(_read(path))
+            declared = _module_level_const_lines(source)
+            for call_line, arguments in _module_level_call_arguments(source):
+                for name in _bare_property_values(arguments):
+                    line = declared.get(name)
+                    if line is not None and line > call_line:
+                        offenders.append(f"{path.name}:{call_line} passes {name!r} declared on line {line}")
+        self.assertEqual(offenders, [])
+
+
+def _blank_strings_and_comments(source: str) -> str:
+    out = list(source)
+    index, length = 0, len(source)
+    while index < length:
+        char = source[index]
+        pair = source[index:index + 2]
+        if pair == "//":
+            end = source.find("\n", index)
+            end = length if end < 0 else end
+        elif pair == "/*":
+            end = source.find("*/", index + 2)
+            end = length if end < 0 else end + 2
+        elif char in "'\"`":
+            end = index + 1
+            while end < length and source[end] != char:
+                end += 2 if source[end] == "\\" else 1
+            end += 1
+        else:
+            index += 1
+            continue
+        for position in range(index, min(end, length)):
+            if out[position] != "\n":
+                out[position] = " "
+        index = end
+    return "".join(out)
+
+
+def _module_level_const_lines(source: str) -> dict[str, int]:
+    declared: dict[str, int] = {}
+    for match in re.finditer(r"^(?:export\s+)?(?:const|let)\s+(\{[^=]*?\}|\w+)\s*=", source, re.M):
+        line = source.count("\n", 0, match.start()) + 1
+        target = match.group(1)
+        if target.startswith("{"):
+            for part in target.strip("{}").split(","):
+                name = part.split(":")[-1].split("=")[0].strip()
+                if name:
+                    declared.setdefault(name, line)
+        else:
+            declared.setdefault(target, line)
+    return declared
+
+
+def _module_level_call_arguments(source: str) -> list[tuple[int, str]]:
+    calls = []
+    for match in re.finditer(r"^(?:export\s+)?(?:const|let)\s+(?:\{[^=]*?\}|\w+)\s*=\s*[\w.]+\(", source, re.M):
+        depth, end = 1, match.end()
+        while end < len(source) and depth:
+            depth += {"(": 1, ")": -1}.get(source[end], 0)
+            end += 1
+        calls.append((source.count("\n", 0, match.start()) + 1, source[match.end():end - 1]))
+    return calls
+
+
+def _bare_property_values(arguments: str) -> set[str]:
+    shorthand = re.findall(r"(?<=[{,])\s*([A-Za-z_$][\w$]*)\s*(?=[,}])", arguments)
+    valued = re.findall(r":\s*([A-Za-z_$][\w$]*)\s*(?=[,}])", arguments)
+    return set(shorthand) | set(valued)
+
 
 class ToggleTests(unittest.TestCase):
     def test_no_legacy_checkbox_row_classes_remain(self) -> None:

@@ -851,8 +851,9 @@ function clearCardAnimationClasses(cardElement) {
   }
 }
 const goTo = createParticipantNavigation({
-  state, getElement, updateNavigation, clearCardAnimationClasses,
-  playCardEntrance, markQuestionShown, saveSessionSnapshot,
+  state, getElement, clearCardAnimationClasses, playCardEntrance, saveSessionSnapshot,
+  updateNavigation: (...args) => updateNavigation(...args),
+  markQuestionShown: (...args) => markQuestionShown(...args),
   stopActiveStimulus: (...args) => stopActiveStimulus(...args),
   startStimulusCard: (...args) => startStimulusCard(...args),
   recordQuestionCompletion: (...args) => recordQuestionCompletion(...args),
