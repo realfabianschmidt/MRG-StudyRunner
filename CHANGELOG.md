@@ -5,6 +5,10 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Fixed
+
+- 1.7.10 was never published: its source package contained an operator's study configuration in place of the shipped example study, and the release checks stopped it. This release ships the example study again and contains every 1.7.10 change below.
+
 ## 1.7.10 - 2026-10-07
 
 ### Fixed

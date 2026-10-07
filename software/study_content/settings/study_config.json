@@ -1,9 +1,9 @@
 {
-  "study_id": "Autonomous Materials User Study #1",
+  "study_id": "Example Basic Study",
   "questions": [
     {
       "type": "participant-id",
-      "prompt": "Please enter your details for anonymous identification.",
+      "prompt": "Enter the requested details to create your anonymous participant code.",
       "fields": {
         "first_name": {
           "enabled": true,
@@ -66,278 +66,87 @@
           "store": false,
           "required": false
         }
-      }
+      },
+      "code_label": "Your anonymous participant code",
+      "info_top": "The identifying name fields are used to generate the code and are not stored.",
+      "info_bottom": "Ask the study operator if you are unsure which details to enter."
+    },
+    {
+      "type": "info",
+      "title": "About this example",
+      "text": "This short study demonstrates common self-report cards without using sensors.",
+      "image_asset": "",
+      "image_alt": "",
+      "layout": "text"
     },
     {
       "type": "mood-meter",
-      "prompt": "How do you feel right now? (Choosing one quadrant, more options will appear. Mulitple selection possible.)",
+      "prompt": "How do you feel right now?",
       "variant": "classic",
       "allow_multiple": true,
       "word_lists": null,
       "required": true
     },
     {
-      "type": "stimulus",
-      "title": "Turn towards the material. Observe it.",
-      "subtitle": "Pay attention to your sensory impressions. The questionnaire will appear automatically.",
-      "warmup_duration_ms": 0,
-      "duration_ms": 15000,
-      "trigger_type": "timer",
-      "trigger_content": "",
-      "plugin_actions": {
-        "camera_emotion": {
-          "snapshot_interval_ms": 1000
-        },
-        "brainbit": {
-          "to_touchdesigner": true
-        },
-        "osc": {
-          "forward_marker": false
-        }
-      },
-      "actuator_plugins": [
-        "am_hub"
+      "type": "single",
+      "prompt": "Which environment feels most comfortable?",
+      "options": [
+        "Quiet room",
+        "Lively room",
+        "Outdoors"
       ],
-      "end_sound": "none",
-      "end_sound_url": "",
-      "end_sound_volume": 80,
-      "auto_advance": true,
-      "overtime_keep_stimulus": true,
-      "overtime_keep_actuators": false,
-      "overtime_max_ms": 300000
-    },
-    {
-      "type": "semantic",
-      "prompt": "Rate your perceived animacy of the dynamic material",
-      "pairs": [
-        [
-          "dead",
-          "alive"
-        ],
-        [
-          "stagnant",
-          "lively"
-        ],
-        [
-          "mechanical",
-          "organic"
-        ],
-        [
-          "artificial",
-          "lifelike"
-        ],
-        [
-          "apathic",
-          "responsive"
-        ]
-      ],
-      "required": true
-    },
-    {
-      "type": "semantic",
-      "prompt": "Rate your perceived anthropomorphism of the dynamic material (\"anthrophos\"=human, \"morphos\"=form)",
-      "pairs": [
-        [
-          "fake",
-          "natural"
-        ],
-        [
-          "machine-like",
-          "human-like"
-        ],
-        [
-          "unconscious",
-          "conscious"
-        ],
-        [
-          "artificial",
-          "lifelike"
-        ],
-        [
-          "moving rigidly",
-          "moving elegantly"
-        ]
-      ],
-      "required": true
-    },
-    {
-      "type": "semantic",
-      "prompt": "Rate your perceived likeability of the dynamic material",
-      "pairs": [
-        [
-          "awful",
-          "nice"
-        ],
-        [
-          "unattractive",
-          "attractive"
-        ],
-        [
-          "unappealing",
-          "appealing"
-        ],
-        [
-          "repelling",
-          "inviting"
-        ]
-      ],
-      "required": true
-    },
-    {
-      "type": "semantic",
-      "prompt": "for later: Rate your perceived intelligence of the dynamic material",
-      "pairs": [
-        [
-          "incompetent",
-          "competent"
-        ],
-        [
-          "ignorant",
-          "knowledgable"
-        ],
-        [
-          "irresponsible",
-          "responsible"
-        ],
-        [
-          "unintelligent",
-          "intelligent"
-        ],
-        [
-          "foolish",
-          "sensible"
-        ]
-      ],
-      "required": true
-    },
-    {
-      "type": "semantic",
-      "prompt": "Rate your perceived safety and comfort",
-      "pairs": [
-        [
-          "insecure",
-          "secure"
-        ],
-        [
-          "unsafe",
-          "safe"
-        ],
-        [
-          "anxious",
-          "calm"
-        ],
-        [
-          "intimidated",
-          "at ease"
-        ],
-        [
-          "tense",
-          "relaxed"
-        ],
-        [
-          "uncomfortable",
-          "comfortable"
-        ]
-      ],
-      "required": true
-    },
-    {
-      "type": "semantic",
-      "prompt": "Rate your impression of the dynamic material",
-      "pairs": [
-        [
-          "distant",
-          "approachable"
-        ],
-        [
-          "boring",
-          "interesting"
-        ],
-        [
-          "unfriendly",
-          "friendly"
-        ],
-        [
-          "indifferent",
-          "engaging"
-        ]
-      ],
-      "required": true
-    },
-    {
-      "type": "mood-meter",
-      "prompt": "How do you feel right now?  (Choosing one quadrant, more options will appear. Mulitple selection possible.)",
-      "variant": "classic",
-      "allow_multiple": true,
-      "word_lists": {
-        "red": [
-          "Enraged",
-          "Furious",
-          "Frightened",
-          "Scared",
-          "Panicked",
-          "Stressed",
-          "Jittery",
-          "Shocked",
-          "Livid",
-          "Furious",
-          "Frustrated",
-          "Tense",
-          "Stunned",
-          "Fuming",
-          "Frightened",
-          "Angry",
-          "Nervous",
-          "Restless",
-          "Anxious",
-          "Apprehensive",
-          "Worried",
-          "Irritated",
-          "Annoyed",
-          "Repulsed",
-          "Troubled",
-          "Concerned",
-          "Uneasy",
-          "Peeved"
-        ]
-      },
-      "required": true
-    },
-    {
-      "type": "text",
-      "prompt": "Would you like to add something?",
       "required": true
     },
     {
       "type": "slider",
-      "prompt": "Did you like this study?",
-      "label_min": "not at all",
-      "label_max": "very strongly",
+      "prompt": "How alert do you feel right now?",
+      "label_min": "Not alert",
+      "label_max": "Very alert",
       "required": true
     },
     {
+      "type": "semantic",
+      "prompt": "How did the previous card feel?",
+      "pairs": [
+        [
+          "Difficult",
+          "Easy"
+        ],
+        [
+          "Unfamiliar",
+          "Familiar"
+        ]
+      ],
+      "required": true
+    },
+    {
+      "type": "text",
+      "prompt": "Is there anything else you would like to add?",
+      "required": false
+    },
+    {
       "type": "finish",
-      "title": "Thank you!",
-      "prompt": "Your answers have been saved.\nYou can put the device down."
+      "title": "Thank you",
+      "prompt": "Your answers have been saved. You can now return the tablet to the study operator."
     }
   ],
   "study_settings": {
-    "sensors_enabled": true,
+    "sensors_enabled": false,
     "sensors": {
-      "brainbit": true,
-      "am_hub": true,
+      "brainbit": false,
+      "am_hub": false,
       "camera_emotion": false,
       "mini_radar": false
     },
     "plugins": {
       "brainbit": {
-        "enabled": true,
-        "required": true,
+        "enabled": false,
+        "required": false,
         "settings": {}
       },
       "am_hub": {
-        "enabled": true,
-        "required": true,
+        "enabled": false,
+        "required": false,
         "settings": {}
       },
       "camera_emotion": {
@@ -348,11 +157,7 @@
       "notion": {
         "enabled": false,
         "required": false,
-        "settings": {
-          "data_source_id": "",
-          "database_id": "",
-          "parent_page_id": ""
-        }
+        "settings": {}
       },
       "nextcloud": {
         "enabled": false,
@@ -363,20 +168,25 @@
         "enabled": false,
         "required": false,
         "settings": {}
+      },
+      "osc": {
+        "enabled": false,
+        "required": false,
+        "settings": {}
       }
     },
-    "progress_bar_enabled": false,
+    "progress_bar_enabled": true,
     "card_frame_enabled": true,
     "participant_language": "en",
     "cover_page": {
-      "enabled": false,
-      "title": "",
-      "text": "",
+      "enabled": true,
+      "title": "Example Basic Study",
+      "text": "A short, sensor-free example that is safe to preview and edit.",
       "image_asset": "",
       "image_alt": "",
       "layout": "text",
-      "button_label": ""
+      "button_label": "Begin"
     },
-    "planned_session_duration_minutes": 30.0
+    "planned_session_duration_minutes": 8.0
   }
 }
