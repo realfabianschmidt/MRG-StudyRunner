@@ -6,7 +6,7 @@
 // closest to that point bloom around the orb. Records words + position.
 import { t } from '/static/scripts/shared/i18n.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
-import { prefersReducedMotion, runAnimation } from '/static/scripts/cards/card-motion.js';
+import { prefersReducedMotion, runAnimation, touchHint } from '/static/scripts/cards/card-motion.js';
 import {
   QUADRANTS,
   blobPath,
@@ -37,7 +37,7 @@ export function render(_q, i) {
       <div class="mm-field-cross" aria-hidden="true"></div>
       <span class="mm-field-axis mm-field-axis--energy">${escapeHtml(t('cards.moodMeter.axisEnergy', 'more energy'))}</span>
       <span class="mm-field-axis mm-field-axis--pleasant">${escapeHtml(t('cards.moodMeter.axisPleasant', 'more pleasant'))}</span>
-      <p class="mm-field-hint">${escapeHtml(t('cards.moodMeter.fieldHint', 'Drag the light to where you are right now'))}</p>
+      ${touchHint({ tag: 'p', attrs: 'class="mm-field-hint"', label: t('cards.moodMeter.fieldHint', 'Drag the light to where you are right now') })}
       <svg class="mm-orb mm-orb--idle" width="${ORB_BOX}" height="${ORB_BOX}" viewBox="0 0 ${ORB_BOX} ${ORB_BOX}" aria-hidden="true" focusable="false">
         <path class="mm-orb-shape" d="${blobPath(ORB_BOX / 2, ORB_BOX / 2, ORB_RADIUS, shapeAt(0.5, 0.5))}"></path>
       </svg>

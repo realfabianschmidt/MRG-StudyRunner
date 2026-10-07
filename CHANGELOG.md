@@ -5,6 +5,10 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Changed
+
+- Cards the participant operates by touch show a gently tapping finger icon instead of a written instruction: the affect map and mood meter field and feelings wheel, and the word cloud. The finger disappears at the first touch on the card. Screen readers still read the instruction, and the finger keeps still when the device asks for less motion (affect_map plugin 1.3.0, mood_meter plugin 1.3.0, word_cloud plugin 1.2.0).
+
 ## 1.7.13 - 2026-10-07
 
 ### Fixed

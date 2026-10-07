@@ -411,8 +411,8 @@ one, unlike the plugin table above).
 | `shared/qr-code.js` | QR code rendering for the access card | no |
 | `cards/index.js` | Package 5g.B5: `loadCards()` fetches each installed card's `card.js` (`/api/plugins/<key>/assets/card.js`) and Python-authoritative defaults (`/api/plugins/<key>/card-defaults`) instead of a static import list; the 13 card modules themselves now live in `plugins/cards/<name>/card.js` | careful |
 | `cards/card-info.js` | The shared editor frame every card composes into: question text, instruction, note, toggle group | careful |
-| `cards/card-mount.js` | `mountCard()` renders and binds a card the same way on the participant page and in the editor's live preview; `dispatchCardHook()` routes delegated clicks/inputs | careful |
-| `cards/card-motion.js` | `runAnimation()` for any card: rests out of view, ends when the card is replaced, stops on every session reset | careful |
+| `cards/card-mount.js` | `mountCard()` renders and binds a card the same way on the participant page and in the editor's live preview, and takes a card's touch finger away at its first touch; `dispatchCardHook()` routes delegated clicks/inputs | careful |
+| `cards/card-motion.js` | `runAnimation()` for any card: rests out of view, ends when the card is replaced, stops on every session reset; `touchHint()` shows a gently tapping finger instead of a "touch here" sentence (the sentence stays its accessible name) | careful |
 | `cards/session-state.js` | `cardState()` / `onSessionReset()`: the only place a card keeps non-DOM state; cleared at every session boundary | careful |
 
 Locales (`apps/ui/locales/en.json`, `de.json`) hold every UI string; both

@@ -1,10 +1,13 @@
-// Motion for cards: one animation loop per element that any card can use.
+// Motion for cards: one animation loop per element that any card can use,
+// and the tapping finger that says "touch here" until the card is touched.
 //
 // A card runs as a participant's question and as a live preview next to the
 // study editor, so its animations must look after themselves: the loop ends
 // when its element leaves the document (the card was replaced), rests while
 // the element is scrolled out of view, and every loop stops on a session
 // reset. The loop is kept on the element itself, never in a module variable.
+
+import { escapeHtml } from '../shared/dom-utils.js';
 
 export function prefersReducedMotion() {
   return typeof window !== 'undefined'
@@ -78,4 +81,25 @@ export function runAnimation(element, tick) {
 
 export function stopAllAnimations(root = typeof document !== 'undefined' ? document : null) {
   root?.querySelectorAll?.('[data-card-animated]').forEach((element) => element._cardAnimation?.stop());
+}
+
+/**
+ * A gently tapping finger instead of a "touch here" sentence. The sentence
+ * stays the element's accessible name, so screen readers still read it. The
+ * first touch on the card takes the finger away (armTouchHints, which
+ * mountCard runs for every card); it keeps still for reduce-motion (main.css).
+ * `attrs` carries the card's own class/id for positioning.
+ */
+export function touchHint({ label, tag = 'span', attrs = '' }) {
+  return `<${tag} ${attrs} role="img" aria-label="${escapeHtml(label)}" data-touch-hint><i class="iconoir-one-finger-select-hand-gesture touch-hint" aria-hidden="true"></i></${tag}>`;
+}
+
+function hideTouchHints(event) {
+  event.currentTarget.querySelectorAll('[data-touch-hint]').forEach((hint) => { hint.dataset.touchHint = 'done'; });
+}
+
+// The same listener is never added twice, so mounting a card again into the
+// same element (the editor preview) keeps a single one.
+export function armTouchHints(element) {
+  element.addEventListener('pointerdown', hideTouchHints, true);
 }

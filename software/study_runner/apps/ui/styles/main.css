@@ -772,3 +772,27 @@ label.field > span:first-child {
     order: -1;
   }
 }
+
+/* ============================================================
+   SHARED - touch hints (cards/card-motion.js touchHint)
+   A gently tapping finger says "touch here" instead of a sentence;
+   the first touch on its card takes it away (cards/card-mount.js).
+   ============================================================ */
+.touch-hint {
+  display: block;
+  width: 1em;
+  margin-inline: auto;
+  font-size: 1.75rem;
+  line-height: 1;
+  animation: touch-hint-tap 1.8s ease-in-out infinite;
+}
+@keyframes touch-hint-tap {
+  0%, 55%, 100% { transform: none; }
+  25% { transform: translateY(2px) scale(.86); }
+}
+[data-touch-hint] { transition: opacity .3s ease; }
+[data-touch-hint="done"] { opacity: 0; }
+[data-touch-hint="done"] .touch-hint { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .touch-hint { animation: none; }
+}

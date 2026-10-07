@@ -6,7 +6,7 @@
 // words + position + intensity (distance from the middle).
 import { t } from '/static/scripts/shared/i18n.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
-import { prefersReducedMotion, runAnimation } from '/static/scripts/cards/card-motion.js';
+import { prefersReducedMotion, runAnimation, touchHint } from '/static/scripts/cards/card-motion.js';
 import {
   QUADRANTS,
   localizedQuadrants,
@@ -63,7 +63,7 @@ export function render(_q, i, ctx) {
       ${quadrantLabels}
       <div class="mm-orbit-words">${words}</div>
       <span class="mm-orbit-dot" aria-hidden="true"></span>
-      <p class="mm-orbit-hint">${escapeHtml(t('cards.moodMeter.orbitHint', 'Touch the wheel where you are, then tap your words'))}</p>
+      ${touchHint({ tag: 'p', attrs: 'class="mm-orbit-hint"', label: t('cards.moodMeter.orbitHint', 'Touch the wheel where you are, then tap your words') })}
     </div>`;
 }
 

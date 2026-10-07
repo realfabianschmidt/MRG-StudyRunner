@@ -2,6 +2,7 @@ import { t } from '/static/scripts/shared/i18n.js';
 import { notifyCardChanged, renderEditorToggle, renderStudyHeader } from '/static/scripts/cards/card-info.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
 import { cardState } from '/static/scripts/cards/session-state.js';
+import { touchHint } from '/static/scripts/cards/card-motion.js';
 
 export const meta = { type: 'word-cloud', icon: 'chat-bubble', label: 'Word Cloud', pill: 'pill-word-cloud' };
 
@@ -34,9 +35,7 @@ export function renderStudy(q, i) {
     <div class="wc-cloud" id="wc-cloud-${i}" data-multiple="${isMultiple}" role="group"
          aria-label="${escapeHtml(q.prompt)}">${chips}</div>
     <div class="wc-tray" id="wc-tray-${i}" aria-label="${escapeHtml(t('cards.wordCloud.selectedWords', 'Selected words'))}">
-      <span class="wc-tray-hint" id="wc-tray-hint-${i}">
-        ${escapeHtml(t('cards.wordCloud.trayHint', 'Tap a word or drag it here'))}
-      </span>
+      ${touchHint({ attrs: `class="wc-tray-hint" id="wc-tray-hint-${i}"`, label: t('cards.wordCloud.trayHint', 'Tap a word or drag it here') })}
     </div>`;
 }
 

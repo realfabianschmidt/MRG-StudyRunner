@@ -58,6 +58,20 @@ test('mountCard hands the mode to bindInteractions', () => {
   assert.deepEqual(seen, ['preview', 'study']);
 });
 
+test('the first touch on any mounted card takes its touch finger away', () => {
+  for (const type of Object.keys(CARDS)) {
+    const defaults = Object.values(snapshot.defaults).find((entry) => entry?.[type])?.[type];
+    const element = stubElement();
+    mountCard(element, { ...defaults, type }, 0, { mode: 'preview' });
+    const [, onTouch] = element.listeners.find(([name, , capture]) => name === 'pointerdown' && capture === true) || [];
+    assert.ok(onTouch, `${type} listens for the first touch`);
+    const finger = { dataset: {} };
+    onTouch({ currentTarget: { querySelectorAll: (selector) => (selector === '[data-touch-hint]' ? [finger] : []) } });
+    assert.equal(finger.dataset.touchHint, 'done', type);
+  }
+  resetAllCardState();
+});
+
 test('dispatchCardHook reaches every card module except skipped ones', () => {
   const reached = [];
   const modules = [...new Set(Object.values(CARDS))];

@@ -6,14 +6,17 @@
 //
 // `mode` is 'study' (a participant answers) or 'preview' (the editor shows
 // the card; nothing is recorded). A card's bindInteractions(element, index,
-// { mode }) must work in both; most cards never need to look at it.
+// { mode }) must work in both; most cards never need to look at it. The
+// first touch on a card takes away its touchHint() finger.
 import { CARDS } from './index.js';
 import { renderInfoBottom, renderOptionalTag } from './card-info.js';
+import { armTouchHints } from './card-motion.js';
 
 export function mountCard(element, question, index, { mode = 'study' } = {}) {
   const cardModule = CARDS[question?.type];
   if (!element || !cardModule) return null;
   element.innerHTML = renderOptionalTag(question) + cardModule.renderStudy(question, index) + renderInfoBottom(question);
+  armTouchHints(element);
   cardModule.bindInteractions?.(element, index, { mode });
   return cardModule;
 }

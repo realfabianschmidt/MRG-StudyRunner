@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 528,
+  "cross_package_import_edges": 529,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -105,7 +105,7 @@
     "apps.server": 5388,
     "apps.ui": 0,
     "apps.ui.admin": 6207,
-    "apps.ui.cards": 4878,
+    "apps.ui.cards": 4904,
     "apps.ui.participant": 3445,
     "apps.ui.settings": 1964,
     "apps.ui.shared": 3145,

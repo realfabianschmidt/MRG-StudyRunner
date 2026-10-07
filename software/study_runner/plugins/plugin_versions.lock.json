@@ -3,9 +3,9 @@
   "note": "Written by tools/plugin_versions.py --update; see CONTRIBUTING.md section 11.",
   "plugins": {
     "affect_map": {
-      "version": "1.2.0",
+      "version": "1.3.0",
       "path": "software/study_runner/plugins/cards/affect_map",
-      "content_sha256": "a285d7b57c34627701102d0c42d2e1199e9188b56b1928d29159d3563dc2a8b3",
+      "content_sha256": "c154bf231f8357e44ab885b65e5d274083322e63f010d6e70864e850e3baa074",
       "contract_sha256": "89f20ed4b47fe8c9d324fc08de5a5a722ee8720d222876d1ed9079e198ef46f8"
     },
     "am_hub": {
@@ -57,9 +57,9 @@
       "contract_sha256": "af24524d3c50200e5090dfbf2e78adcbe375dd4d3d06a8ebcb982ab33f73aa60"
     },
     "mood_meter": {
-      "version": "1.2.0",
+      "version": "1.3.0",
       "path": "software/study_runner/plugins/cards/mood_meter",
-      "content_sha256": "fde6315931b27a29aa0f5ac655f7a4cac0794fd99a0b4d38ee68e5b6461e094d",
+      "content_sha256": "73778861b2a043b9ae3d15b6e4500fb273d9a7030e14e68efc6a00926907770c",
       "contract_sha256": "a22bb6eb0ba97bc7a8e7c7ba8c07d4229984002a4a08d433fd83518942034011"
     },
     "multi_slider": {
@@ -123,9 +123,9 @@
       "contract_sha256": "6b8f19975dfc6d4d45776526c48d77b562996ac31c2e1bf880854437ab35359c"
     },
     "word_cloud": {
-      "version": "1.1.0",
+      "version": "1.2.0",
       "path": "software/study_runner/plugins/cards/word_cloud",
-      "content_sha256": "4422f1423af956687bc769a49944b0eb1e740b8fcbac424492d9dfd6c71a63d7",
+      "content_sha256": "0c745bff08a820d81eb6cc58d841c6dbb0693ab5d40d02ff5980ff55b0ce5fdf",
       "contract_sha256": "626be1398de4f5032a5184e4dcf9dd208e3ae4e290ac8668f4659bd69c37f698"
     }
   }

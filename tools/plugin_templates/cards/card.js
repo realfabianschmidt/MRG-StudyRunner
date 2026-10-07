@@ -50,7 +50,9 @@ export function collectAnswer(i) {
 // (mode 'study') and in the live preview next to the study editor (mode
 // 'preview', nothing is recorded). Work only inside `element`; run any
 // animation through runAnimation() from '/static/scripts/cards/card-motion.js'
-// so it rests out of view and stops on every session reset.
+// so it rests out of view and stops on every session reset. A card the
+// participant must touch shows touchHint() from the same module instead of a
+// "touch here" sentence: a tapping finger, gone at the first touch.
 // export function bindInteractions(element, index, { mode }) {}
 
 export function isAnswered(_question, _questionIndex, { touchedFieldCount }) {
