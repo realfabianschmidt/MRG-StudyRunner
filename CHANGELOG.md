@@ -12,6 +12,7 @@ All notable Study Runner changes are documented here. Release tags use
 - Start and end checks compare a sensor's timestamps with the end marker only through a recorded LSL clock correction. Without one, the end check uses the recorder's own receipt time and the session is flagged for review as clock-uncertain, never as data loss. The start check waits for the first correction instead of warning on every session.
 - A late session end from one participant can no longer reset sensors already claimed by the next session or by the operator's setup for the next person. A sensor whose reset timed out is held back until the plugin confirms the reset.
 - A recording checkpoint counts only samples written before its durable flush.
+- Saving a study while a tablet is connected no longer fails with "access denied" on Windows. Reading the study waits for a save in progress instead of treating it as interrupted, and an atomic file replace briefly retries while a virus scanner or indexer holds the file.
 
 ### Changed
 

@@ -68,8 +68,11 @@ def normalize_config(config_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_config(config_file: Path) -> dict[str, Any]:
-    recover_active_study_transaction(config_file)
-    return _load_config_unchecked(config_file)
+    # Under the save lock: a reader must never mistake a save in progress for
+    # an interrupted one, nor hold the file open while that save replaces it.
+    with _STUDY_SAVE_LOCK:
+        recover_active_study_transaction(config_file)
+        return _load_config_unchecked(config_file)
 
 
 def _load_config_unchecked(config_file: Path) -> dict[str, Any]:

@@ -131,5 +131,33 @@ class StudyConfigPersistenceTests(unittest.TestCase):
         self.assertEqual(marker["revision"], revision)
 
 
+class StudyConfigConcurrencyTests(unittest.TestCase):
+    def test_a_reader_waits_for_a_save_in_progress_instead_of_recovering_it(self) -> None:
+        import threading
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_file = Path(tmp) / "study_config.json"
+            config_file.write_text(json.dumps({"study_id": "s", "questions": []}), encoding="utf-8")
+            recoveries = []
+            original = study_config_service.recover_active_study_transaction
+
+            def recording_recover(path):
+                recoveries.append(path)
+                return original(path)
+
+            loaded = threading.Event()
+            with patch.object(study_config_service, "recover_active_study_transaction", side_effect=recording_recover):
+                with study_config_service._STUDY_SAVE_LOCK:
+                    reader = threading.Thread(
+                        target=lambda: (study_config_service.load_config(config_file), loaded.set())
+                    )
+                    reader.start()
+                    self.assertFalse(loaded.wait(0.2))
+                    self.assertEqual(recoveries, [])
+                reader.join(timeout=5)
+            self.assertTrue(loaded.is_set())
+            self.assertEqual(len(recoveries), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

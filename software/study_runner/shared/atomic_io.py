@@ -10,10 +10,17 @@ import json
 import os
 import tempfile
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+
+# Windows refuses to replace a file while another handle has it open, for
+# example a virus scanner or indexer looking at the file just written. Such a
+# hold lasts milliseconds, so the replace is retried for up to about a second.
+REPLACE_ATTEMPTS = 20
+REPLACE_RETRY_SECONDS = 0.05
 
 _LOCKS_GUARD = threading.Lock()
 _PATH_LOCKS: dict[str, threading.RLock] = {}
@@ -47,7 +54,7 @@ def atomic_write_bytes(path: Path, payload: bytes) -> None:
                 file_handle.write(payload)
                 file_handle.flush()
                 os.fsync(file_handle.fileno())
-            os.replace(temp_path, path)
+            _replace_with_retry(temp_path, path)
             _fsync_parent_directory(path.parent)
         except Exception:
             try:
@@ -55,6 +62,17 @@ def atomic_write_bytes(path: Path, payload: bytes) -> None:
             except OSError:
                 pass
             raise
+
+
+def _replace_with_retry(source: Path, target: Path) -> None:
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_RETRY_SECONDS)
 
 
 @contextmanager
