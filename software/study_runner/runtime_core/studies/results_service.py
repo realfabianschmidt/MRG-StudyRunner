@@ -332,7 +332,10 @@ def build_answer_details(
                 or event.get("completed_at")
                 or result_payload.get("timestamp_end")
             )
-            interval_kind = "stimulus_active"
+            # A preparation failure the operator chose to skip past never
+            # started the stimulus; the interval it still occupies on the
+            # tablet must not be reported as if actuators and sensors ran.
+            interval_kind = "stimulus_active" if event.get("active_started_at") else "stimulus_not_started"
         else:
             skipped = False
             if question_type == "participant-id":
@@ -376,6 +379,9 @@ def build_answer_details(
             "answered_at": event.get("answered_at") or event.get("completed_at") or result_payload.get("timestamp_end"),
             "active_started_at": event.get("active_started_at"),
             "active_ended_at": event.get("active_ended_at"),
+            "prepare_resolution": event.get("prepare_resolution"),
+            "shown_at_server_epoch_ms": event.get("shown_at_server_epoch_ms"),
+            "answered_at_server_epoch_ms": event.get("answered_at_server_epoch_ms"),
             "server_start_received_at": event.get("server_start_received_at"),
             "server_stop_received_at": event.get("server_stop_received_at"),
             "server_start_received_epoch_ms": event.get("server_start_received_epoch_ms"),

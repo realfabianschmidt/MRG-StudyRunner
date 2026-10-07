@@ -63,10 +63,11 @@ function render() {
           <strong>${escapeHtml(slot === 'heading' ? t('fonts.headingLabel', 'Headings') : t('fonts.bodyLabel', 'Body text'))}</strong>
           ${entry.has_upload ? `<span class="settings-hint">${escapeHtml(t('fonts.uploadedName', 'Uploaded: {name}').replace('{name}', entry.name || ''))}</span>` : ''}
         </div>
-        <div class="branding-asset-actions">
-          <select class="fi-input" data-font-choice="${slot}" aria-label="${escapeHtml(t('fonts.choiceLabel', 'Font'))}">
+        <div class="field"><label for="font-choice-${slot}">${escapeHtml(t('fonts.choiceLabel', 'Font'))}</label>
+          <select id="font-choice-${slot}" data-font-choice="${slot}">
             ${choices.map((choice) => `<option value="${choice}"${choice === entry.choice ? ' selected' : ''}>${escapeHtml(choiceLabel(choice))}</option>`).join('')}
-          </select>
+          </select></div>
+        <div class="branding-asset-actions">
           <input type="file" accept="${ACCEPT}" data-font-upload="${slot}" hidden>
           <button class="btn-secondary" type="button" data-font-pick="${slot}">
             <i class="iconoir-upload"></i> <span>${escapeHtml(entry.has_upload ? t('fonts.replace', 'Replace font') : t('fonts.upload', 'Upload font'))}</span>

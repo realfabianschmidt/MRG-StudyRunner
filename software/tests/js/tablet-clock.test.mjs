@@ -24,7 +24,18 @@ assert.equal(selected.offset_ms, 1_000_000);
 assert.equal(clock.evidence().clock_sync_rtt_ms, 10);
 assert.equal(clock.evidence().source_epoch_ms, nowMs + 1_000_000);
 assert.ok(clock.evidence().clock_sync_id);
+// A stimulus prepared well ahead: the deadline is in the future, but the
+// calibration itself is still fresh, so it must convert normally.
+{
+  const deadlineMs = nowMs + 200_000;
+  const evidence = clock.evidence(deadlineMs);
+  assert.equal(evidence.time_source, 'tablet_sync');
+  assert.equal(evidence.source_epoch_ms, deadlineMs + 1_000_000);
+}
+
 nowMs += CLOCK_SYNC_MAX_AGE_MS + 1;
+// A stale calibration must still refuse a future target, not just a past one.
+assert.equal(clock.evidence(nowMs + 200_000).time_source, 'server_receipt');
 assert.deepEqual(clock.evidence(), {
   source_epoch_ms: null,
   clock_sync_id: null,

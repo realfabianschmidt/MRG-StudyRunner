@@ -5,10 +5,12 @@ import {
   CONTINUOUS_RATE_HZ,
   MIN_WINDOW_SECONDS,
   TRACK_KIND,
+  buildMarkers,
   buildTrackGroups,
   clampWindow,
   classifyChannel,
   discoverChannels,
+  entryEpoch,
   fullExtent,
   normalizePoints,
   panWindow,
@@ -164,4 +166,42 @@ test('panning past an edge sticks to it and keeps the span', () => {
 
 test('a window wider than the recording is clamped to it', () => {
   assert.deepEqual(clampWindow({ start: -50, end: 500 }, extent), { start: 0, end: 100 });
+});
+
+test('a card without stimulus server times is placed by its own times, never at 1970', () => {
+  // Stored results write null for the stimulus-only server fields.
+  const question = {
+    question_number: 2,
+    question_type: 'mood-meter',
+    server_start_received_epoch_ms: null,
+    server_stop_received_epoch_ms: null,
+    shown_at_server_epoch_ms: 1791294733215.268,
+    answered_at_server_epoch_ms: 1791294739917.268,
+  };
+  assert.ok(Math.abs(entryEpoch(question, 'start') - 1791294733.215268) < 1e-6);
+  assert.ok(Math.abs(entryEpoch(question, 'end') - 1791294739.917268) < 1e-6);
+  const olderResult = {
+    question_number: 3,
+    server_start_received_epoch_ms: null,
+    biosignal_interval_start: '2026-10-06T13:52:13.252Z',
+    biosignal_interval_end: '2026-10-06T13:52:19.953Z',
+  };
+  assert.equal(entryEpoch(olderResult, 'start'), Date.parse('2026-10-06T13:52:13.252Z') / 1000);
+  const markers = buildMarkers([question, olderResult, { question_number: 4 }]);
+  assert.equal(markers.length, 2);
+  assert.ok(markers.every((marker) => marker.start > 1_700_000_000));
+});
+
+test('preferred channels of a plugin apply to its streams by plugin key', () => {
+  const stream = {
+    stream_key: '3',
+    plugin_key: 'brainbit',
+    nominal_rate_hz: 25,
+    channels: ['delta', 'alpha', 'beta'],
+    points: [{ _epoch: 1, delta: 1, alpha: 2, beta: 3 }, { _epoch: 2, delta: 1, alpha: 2, beta: 3 }],
+  };
+  const [group] = buildTrackGroups([stream], {
+    preferredChannels: (key) => (key === 'brainbit' ? ['alpha'] : []),
+  });
+  assert.deepEqual(group.tracks.map((track) => track.channel), ['alpha']);
 });

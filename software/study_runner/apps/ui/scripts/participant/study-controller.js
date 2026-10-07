@@ -12,6 +12,7 @@ import {
   discardInterruptedTrialEvents,
   flushReliableStudyEvents,
   sendReliableStudyEvent as sendReliableStudyEventToServer,
+  setRejectedEventHandler,
 } from '../shared/reliable-event-queue.js';
 import {
   getPluginCatalog,
@@ -436,6 +437,16 @@ const {
     runtimePollTimeoutMs: RUNTIME_POLL_TIMEOUT_MS,
   },
 });
+if (!IS_PREVIEW) {
+  setRejectedEventHandler((event, error) => {
+    reportNoticeToAdmin(
+      t('study.eventRejected', 'The server rejected a study event ({endpoint}): {error}')
+        .replace('{endpoint}', event.endpoint)
+        .replace('{error}', error?.message || String(error)),
+      'error',
+    );
+  });
+}
 function bindEvents() {
   getElement('btn-prev').addEventListener('click', () => void goTo(state.currentIndex - 1));
   getElement('btn-next').addEventListener('click', () => void handleNext());

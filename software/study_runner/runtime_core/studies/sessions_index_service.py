@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 import threading
 from typing import Any
 
+from study_runner.clock_core.assessment import display_epoch_offset
 from study_runner.contracts.session_lifecycle import (
     WITHDRAWN_MARKER,
     derive_session_lifecycle,
@@ -30,6 +31,7 @@ MAX_MAX_POINTS = 10_000
 _INDEX_CACHE: dict[str, tuple[tuple[tuple[str, int, int], ...], list[dict[str, Any]]]] = {}
 _STREAM_CACHE_LOCK = threading.RLock()
 _STREAM_CACHE: tuple[str, int, int, list[dict[str, Any]]] | None = None
+_OFFSET_CACHE: tuple[list[dict[str, Any]], float] | None = None
 _PUBLIC_CONTROL_FILES = {
     "answers/submission.json",
     "answers/result.json",
@@ -84,7 +86,8 @@ def load_session(
         session_folder=session_folder,
     )
     streams = _read_merged_streams(session_root)
-    stream_metadata = [_stream_metadata(session_root, stream) for stream in streams]
+    offset = _display_epoch_offset(streams)
+    stream_metadata = [_stream_metadata(session_root, stream, offset) for stream in streams]
     return {
         **_session_summary(data_root, session_root, result_file, payload),
         "result": payload,
@@ -125,11 +128,15 @@ def load_signal_samples(
         session_folder=session_folder,
     )
     stream_key = str(sensor or "").strip()
-    matching = [stream for stream in _read_merged_streams(session_root) if str(stream.get("stream_key") or "") == stream_key]
+    streams = _read_merged_streams(session_root)
+    matching = [stream for stream in streams if str(stream.get("stream_key") or "") == stream_key]
     if not matching:
         raise SessionNotFoundError(f"No {stream_key} stream was recorded for this session.")
 
     window = _validate_window(start, end)
+    # The viewer's axis and card markers are Unix time; samples carry the
+    # recorder's LSL clock. Shift for display only (clock_core.assessment).
+    offset = _display_epoch_offset(streams)
 
     stream = matching[0]
     timestamps = list(stream.get("timestamps") or [])
@@ -138,10 +145,11 @@ def load_signal_samples(
     for timestamp, row in zip(timestamps, rows):
         # Clip before downsampling, so a zoomed-in request spends its whole
         # point budget on the span the operator is actually looking at.
-        if window is not None and not (window[0] <= timestamp <= window[1]):
+        epoch = float(timestamp) + offset
+        if window is not None and not (window[0] <= epoch <= window[1]):
             continue
         sample = _json_safe(dict(row) if isinstance(row, dict) else {"value": row})
-        sample["_epoch"] = _json_safe(timestamp)
+        sample["_epoch"] = _json_safe(epoch)
         samples.append(sample)
     downsampled = min_max_envelope(samples, max_points)
     return {
@@ -425,7 +433,30 @@ def _read_merged_streams(session_root: Path) -> list[dict[str, Any]]:
         return streams
 
 
-def _stream_metadata(session_root: Path, stream: dict[str, Any]) -> dict[str, Any]:
+def _display_epoch_offset(streams: list[dict[str, Any]]) -> float:
+    """Recorder-clock to Unix-time shift from the study markers, cached per parsed file."""
+    global _OFFSET_CACHE
+    if _OFFSET_CACHE is not None and _OFFSET_CACHE[0] is streams:
+        return _OFFSET_CACHE[1]
+    lsl_times: list[float] = []
+    server_ms: list[float] = []
+    for stream in streams:
+        samples = list(stream.get("samples") or [])
+        first = samples[0] if samples else None
+        if not isinstance(first, dict) or not any(isinstance(value, str) for value in first.values()):
+            continue
+        for timestamp, sample in zip(stream.get("timestamps") or [], samples):
+            for value in (sample.values() if isinstance(sample, dict) else ()):
+                if isinstance(value, str) and "server_ms=" in value:
+                    fields = dict(item.partition("=")[::2] for item in value.split("|") if "=" in item)
+                    lsl_times.append(timestamp)
+                    server_ms.append(fields.get("server_ms"))
+    offset = display_epoch_offset(lsl_times, server_ms) or 0.0
+    _OFFSET_CACHE = (streams, offset)
+    return offset
+
+
+def _stream_metadata(session_root: Path, stream: dict[str, Any], offset: float = 0.0) -> dict[str, Any]:
     timestamps = list(stream.get("timestamps") or [])
     merged = session_root / "derived" / "session.xdf"
     metadata = _file_metadata(session_root, merged)
@@ -436,8 +467,8 @@ def _stream_metadata(session_root: Path, stream: dict[str, Any]) -> dict[str, An
         "stream_name": str(stream.get("name") or ""),
         "plugin_key": str(stream.get("plugin_key") or ""),
         "sample_count": min(len(timestamps), len(list(stream.get("samples") or []))),
-        "timestamp_start": _json_safe(timestamps[0]) if timestamps else None,
-        "timestamp_end": _json_safe(timestamps[-1]) if timestamps else None,
+        "timestamp_start": _json_safe(float(timestamps[0]) + offset) if timestamps else None,
+        "timestamp_end": _json_safe(float(timestamps[-1]) + offset) if timestamps else None,
         **_stream_descriptor(stream),
     }
 
@@ -612,7 +643,7 @@ def _flatten_numeric(value: Any, prefix: str = "") -> dict[str, float]:
 
 
 def _sample_epoch(sample: dict[str, Any]) -> float | None:
-    for key in ("server_received_epoch", "_epoch", "processed_epoch"):
+    for key in ("_epoch", "server_received_epoch", "processed_epoch"):
         value = sample.get(key)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return float(value)

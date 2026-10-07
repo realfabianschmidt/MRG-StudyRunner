@@ -381,16 +381,16 @@
             <article class="dashboard-card dashboard-card--wide">
               <div class="dashboard-card-title"><i class="iconoir-activity"></i> <span data-i18n="studySettings.sensorsTitle">Sensors for this study</span></div>
               <div class="field">
-                <label class="switch-row" for="study-sensors-enabled" style="margin-bottom: 0;">
-                  <span style="display:flex; flex-direction:column; gap:4px;">
-                    <strong style="color:var(--ink);" data-i18n="settings.recordBiosignals">Record biosignals</strong>
-                    <small style="color:var(--ink-55); line-height:1.4;" data-i18n="settings.recordBiosignalsHint">When disabled, this study sends no triggers to external sensors, even if cards request it.</small>
+                <label class="switch-row" for="study-sensors-enabled">
+                  <span class="switch-row-text">
+                    <strong data-i18n="settings.recordBiosignals">Record biosignals</strong>
+                    <small data-i18n="settings.recordBiosignalsHint">When disabled, this study sends no triggers to external sensors, even if cards request it.</small>
                   </span>
                   <span class="switch"><input type="checkbox" id="study-sensors-enabled"><span class="switch-slider"></span></span>
                 </label>
               </div>
               <div class="field" id="study-sensor-options">
-                <label style="margin-bottom: 10px;" data-i18n="settings.sensorSelection">Sensor selection</label>
+                <label data-i18n="settings.sensorSelection">Sensor selection</label>
                 <div class="stimulus-toggle-list" id="study-plugin-sensor-options"></div>
               </div>
               <div class="field">
@@ -416,28 +416,28 @@
                 <small class="settings-hint" data-i18n="studySettings.participantLanguageHint">Applies to software labels on the participant page. Study text stays as written.</small>
               </div>
               <div class="field">
-                <label class="switch-row" for="study-progress-bar-enabled" style="margin-bottom: 0;">
-                  <span style="display:flex; flex-direction:column; gap:4px;">
-                    <strong style="color:var(--ink);" data-i18n="settings.showProgressBar">Show progress bar</strong>
-                    <small style="color:var(--ink-55); line-height:1.4;" data-i18n="settings.showProgressBarHint">Shows a slim progress bar at the top of the participant page.</small>
+                <label class="switch-row" for="study-progress-bar-enabled">
+                  <span class="switch-row-text">
+                    <strong data-i18n="settings.showProgressBar">Show progress bar</strong>
+                    <small data-i18n="settings.showProgressBarHint">Shows a slim progress bar at the top of the participant page.</small>
                   </span>
                   <span class="switch"><input type="checkbox" id="study-progress-bar-enabled"><span class="switch-slider"></span></span>
                 </label>
               </div>
               <div class="field">
-                <label class="switch-row" for="study-card-frame-enabled" style="margin-bottom: 0;">
-                  <span style="display:flex; flex-direction:column; gap:4px;">
-                    <strong style="color:var(--ink);" data-i18n="studySettings.cardFrameEnabled">Show card frames</strong>
-                    <small style="color:var(--ink-55); line-height:1.4;" data-i18n="studySettings.cardFrameHint">Turn off to show card content directly on the study background, without a border or card surface.</small>
+                <label class="switch-row" for="study-card-frame-enabled">
+                  <span class="switch-row-text">
+                    <strong data-i18n="studySettings.cardFrameEnabled">Show card frames</strong>
+                    <small data-i18n="studySettings.cardFrameHint">Turn off to show card content directly on the study background, without a border or card surface.</small>
                   </span>
                   <span class="switch"><input type="checkbox" id="study-card-frame-enabled"><span class="switch-slider"></span></span>
                 </label>
               </div>
               <div class="field">
-                <label class="switch-row" for="study-cover-enabled" style="margin-bottom: 0;">
-                  <span style="display:flex; flex-direction:column; gap:4px;">
-                    <strong style="color:var(--ink);" data-i18n="studySettings.coverEnabled">Show a cover page</strong>
-                    <small style="color:var(--ink-55); line-height:1.4;" data-i18n="studySettings.coverHint">Shown after you release the study and before the Participant ID card; the participant continues with a centered button. No session or sensor recording runs yet, and it is not a card, so it is never part of card timing or the recorded data.</small>
+                <label class="switch-row" for="study-cover-enabled">
+                  <span class="switch-row-text">
+                    <strong data-i18n="studySettings.coverEnabled">Show a cover page</strong>
+                    <small data-i18n="studySettings.coverHint">Shown after you release the study and before the Participant ID card; the participant continues with a centered button. No session or sensor recording runs yet, and it is not a card, so it is never part of card timing or the recorded data.</small>
                   </span>
                   <span class="switch"><input type="checkbox" id="study-cover-enabled"><span class="switch-slider"></span></span>
                 </label>

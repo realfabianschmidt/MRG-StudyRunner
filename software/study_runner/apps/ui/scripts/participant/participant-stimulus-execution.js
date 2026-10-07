@@ -76,6 +76,8 @@ export function createParticipantStimulusExecution(context) {
       timeUpEventId: overtimeEventId(questionIndex, question),
       plannedStartPerfMs: null,
       plannedDeadlinePerfMs: null,
+      plannedStartEpochMs: null,
+      plannedDeadlineEpochMs: null,
       // Overtime: the duration was reached and the participant may stay.
       overtime: false,
       overtimeStartedPerfMs: null,
@@ -118,6 +120,12 @@ export function createParticipantStimulusExecution(context) {
     stimulusRun.plannedStartPerfMs = scheduleStartMs + getWarmupSeconds(stimulusRun.question) * 1000;
     stimulusRun.plannedDeadlinePerfMs = stimulusRun.plannedStartPerfMs
       + getActiveSeconds(stimulusRun.question) * 1000;
+    // Convert once per attempt: prepare, start and stop must carry identical
+    // times, even if the tablet re-syncs its clock while the card is active.
+    const scheduleEpochMs = estimateServerEpochMs(scheduleStartMs);
+    const toEpoch = (perfMs) => (Number.isFinite(scheduleEpochMs) ? scheduleEpochMs + (perfMs - scheduleStartMs) : null);
+    stimulusRun.plannedStartEpochMs = toEpoch(stimulusRun.plannedStartPerfMs);
+    stimulusRun.plannedDeadlineEpochMs = toEpoch(stimulusRun.plannedDeadlinePerfMs);
   }
   
   function stimulusPreparePayload(stimulusRun) {
@@ -131,9 +139,9 @@ export function createParticipantStimulusExecution(context) {
       event_id: stimulusRun.startEventId,
       stop_event_id: stimulusRun.stopEventId,
       stimulus_id: stimulusRun.stimulusId,
-      planned_start_epoch_ms: estimateServerEpochMs(stimulusRun.plannedStartPerfMs),
-      planned_deadline_epoch_ms: estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs),
-      ...endOfTimeTrialFields(stimulusRun, estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs)),
+      planned_start_epoch_ms: stimulusRun.plannedStartEpochMs,
+      planned_deadline_epoch_ms: stimulusRun.plannedDeadlineEpochMs,
+      ...endOfTimeTrialFields(stimulusRun, stimulusRun.plannedDeadlineEpochMs),
     };
   }
 
@@ -197,8 +205,15 @@ export function createParticipantStimulusExecution(context) {
     }
   }
   
+  const PREPARE_CANCEL_REASONS = Object.freeze({
+    retry: 'tablet_retry',
+    skip: 'tablet_skip',
+    abort: 'tablet_abort',
+  });
+
   async function prepareStimulusRouting(stimulusRun) {
     while (state.activeStimulus === stimulusRun) {
+      let failure = null;
       try {
         const response = await postJson(
           '/api/trial/prepare',
@@ -215,41 +230,45 @@ export function createParticipantStimulusExecution(context) {
         return true;
       } catch (error) {
         console.error('[study] Could not prepare stimulus routing:', error);
+        failure = error;
         const metrics = state.questionMetrics[stimulusRun.index] || {};
         state.questionMetrics[stimulusRun.index] = {
           ...metrics,
           prepare_failed: true,
           prepare_error: error?.message || String(error),
         };
-        const choice = await showPrepareFailureDialog(error);
-        if (choice === 'retry') {
-          // A long operator pause can make the original immutable schedule
-          // unusable. Cancel it first, then retry with fresh identifiers.
-          if (estimateServerEpochMs() >= estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs) - 500) {
-            const cancelled = await cancelStimulusPreparation(stimulusRun, 'expired_before_retry');
-            if (!cancelled) continue;
-            assignStimulusSchedule(stimulusRun, { replaceIds: true });
-          }
-          continue;
-        }
-  
-        const reason = choice === 'skip' ? 'tablet_skip' : 'tablet_abort';
-        const cancelled = await cancelStimulusPreparation(stimulusRun, reason);
-        if (!cancelled) continue;
-        state.activeStimulus = null;
-        state.questionMetrics[stimulusRun.index] = {
-          ...state.questionMetrics[stimulusRun.index],
-          prepare_resolution: choice,
-          completed_at: new Date().toISOString(),
-        };
-        updateNavigation();
-        if (choice === 'skip') {
-          await handleNext();
-        } else {
-          await abortStudyAfterPrepareFailure();
-        }
-        return false;
       }
+
+      // The failed attempt may still exist on the server (a lost response):
+      // cancel it before anything else, and never resend the same attempt.
+      let choice;
+      let cancelled = false;
+      do {
+        choice = await showPrepareFailureDialog(failure);
+        if (state.activeStimulus !== stimulusRun) return false;
+        cancelled = await cancelStimulusPreparation(stimulusRun, PREPARE_CANCEL_REASONS[choice]);
+      } while (!cancelled);
+
+      if (choice === 'retry') {
+        if (estimateServerEpochMs() === null) await syncClock();
+        assignStimulusSchedule(stimulusRun, { replaceIds: true });
+        sendPartialResults();
+        continue;
+      }
+
+      state.activeStimulus = null;
+      state.questionMetrics[stimulusRun.index] = {
+        ...state.questionMetrics[stimulusRun.index],
+        prepare_resolution: choice,
+        completed_at: new Date().toISOString(),
+      };
+      updateNavigation();
+      if (choice === 'skip') {
+        await handleNext();
+      } else {
+        await abortStudyAfterPrepareFailure();
+      }
+      return false;
     }
     return false;
   }
@@ -300,8 +319,11 @@ export function createParticipantStimulusExecution(context) {
       const modal = createModal({
         title: t('study.prepareFailedTitle', 'Card could not be prepared'),
         closeLabel: t('study.prepareAbort', 'Stop study'),
-        onClose: () => finish('abort'),
+        // A stray tap on the backdrop or Escape must not stop the study by
+        // accident; only the three buttons below decide.
+        onClose: () => { if (!settled) modal.open(); },
       });
+      modal.element.querySelector('.overlay-close')?.remove();
       modal.body.innerHTML = `
         <p class="settings-hint">${escapeHtml(t('study.prepareFailedBody', 'The stimulus remains hidden so no unrecorded onset can occur.'))}</p>
         <p class="status-warning">${escapeHtml(error?.message || String(error))}</p>
@@ -365,8 +387,14 @@ export function createParticipantStimulusExecution(context) {
     const plannedDeadlinePerfMs = Number.isFinite(stimulusRun.plannedDeadlinePerfMs)
       ? stimulusRun.plannedDeadlinePerfMs
       : renderRequestedMs + getActiveSeconds(question) * 1000;
-    const plannedStartEpochMs = estimateServerEpochMs(plannedStartPerfMs);
-    const plannedDeadlineEpochMs = estimateServerEpochMs(plannedDeadlinePerfMs);
+    // Reuse the schedule confirmed at prepare time; only fall back to a fresh
+    // conversion when this attempt was never prepared (no sensors required it).
+    const plannedStartEpochMs = Number.isFinite(stimulusRun.plannedStartEpochMs)
+      ? stimulusRun.plannedStartEpochMs
+      : estimateServerEpochMs(plannedStartPerfMs);
+    const plannedDeadlineEpochMs = Number.isFinite(stimulusRun.plannedDeadlineEpochMs)
+      ? stimulusRun.plannedDeadlineEpochMs
+      : estimateServerEpochMs(plannedDeadlinePerfMs);
   
     setStimulusPhase(index, 'active');
   

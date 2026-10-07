@@ -15,15 +15,15 @@
       "contract_sha256": "76736ec11c19b5fe64ff04e5035a4325cdfc2069c61c7d03a129de9bf8b09389"
     },
     "brainbit": {
-      "version": "4.0.0",
+      "version": "4.0.1",
       "path": "software/study_runner/plugins/sensors/brainbit",
-      "content_sha256": "8a91eab8c79c5fba06bfb1aeb9d3d40db4720e90e8ae48efc4fb7e90b0fd174d",
+      "content_sha256": "a5de4e0d752ae47ed69287be96ac89abd1762f50f1ff8ccbd73abecf0a55cdef",
       "contract_sha256": "9b1b6740a7a4a37b3b14d979af741e24709289b4441f25b354e677c3e6bf1836"
     },
     "camera_emotion": {
-      "version": "3.0.0",
+      "version": "3.0.1",
       "path": "software/study_runner/plugins/sensors/camera_emotion",
-      "content_sha256": "928d2f4edc6bef0c0ba75d5cf2ad2ee360f40584271aa0dc3610fc1ae2319da7",
+      "content_sha256": "15604892924db565d4252fcf4e446b39950d7ec4cd592a3ad4b087f44b4108ee",
       "contract_sha256": "d4649c9205c2b94e0b76997937c98f9b0d2270d639e2700b0fc7bad17a70ca63"
     },
     "choice": {
@@ -111,9 +111,9 @@
       "contract_sha256": "08eb237e1ea81d486d1c1e890b800eb6841fc31246d4aadd2be92714b8bdfefe"
     },
     "stimulus": {
-      "version": "2.0.0",
+      "version": "2.0.1",
       "path": "software/study_runner/plugins/cards/stimulus",
-      "content_sha256": "488a8580fd227984ab27037af664f7581e6992a1c2fb4b5cc1e2126e21d2cfdb",
+      "content_sha256": "50665dc2daa94c4bea47c65a8d9bdea512f6f9126c2a324eac701f6bd0690582",
       "contract_sha256": "2970546027024a89407e685d05d6d74e6bbf24457bbb8d86eabef8dd3d02a80e"
     },
     "text": {

@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "camera_emotion",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "category": "biosignal",
   "config_key": "camera_emotion",
   "runtime": {
@@ -421,8 +421,10 @@
     "card_actions": {
       "snapshot_interval_ms": {
         "type": "number",
+        "unit": "ms",
         "default": 1000,
         "minimum": 100,
+        "label_key": "pluginSettings.camera.snapshotInterval",
         "help_key": "pluginHelp.camera.cardSnapshotInterval"
       }
     }

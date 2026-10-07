@@ -13,6 +13,7 @@ import { createModal } from '../shared/modal.js';
 import { methodsText, softwareNote, softwareRows } from '../shared/software-provenance-view-model.js';
 import { bindTimelineMarkers, renderSessionTimeline, updateStreamPoints } from './session-timeline.js';
 import { renderSessionProgressRail } from './session-progress-rail.js';
+import { buildMarkers } from '../shared/timeline-view-model.js';
 import {
   confirmDegradedFinalization,
   continueFinalization,
@@ -481,23 +482,6 @@ async function refetchWindow(session, streams, window) {
   }));
 }
 
-function buildMarkers(entries) {
-  if (!Array.isArray(entries)) return [];
-  return entries
-    .map((entry) => {
-      const start = _entryEpoch(entry, 'start');
-      const end = _entryEpoch(entry, 'end');
-      if (start == null) return null;
-      return {
-        start,
-        end: end ?? start,
-        number: entry.question_number,
-        title: `#${entry.question_number} ${entry.question_prompt || entry.question_type || ''}`.trim(),
-        entry,
-      };
-    })
-    .filter(Boolean);
-}
 
 function showPopover(marker, node) {
   const popover = byId('session-timeline-popover');
@@ -626,11 +610,3 @@ function _durationSeconds(startIso, endIso) {
   return (end - start) / 1000;
 }
 
-function _entryEpoch(entry, edge) {
-  const msKey = edge === 'start' ? 'server_start_received_epoch_ms' : 'server_stop_received_epoch_ms';
-  const isoKey = edge === 'start' ? 'biosignal_interval_start' : 'biosignal_interval_end';
-  const ms = Number(entry[msKey]);
-  if (Number.isFinite(ms)) return ms / 1000;
-  const parsed = Date.parse(entry[isoKey] || '');
-  return Number.isNaN(parsed) ? null : parsed / 1000;
-}

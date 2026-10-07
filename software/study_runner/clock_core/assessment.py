@@ -167,6 +167,25 @@ def correction_summary(clock_values: Any) -> dict[str, Any]:
     }
 
 
+def display_epoch_offset(
+    marker_lsl_times: Iterable[float],
+    marker_server_epoch_ms: Iterable[float],
+) -> float | None:
+    """Seconds to add to a recorder-clock time to show it as Unix time.
+
+    For display only and never stored: every study marker carries the server
+    wall time it was pushed for (``server_ms``) and its LSL timestamp, so the
+    median of their differences places the whole recording on the same axis
+    as the participant's card times. None without a usable marker pair.
+    """
+    differences = []
+    for lsl_time, server_ms in zip(marker_lsl_times, marker_server_epoch_ms):
+        lsl_value, server_value = _finite(lsl_time), _finite(server_ms)
+        if lsl_value is not None and server_value is not None and server_value > 0:
+            differences.append(server_value / 1000.0 - lsl_value)
+    return median(differences) if differences else None
+
+
 def build_clock_report(
     *,
     session_id: str,

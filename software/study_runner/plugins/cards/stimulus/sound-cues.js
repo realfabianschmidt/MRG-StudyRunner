@@ -4,8 +4,11 @@
  * The built-in cues are synthesized with WebAudio, so the card ships no audio
  * files. A custom cue is fetched and decoded while the card prepares, so it
  * plays without delay when the time is up. Browsers - iPad Safari above all -
- * only allow audio after a user gesture; `installSoundCueUnlock()` therefore
- * resumes the audio context on the first press anywhere on the page.
+ * only allow audio after a user gesture, and a finger's `pointerdown` does not
+ * count as one there. `installSoundCueUnlock()` therefore unlocks the audio
+ * context on every tap, click or key until it runs, and again after iOS
+ * suspends it (screen lock, another app). A cue that the browser still blocks
+ * reports `blocked` instead of waiting forever.
  *
  * Nothing here holds participant data. The audio context is the device, and
  * the decoded custom files are dropped at every session boundary like all
@@ -23,6 +26,11 @@ const CUE_SHAPES = Object.freeze({
   beep: { base: 1000, attack: 0.01, partials: [[1, 1, 0.25]], hold: 0.2 },
 });
 const SILENT_GAIN = 0.0001;
+// The time-up callback is no user gesture: a resume() that iOS will never
+// grant there must not hold the cue forever.
+const RESUME_WAIT_MS = 250;
+// Events that count as a user gesture for audio on iPad Safari and elsewhere.
+const UNLOCK_EVENTS = Object.freeze(['touchend', 'pointerup', 'click', 'keydown']);
 
 export function createSoundCuePlayer({
   AudioContextClass = globalThis.AudioContext || globalThis.webkitAudioContext,
@@ -42,18 +50,29 @@ export function createSoundCuePlayer({
     return context;
   }
 
+  // iOS also reports 'interrupted'; anything but 'running' needs a resume.
+  const needsResume = (ctx) => Boolean(ctx?.state) && ctx.state !== 'running' && typeof ctx.resume === 'function';
+
   async function resume() {
     const ctx = audioContext();
-    if (ctx?.state === 'suspended' && typeof ctx.resume === 'function') {
-      try { await ctx.resume(); } catch { /* a later gesture can still unlock */ }
-    }
+    if (!needsResume(ctx)) return ctx;
+    const resumed = Promise.resolve().then(() => ctx.resume()).catch(() => {
+      /* a later gesture can still unlock */
+    });
+    await Promise.race([resumed, new Promise((resolve) => setTimeout(resolve, RESUME_WAIT_MS))]);
     return ctx;
   }
 
   function unlock() {
     const ctx = audioContext();
-    if (!ctx) return;
-    void resume();
+    if (!ctx || !needsResume(ctx)) return;
+    try {
+      // Without this iPad Safari mutes WebAudio while the silent switch is on.
+      const session = globalThis.navigator?.audioSession;
+      if (session && session.type !== 'playback') session.type = 'playback';
+    } catch { /* best effort */ }
+    // Called inside the gesture itself, which is what grants the resume.
+    try { void Promise.resolve(ctx.resume()).catch(() => {}); } catch { /* best effort */ }
     // One silent sample marks the context as user-activated on iOS.
     try {
       const buffer = ctx.createBuffer(1, 1, ctx.sampleRate || 44100);
@@ -88,14 +107,19 @@ export function createSoundCuePlayer({
 
   /**
    * Play the cue the card configures. Resolves to the cue that actually
-   * sounded: `none`, `unavailable`, a built-in name, or `custom`. A custom
-   * file that cannot be loaded falls back to the gong and reports why.
+   * sounded: `none`, `unavailable`, `blocked` (the browser has not allowed
+   * audio yet), a built-in name, or `custom`. A custom file that cannot be
+   * loaded falls back to the gong and reports why.
    */
-  async function play(question, { onFallback } = {}) {
+  async function play(question, { onFallback, onBlocked } = {}) {
     const cue = String(question?.end_sound || 'none');
     if (cue === 'none') return 'none';
     const ctx = await resume();
     if (!ctx) return 'unavailable';
+    if (needsResume(ctx)) {
+      onBlocked?.();
+      return 'blocked';
+    }
     const volume = clampVolume(question?.end_sound_volume);
     if (cue === 'custom') {
       const buffer = await preload(question);
@@ -163,20 +187,17 @@ function synthesize(ctx, cue, volume) {
 const sharedPlayer = createSoundCuePlayer();
 onSessionReset(() => sharedPlayer.forgetCustomCues());
 
-// Marks a page whose first press already unlocks audio.
+// Marks a page whose taps already unlock audio.
 const UNLOCK_INSTALLED = Symbol('stimulusSoundCueUnlock');
 
-/** Resume audio on the first press anywhere; safe to call repeatedly. */
+/** Unlock audio on every gesture until it runs; safe to call repeatedly. */
 export function installSoundCueUnlock(target = globalThis.document) {
   if (!target?.addEventListener || target[UNLOCK_INSTALLED]) return;
   target[UNLOCK_INSTALLED] = true;
-  const unlockOnce = () => {
-    sharedPlayer.unlock();
-    target.removeEventListener('pointerdown', unlockOnce, true);
-    target.removeEventListener('keydown', unlockOnce, true);
-  };
-  target.addEventListener('pointerdown', unlockOnce, true);
-  target.addEventListener('keydown', unlockOnce, true);
+  // The listeners stay: iOS suspends a running context again after a screen
+  // lock, and unlock() does nothing while audio already runs.
+  const unlock = () => sharedPlayer.unlock();
+  UNLOCK_EVENTS.forEach((type) => target.addEventListener(type, unlock, { capture: true, passive: true }));
 }
 
 export const preloadSoundCue = (question) => sharedPlayer.preload(question);

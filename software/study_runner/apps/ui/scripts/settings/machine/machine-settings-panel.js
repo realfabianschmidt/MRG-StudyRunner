@@ -124,7 +124,7 @@ export function renderSettingsHubShell() {
     button.addEventListener('click', () => openPluginHelp(getPluginCatalog().plugins_by_key?.[button.dataset.pluginHelp]));
   });
   root?.querySelector('[data-settings-retry]')?.addEventListener('click', () => void loadSettingsHubStatus());
-  bindRecordingTimingPanel(root);
+  bindRecordingTimingPanel(root, host.showToast);
   onSettingsPanelShown(host.state.settingsHubActiveTab);
 }
 
@@ -198,7 +198,7 @@ function settingsHubEntries() {
     { key: 'branding', icon: 'iconoir-media-image', label: t('branding.title', 'Logos'), group: groupThisComputer },
     { key: 'fonts', icon: 'iconoir-text-size', label: t('fonts.title', 'Fonts'), group: groupThisComputer },
     { key: 'data-folder', icon: 'iconoir-folder', label: t('dataFolder.title', 'Data folder'), group: groupThisComputer },
-    { key: 'recording-timing', icon: 'iconoir-microphone', label: t('recordingTiming.title', 'Recording waits'), group: groupThisComputer },
+    { key: 'recording-timing', icon: 'iconoir-timer', label: t('recordingTiming.title', 'Recording waits'), group: groupThisComputer },
     ...settingsHubPlugins().map((plugin) => ({
       key: `plugin:${plugin.key}`,
       icon: pluginIcon(plugin),

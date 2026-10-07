@@ -2201,12 +2201,12 @@ def _derive_status(latest: dict[str, Any], running: bool) -> str:
         return "stale"
     if _signal_started_at > 0 and not _has_recent_eeg(latest):
         return "warming_up" if (time.time() - _signal_started_at) < 5.0 else "stale"
-    if status == "poor_contact":
-        return "poor_contact"
-    contact_state = latest.get("contact_quality_state")
-    if contact_state == "poor":
-        return "poor_contact"
     calibration = latest.get("calibration") if isinstance(latest.get("calibration"), dict) else {}
+    # A finished calibration needed a usable signal; poor contact measured
+    # before it is no longer the band's state (plugin_framework/sensor_connection.py).
+    calibrated = calibration.get("event") in {"FINISHED", "FORCED_FINISH"}
+    if not calibrated and (status == "poor_contact" or latest.get("contact_quality_state") == "poor"):
+        return "poor_contact"
     if calibration and calibration.get("event") == "START":
         return "calibrating"
     if calibration and "progress_percent" in calibration and not latest.get("last_derived_at"):

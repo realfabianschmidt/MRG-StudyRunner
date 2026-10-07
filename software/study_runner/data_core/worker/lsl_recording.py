@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import math
+import socket
 from pathlib import Path
 import sys
 import threading
@@ -241,6 +242,13 @@ class StreamRuntimeState:
                 else None
             ),
         }
+
+
+def _stream_hostname(info: Any) -> str:
+    try:
+        return str(info.hostname() or "")
+    except Exception:
+        return ""
 
 
 def _inlet_capacity_samples(nominal_rate_hz: float) -> int:
@@ -487,6 +495,36 @@ class LslSourceRecorder:
             except Exception:
                 pass
 
+    def _local_match(self, source_id: str, matches: list[Any]) -> Any:
+        """The stream of this computer when another one publishes the same source_id.
+
+        LSL resolves across the whole network, so a second Study Runner in the
+        lab (a laptop, the development PC) offers the same stream names.
+        Producers always run on the recording computer.
+        """
+        host = socket.gethostname()
+        local = [info for info in matches if _stream_hostname(info) == host]
+        resolve_bypred = getattr(self._pylsl, "resolve_bypred", None)
+        if not local and len(matches) >= 1 and callable(resolve_bypred) and "'" not in host:
+            if any(_stream_hostname(info) for info in matches):
+                # The first answer came from another computer; ask for ours.
+                local = list(resolve_bypred(
+                    f"source_id='{source_id}' and hostname='{host}'",
+                    1,
+                    RESOLVE_TIMEOUT_SECONDS,
+                ) or [])
+        if len(local) == 1:
+            return local[0]
+        if len(local) > 1:
+            raise RuntimeError(f"source_id {source_id!r} is not unique on this computer")
+        if len(matches) == 1:
+            return matches[0]
+        hosts = ", ".join(sorted({_stream_hostname(info) or "unknown" for info in matches}))
+        raise RuntimeError(
+            f"source_id {source_id!r} is published by several computers ({hosts}); "
+            "close the other Study Runner on this network"
+        )
+
     def _connect(self, state: StreamRuntimeState) -> Any | None:
         matches = self._pylsl.resolve_byprop(
             "source_id",
@@ -496,9 +534,7 @@ class LslSourceRecorder:
         )
         if self._stop.is_set() or self._drain_requested.is_set() or not matches:
             return None
-        if len(matches) != 1:
-            raise RuntimeError(f"source_id {state.spec.source_id!r} is not unique")
-        info = matches[0]
+        info = self._local_match(state.spec.source_id, list(matches))
         inlet = self._pylsl.StreamInlet(
             info,
             max_buflen=INLET_BUFFER_SECONDS,

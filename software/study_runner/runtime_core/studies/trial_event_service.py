@@ -415,8 +415,9 @@ class TrialEventService:
         normalized_event_id = _required_identifier(event_id, "event_id")
         normalized_stimulus_id = _required_identifier(stimulus_id, "stimulus_id")
         normalized_reason = str(reason or "").strip()
-        if normalized_reason not in {"tablet_skip", "abort"}:
-            raise ValueError("reason must be tablet_skip or abort.")
+        allowed_reasons = {"tablet_skip", "tablet_abort", "tablet_retry", "abort"}
+        if normalized_reason not in allowed_reasons:
+            raise ValueError("reason must be one of: " + ", ".join(sorted(allowed_reasons)) + ".")
 
         with self._lock:
             started_event = self._state["events"].get(normalized_event_id)
@@ -441,13 +442,15 @@ class TrialEventService:
                 None,
             )
             if existing:
-                if (
-                    existing.get("stimulus_id") != normalized_stimulus_id
-                    or existing.get("reason") != normalized_reason
-                ):
+                if existing.get("stimulus_id") != normalized_stimulus_id:
                     raise TrialEventConflictError(
                         f"Preparation cancellation {normalized_event_id!r} already has different data."
                     )
+                # The same attempt was already cancelled, possibly for a
+                # different reason (e.g. a lost response retried with a new
+                # reason, or the admin's abort sweep after the tablet already
+                # skipped). The first recorded reason stands; this is not a
+                # conflict.
                 cancellation = existing
                 duplicate = True
             else:

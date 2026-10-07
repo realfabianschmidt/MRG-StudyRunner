@@ -6,6 +6,16 @@ const MAX_PENDING_EVENTS = 500;
 let drainPromise = null;
 let deliveryTail = Promise.resolve();
 const deliveredResponses = new Map();
+// A 4xx (other than a transient 408/425/429) is the server's final word on
+// this exact event: resending it can never succeed, and it must not block
+// every later start, stop and marker behind it in the same session.
+const rejectedEvents = new Map();
+let rejectedHandler = null;
+
+/** Told about every event the server permanently refused (for admin notices). */
+export function setRejectedEventHandler(handler) {
+  rejectedHandler = handler;
+}
 
 /** Queue before sending so reloads and temporary disconnects preserve source time. */
 export async function sendReliableStudyEvent(endpoint, payload, options = {}) {
@@ -28,6 +38,11 @@ export async function sendReliableStudyEvent(endpoint, payload, options = {}) {
     const cached = deliveredResponseFor(event);
     if (cached.found) return cached.response;
     await drainQueue();
+    const rejected = rejectedEvents.get(event.payload.event_id);
+    if (rejected) {
+      rejectedEvents.delete(event.payload.event_id);
+      throw rejected;
+    }
     return deliveredResponseFor(event).response;
   });
 }
@@ -69,10 +84,28 @@ async function drainQueue() {
     if (!event) return;
     // One global delivery chain covers both immediate sends and later flushes.
     // A stop can therefore never overtake its still-pending start event.
-    const response = await deliver(event);
+    let response;
+    try {
+      response = await deliver(event);
+    } catch (error) {
+      if (!isPermanentFailure(error)) throw error;
+      removeEvent(event.payload.event_id);
+      rejectedEvents.set(event.payload.event_id, error);
+      try {
+        rejectedHandler?.(event, error);
+      } catch {
+        // A notice failure must not stop the rest of the queue from draining.
+      }
+      continue;
+    }
     rememberDeliveredResponse(event, response);
     removeEvent(event.payload.event_id);
   }
+}
+
+function isPermanentFailure(error) {
+  const status = Number(error?.status);
+  return status >= 400 && status < 500 && ![408, 425, 429].includes(status);
 }
 
 function scheduleDelivery(operation) {

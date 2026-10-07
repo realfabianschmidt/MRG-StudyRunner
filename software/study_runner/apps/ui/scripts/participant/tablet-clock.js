@@ -47,7 +47,9 @@ export function createTabletClock({ exchange, now = () => performance.now(), pau
   }
 
   function evidence(clientMonotonicMs = now()) {
-    const ageMs = selected ? Math.max(0, clientMonotonicMs - selected.client_receive_ms) : null;
+    // A planned future instant is converted with the calibration as it is
+    // now; its distance into the future is not the calibration's age.
+    const ageMs = selected ? Math.max(0, Math.min(clientMonotonicMs, now()) - selected.client_receive_ms) : null;
     const fresh = selected && Number.isFinite(clientMonotonicMs)
       && clientMonotonicMs >= selected.client_send_ms
       && ageMs <= CLOCK_SYNC_MAX_AGE_MS;

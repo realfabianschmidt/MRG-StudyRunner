@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 526,
+  "cross_package_import_edges": 528,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -28,7 +28,7 @@
       "path": "software/study_runner/plugins/cards/participant_id/card.js"
     },
     "apps.ui.participant": {
-      "lines": 957,
+      "lines": 968,
       "path": "software/study_runner/apps/ui/scripts/participant/study-controller.js"
     },
     "apps.ui.settings": {
@@ -40,7 +40,7 @@
       "path": "software/study_runner/apps/ui/scripts/shared/qr-code.js"
     },
     "clock_core": {
-      "lines": 218,
+      "lines": 237,
       "path": "software/study_runner/clock_core/assessment.py"
     },
     "contracts": {
@@ -60,7 +60,7 @@
       "path": "software/study_runner/data_core/host/recording_runtime.py"
     },
     "data_core.worker": {
-      "lines": 1124,
+      "lines": 1160,
       "path": "software/study_runner/data_core/worker/lsl_recording.py"
     },
     "plugin_framework": {
@@ -104,24 +104,24 @@
     "apps": 0,
     "apps.server": 5388,
     "apps.ui": 0,
-    "apps.ui.admin": 6231,
-    "apps.ui.cards": 4853,
-    "apps.ui.participant": 3404,
+    "apps.ui.admin": 6207,
+    "apps.ui.cards": 4878,
+    "apps.ui.participant": 3445,
     "apps.ui.settings": 1964,
-    "apps.ui.shared": 3070,
-    "clock_core": 635,
+    "apps.ui.shared": 3145,
+    "clock_core": 654,
     "contracts": 3079,
     "data_core": 16,
     "data_core.contract": 1184,
     "data_core.host": 7056,
-    "data_core.worker": 2549,
-    "plugin_framework": 4198,
+    "data_core.worker": 2585,
+    "plugin_framework": 4209,
     "plugins": 0,
     "plugins.cards": 1465,
     "plugins.destinations": 1897,
     "plugins.outputs": 142,
     "plugins.sensors": 11530,
-    "runtime_core": 15988,
+    "runtime_core": 16028,
     "shared": 466,
     "updates": 696
   }

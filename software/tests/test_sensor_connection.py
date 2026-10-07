@@ -58,6 +58,13 @@ class ConnectionRuleTests(unittest.TestCase):
             (_connected(signal="good", setup="running"), None, False),
             (_connected(signal="good", setup="stalled"), "initialize", False),
             (_connected(signal="good", setup="done"), None, True),
+            (_connected(signal="fair", setup="done"), None, True),
+            # Calibration succeeded on this person's live signal: poor contact no longer blocks.
+            (_connected(signal="poor", setup="done"), None, True),
+            # Not measured for this person, or measuring right now: still blocked.
+            (_connected(signal="stale", setup="done"), "measure_signal", False),
+            (_connected(signal="measuring", setup="done"), None, False),
+            (_connected(signal="unknown", setup="done"), "measure_signal", False),
             (_connected(signal="stale", setup="needed"), "measure_signal", False),
             (_connected(signal="good", setup="done", streaming=False), None, False),
             ({"phase": "failed"}, "scan", False),

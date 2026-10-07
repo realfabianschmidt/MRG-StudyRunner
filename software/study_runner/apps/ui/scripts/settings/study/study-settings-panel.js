@@ -333,7 +333,7 @@ function renderPluginStudyFields(pluginKey, schema, values) {
     const disabled = field.read_only === true ? ' disabled' : '';
     const required = field.required === true ? ' required' : '';
     if (field.type === 'boolean') {
-      return `<label class="switch-row"><span>${escapeHtml(label)}${hint ? `<small>${escapeHtml(hint)}</small>` : ''}</span><span class="switch"><input type="checkbox" data-plugin-setting="${escapeHtml(name)}" data-setting-type="boolean" ${value ? 'checked' : ''}${disabled}><span class="switch-slider"></span></span></label>`;
+      return `<label class="switch-row"><span class="switch-row-text"><span>${escapeHtml(label)}</span>${hint ? `<small>${escapeHtml(hint)}</small>` : ''}</span><span class="switch"><input type="checkbox" data-plugin-setting="${escapeHtml(name)}" data-setting-type="boolean" ${value ? 'checked' : ''}${disabled}><span class="switch-slider"></span></span></label>`;
     }
     if (field.type === 'choice') {
       return `<label class="field"><span>${escapeHtml(label)}</span><select data-plugin-setting="${escapeHtml(name)}" data-setting-type="choice"${disabled}${required}>${(field.options || []).map((option) => `<option value="${escapeHtml(option)}" ${String(option) === String(value) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}</select>${hint ? `<small class="settings-hint">${escapeHtml(hint)}</small>` : ''}</label>`;
@@ -344,7 +344,7 @@ function renderPluginStudyFields(pluginKey, schema, values) {
       : '';
     const example = fieldPlaceholder(field);
     const placeholder = example ? ` placeholder="${escapeHtml(example)}"` : '';
-    const unit = field.unit ? ` <small>${escapeHtml(field.unit)}</small>` : '';
+    const unit = field.unit ? ` <span class="settings-unit">(${escapeHtml(field.unit)})</span>` : '';
     return `<label class="field"><span>${escapeHtml(label)}${unit}</span><input type="${inputType}" data-plugin-setting="${escapeHtml(name)}" data-setting-type="${escapeHtml(field.type || 'string')}" value="${escapeHtml(value)}"${limits}${placeholder}${disabled}${required}>${hint ? `<small class="settings-hint">${escapeHtml(hint)}</small>` : ''}</label>`;
   }).join('')}</div>`;
 }

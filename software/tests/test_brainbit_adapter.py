@@ -305,6 +305,22 @@ class GuidedConnectionTests(BrainBitAdapterTests):
         self.assertEqual(connection["setup"]["state"], "done")
         self.assertEqual(connection["signal"]["state"], "good")
 
+    def test_a_finished_calibration_makes_a_poor_contact_band_ready(self) -> None:
+        from study_runner.plugin_framework.sensor_connection import ROLES, standardize_connection
+
+        self._stream_eeg()
+        adapter._update_state_from_line('QUALITY {"O1": 0.0, "O2": 0.0, "T3": 0.0, "T4": 0.0}')
+        before = standardize_connection(adapter.get_status(), running=True, roles=ROLES)
+        self.assertEqual(before["signal"]["state"], "poor")
+        self.assertFalse(before["ready"])
+        self.assertTrue(adapter.calibrate())
+        adapter._update_state_from_line('CALIB {"event": "FINISHED"}')
+        status = adapter.get_status()
+        after = standardize_connection(status, running=True, roles=ROLES)
+        self.assertTrue(after["ready"])
+        self.assertIsNone(after["next_step"])
+        self.assertNotEqual(status["status"], "poor_contact")
+
     def test_commands_need_a_streaming_band(self) -> None:
         self.assertFalse(adapter.measure_contact())
         self.assertFalse(adapter.calibrate())

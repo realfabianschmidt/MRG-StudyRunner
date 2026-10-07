@@ -451,5 +451,43 @@ class TrialEventServiceTests(unittest.TestCase):
         )
 
 
+class CancelPreparationReasonTests(unittest.TestCase):
+    def test_every_tablet_and_admin_reason_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for reason in ("tablet_skip", "tablet_abort", "tablet_retry", "abort"):
+                service = TrialEventService(
+                    Path(temp_dir) / reason,
+                    clock=lambda: 100.0,
+                    timer_factory=FakeTimer,
+                )
+                result = service.cancel_preparation(f"start-{reason}", f"stimulus-{reason}", reason)
+                self.assertFalse(result["duplicate"])
+
+    def test_an_unknown_reason_is_still_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = TrialEventService(Path(temp_dir), clock=lambda: 100.0, timer_factory=FakeTimer)
+            with self.assertRaises(ValueError):
+                service.cancel_preparation("start-1", "stimulus-1", "silent_skip")
+
+    def test_a_second_cancel_of_the_same_attempt_with_a_different_reason_is_a_duplicate(self) -> None:
+        """A lost response retried with a new reason, or the admin's abort
+        sweep after the tablet already skipped: both describe the same
+        already-cancelled attempt, not a conflict."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = TrialEventService(Path(temp_dir), clock=lambda: 100.0, timer_factory=FakeTimer)
+            first = service.cancel_preparation("start-1", "stimulus-1", "tablet_skip")
+            second = service.cancel_preparation("start-1", "stimulus-1", "abort")
+            self.assertFalse(first["duplicate"])
+            self.assertTrue(second["duplicate"])
+            self.assertEqual(second["cancellation"]["reason"], "tablet_skip")
+
+    def test_a_different_stimulus_id_for_the_same_event_is_still_a_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = TrialEventService(Path(temp_dir), clock=lambda: 100.0, timer_factory=FakeTimer)
+            service.cancel_preparation("start-1", "stimulus-1", "tablet_skip")
+            with self.assertRaises(TrialEventConflictError):
+                service.cancel_preparation("start-1", "stimulus-2", "tablet_skip")
+
+
 if __name__ == "__main__":
     unittest.main()

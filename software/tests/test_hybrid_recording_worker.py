@@ -1306,5 +1306,49 @@ class CheckpointCommitBoundaryTests(unittest.TestCase):
         recorder.abort()
 
 
+class LocalStreamSelectionTests(unittest.TestCase):
+    """A second Study Runner on the same network publishes the same source ids."""
+
+    class _Info:
+        def __init__(self, host):
+            self.host = host
+
+        def hostname(self):
+            return self.host
+
+    def _recorder(self, pylsl):
+        recorder = LslSourceRecorderTests._recorder(_FakeCore(), pylsl)
+        self.addCleanup(recorder.abort)
+        return recorder
+
+    def test_the_stream_of_this_computer_wins_over_another_one(self) -> None:
+        import socket
+
+        local, remote = self._Info(socket.gethostname()), self._Info("lab-laptop")
+        recorder = self._recorder(_FakePylsl())
+        self.assertIs(recorder._local_match("study_runner.markers", [remote, local]), local)
+
+    def test_a_remote_first_answer_is_replaced_by_the_local_stream(self) -> None:
+        import socket
+
+        local, remote = self._Info(socket.gethostname()), self._Info("lab-laptop")
+        pylsl = _FakePylsl()
+        queries = []
+        pylsl.resolve_bypred = lambda predicate, minimum, timeout: queries.append(predicate) or [local]
+        recorder = self._recorder(pylsl)
+        self.assertIs(recorder._local_match("study_runner.markers", [remote]), local)
+        self.assertIn("hostname=", queries[0])
+
+    def test_two_other_computers_are_named_instead_of_guessed(self) -> None:
+        recorder = self._recorder(_FakePylsl())
+        with self.assertRaisesRegex(RuntimeError, "lab-a, lab-b"):
+            recorder._local_match("study_runner.markers", [self._Info("lab-a"), self._Info("lab-b")])
+
+    def test_a_single_stream_is_used_as_before(self) -> None:
+        recorder = self._recorder(_FakePylsl())
+        only = self._Info("")
+        self.assertIs(recorder._local_match("study_runner.markers", [only]), only)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -119,17 +119,36 @@ test('a custom file that cannot be loaded falls back to the gong and says why', 
   assert.deepEqual(fallbacks, ['https://lab/missing.mp3']);
 });
 
-test('the audio unlock is installed once and removes itself after the first press', () => {
+test('the audio unlock listens to real gestures and stays installed', () => {
+  // On iPad Safari a finger's pointerdown is no user gesture for audio;
+  // touchend/pointerup/click are. The listeners stay so iOS can be unlocked
+  // again after it suspends audio (screen lock).
   const listeners = new Map();
   const target = {
-    addEventListener: (type, handler) => listeners.set(type, handler),
+    addEventListener: (type, handler, options) => listeners.set(type, { handler, options }),
     removeEventListener: (type) => listeners.delete(type),
   };
   installSoundCueUnlock(target);
   installSoundCueUnlock(target);
-  assert.deepEqual([...listeners.keys()].sort(), ['keydown', 'pointerdown']);
-  listeners.get('pointerdown')();
-  assert.equal(listeners.size, 0);
+  assert.deepEqual([...listeners.keys()].sort(), ['click', 'keydown', 'pointerup', 'touchend']);
+  listeners.get('touchend').handler();
+  listeners.get('click').handler();
+  assert.equal(listeners.size, 4);
+  assert.equal(listeners.get('touchend').options.capture, true);
+});
+
+test('a cue the browser never allows reports blocked instead of hanging', async () => {
+  class NeverResumingContext extends FakeAudioContext {
+    resume() { this.resumed += 1; return new Promise(() => {}); }
+  }
+  const blocked = [];
+  const player = createSoundCuePlayer({ AudioContextClass: NeverResumingContext });
+  const started = Date.now();
+  const result = await player.play({ end_sound: 'gong' }, { onBlocked: () => blocked.push('blocked') });
+  assert.equal(result, 'blocked');
+  assert.deepEqual(blocked, ['blocked']);
+  assert.ok(Date.now() - started < 2000);
+  assert.equal(FakeAudioContext.instances.at(-1).oscillators.length, 0);
 });
 
 test('stimulus cards list exactly the plugins whose manifest declares start and stop', () => {

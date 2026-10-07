@@ -166,7 +166,7 @@ function renderEndOfTime(question) {
       <div class="row2">
         <div class="field">
           <label>${escapeHtml(t('stimulus.endSoundLabel', 'Sound'))}</label>
-          <select class="fi-input se-end-sound">
+          <select class="se-end-sound">
             ${END_SOUNDS.map((sound) => `<option value="${sound}" ${sound === endSound ? 'selected' : ''}>${escapeHtml(t(`stimulus.endSound.${sound}`, sound))}</option>`).join('')}
           </select>
         </div>
@@ -251,8 +251,8 @@ function renderPluginActions(question) {
       if (field.type === 'choice') {
         markup.push(`
           <label class="field stimulus-plugin-action-field">
-            <span>${escapeHtml(label)}</span>
-            <select class="fi-input" data-plugin-action data-plugin-key="${escapeHtml(pluginKey)}" data-action-key="${escapeHtml(actionKey)}" data-action-type="choice">
+            <span>${escapeHtml(label)}${field.unit ? ` <span class="settings-unit">(${escapeHtml(field.unit)})</span>` : ''}</span>
+            <select data-plugin-action data-plugin-key="${escapeHtml(pluginKey)}" data-action-key="${escapeHtml(actionKey)}" data-action-type="choice">
               ${(field.options || []).map((option) => `<option value="${escapeHtml(option)}" ${String(option) === String(value) ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}
             </select>
           </label>`);
@@ -261,8 +261,8 @@ function renderPluginActions(question) {
       const inputType = field.type === 'number' ? 'number' : 'text';
       markup.push(`
         <label class="field stimulus-plugin-action-field">
-          <span>${escapeHtml(label)}</span>
-          <input class="fi-input" type="${inputType}" data-plugin-action data-plugin-key="${escapeHtml(pluginKey)}" data-action-key="${escapeHtml(actionKey)}" data-action-type="${escapeHtml(field.type || 'string')}" value="${escapeHtml(value)}"${field.minimum !== undefined ? ` min="${escapeHtml(field.minimum)}"` : ''}${field.maximum !== undefined ? ` max="${escapeHtml(field.maximum)}"` : ''}>
+          <span>${escapeHtml(label)}${field.unit ? ` <span class="settings-unit">(${escapeHtml(field.unit)})</span>` : ''}</span>
+          <input type="${inputType}" data-plugin-action data-plugin-key="${escapeHtml(pluginKey)}" data-action-key="${escapeHtml(actionKey)}" data-action-type="${escapeHtml(field.type || 'string')}" value="${escapeHtml(value)}"${field.minimum !== undefined ? ` min="${escapeHtml(field.minimum)}"` : ''}${field.maximum !== undefined ? ` max="${escapeHtml(field.maximum)}"` : ''}>
         </label>`);
     });
   });
@@ -368,6 +368,10 @@ export function onTimeUp(question, index, { notify } = {}) {
   return playSoundCue(question, {
     onFallback: (url) => notify?.(
       t('stimulus.endSoundFallback', 'The end sound file could not be loaded; the built-in gong was played instead: {url}').replace('{url}', url),
+      'warning',
+    ),
+    onBlocked: () => notify?.(
+      t('stimulus.endSoundBlocked', 'The tablet browser blocked the end sound. Tap the screen once before the next stimulus.'),
       'warning',
     ),
   });

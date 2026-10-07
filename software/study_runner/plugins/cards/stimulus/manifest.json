@@ -2,7 +2,7 @@
   "api_version": 5,
   "plugin_key": "stimulus",
   "config_key": "stimulus",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "category": "card",
   "capabilities": {
     "card_contract": {

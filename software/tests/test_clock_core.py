@@ -177,6 +177,14 @@ class OfflineAssessmentTests(unittest.TestCase):
         self.assertEqual(summary["min_seconds"], -0.0002)
         self.assertEqual(assessment.correction_summary([])["count"], 0)
 
+    def test_display_offset_comes_from_the_markers_and_is_robust_to_one_outlier(self) -> None:
+        lsl = [18629.776, 18630.072, 18636.773, 18759.292]
+        server_ms = [(value + 1_791_276_103.165) * 1000 for value in lsl]
+        server_ms[1] += 400.0  # one marker pushed late
+        offset = assessment.display_epoch_offset(lsl, server_ms)
+        self.assertAlmostEqual(offset, 1_791_276_103.165, places=3)
+        self.assertIsNone(assessment.display_epoch_offset([1.0], [None]))
+
     def test_clock_report_records_the_declared_timestamp_source(self) -> None:
         report = assessment.build_clock_report(
             session_id="s",

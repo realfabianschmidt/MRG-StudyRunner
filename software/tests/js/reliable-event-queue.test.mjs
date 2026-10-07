@@ -104,3 +104,47 @@ await flushReliableStudyEvents();
 assert.equal(retriedPayload.event_id, 'event-offline');
 assert.equal(retriedPayload.source_monotonic_ms, 777);
 assert.equal(localStorage.getItem('study-runner-pending-events-v3'), null);
+
+// A permanently rejected event (409: the server's final word on this exact
+// event) must not block a later, independent event behind it in the queue.
+const { setRejectedEventHandler } = await import('../../study_runner/apps/ui/scripts/shared/reliable-event-queue.js');
+const notices = [];
+setRejectedEventHandler((event, error) => notices.push({ endpoint: event.endpoint, status: error.status }));
+
+function jsonResponse(status, payload) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: () => 'application/json' },
+    json: async () => payload,
+  };
+}
+
+const requested = [];
+globalThis.fetch = async (endpoint, options) => {
+  const payload = JSON.parse(options.body);
+  requested.push(endpoint);
+  if (payload.event_id === 'event-rejected') return jsonResponse(409, { error: 'stimulus id belongs to a different start event' });
+  return jsonResponse(200, { received_event_id: payload.event_id });
+};
+
+await assert.rejects(
+  sendReliableStudyEvent('/api/start', { event_id: 'event-rejected', source_monotonic_ms: 1 }),
+  (error) => error.status === 409,
+);
+assert.deepEqual(notices, [{ endpoint: '/api/start', status: 409 }]);
+assert.equal(localStorage.getItem('study-runner-pending-events-v3'), null, 'the rejected event is not retried');
+
+const afterRejected = await sendReliableStudyEvent('/api/stop', { event_id: 'event-after-rejected', source_monotonic_ms: 2 });
+assert.equal(afterRejected.received_event_id, 'event-after-rejected');
+assert.deepEqual(requested, ['/api/start', '/api/stop'], 'the next event was still delivered');
+
+// A transient failure (503) is not the server's final word: it stays queued.
+globalThis.fetch = async () => jsonResponse(503, { error: 'worker busy' });
+await assert.rejects(
+  sendReliableStudyEvent('/api/start', { event_id: 'event-transient', source_monotonic_ms: 3 }),
+  (error) => error.status === 503,
+);
+const pendingAfterTransient = JSON.parse(localStorage.getItem('study-runner-pending-events-v3'));
+assert.equal(pendingAfterTransient.length, 1);
+assert.equal(pendingAfterTransient[0].payload.event_id, 'event-transient');

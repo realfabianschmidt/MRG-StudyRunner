@@ -109,6 +109,31 @@ class ResultsServicePathTests(unittest.TestCase):
             ],
         )
 
+    def test_a_stimulus_the_operator_skipped_past_a_prepare_failure_is_marked_not_started(self) -> None:
+        details, _calls = self._capture_answer_details(
+            {
+                "participant_id": "p01",
+                "timestamp_start": "2026-01-01T10:00:00Z",
+                "timestamp_end": "2026-01-01T10:05:00Z",
+                "answers": {},
+                "answer_events": [],
+                "card_events": [
+                    {
+                        "question_index": 0,
+                        "question_type": "stimulus",
+                        "shown_at": "2026-01-01T10:00:01Z",
+                        "prepare_failed": True,
+                        "prepare_resolution": "skip",
+                        "completed_at": "2026-01-01T10:03:44Z",
+                    },
+                ],
+            },
+            {"questions": [{"type": "stimulus", "title": "Look"}, {"type": "finish"}]},
+        )
+
+        self.assertEqual(details[0]["biosignal_interval_kind"], "stimulus_not_started")
+        self.assertEqual(details[0]["prepare_resolution"], "skip")
+
     def test_answer_details_apply_client_clock_offset_when_tablet_clock_is_skewed(self) -> None:
         # Tablet clock runs 90 s ahead of the server clock, so the submitted
         # offset (server = client + offset) is -90 000 ms. The sliced epochs

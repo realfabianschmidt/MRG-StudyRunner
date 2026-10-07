@@ -70,6 +70,17 @@ _OFF_STATUSES = frozenset({"stopped", "disabled", "off"})
 _BLOCKING_SIGNALS = frozenset({"poor", "measuring", "stale"})
 
 
+def _setup_overrides_signal(signal: str, setup: str) -> bool:
+    """A finished initialization ran on this person's live signal.
+
+    Calibration needs a usable signal, so once it is done a poor contact
+    reading taken before it no longer holds the start back. Contact that was
+    never measured for this person (stale, unknown) or a measurement still in
+    progress keep blocking.
+    """
+    return signal == "poor" and setup == "done"
+
+
 def action_roles(manifest: Mapping[str, Any] | None) -> dict[str, str]:
     """``{role: admin action key}`` declared in a normalized manifest."""
 
@@ -145,12 +156,12 @@ def is_ready(connection: Mapping[str, Any], roles: Iterable[str] = ()) -> bool:
     if connection.get("phase") != "connected" or not connection.get("streaming"):
         return False
     signal = str((connection.get("signal") or {}).get("state") or "unknown")
-    if signal in _BLOCKING_SIGNALS:
+    setup = str((connection.get("setup") or {}).get("state") or "not_needed")
+    if signal in _BLOCKING_SIGNALS and not _setup_overrides_signal(signal, setup):
         return False
     if signal == "unknown" and "measure_signal" in role_set:
         # The plugin can measure its signal but has not yet.
         return False
-    setup = str((connection.get("setup") or {}).get("state") or "not_needed")
     return setup in {"done", "not_needed"}
 
 
@@ -176,11 +187,11 @@ def next_step(connection: Mapping[str, Any], roles: Iterable[str] = ()) -> str |
         # reconnecting: wait.
         return None
     signal = str((connection.get("signal") or {}).get("state") or "unknown")
-    if signal == "measuring":
+    setup = str((connection.get("setup") or {}).get("state") or "not_needed")
+    if signal == "measuring" or _setup_overrides_signal(signal, setup):
         return None
     if signal in {"poor", "stale"} or (signal == "unknown" and "measure_signal" in role_set):
         return "measure_signal" if "measure_signal" in role_set else None
-    setup = str((connection.get("setup") or {}).get("state") or "not_needed")
     if setup in {"needed", "stalled"}:
         return "initialize" if "initialize" in role_set else None
     return None

@@ -48,7 +48,9 @@ export function buildTrackGroups(streams, options = {}) {
       const points = normalizePoints(stream.points, stream.mode);
       const channels = selectChannels(
         discoverChannels(stream, points),
-        preferredOrder(stream.stream_key || stream.sensor),
+        // Manifests declare preferred channels per plugin; stream_key is the
+        // XDF stream id and never matches a plugin key.
+        preferredOrder(stream.plugin_key || stream.stream_key || stream.sensor),
       );
       const tracks = channels
         .map((channel) => buildTrack(stream, channel, points))
@@ -248,4 +250,44 @@ export function clampWindow(window, extent) {
 
 function clamp(value, low, high) {
   return Math.min(high, Math.max(low, value));
+}
+
+// Card times in order of precision: the server's receipt of the stimulus
+// start/stop, the server times a card was shown/answered, then the tablet's
+// interval. A missing value is null in stored results; Number(null) would be
+// 1970, so absent values are skipped rather than converted.
+const ENTRY_EPOCH_MS_KEYS = Object.freeze({
+  start: ['server_start_received_epoch_ms', 'shown_at_server_epoch_ms'],
+  end: ['server_stop_received_epoch_ms', 'answered_at_server_epoch_ms'],
+});
+const ENTRY_ISO_KEYS = Object.freeze({ start: 'biosignal_interval_start', end: 'biosignal_interval_end' });
+
+export function entryEpoch(entry, edge) {
+  for (const key of ENTRY_EPOCH_MS_KEYS[edge] || []) {
+    const raw = entry?.[key];
+    if (raw === null || raw === undefined || raw === '') continue;
+    const ms = Number(raw);
+    if (Number.isFinite(ms) && ms > 0) return ms / 1000;
+  }
+  const parsed = Date.parse(entry?.[ENTRY_ISO_KEYS[edge]] || '');
+  return Number.isNaN(parsed) ? null : parsed / 1000;
+}
+
+/** Timeline markers (Unix seconds) for a result's answer details. */
+export function buildMarkers(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map((entry) => {
+      const start = entryEpoch(entry, 'start');
+      const end = entryEpoch(entry, 'end');
+      if (start == null) return null;
+      return {
+        start,
+        end: end ?? start,
+        number: entry.question_number,
+        title: `#${entry.question_number} ${entry.question_prompt || entry.question_type || ''}`.trim(),
+        entry,
+      };
+    })
+    .filter(Boolean);
 }

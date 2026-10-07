@@ -5,6 +5,18 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Fixed
+
+- A sensor whose calibration finished is ready to start even if its contact measurement before was poor. Contact that was not measured for the current participant still blocks the start (BrainBit plugin 4.0.1).
+- The stimulus end sound plays on iPad Safari: audio is unlocked by a real tap and again after the screen was locked, and a sound the browser still blocks is reported to the admin instead of failing silently. It also plays with the iPad's silent switch on (stimulus card plugin 2.0.1).
+- The session review shows signals and card markers on the same time axis. Question cards no longer collapse to the start and end, the recorder's clock is mapped to wall time from the study markers for display only, and a plugin's preferred channels are selected again.
+- The recorder takes its streams from its own computer when another Study Runner on the same network publishes the same stream names, instead of refusing or recording the other computer's stream.
+- Stimulus cards longer than about a minute can be prepared again; a tablet clock calibration mistook a far-future planned deadline for its own age and refused to convert it. Preparation, start and stop now reuse one fixed schedule per attempt, so a clock re-sync between them no longer conflicts.
+- In the preparation-failed dialog, Retry, Skip card and Stop study all work again: the tablet and server now agree on the cancellation reasons. A stray tap outside the dialog or Escape no longer stops the study.
+- A study event the server permanently rejected no longer blocks every later start, stop and marker behind it in the same session.
+- A stimulus the operator skipped past a preparation failure is recorded as not started, instead of appearing as a completed stimulus interval.
+- Several settings controls (the recording-timing wait fields, the stimulus end-sound and plugin-action fields, the font picker, study plugin toggles and fields) now match the rest of the app's look (camera_emotion plugin 3.0.1).
+
 ## 1.7.12 - 2026-10-07
 
 ### Fixed

@@ -296,6 +296,54 @@ class SessionsRouteTests(unittest.TestCase):
         self.assertLessEqual(min(point["min"]["heartRate"] for point in payload["points"]), 60)
         self.assertGreaterEqual(max(point["max"]["heartRate"] for point in payload["points"]), 90)
 
+    def test_recorder_clock_signals_share_the_unix_axis_of_the_card_markers(self) -> None:
+        # A real recording: samples on the LSL clock (seconds since boot), the
+        # study markers carry the server's Unix time they were pushed for.
+        offset = 1_791_276_103.165
+
+        def lsl_streams(_session_root: Path) -> list[dict]:
+            return [
+                {
+                    "stream_key": "1",
+                    "name": "StudyRunner",
+                    "plugin_key": "lsl",
+                    "nominal_rate_hz": 0.0,
+                    "timestamps": [18629.776, 18759.292],
+                    "samples": [
+                        {"event": f"study_start|study=s|server_ms={(18629.776 + offset) * 1000}"},
+                        {"event": f"study_end|study=s|server_ms={(18759.292 + offset) * 1000}"},
+                    ],
+                },
+                {
+                    "stream_key": "2",
+                    "name": "AmHub_BIO",
+                    "plugin_key": "am_hub",
+                    "nominal_rate_hz": 10.0,
+                    "timestamps": [18630.0, 18700.0, 18760.0],
+                    "samples": [{"heartRate": 70}, {"heartRate": 72}, {"heartRate": 74}],
+                },
+            ]
+
+        with patch.object(sessions_index_service, "_read_merged_streams", side_effect=lsl_streams):
+            detail = self.client.get(
+                "/api/admin/sessions/study-a/p01", query_string={"session_folder": self.session_one.name}
+            ).get_json()
+            window = self.client.get(
+                "/api/admin/sessions/study-a/p01/signals",
+                query_string={
+                    "session_folder": self.session_one.name,
+                    "sensor": "2",
+                    "start": 18690.0 + offset,
+                    "end": 18770.0 + offset,
+                },
+            ).get_json()
+
+        bio = next(stream for stream in detail["streams"] if stream["stream_key"] == "2")
+        self.assertAlmostEqual(bio["timestamp_start"], 18630.0 + offset, places=3)
+        self.assertEqual(window["sample_count"], 2)
+        epochs = [point.get("_epoch") or point.get("epoch") for point in window["points"]]
+        self.assertTrue(all(value is None or value > 1_700_000_000 for value in epochs))
+
     def test_invalid_selectors_and_missing_sensor_are_rejected(self) -> None:
         invalid_folder = self.client.get(
             "/api/admin/sessions/study-a/p01",

@@ -783,7 +783,11 @@ class PluginUiContractTests(unittest.TestCase):
         self.assertLess(schedule, prepare)
         self.assertNotIn("await sendReliableStudyEvent('/api/stop'", source)
         self.assertIn(
-            "planned_deadline_epoch_ms: estimateServerEpochMs(stimulusRun.plannedDeadlinePerfMs)",
+            "stimulusRun.plannedDeadlineEpochMs = toEpoch(stimulusRun.plannedDeadlinePerfMs)",
+            source[schedule:prepare + 700],
+        )
+        self.assertIn(
+            "planned_deadline_epoch_ms: stimulusRun.plannedDeadlineEpochMs",
             source[schedule:prepare + 700],
         )
 

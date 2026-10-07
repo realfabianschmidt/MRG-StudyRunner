@@ -315,6 +315,12 @@ body {
 }
 .settings-page .switch-row:hover { background: none; }
 
+/* A toggle's label plus its optional hint, stacked above one another instead
+   of running together on one line. */
+.switch-row-text { display: flex; flex-direction: column; gap: var(--s-1); }
+.switch-row-text strong { color: var(--ink); }
+.switch-row-text small { color: var(--ink-55); line-height: 1.4; }
+
 /* Editor switches: a plain row, no panel, no explanatory paragraph.
    .switch-row keeps its filled look for the participant page; this is the
    editor-only variant that reuses the same .switch control. */
@@ -464,7 +470,7 @@ input[type=range] { flex: 1; height: 4px; accent-color: var(--accent); cursor: p
   font-size: .688rem; letter-spacing: .07em; text-transform: uppercase;
   color: var(--ink-30); margin-bottom: var(--s-1);
 }
-.field label .settings-unit { color: var(--ink-30); letter-spacing: .05em; }
+.field label .settings-unit, label.field .settings-unit { color: var(--ink-30); letter-spacing: .05em; }
 /* Plugin-generated fields put the caption in a span inside the label itself
    (<label class="field"><span>…</span><input>), so it needs the same
    treatment .field label gets when the caption is its own element. */
