@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.12 - 2026-10-07
+
 ### Fixed
 
 - 1.7.11 was not published either: a release-time code-structure check stopped it. This release contains every 1.7.10 and 1.7.11 change below.
