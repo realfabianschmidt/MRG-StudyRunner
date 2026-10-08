@@ -180,7 +180,7 @@ export function createNodeCanvas(container, { onChange } = {}) {
       render();
     }
   });
-  window.addEventListener('pointermove', (event) => {
+  function onPointerMove(event) {
     if (dragNode) {
       const node = state.nodes.find((n) => n.id === dragNode.id);
       if (node) {
@@ -196,28 +196,43 @@ export function createNodeCanvas(container, { onChange } = {}) {
       dragWire.previewPoint = toWorldPoint(event);
       redrawWires();
     }
-  });
-  window.addEventListener('pointerup', () => {
+  }
+  function onPointerUp() {
     if (dragNode) emitChange();
     dragNode = null;
     panDrag = null;
     if (dragWire) { dragWire = null; render(); }
-  });
-  container.addEventListener('wheel', (event) => {
+  }
+  function onWheel(event) {
     event.preventDefault();
     const next = Math.min(2, Math.max(0.4, state.scale * (event.deltaY < 0 ? 1.1 : 1 / 1.1)));
     state.scale = next;
     applyTransform();
     render();
-  }, { passive: false });
-  window.addEventListener('keydown', (event) => {
+  }
+  function onKeyDown(event) {
     if (!container.isConnected) return;
     if ((event.key === 'Delete' || event.key === 'Backspace') && state.selected
         && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
       if (state.selected.kind === 'node') removeNode(state.selected.id);
       else if (state.selected.kind === 'edge') removeEdge(state.selected.id);
     }
-  });
+  }
+  // Bound to window (dragging must keep tracking outside the canvas) and to
+  // keydown (so Delete works without first clicking inside the canvas) -
+  // both torn down by destroy(), since a fresh canvas is created every time
+  // the node view is mounted and would otherwise pile up global listeners.
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  container.addEventListener('wheel', onWheel, { passive: false });
+  window.addEventListener('keydown', onKeyDown);
+
+  function destroy() {
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    container.removeEventListener('wheel', onWheel);
+    window.removeEventListener('keydown', onKeyDown);
+  }
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (ch) => (
@@ -274,5 +289,5 @@ export function createNodeCanvas(container, { onChange } = {}) {
   }
 
   applyTransform();
-  return { addNode, removeNode, removeEdge, setGraph, getGraph, zoomToFit, render };
+  return { addNode, removeNode, removeEdge, setGraph, getGraph, zoomToFit, render, destroy };
 }

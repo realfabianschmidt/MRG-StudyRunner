@@ -161,7 +161,10 @@ export function mountNodeView(container, target, catalog, { onCommit } = {}) {
     });
   }
 
-  return { addSourceNode, addReducerNode, addRoundNode, addDefaultNode, addColumnNode, zoomToFit: canvas.zoomToFit };
+  return {
+    addSourceNode, addReducerNode, addRoundNode, addDefaultNode, addColumnNode,
+    zoomToFit: canvas.zoomToFit, destroy: canvas.destroy,
+  };
 }
 
 // Pure data transforms, exported for tests: neither touches the DOM.

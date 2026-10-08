@@ -74,8 +74,11 @@ export function openConfigurator({ plugin, studyId, settings, configData, runAct
     sessionSources: {}, // session_path -> sensor sources actually present there
     previewSessionPath: '',
     viewModeByTarget: {}, // target id -> 'list' | 'node'
+    manualSourceColumns: new Set(), // "target.id:column name" currently typed by hand
   };
   state.activeTargetId = state.mapping.targets[0]?.id || null;
+
+  let activeNodeView = null;
 
   const modal = createModal({
     title: `${plugin?.ui?.label || 'Notion'} export mapping`,
@@ -83,10 +86,16 @@ export function openConfigurator({ plugin, studyId, settings, configData, runAct
     closeLabel: 'Close',
     // Each open builds a fresh modal; remove it on close instead of leaving
     // hidden copies behind in the page.
-    onClose: () => modal.element.remove(),
+    onClose: () => { activeNodeView?.destroy(); modal.element.remove(); },
   });
 
   function render() {
+    // The node canvas owns a few window-level listeners (dragging must keep
+    // tracking outside it); rebuilding the DOM below does not remove those,
+    // so they are torn down explicitly before every rebuild, not only on
+    // close - render() runs on nearly every edit while mounted.
+    activeNodeView?.destroy();
+    activeNodeView = null;
     modal.body.innerHTML = `
       <div class="configurator-rail">${renderRail(state)}</div>
       <div class="configurator-main">${renderMain(state)}</div>
@@ -108,6 +117,7 @@ export function openConfigurator({ plugin, studyId, settings, configData, runAct
     const view = mountNodeView(container, target, combinedCatalog(), {
       onCommit: (columns) => { target.columns = columns; state.dirty = true; updateDirtyIndicator(); },
     });
+    activeNodeView = view;
     modal.body.querySelector('[data-node-add-source]')?.addEventListener('click', () => {
       const source = window.prompt('Source id (pick one shown in the column list, or e.g. card.stream.<key>.channel.<name>.<stat>):');
       if (source) view.addSourceNode(source.trim());
@@ -347,12 +357,25 @@ export function openConfigurator({ plugin, studyId, settings, configData, runAct
     if (!column) return;
     if (field === 'name') {
       if (!input.value.trim() || input.value === columnName) return;
-      target.columns[input.value.trim()] = column;
+      const newName = input.value.trim();
+      target.columns[newName] = column;
       delete target.columns[columnName];
+      if (state.manualSourceColumns.delete(`${target.id}:${columnName}`)) {
+        state.manualSourceColumns.add(`${target.id}:${newName}`);
+      }
     } else if (field === 'reducer') {
       column.reducer = input.value || null;
     } else if (field === 'source') {
-      if (input.value === OTHER_SOURCE) { markDirty(); return; } // reveals the manual field; nothing to store yet
+      const key = `${target.id}:${columnName}`;
+      if (input.value === OTHER_SOURCE) {
+        // Switching to "Other" must show the manual field even when the
+        // current source already matches a catalog entry; a transient flag
+        // decides that, since matching a catalog entry alone no longer can.
+        state.manualSourceColumns.add(key);
+        markDirty();
+        return;
+      }
+      state.manualSourceColumns.delete(key);
       column.source = input.value;
     } else if (field === 'source-manual') {
       column.source = input.value;
@@ -499,7 +522,7 @@ function renderColumnList(state, target) {
     <table class="configurator-columns">
       <thead><tr><th>Column</th><th>Type</th><th>Source</th><th>Reducer</th><th></th></tr></thead>
       <tbody>
-        ${columns.map(([name, column]) => renderColumnRow(name, column, target.row_level, state)).join('')}
+        ${columns.map(([name, column]) => renderColumnRow(name, column, target.row_level, state, target.id)).join('')}
       </tbody>
     </table>
     <button class="btn-secondary" type="button" data-add-column><i class="iconoir-plus"></i> Add column</button>
@@ -521,11 +544,11 @@ function renderNodeView() {
   `;
 }
 
-function renderColumnRow(name, column, rowLevel, state) {
+function renderColumnRow(name, column, rowLevel, state, targetId) {
   const needsReducer = rowLevel !== 'card' && /^card\.(?!\[)/.test(column.source || '');
   const options = [...state.catalog, ...(state.sessionSources[state.previewSessionPath] || [])];
   const known = options.some((entry) => entry.source === column.source);
-  const isOther = column.source && !known;
+  const isOther = state.manualSourceColumns.has(`${targetId}:${name}`) || (column.source && !known);
   return `
     <tr>
       <td><input type="text" value="${escapeHtml(name)}" data-column-field="name" data-column-name="${escapeHtml(name)}"></td>
