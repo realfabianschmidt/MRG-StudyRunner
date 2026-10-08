@@ -244,9 +244,7 @@ export function createAdminStudyEditor(context) {
   
   function rebuildPreview() {
     const preview = $('study-preview');
-    // The editor always keeps the card border here, regardless of
-    // study_settings.card_frame_enabled: it's what separates the stacked
-    // cards in this list, not a frame on a single rendered card.
+    preview.classList.toggle('study-card-frame--off', state.config.study_settings?.card_frame_enabled === false);
     // A fresh preview: stop the old cards' animations and forget what was
     // tried out in them.
     resetAllCardState();

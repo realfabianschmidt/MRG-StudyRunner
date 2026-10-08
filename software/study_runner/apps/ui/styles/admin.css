@@ -920,6 +920,15 @@ body.admin::before { display: none; }
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-16);
 }
+#study-preview.study-card-frame--off .preview-card-wrap.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--r-lg);
+}
+#study-preview.study-card-frame--off .preview-card-wrap.selected .q-card-study {
+  border-color: transparent;
+  box-shadow: none;
+}
 .preview-card-overlay {
   position: absolute;
   top: 12px; right: 12px;
