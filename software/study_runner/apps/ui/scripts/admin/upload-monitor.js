@@ -15,6 +15,7 @@ import { t } from '../shared/i18n.js';
 import {
   finalizationProgress,
   pickFinalizationFocus,
+  pickUploadFocus,
 } from '../shared/finalization-view-model.js';
 
 const POLL_INTERVAL_MS = 3000;
@@ -27,8 +28,6 @@ let knownCompletionIds = null;
 let focusSession = null;
 let latestFinalizationJobs = new Map();
 const knownFinalizationSessionIds = new Set();
-// Legacy sessions have no server-side acknowledgement; remember them here.
-const seenLegacySignatures = new Map();
 
 export function initializeUploadMonitor(options = {}) {
   callbacks = options;
@@ -95,7 +94,7 @@ async function poll() {
       localSessions.forEach((session) => knownCompletionIds.add(completionId(session)));
     }
 
-    focusSession = pickFinalizationFocus(finalizationJobs) || pickLegacyFocus(uploadSessions, localSessions);
+    focusSession = pickFinalizationFocus(finalizationJobs) || pickUploadFocus(uploadSessions, localSessions);
     renderWidget();
   } finally {
     pollInFlight = false;
@@ -130,20 +129,6 @@ function surfaceFinalizationChanges(jobs) {
   });
 }
 
-function pickLegacyFocus(uploadSessions, localSessions) {
-  const localById = new Map(localSessions.map((session) => [session.session_id, session]));
-  const session = uploadSessions.find((candidate) => (
-    (candidate.jobs || []).some((job) => job.status !== 'done')
-    && seenLegacySignatures.get(candidate.session_id) !== legacySignature(candidate)
-  ));
-  if (!session) return null;
-  return { ...session, session_path: session.session_path || localById.get(session.session_id)?.session_path || '' };
-}
-
-function legacySignature(session) {
-  return (session.jobs || []).map((job) => `${job.job_id}:${job.status}`).sort().join('|');
-}
-
 /** Go to the session and mark its notice as seen until something new happens. */
 async function openFocusedSession(session) {
   const folder = String(session.session_path || '').split(/[\\/]/).filter(Boolean).pop() || '';
@@ -158,7 +143,13 @@ async function openFocusedSession(session) {
     }
     focusSession = pickFinalizationFocus([...latestFinalizationJobs.values()]);
   } else {
-    seenLegacySignatures.set(session.session_id, legacySignature(session));
+    // Journaled server-side, so the notice stays quiet after a restart until
+    // one of these jobs changes again.
+    try {
+      await postJson('/api/uploads/acknowledge', { job_ids: (session.jobs || []).map((job) => job.job_id) });
+    } catch (error) {
+      console.error('[uploads] Could not mark the notice as seen:', error);
+    }
     focusSession = null;
   }
   renderWidget();

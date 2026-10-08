@@ -283,6 +283,27 @@ class UploadJobServiceTests(unittest.TestCase):
             # using "current", it does not quietly fall back to "snapshot".
             self.assertEqual(attempts, ["snapshot", "current"])
 
+    def test_an_acknowledged_notice_stays_quiet_after_a_restart_until_the_job_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            clock = ManualClock()
+
+            def offline(_payload):
+                raise RuntimeError("offline")
+
+            first = UploadJobService(Path(temp_dir), executors={"notion": offline}, clock=clock)
+            job = first.enqueue(**job_arguments())
+            first.process_due_jobs_once()
+            first.acknowledge([job["job_id"], "unknown-job"])
+
+            replayed = UploadJobService(Path(temp_dir), executors={"notion": offline}, clock=clock)
+            seen = replayed.status()["sessions"][0]["jobs"][0]
+            self.assertEqual(seen["acknowledged_signature"], seen["notice_signature"])
+
+            clock.value += 10_000
+            replayed.process_due_jobs_once()  # a new attempt: the notice is new again
+            changed = replayed.status()["sessions"][0]["jobs"][0]
+            self.assertNotEqual(changed["acknowledged_signature"], changed["notice_signature"])
+
     def test_public_status_never_contains_private_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             service = UploadJobService(Path(temp_dir))
@@ -362,6 +383,26 @@ class UploadRoutesTests(unittest.TestCase):
         self.assertFalse(found_body["differs"])
         self.assertEqual(found_body["fields"], [])
         self.assertEqual(missing.status_code, 404)
+
+    def test_status_marks_uploads_of_a_vanished_finalization_as_orphaned(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = self._app(temp_dir)
+            service = app.config["UPLOAD_JOBS_SERVICE"]
+            orphan = service.enqueue(**{
+                **job_arguments(), "session_id": "gone",
+                "metadata": {"finalization_job_id": "finalization-that-no-longer-exists"},
+            })
+            plain = service.enqueue(**{**job_arguments(), "session_id": "plain"})
+            client = app.test_client()
+            sessions = {s["session_id"]: s for s in client.get("/api/uploads/status").get_json()["sessions"]}
+            acknowledged = client.post("/api/uploads/acknowledge", json={"job_ids": [plain["job_id"]]})
+            invalid = client.post("/api/uploads/acknowledge", json={"job_ids": "not-a-list"})
+
+        self.assertTrue(sessions["gone"]["orphaned"])
+        self.assertFalse(sessions["plain"]["orphaned"])
+        self.assertEqual(acknowledged.get_json()["acknowledged"], [plain["job_id"]])
+        self.assertEqual(invalid.status_code, 400)
+        self.assertTrue(orphan["job_id"])
 
     def test_open_folder_route_uses_cross_platform_service(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

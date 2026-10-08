@@ -48,6 +48,32 @@ export function pickFinalizationFocus(jobs) {
   })[0] || null;
 }
 
+/**
+ * The upload-queue session the corner notice should point at, if any.
+ *
+ * This is the fallback for uploads the finalization service does not
+ * cover. A session is skipped when:
+ * - the server marks it `orphaned` (its finalization job, and with it the
+ *   session folder, is gone - linking there would only show "not found");
+ * - every job is done or cancelled (nothing left to do);
+ * - the operator already looked at it in exactly this state
+ *   (`acknowledged_signature`, journaled server-side so it survives a
+ *   restart).
+ */
+export function pickUploadFocus(uploadSessions, localSessions = []) {
+  const localById = new Map((Array.isArray(localSessions) ? localSessions : [])
+    .map((session) => [session.session_id, session]));
+  const session = (Array.isArray(uploadSessions) ? uploadSessions : []).find((candidate) => {
+    if (candidate?.orphaned) return false;
+    const jobs = Array.isArray(candidate?.jobs) ? candidate.jobs : [];
+    const open = jobs.filter((job) => !['done', 'cancelled'].includes(job.status));
+    if (!open.length) return false;
+    return open.some((job) => job.acknowledged_signature !== job.notice_signature);
+  });
+  if (!session) return null;
+  return { ...session, session_path: session.session_path || localById.get(session.session_id)?.session_path || '' };
+}
+
 export function finalizationSessionKey(job) {
   return `finalization:${job?.job_id || ''}`;
 }

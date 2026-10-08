@@ -45,6 +45,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/admin/studies/import"),
     ("GET", "/api/uploads/status"),
     ("GET", "/api/uploads/<job_id>/retry-target"),
+    ("POST", "/api/uploads/acknowledge"),
     ("POST", "/api/uploads/retry"),
     ("POST", "/api/admin/system/open-results-folder"),
     ("POST", "/api/admin/plugins/<plugin_key>/<action>"),

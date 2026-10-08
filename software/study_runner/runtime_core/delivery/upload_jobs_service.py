@@ -264,6 +264,28 @@ class UploadJobService:
             "already_published": published,
         }
 
+    def acknowledge(self, job_ids: list[str]) -> dict[str, Any]:
+        """Record that an operator has seen these jobs in their current state.
+
+        Journaled, so a notice that was looked at stays quiet across server
+        restarts until something new happens to the job (a new attempt, a
+        new status) - the same rule the finalization notice already follows.
+        """
+        acknowledged = []
+        with self._lock:
+            for raw_id in job_ids or []:
+                job = self._jobs.get(str(raw_id or "").strip())
+                if job is None:
+                    continue
+                signature = _notice_signature(job)
+                if job.get("acknowledged_signature") == signature:
+                    continue
+                event = {"event": "acknowledged", "job_id": job["job_id"], "signature": signature}
+                self._append_event(event)
+                self._apply_event(event)
+                acknowledged.append(job["job_id"])
+        return {"ok": True, "acknowledged": acknowledged}
+
     def describe_retry_target(self, job_id: str) -> dict[str, Any]:
         """Compare a job's frozen destination settings with the study's current ones.
 
@@ -566,6 +588,9 @@ class UploadJobService:
             (step for step in job.get("steps", []) if step.get("key") == job.get("kind")),
             None,
         )
+        if event_type == "acknowledged":
+            job["acknowledged_signature"] = str(event.get("signature") or "")
+            return
         if event_type == "attempt":
             job.update(status="running", attempts=int(event["attempts"]), last_error="")
             if destination_step:
@@ -628,13 +653,22 @@ def _public_job(job: dict[str, Any]) -> dict[str, Any]:
         "status",
         "last_error",
         "retry_target",
+        "acknowledged_signature",
         "steps",
         "metadata",
         "completed_at",
         "failed_at",
         "result",
     )
-    return {key: job[key] for key in allowed if key in job}
+    public = {key: job[key] for key in allowed if key in job}
+    # Compared with acknowledged_signature by the admin's upload notice.
+    public["notice_signature"] = _notice_signature(job)
+    return public
+
+
+def _notice_signature(job: dict[str, Any]) -> str:
+    """What makes a job's notice "new again": its status and attempt count."""
+    return f"{job.get('status') or ''}:{int(job.get('attempts') or 0)}"
 
 
 def _safe_result(result: dict[str, Any]) -> dict[str, Any]:

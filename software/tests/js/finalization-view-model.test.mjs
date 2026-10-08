@@ -5,6 +5,7 @@ import {
   finalizationSessionKey,
   finalizationStepLabel,
   pickFinalizationFocus,
+  pickUploadFocus,
 } from '../../study_runner/apps/ui/scripts/shared/finalization-view-model.js';
 
 const queued = {
@@ -79,4 +80,22 @@ assert.equal(
     ['session_end_notice: brainbit: timed out'],
   );
   assert.deepEqual(distinctFinalizationWarnings(undefined), []);
+}
+
+// The upload-queue fallback notice: never point at a vanished session, never
+// at finished work, and stay quiet once seen in exactly this state.
+{
+  const failedJob = { job_id: 'j1', status: 'failed', notice_signature: 'failed:3', acknowledged_signature: '' };
+  const fresh = { session_id: 's1', jobs: [failedJob] };
+  assert.equal(pickUploadFocus([fresh])?.session_id, 's1');
+  assert.equal(pickUploadFocus([{ ...fresh, orphaned: true }]), null);
+  assert.equal(pickUploadFocus([{ session_id: 's2', jobs: [{ job_id: 'j2', status: 'cancelled' }, { job_id: 'j3', status: 'done' }] }]), null);
+  const seen = { session_id: 's3', jobs: [{ ...failedJob, acknowledged_signature: 'failed:3' }] };
+  assert.equal(pickUploadFocus([seen]), null);
+  const changedSinceSeen = { session_id: 's4', jobs: [{ ...failedJob, notice_signature: 'failed:4', acknowledged_signature: 'failed:3' }] };
+  assert.equal(pickUploadFocus([changedSinceSeen])?.session_id, 's4');
+  assert.equal(
+    pickUploadFocus([fresh], [{ session_id: 's1', session_path: 'study/p01/session-1' }]).session_path,
+    'study/p01/session-1',
+  );
 }
