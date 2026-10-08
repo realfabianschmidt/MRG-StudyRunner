@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 532,
+  "cross_package_import_edges": 533,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -12,7 +12,7 @@
       "path": ""
     },
     "apps.server": {
-      "lines": 1052,
+      "lines": 1061,
       "path": "software/study_runner/apps/server/routes/study.py"
     },
     "apps.ui": {
@@ -102,7 +102,7 @@
   },
   "lines_per_package": {
     "apps": 0,
-    "apps.server": 5434,
+    "apps.server": 5443,
     "apps.ui": 0,
     "apps.ui.admin": 6279,
     "apps.ui.cards": 4904,
