@@ -5,6 +5,14 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+### Added
+
+- The Notion configurator's column mapping can now be edited as a node graph (sources, reducers, Round, Default-if-empty, columns), as an alternative to the column list - both edit the same mapping. Sensor sources (stream/channel/statistic) and session/participant fields can be picked from a real finished session instead of typed by hand, and the preview session is chosen from a list of completed sessions instead of a typed folder path (Notion plugin 1.4.0).
+
+### Fixed
+
+- A column mapped to a sensor stream (e.g. "mean of the alpha channel") could silently read the wrong stream, or none, in a later session: the key it was stored under was the recording's own per-session stream number, not a stable identifier. It is now keyed on the plugin's declared, stable stream identity instead (Notion plugin 1.3.1).
+
 ## 1.7.16 - 2026-10-08
 
 ### Added

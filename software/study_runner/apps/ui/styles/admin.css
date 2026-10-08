@@ -1871,6 +1871,67 @@ body.admin::before { display: none; }
   padding: var(--s-1);
 }
 .icon-button:hover { color: var(--neg); }
+
+/* The export mapping's node graph (notion_upload/ui/node-canvas.js): a
+   small purpose-made pan/zoom/wire canvas, not a vendored dependency. */
+.configurator-node-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+.configurator-node-container {
+  position: relative;
+  height: 480px;
+  border: 1px solid var(--ink-14);
+  border-radius: var(--r-lg);
+  background: var(--bg-sunken);
+  overflow: hidden;
+  touch-action: none;
+}
+.node-canvas { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: grab; }
+.node-canvas-world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+.node-canvas-wires { position: absolute; top: 0; left: 0; width: 4000px; height: 4000px; overflow: visible; pointer-events: none; }
+.node-canvas-wire { fill: none; stroke: var(--ink-30); stroke-width: 2; pointer-events: stroke; cursor: pointer; }
+.node-canvas-wire.is-selected { stroke: var(--accent); stroke-width: 3; }
+.node-canvas-wire--preview { stroke: var(--accent); stroke-dasharray: 4 4; }
+.node-canvas-nodes { position: absolute; top: 0; left: 0; }
+.node-canvas-node {
+  position: absolute;
+  min-width: 170px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--ink-14);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm, 0 1px 4px rgba(0,0,0,.1));
+  font-size: var(--size-small);
+  cursor: grab;
+  user-select: none;
+}
+.node-canvas-node.is-selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-16); }
+.node-canvas-node-header {
+  padding: var(--s-2) var(--s-3);
+  font-weight: 600;
+  border-bottom: 1px solid var(--ink-12);
+}
+.node-canvas-node-detail {
+  padding: var(--s-1) var(--s-3) 0;
+  color: var(--ink-60);
+  word-break: break-word;
+}
+.node-canvas-node-ports { display: flex; justify-content: space-between; gap: var(--s-3); padding: var(--s-2) 0; }
+.node-canvas-port-column { display: flex; flex-direction: column; gap: var(--s-2); }
+.node-canvas-port-column--outputs { align-items: flex-end; text-align: right; }
+.node-canvas-port-row { display: flex; align-items: center; gap: var(--s-1); padding: 0 var(--s-2); color: var(--ink-70); }
+.node-canvas-port {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--port-color, var(--ink-55));
+  border: 2px solid var(--bg-elevated);
+  cursor: crosshair;
+  flex: none;
+}
 .plugin-console-guided,
 .plugin-console-expert {
   border: 1px solid var(--ink-14);

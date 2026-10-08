@@ -141,7 +141,7 @@ def _validate_column(
 ) -> None:
     if not isinstance(column, dict):
         raise MappingError(f"{path} must be a JSON object.")
-    extra = set(column) - {"type", "source", "reducer"}
+    extra = set(column) - {"type", "source", "reducer", "round_decimals", "default_if_empty"}
     if extra:
         raise MappingError(f"{path} has unsupported fields: {', '.join(sorted(extra))}.")
     column_type = column.get("type")
@@ -167,6 +167,10 @@ def _validate_column(
             raise MappingError(
                 f"{path}.reducer is set but {source!r} is already a single value here; remove it."
             )
+    if "round_decimals" in column:
+        decimals = column["round_decimals"]
+        if isinstance(decimals, bool) or not isinstance(decimals, int) or not 0 <= decimals <= 10:
+            raise MappingError(f"{path}.round_decimals must be an integer from 0 to 10.")
 
 
 def _source_level(source: str, participant_fields: set[str] | None) -> tuple[str | None, bool]:
@@ -337,9 +341,22 @@ def evaluate_target(target: dict[str, Any], context: dict[str, Any]) -> list[dic
             value = _resolve(column["source"], context, current_card=card_index)
             if isinstance(value, list) and column.get("reducer"):
                 value = _reduce(value, column["reducer"])
+            value = _apply_transforms(value, column)
             properties[column_name] = _coerce(value, column["type"])
         rows.append({"card_index": card_index, "properties": properties})
     return rows
+
+
+def _apply_transforms(value: Any, column: dict[str, Any]) -> Any:
+    """Small scalar transforms a node-canvas function node can chain after a
+    reducer (round, default-if-empty). The simple column list applies the
+    same two optional fields - both views compile to this one shape."""
+    if value in (None, "") and column.get("default_if_empty") is not None:
+        value = column["default_if_empty"]
+    decimals = column.get("round_decimals")
+    if decimals is not None and isinstance(value, (int, float)) and not isinstance(value, bool):
+        value = round(float(value), int(decimals))
+    return value
 
 
 def key_value(target: dict[str, Any], context: dict[str, Any], card_index: int | None) -> str:

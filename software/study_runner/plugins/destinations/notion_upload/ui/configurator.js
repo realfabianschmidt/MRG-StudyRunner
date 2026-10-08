@@ -1,16 +1,23 @@
 /**
  * The Notion plugin's own study-settings configurator: a page tree to pick
- * or create a target database in, and a column mapping for each target.
+ * or create a target database in, and a column mapping for each target -
+ * as a column list, or as a node graph (node-canvas.js) wired to the same
+ * underlying columns. See docs/notion-plugin-configurator-plan.md.
  *
  * Loaded on demand by study-settings-panel.js (ui.extensions.study_settings
  * in manifest.json) - this file never runs unless the operator opens it.
- * Everything here talks to the host through the two callbacks it is given
+ * Everything here talks to the host through the callbacks it is given
  * (`runAction` for the plugin's admin actions, `saveSettings` to persist the
- * mapping), never by importing host modules directly.
+ * mapping), never by importing host modules directly - except the generic,
+ * already-public session list (`/api/admin/sessions`), which this reads
+ * the same way any other admin page does, to let the operator browse
+ * sessions by name instead of typing a folder path.
  */
 import { createModal } from '/static/scripts/shared/modal.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
+import { getJson } from '/static/scripts/shared/api-client.js';
 import { getLanguage } from '/static/scripts/shared/i18n.js';
+import { mountNodeView } from './configurator-node-view.js';
 
 // Column names a preset creates, per language. Every name stays editable
 // afterwards; this only decides what a fresh database starts with.
@@ -45,6 +52,7 @@ function keyColumnDefault(rowLevel, lang) {
 const ROW_LEVELS = ['session', 'participant', 'card'];
 const COLUMN_TYPES = ['rich_text', 'number', 'date', 'select', 'multi_select'];
 const REDUCERS = ['mean', 'min', 'max', 'count', 'join', 'first', 'last'];
+const OTHER_SOURCE = '__other__';
 const PRESETS = [
   { key: 'simple', title: 'Simple', description: 'One database, one row per session.' },
   { key: 'analysis', title: 'Analysis', description: 'One database, one row per card - good for filtering in Notion.' },
@@ -52,7 +60,7 @@ const PRESETS = [
   { key: 'custom', title: 'Custom', description: 'Start from an empty target list.' },
 ];
 
-export function openConfigurator({ plugin, studyId, settings, runAction, saveSettings, showToast }) {
+export function openConfigurator({ plugin, studyId, settings, configData, runAction, saveSettings, showToast }) {
   const state = {
     mapping: normalizeMapping(settings?.export_mapping),
     parentPageId: String(settings?.parent_page_id || '').trim(),
@@ -61,6 +69,11 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
     preview: null,
     dirty: false,
     nameLanguage: defaultNameLanguage(),
+    catalog: [], // session/participant fields - study-wide, loaded once
+    sessions: [], // recent finished sessions, for the preview/source picker
+    sessionSources: {}, // session_path -> sensor sources actually present there
+    previewSessionPath: '',
+    viewModeByTarget: {}, // target id -> 'list' | 'node'
   };
   state.activeTargetId = state.mapping.targets[0]?.id || null;
 
@@ -79,6 +92,53 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
       <div class="configurator-main">${renderMain(state)}</div>
     `;
     bind();
+    const target = activeTarget();
+    if (target && state.viewModeByTarget[target.id] === 'node') mountNode(target);
+  }
+
+  /** The sources a column may pick from: study-wide fields, plus whatever
+   * the chosen preview session actually has (real stream/channel names). */
+  function combinedCatalog() {
+    return [...state.catalog, ...(state.sessionSources[state.previewSessionPath] || [])];
+  }
+
+  function mountNode(target) {
+    const container = modal.body.querySelector('[data-node-container]');
+    if (!container) return;
+    const view = mountNodeView(container, target, combinedCatalog(), {
+      onCommit: (columns) => { target.columns = columns; state.dirty = true; updateDirtyIndicator(); },
+    });
+    modal.body.querySelector('[data-node-add-source]')?.addEventListener('click', () => {
+      const source = window.prompt('Source id (pick one shown in the column list, or e.g. card.stream.<key>.channel.<name>.<stat>):');
+      if (source) view.addSourceNode(source.trim());
+    });
+    modal.body.querySelector('[data-node-add-reducer]')?.addEventListener('click', () => {
+      const reducer = window.prompt(`Reducer (${REDUCERS.join('/')}):`, 'mean');
+      if (REDUCERS.includes(reducer)) view.addReducerNode(reducer);
+    });
+    modal.body.querySelector('[data-node-add-round]')?.addEventListener('click', () => {
+      const decimals = Number.parseInt(window.prompt('Decimals:', '1'), 10);
+      if (Number.isInteger(decimals) && decimals >= 0) view.addRoundNode(decimals);
+    });
+    modal.body.querySelector('[data-node-add-default]')?.addEventListener('click', () => {
+      const value = window.prompt('Default value when empty:');
+      if (value !== null) view.addDefaultNode(value);
+    });
+    modal.body.querySelector('[data-node-add-column]')?.addEventListener('click', () => {
+      const name = window.prompt('New column name:');
+      if (!name || Object.prototype.hasOwnProperty.call(target.columns, name)) return;
+      target.columns[name] = { type: 'rich_text', source: '', reducer: null };
+      view.addColumnNode(name, 'rich_text');
+      state.dirty = true;
+      updateDirtyIndicator();
+    });
+    modal.body.querySelector('[data-node-zoom-fit]')?.addEventListener('click', view.zoomToFit);
+  }
+
+  /** Avoids a full re-render (which would rebuild the node canvas mid-edit)
+   * for a plain "you have unsaved changes" cue. */
+  function updateDirtyIndicator() {
+    modal.body.querySelector('[data-save]')?.classList.add('btn-primary--dirty');
   }
 
   function bind() {
@@ -128,6 +188,14 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
       Object.values(target.columns).forEach((column) => { column.reducer = null; });
       markDirty();
     });
+    main?.querySelector('[data-view-mode]')?.addEventListener('change', (event) => {
+      const target = activeTarget();
+      if (target) state.viewModeByTarget[target.id] = event.target.value;
+      render();
+    });
+    main?.querySelector('[data-preview-session-picker]')?.addEventListener('change', (event) => {
+      void selectPreviewSession(event.target.value);
+    });
     main?.querySelector('[data-preview-run]')?.addEventListener('click', () => void runPreview());
     main?.querySelector('[data-save]')?.addEventListener('click', () => void save());
     main?.querySelector('[data-discard]')?.addEventListener('click', () => modal.close());
@@ -139,6 +207,38 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
 
   function markDirty() {
     state.dirty = true;
+    render();
+  }
+
+  async function loadCatalogAndSessions() {
+    try {
+      const response = await runAction('describe_output_catalog', { config_data_json: JSON.stringify(configData || {}) });
+      state.catalog = response?.result?.sources || [];
+    } catch (error) {
+      console.error('[notion-configurator] Could not load the output catalog:', error);
+    }
+    try {
+      const sessions = await getJson('/api/admin/sessions');
+      state.sessions = (Array.isArray(sessions) ? sessions : [])
+        .filter((session) => session.session_path)
+        .slice(0, 100);
+    } catch (error) {
+      console.error('[notion-configurator] Could not load the session list:', error);
+    }
+    render();
+  }
+
+  async function selectPreviewSession(sessionPath) {
+    state.previewSessionPath = sessionPath;
+    if (sessionPath && !state.sessionSources[sessionPath]) {
+      try {
+        const response = await runAction('describe_session_sources', { session_path: sessionPath });
+        state.sessionSources[sessionPath] = response?.result?.sources || [];
+      } catch (error) {
+        console.error('[notion-configurator] Could not read this session:', error);
+        state.sessionSources[sessionPath] = [];
+      }
+    }
     render();
   }
 
@@ -251,6 +351,11 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
       delete target.columns[columnName];
     } else if (field === 'reducer') {
       column.reducer = input.value || null;
+    } else if (field === 'source') {
+      if (input.value === OTHER_SOURCE) { markDirty(); return; } // reveals the manual field; nothing to store yet
+      column.source = input.value;
+    } else if (field === 'source-manual') {
+      column.source = input.value;
     } else {
       column[field] = input.value;
     }
@@ -258,12 +363,11 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
   }
 
   async function runPreview() {
-    const sessionPath = modal.body.querySelector('[data-preview-session]')?.value?.trim();
-    if (!sessionPath) { showToast?.('Enter a session folder path to preview with.', 'error'); return; }
+    if (!state.previewSessionPath) { showToast?.('Pick a session to preview with.', 'error'); return; }
     try {
       const response = await runAction('preview_mapping', {
         mapping_json: JSON.stringify(serializeMapping(state.mapping)),
-        session_path: sessionPath,
+        session_path: state.previewSessionPath,
       });
       const result = response?.result;
       if (!result?.ok) { showToast?.(result?.error || 'Preview failed.', 'error'); return; }
@@ -288,6 +392,7 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
 
   render();
   modal.open();
+  void loadCatalogAndSessions();
 }
 
 function renderRail(state) {
@@ -357,7 +462,7 @@ function renderMain(state) {
   if (!target) {
     return '<p class="settings-hint">Add a target on the left to start mapping columns.</p>';
   }
-  const columns = Object.entries(target.columns);
+  const viewMode = state.viewModeByTarget[target.id] === 'node' ? 'node' : 'list';
   return `
     <div class="configurator-target-header">
       <label class="field">
@@ -371,22 +476,16 @@ function renderMain(state) {
         </select>
       </label>
       <span class="settings-hint">Key column: <strong>${escapeHtml(keyColumnName(target))}</strong></span>
+      <label class="field">
+        <span>View</span>
+        <select data-view-mode>
+          <option value="list" ${viewMode === 'list' ? 'selected' : ''}>Column list</option>
+          <option value="node" ${viewMode === 'node' ? 'selected' : ''}>Node graph</option>
+        </select>
+      </label>
     </div>
-    <table class="configurator-columns">
-      <thead><tr><th>Column</th><th>Type</th><th>Source</th><th>Reducer</th><th></th></tr></thead>
-      <tbody>
-        ${columns.map(([name, column]) => renderColumnRow(name, column, target.row_level)).join('')}
-      </tbody>
-    </table>
-    <button class="btn-secondary" type="button" data-add-column><i class="iconoir-plus"></i> Add column</button>
-    <div class="configurator-section">
-      <h3>Preview</h3>
-      <div class="configurator-preview-controls">
-        <input type="text" placeholder="study-id/participant-id/session-folder" data-preview-session>
-        <button class="btn-secondary" type="button" data-preview-run>Preview with this session</button>
-      </div>
-      ${renderPreview(state.preview)}
-    </div>
+    ${viewMode === 'node' ? renderNodeView(target) : renderColumnList(state, target)}
+    ${renderPreviewSection(state, target)}
     <div class="dashboard-actions">
       <button class="btn-secondary" type="button" data-discard>Discard</button>
       <button class="btn-primary" type="button" data-save>Save mapping</button>
@@ -394,8 +493,39 @@ function renderMain(state) {
   `;
 }
 
-function renderColumnRow(name, column, rowLevel) {
+function renderColumnList(state, target) {
+  const columns = Object.entries(target.columns);
+  return `
+    <table class="configurator-columns">
+      <thead><tr><th>Column</th><th>Type</th><th>Source</th><th>Reducer</th><th></th></tr></thead>
+      <tbody>
+        ${columns.map(([name, column]) => renderColumnRow(name, column, target.row_level, state)).join('')}
+      </tbody>
+    </table>
+    <button class="btn-secondary" type="button" data-add-column><i class="iconoir-plus"></i> Add column</button>
+  `;
+}
+
+function renderNodeView() {
+  return `
+    <div class="configurator-node-toolbar">
+      <button class="btn-secondary" type="button" data-node-add-source><i class="iconoir-plus"></i> Source</button>
+      <button class="btn-secondary" type="button" data-node-add-reducer><i class="iconoir-plus"></i> Reducer</button>
+      <button class="btn-secondary" type="button" data-node-add-round><i class="iconoir-plus"></i> Round</button>
+      <button class="btn-secondary" type="button" data-node-add-default><i class="iconoir-plus"></i> Default</button>
+      <button class="btn-secondary" type="button" data-node-add-column><i class="iconoir-plus"></i> Column</button>
+      <button class="btn-secondary" type="button" data-node-zoom-fit><i class="iconoir-frame"></i> Zoom to fit</button>
+      <span class="settings-hint">Drag from a port to wire it. Select a node or wire and press Delete to remove it.</span>
+    </div>
+    <div class="configurator-node-container" data-node-container></div>
+  `;
+}
+
+function renderColumnRow(name, column, rowLevel, state) {
   const needsReducer = rowLevel !== 'card' && /^card\.(?!\[)/.test(column.source || '');
+  const options = [...state.catalog, ...(state.sessionSources[state.previewSessionPath] || [])];
+  const known = options.some((entry) => entry.source === column.source);
+  const isOther = column.source && !known;
   return `
     <tr>
       <td><input type="text" value="${escapeHtml(name)}" data-column-field="name" data-column-name="${escapeHtml(name)}"></td>
@@ -404,7 +534,14 @@ function renderColumnRow(name, column, rowLevel) {
           ${COLUMN_TYPES.map((type) => `<option value="${type}" ${type === column.type ? 'selected' : ''}>${type}</option>`).join('')}
         </select>
       </td>
-      <td><input type="text" value="${escapeHtml(column.source || '')}" placeholder="session.participant_id" data-column-field="source" data-column-name="${escapeHtml(name)}"></td>
+      <td>
+        <select data-column-field="source" data-column-name="${escapeHtml(name)}">
+          <option value="">(none)</option>
+          ${options.map((entry) => `<option value="${escapeHtml(entry.source)}" ${entry.source === column.source ? 'selected' : ''}>${escapeHtml(entry.label)}</option>`).join('')}
+          <option value="${OTHER_SOURCE}" ${isOther ? 'selected' : ''}>Other (type manually)…</option>
+        </select>
+        ${isOther || !column.source ? `<input type="text" value="${escapeHtml(column.source || '')}" placeholder="session.participant_id" data-column-field="source-manual" data-column-name="${escapeHtml(name)}">` : ''}
+      </td>
       <td>
         <select data-column-field="reducer" data-column-name="${escapeHtml(name)}" ${needsReducer ? '' : 'disabled'}>
           <option value="">${needsReducer ? '(choose one)' : '—'}</option>
@@ -413,6 +550,34 @@ function renderColumnRow(name, column, rowLevel) {
       </td>
       <td><button class="icon-button" type="button" data-remove-column="${escapeHtml(name)}"><i class="iconoir-trash"></i></button></td>
     </tr>`;
+}
+
+function renderPreviewSection(state) {
+  return `
+    <div class="configurator-section">
+      <h3>Preview</h3>
+      <div class="configurator-preview-controls">
+        <select data-preview-session-picker>
+          <option value="">Pick a finished session…</option>
+          ${state.sessions.map((session) => `
+            <option value="${escapeHtml(session.session_path)}" ${session.session_path === state.previewSessionPath ? 'selected' : ''}>
+              ${escapeHtml(session.study_id || '')} / ${escapeHtml(session.participant_id || '')} / ${escapeHtml(formatSavedAt(session.saved_at))}
+            </option>`).join('')}
+        </select>
+        <button class="btn-secondary" type="button" data-preview-run>Preview with this session</button>
+      </div>
+      ${renderPreview(state.preview)}
+    </div>
+  `;
+}
+
+function formatSavedAt(value) {
+  if (!value) return '';
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return String(value);
+  }
 }
 
 function renderPreview(preview) {

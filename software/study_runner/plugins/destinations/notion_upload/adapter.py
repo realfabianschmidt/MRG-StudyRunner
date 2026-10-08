@@ -520,6 +520,22 @@ def _read_session_summary(data_dir: Any, session_path: str) -> tuple[dict[str, A
     return result_payload, card_summary
 
 
+def describe_output_catalog(*, config_data_json: str) -> dict[str, Any]:
+    """The study-level sources every mapping can offer, regardless of any
+    one session (session/participant fields; per-card sources need a real
+    session - see `describe_session_sources` - since stream/channel names
+    are not known ahead of a recording)."""
+    from . import mapping as mapping_module
+
+    try:
+        config_data = json.loads(config_data_json) if config_data_json else {}
+    except json.JSONDecodeError as error:
+        return {"ok": False, "error": f"config_data_json must be valid JSON: {error}"}
+    if not isinstance(config_data, dict):
+        return {"ok": False, "error": "config_data_json must be a JSON object."}
+    return {"ok": True, "sources": mapping_module.build_output_catalog(config_data)}
+
+
 def describe_session_sources(*, data_dir: Any, session_path: str) -> dict[str, Any]:
     """Every source id actually available from one real session.
 

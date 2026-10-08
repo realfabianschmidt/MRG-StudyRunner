@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "notion",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "category": "storage",
   "config_key": "notion",
   "runtime": {
@@ -145,6 +145,14 @@
             "row_level": { "type": "string", "required": true, "enum": ["session", "participant", "card"] },
             "columns_json": { "type": "string", "required": true, "max_length": 20000 },
             "key_column": { "type": "string", "required": false, "max_length": 100 }
+          }
+        },
+        {
+          "key": "describe_output_catalog",
+          "label": "List fixed output sources for this study",
+          "payload_schema": {
+            "study_id": { "type": "string", "required": false, "max_length": 256 },
+            "config_data_json": { "type": "string", "required": true, "max_length": 200000 }
           }
         },
         {

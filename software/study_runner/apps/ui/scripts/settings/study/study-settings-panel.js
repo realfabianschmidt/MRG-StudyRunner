@@ -405,12 +405,16 @@ async function openStudyPluginConfigurator(pluginKey) {
     callbacks.showToast?.(t('studySettings.configuratorUnavailable', 'The configurator could not be loaded.'), 'error');
     return;
   }
-  const current = normalizeStudySettings(callbacks.getStudyConfig?.().study_settings);
+  const studyConfig = callbacks.getStudyConfig?.() || {};
+  const current = normalizeStudySettings(studyConfig.study_settings);
   const selection = current.plugins?.[pluginKey] || {};
   module.openConfigurator({
     plugin,
-    studyId: String(callbacks.getStudyConfig?.().study_id || '').trim(),
+    studyId: String(studyConfig.study_id || '').trim(),
     settings: selection.settings || {},
+    // A plugin's own configurator may need the whole study (its questions,
+    // not just this plugin's own settings) to build what it offers to map.
+    configData: studyConfig,
     runAction: (actionKey, payload) => runConfiguratorAction(pluginKey, actionKey, payload),
     saveSettings: (nextSettings) => saveStudyPluginSettings(pluginKey, nextSettings),
     showToast: callbacks.showToast,

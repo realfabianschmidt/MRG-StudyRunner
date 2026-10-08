@@ -131,6 +131,8 @@ def _run_admin_action(
             columns_json=str(payload.get("columns_json") or "[]"),
             key_column=str(payload.get("key_column") or ""),
         )
+    if action_key == "describe_output_catalog":
+        return adapter.describe_output_catalog(config_data_json=str(payload.get("config_data_json") or "{}"))
     if action_key == "describe_session_sources":
         return adapter.describe_session_sources(
             data_dir=context.data_dir,

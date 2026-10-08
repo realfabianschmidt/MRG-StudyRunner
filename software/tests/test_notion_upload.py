@@ -254,6 +254,20 @@ class NotionAdminActionDispatchTests(unittest.TestCase):
         )
 
 
+class NotionDescribeOutputCatalogTests(unittest.TestCase):
+    def test_lists_session_fields_and_stored_participant_fields(self) -> None:
+        config_data = {"questions": [{"type": "participant-id", "fields": {"age_group": {"store": True}}}]}
+        result = adapter.describe_output_catalog(config_data_json=json.dumps(config_data))
+        sources = {entry["source"] for entry in result["sources"]}
+        self.assertTrue(result["ok"])
+        self.assertIn("session.participant_id", sources)
+        self.assertIn("participant.age_group", sources)
+
+    def test_rejects_malformed_json(self) -> None:
+        result = adapter.describe_output_catalog(config_data_json="not json")
+        self.assertFalse(result["ok"])
+
+
 class NotionDescribeSessionSourcesTests(unittest.TestCase):
     def _write_session(self, data_dir: Path) -> None:
         session = data_dir / "study-a" / "p01" / "20260101T100000Z__session-1"

@@ -176,6 +176,17 @@ class ExportMappingEvaluationTests(unittest.TestCase):
         [row] = evaluate_target(target, self.context)
         self.assertEqual(row["properties"]["Prompts"], "How are you?, Rate it, Skipped one")
 
+    def test_round_decimals_rounds_a_numeric_value(self) -> None:
+        target = session_target(Alpha={"type": "number", "source": "card.stream.brainbit_eeg.channel.alpha.mean", "reducer": "mean", "round_decimals": 1})
+        [row] = evaluate_target(target, self.context)
+        self.assertEqual(row["properties"]["Alpha"], 2.0)
+
+    def test_default_if_empty_fills_a_missing_value(self) -> None:
+        target = session_target(Pid={"type": "rich_text", "source": "participant.does_not_exist_but_validation_is_skipped_here", "default_if_empty": "n/a"})
+        context = {"session": self.context["session"], "participant": {}, "cards": self.context["cards"]}
+        [row] = evaluate_target(target, context)
+        self.assertEqual(row["properties"]["Pid"], "n/a")
+
     def test_an_indexed_card_source_picks_that_one_card(self) -> None:
         target = session_target(Q1={"type": "rich_text", "source": "card[1].answer"})
         [row] = evaluate_target(target, self.context)
