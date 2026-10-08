@@ -390,6 +390,45 @@ class NotionPublishContractTests(unittest.TestCase):
         self.assertIn("connection interrupted", result["error"])
 
 
+class NotionForbiddenUpdateTests(unittest.TestCase):
+    """Notion answers 403 restricted_resource for an unshared page *and* for
+    an integration without a capability. When only the participant summary
+    update is refused, the session row - the data - has already arrived."""
+
+    def _forbidden(self) -> Exception:
+        error = RuntimeError("Insufficient permissions for this endpoint.")
+        error.code = "restricted_resource"
+        return error
+
+    def _client(self):
+        return NotionPublishContractTests().client()
+
+    def test_a_refused_participant_update_keeps_the_upload_successful_with_a_warning(self) -> None:
+        client = self._client()
+        client.pages.update = Mock(side_effect=self._forbidden())
+        with patch.object(adapter, "get_client", return_value=client):
+            result = plugin._publish(
+                SimpleNamespace(hardware_config={}, secret=lambda *_: "study-key"),
+                NotionPublishContractTests().payload(),
+            )
+        self.assertTrue(result["ok"], result)
+        self.assertIn("participant summary row could not be updated", result["message"])
+        self.assertIn("Insufficient permissions", result["message"])
+
+    def test_a_refused_create_still_fails_permanently_and_keeps_notions_text(self) -> None:
+        client = self._client()
+        client.pages.create = Mock(side_effect=self._forbidden())
+        with patch.object(adapter, "get_client", return_value=client):
+            result = plugin._publish(
+                SimpleNamespace(hardware_config={}, secret=lambda *_: "study-key"),
+                NotionPublishContractTests().payload(),
+            )
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["permanent"])
+        self.assertIn("Insufficient permissions", result["error"])
+        self.assertIn("Capabilities", result["error"])
+
+
 class NotionStaleCacheTests(unittest.TestCase):
     """A cached data source or sessions database must be re-verified against
     the current database/parent page before it is reused - otherwise a

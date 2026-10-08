@@ -75,9 +75,9 @@
       "contract_sha256": "1aa2b4f4f583229552b8dc07021ab1a63385ed37f1efd1ccd71cbfc7467f6b60"
     },
     "notion": {
-      "version": "1.2.0",
+      "version": "1.2.1",
       "path": "software/study_runner/plugins/destinations/notion_upload",
-      "content_sha256": "c7f96172097e91e41932bbd3e66b64ffc77763793b7fb4b4e0d597cd1dd2d6b9",
+      "content_sha256": "41b05f09ccc6571853c94eee619f9f84f5b57b81776e5f190ba7bedded37bbb3",
       "contract_sha256": "1aa2b4f4f583229552b8dc07021ab1a63385ed37f1efd1ccd71cbfc7467f6b60"
     },
     "osc": {

@@ -47,6 +47,9 @@ export function renderSessionProgressRail(container, session, job, actions = {})
       status: step.status || 'pending',
       hint: stepHint(step),
       error: step.last_error || '',
+      // A destination can succeed with a caveat (e.g. the data arrived but a
+      // summary row could not be updated); show it instead of a plain "Done".
+      notice: step.status === 'done' ? String(step.details?.result?.message || '') : '',
       retryable: ['failed', 'retrying'].includes(step.status),
     })),
   ];
@@ -59,7 +62,7 @@ export function renderSessionProgressRail(container, session, job, actions = {})
     });
   }
 
-  const problems = steps.filter((step) => step.error || step.retryable);
+  const problems = steps.filter((step) => step.error || step.retryable || step.notice);
   const warnings = distinctFinalizationWarnings(
     job?.warnings,
     problems.map((step) => `${step.key}: ${step.error}`),
@@ -143,6 +146,7 @@ function renderProblem(step) {
       <div>
         <strong>${escapeHtml(step.label)}</strong> · ${escapeHtml(statusText(step.status))}
         ${step.error ? `<div class="upload-job-error">${escapeHtml(step.error)}</div>` : ''}
+        ${step.notice ? `<div class="settings-hint"><i class="iconoir-warning-triangle"></i> ${escapeHtml(step.notice)}</div>` : ''}
       </div>
       ${retry}
     </div>`;

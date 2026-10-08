@@ -190,17 +190,29 @@ def upload_study_result(
             hardware_config,
             saved_output,
         )
-        current_count = _get_session_count(client, page_id)
-        _update_participant_properties(
-            client,
-            page_id,
-            current_count + 1 if upsert == "created" else max(1, current_count),
-            result_payload,
-            config_data,
-        )
+        # The session row above is the data. The participant row's counters
+        # are a summary of it: an update Notion refuses here (typically an
+        # integration without "Update content") must not turn an upload whose
+        # data already arrived into a permanent failure.
+        summary_warning = ""
+        try:
+            current_count = _get_session_count(client, page_id)
+            _update_participant_properties(
+                client,
+                page_id,
+                current_count + 1 if upsert == "created" else max(1, current_count),
+                result_payload,
+                config_data,
+            )
+        except Exception as error:
+            _permanent, detail = classify_notion_error(error)
+            summary_warning = f"Session uploaded; the participant summary row could not be updated: {detail}"
+            print(f"[NOTION] {summary_warning}")
         pid_short = str(result_payload.get("participant_id") or "?")[:8]
         print(f"[NOTION] Session {upsert} for participant {pid_short}…")
         result = {"ok": True, "session_id": session_id, "upsert": upsert}
+        if summary_warning:
+            result["message"] = summary_warning
         if study_config_updates:
             result["study_config_updates"] = study_config_updates
         return result
@@ -219,10 +231,16 @@ def upload_study_result(
 # or correct an ID. Anything else (rate limits, 5xx, network) is retried.
 _PERMANENT_NOTION_CODES = {
     "unauthorized": "Notion rejected the API key. Check that it is the integration's secret and still valid.",
-    "restricted_resource": "The Notion integration may not open this page or database. In Notion, open the page, "
-    "choose ••• > Connections, and add your integration.",
-    "object_not_found": "Notion cannot find the page or database. Check the ID and that the page is shared with "
-    "your integration (••• > Connections).",
+    # Notion sends restricted_resource (HTTP 403) both for a page that is not
+    # shared with the integration and for an integration that lacks a
+    # capability - e.g. it may insert rows but not update them. Name both
+    # fixes and keep Notion's own text, which says which one it is.
+    "restricted_resource": "Notion refused access ({detail}). Either the page is not shared with the "
+    "integration (in Notion: open the page, ••• > Connections, add it), or the integration lacks a "
+    "capability (Notion > Settings > Connections > your integration > Capabilities: allow Read, "
+    "Update and Insert content).",
+    "object_not_found": "Notion cannot find the page or database ({detail}). Check the ID and that the page "
+    "is shared with your integration (••• > Connections).",
     "validation_error": "Notion rejected the request: {detail}",
     "invalid_request_url": "Notion rejected the request: {detail}",
 }
@@ -594,11 +612,13 @@ def _upload_via_export_mapping(
     card_summary = saved_output.get("card_summary") if isinstance(saved_output.get("card_summary"), dict) else {}
     context = mapping_module.session_context(result_payload, card_summary, config_data)
     rows_written = []
+    where = ""
     try:
         for target in export_mapping.get("targets", []):
             key_column = mapping_module.KEY_COLUMN_NAME[target["row_level"]]
             for row in mapping_module.evaluate_target(target, context):
                 key = mapping_module.key_value(target, context, row["card_index"])
+                where = f"target {target['title']!r}, row {key!r}"
                 notion_properties = {
                     key_column: {"title": [{"type": "text", "text": {"content": _truncate(key)}}]},
                 }
@@ -608,9 +628,9 @@ def _upload_via_export_mapping(
                 outcome = _upsert_mapped_row(client, target["database_id"], key_column, key, notion_properties)
                 rows_written.append({"target_id": target["id"], "key": key, "outcome": outcome})
     except Exception as error:
-        print(f"[NOTION] Mapped upload failed: {error}")
+        print(f"[NOTION] Mapped upload failed at {where}: {error}")
         permanent, message = classify_notion_error(error)
-        result: dict[str, Any] = {"ok": False, "error": message}
+        result: dict[str, Any] = {"ok": False, "error": f"{message} (at {where})" if where else message}
         if permanent:
             result["permanent"] = True
         if rows_written:

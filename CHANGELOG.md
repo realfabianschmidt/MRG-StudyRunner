@@ -10,6 +10,10 @@ All notable Study Runner changes are documented here. Release tags use
 - The Notion settings have a "Configure…" button that opens a large configurator: browse the study's Notion parent page, attach an existing database or create a new one, and decide which column gets which value. Start from a preset - one row per session, one row per card, or exactly as before - and adjust from there. Values per card (answers, sensor statistics) can be reduced to one value per session (mean, min, max, count, join, first, last) or taken from one specific card. A preview computes the rows from a real finished session before anything is written. Existing studies keep uploading exactly as before until a different preset is saved (Notion plugin 1.2.0).
 - Plugins can now offer their own study-settings configurator and store a structured setting that the plugin itself validates; a mapping a plugin cannot accept is refused when the study is saved, not later at upload.
 
+### Fixed
+
+- A Notion upload whose session row arrived no longer fails because Notion refused to update the participant summary row afterwards (typically an integration allowed to insert but not to update content). The upload counts as done, and the session's progress shows a warning naming the reason. When Notion refuses access ("403"), the message now keeps Notion's own explanation and names both possible fixes: share the page with the integration, or allow it to read, update and insert content (Notion plugin 1.2.1).
+
 ## 1.7.15 - 2026-10-08
 
 ### Changed
