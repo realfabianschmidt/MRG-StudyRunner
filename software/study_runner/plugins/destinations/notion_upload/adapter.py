@@ -508,6 +508,35 @@ def _resolve_session_folder(data_dir: Any, session_path: str) -> Path:
     return target
 
 
+def _read_session_summary(data_dir: Any, session_path: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """(result_payload, card_summary) for one finished session on disk."""
+    root = _resolve_session_folder(data_dir, session_path)
+    result_path = root / "answers" / "result.json"
+    if not result_path.is_file():
+        raise ValueError("This session has no finalized result.json yet.")
+    result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+    summary_path = root / "answers" / "card-summary.json"
+    card_summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
+    return result_payload, card_summary
+
+
+def describe_session_sources(*, data_dir: Any, session_path: str) -> dict[str, Any]:
+    """Every source id actually available from one real session.
+
+    Reads the session already on disk - no Notion call - so the
+    configurator's node canvas can offer real sensor sources (stream,
+    channel, statistic) to pick instead of asking the operator to type
+    e.g. ``card.stream.brainbit_eeg.channel.alpha.mean`` by hand.
+    """
+    from . import mapping as mapping_module
+
+    try:
+        _result_payload, card_summary = _read_session_summary(data_dir, session_path)
+    except ValueError as error:
+        return {"ok": False, "error": str(error)}
+    return {"ok": True, "sources": mapping_module.available_card_sources(card_summary)}
+
+
 def preview_mapping(*, data_dir: Any, mapping_json: str, session_path: str) -> dict[str, Any]:
     """Compute what an export mapping would write, from a real finished
     session already on disk - no Notion API call, so it is always safe to
@@ -523,15 +552,9 @@ def preview_mapping(*, data_dir: Any, mapping_json: str, session_path: str) -> d
     except mapping_module.MappingError as error:
         return {"ok": False, "error": str(error)}
     try:
-        root = _resolve_session_folder(data_dir, session_path)
+        result_payload, card_summary = _read_session_summary(data_dir, session_path)
     except ValueError as error:
         return {"ok": False, "error": str(error)}
-    result_path = root / "answers" / "result.json"
-    if not result_path.is_file():
-        return {"ok": False, "error": "This session has no finalized result.json yet."}
-    result_payload = json.loads(result_path.read_text(encoding="utf-8"))
-    summary_path = root / "answers" / "card-summary.json"
-    card_summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
     context = mapping_module.session_context(result_payload, card_summary)
     targets_preview = []
     for target in export_mapping.get("targets", []):

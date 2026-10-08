@@ -19,11 +19,13 @@ from study_runner.plugins.destinations.notion_upload.mapping import (
     DEFAULT_EXPORT_MAPPING,
     KEY_COLUMN_NAME,
     MappingError,
+    available_card_sources,
     build_output_catalog,
     evaluate_target,
     key_column_for,
     key_value,
     session_context,
+    stable_stream_key,
     validate_export_mapping,
 )
 
@@ -43,8 +45,8 @@ RESULT_PAYLOAD = {
 CARD_SUMMARY = {
     "schema": "study-runner/card-summary/v1",
     "cards": [
-        {"question_index": 0, "streams": {"brainbit": {"channels": {"alpha": {"mean": 1.0}}}}},
-        {"question_index": 1, "streams": {"brainbit": {"channels": {"alpha": {"mean": 3.0}}}}},
+        {"question_index": 0, "streams": {"1": {"plugin_key": "brainbit", "source_id": "study_runner.brainbit.eeg", "channels": {"alpha": {"mean": 1.0}}}}},
+        {"question_index": 1, "streams": {"2": {"plugin_key": "brainbit", "source_id": "study_runner.brainbit.eeg", "channels": {"alpha": {"mean": 3.0}}}}},
         {"question_index": 2, "streams": {}},
     ],
 }
@@ -61,14 +63,14 @@ class ExportMappingValidationTests(unittest.TestCase):
 
     def test_a_per_card_source_without_a_reducer_is_rejected_on_a_session_target(self) -> None:
         mapping = {"preset": "custom", "targets": [session_target(
-            Alpha={"type": "number", "source": "card.stream.brainbit.channel.alpha.mean"},
+            Alpha={"type": "number", "source": "card.stream.brainbit_eeg.channel.alpha.mean"},
         )]}
         with self.assertRaisesRegex(MappingError, "add a reducer"):
             validate_export_mapping(mapping)
 
     def test_the_same_source_with_a_reducer_is_accepted(self) -> None:
         mapping = {"preset": "custom", "targets": [session_target(
-            Alpha={"type": "number", "source": "card.stream.brainbit.channel.alpha.mean", "reducer": "mean"},
+            Alpha={"type": "number", "source": "card.stream.brainbit_eeg.channel.alpha.mean", "reducer": "mean"},
         )]}
         validate_export_mapping(mapping)  # does not raise
 
@@ -88,7 +90,7 @@ class ExportMappingValidationTests(unittest.TestCase):
     def test_a_card_level_target_rejects_a_reducer_on_its_own_card_field(self) -> None:
         mapping = {"preset": "custom", "targets": [{
             "id": "t2", "title": "Answers", "row_level": "card", "database_id": "db2",
-            "columns": {"Alpha": {"type": "number", "source": "card.stream.brainbit.channel.alpha.mean", "reducer": "mean"}},
+            "columns": {"Alpha": {"type": "number", "source": "card.stream.brainbit_eeg.channel.alpha.mean", "reducer": "mean"}},
         }]}
         with self.assertRaisesRegex(MappingError, "already a single value"):
             validate_export_mapping(mapping)
@@ -160,7 +162,7 @@ class ExportMappingEvaluationTests(unittest.TestCase):
         self.assertEqual(self.context["session"]["duration_minutes"], 5.0)
 
     def test_a_reducer_averages_across_every_card(self) -> None:
-        target = session_target(Alpha={"type": "number", "source": "card.stream.brainbit.channel.alpha.mean", "reducer": "mean"})
+        target = session_target(Alpha={"type": "number", "source": "card.stream.brainbit_eeg.channel.alpha.mean", "reducer": "mean"})
         [row] = evaluate_target(target, self.context)
         self.assertEqual(row["properties"]["Alpha"], 2.0)  # mean of 1.0 and 3.0; card 2 has none
 
@@ -189,7 +191,7 @@ class ExportMappingEvaluationTests(unittest.TestCase):
             "id": "t2", "title": "Answers", "row_level": "card", "database_id": "db2",
             "columns": {
                 "Prompt": {"type": "rich_text", "source": "card.prompt"},
-                "Alpha": {"type": "number", "source": "card.stream.brainbit.channel.alpha.mean"},
+                "Alpha": {"type": "number", "source": "card.stream.brainbit_eeg.channel.alpha.mean"},
             },
         }
         rows = evaluate_target(target, self.context)
@@ -208,6 +210,62 @@ class ExportMappingEvaluationTests(unittest.TestCase):
 
     def test_key_column_name_covers_every_row_level(self) -> None:
         self.assertEqual(set(KEY_COLUMN_NAME), {"session", "participant", "card"})
+
+
+class StableStreamKeyTests(unittest.TestCase):
+    """card-summary.json's own dict key is XDF's per-recording stream_id - a
+    small integer that shifts between sessions. A mapping must key on the
+    manifest's stable source_id instead, or it reads the wrong stream in a
+    later session. See the regression this guards in mapping.py."""
+
+    def test_two_sessions_with_streams_in_a_different_order_resolve_to_the_same_key(self) -> None:
+        # Session A: brainbit was stream_id "1"; session B: it became "2"
+        # because another sensor connected first.
+        session_a = {"plugin_key": "brainbit", "source_id": "study_runner.brainbit.eeg", "channels": {}}
+        session_b = dict(session_a)
+        self.assertEqual(stable_stream_key(session_a), stable_stream_key(session_b))
+        self.assertEqual(stable_stream_key(session_a), "brainbit_eeg")
+
+    def test_different_streams_of_the_same_plugin_stay_distinct(self) -> None:
+        eeg = stable_stream_key({"plugin_key": "brainbit", "source_id": "study_runner.brainbit.eeg"})
+        bands = stable_stream_key({"plugin_key": "brainbit", "source_id": "study_runner.brainbit.bands"})
+        self.assertNotEqual(eeg, bands)
+
+    def test_a_stream_without_plugin_identity_falls_back_without_crashing(self) -> None:
+        self.assertEqual(stable_stream_key({"stream_key": "3"}), "3")
+        self.assertEqual(stable_stream_key({}), "unknown")
+
+    def test_available_card_sources_lists_every_present_stat_once(self) -> None:
+        card_summary = {"schema": "study-runner/card-summary/v1", "cards": [
+            {"question_index": 0, "streams": {"1": {
+                "plugin_key": "brainbit", "source_id": "study_runner.brainbit.eeg",
+                "channels": {"alpha": {"mean": 1.0, "min": 0.5, "max": 1.5, "coverage": 0.9}},
+            }}},
+            {"question_index": 1, "streams": {"2": {
+                "plugin_key": "brainbit", "source_id": "study_runner.brainbit.eeg",
+                "channels": {"alpha": {"mean": 2.0, "min": 1.0, "max": 3.0, "coverage": 0.8}},
+            }}},
+        ]}
+        sources = {entry["source"] for entry in available_card_sources(card_summary)}
+        self.assertEqual(sources, {
+            "card.stream.brainbit_eeg.channel.alpha.mean",
+            "card.stream.brainbit_eeg.channel.alpha.min",
+            "card.stream.brainbit_eeg.channel.alpha.max",
+            "card.stream.brainbit_eeg.channel.alpha.coverage",
+        })
+
+    def test_a_mapping_built_from_available_card_sources_evaluates_against_either_session_order(self) -> None:
+        card_summary = {"schema": "study-runner/card-summary/v1", "cards": [
+            {"question_index": 0, "streams": {"7": {  # the ephemeral key is "7" this time
+                "plugin_key": "brainbit", "source_id": "study_runner.brainbit.eeg",
+                "channels": {"alpha": {"mean": 4.0}},
+            }}},
+        ]}
+        [entry] = available_card_sources(card_summary)
+        target = session_target(**{"Alpha": {"type": "number", "source": entry["source"], "reducer": "mean"}})
+        context = session_context(RESULT_PAYLOAD, card_summary)
+        [row] = evaluate_target(target, context)
+        self.assertEqual(row["properties"]["Alpha"], 4.0)
 
 
 class OutputCatalogTests(unittest.TestCase):

@@ -131,6 +131,11 @@ def _run_admin_action(
             columns_json=str(payload.get("columns_json") or "[]"),
             key_column=str(payload.get("key_column") or ""),
         )
+    if action_key == "describe_session_sources":
+        return adapter.describe_session_sources(
+            data_dir=context.data_dir,
+            session_path=str(payload.get("session_path") or ""),
+        )
     if action_key == "preview_mapping":
         return adapter.preview_mapping(
             data_dir=context.data_dir,

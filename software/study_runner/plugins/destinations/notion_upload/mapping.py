@@ -198,6 +198,63 @@ def _participant_fields(config_data: dict[str, Any]) -> list[str]:
     return ["participant_id", *stored]
 
 
+def stable_stream_key(stream: dict[str, Any]) -> str:
+    """A ``card.stream.<key>`` id that stays the same across sessions.
+
+    `card-summary.json`'s own dict key for a stream is the LSL ``stream_id``:
+    a small integer XDF assigns per recording, which shifts if a sensor is
+    added, removed, or simply connects in a different order. A mapping saved
+    against session A would then silently read the wrong stream in session B.
+    The plugin manifest's declared ``source_id`` (e.g.
+    ``study_runner.brainbit.eeg``) is the one identifier that does not change
+    between sessions - the same one `_coalesce_logical_streams` already
+    trusts to join recovery segments - so sources are keyed on it instead.
+    """
+    plugin_key = str(stream.get("plugin_key") or "").strip()
+    source_id = str(stream.get("source_id") or "").strip()
+    if plugin_key and source_id:
+        return f"{plugin_key}_{source_id.rsplit('.', 1)[-1]}"
+    # No stable identity to key on (e.g. hand-written test data): fall back
+    # to whatever this session called it, better than dropping the stream.
+    return str(stream.get("stream_key") or "unknown")
+
+
+def available_card_sources(card_summary: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Every ``card.stream...`` source actually present in one real session.
+
+    Used by the configurator to let the operator pick a stream/channel/stat
+    instead of typing the source id by hand - the stable key from
+    `stable_stream_key` makes the result usable for any other session too,
+    not only the one it was read from.
+    """
+    seen: dict[str, dict[str, Any]] = {}
+    for summary_card in ((card_summary or {}).get("cards") or []):
+        if not isinstance(summary_card, dict):
+            continue
+        for stream in (summary_card.get("streams") or {}).values():
+            if not isinstance(stream, dict):
+                continue
+            key = stable_stream_key(stream)
+            stream_label = str(stream.get("plugin_key") or key)
+            for channel_name, channel in (stream.get("channels") or {}).items():
+                if not isinstance(channel, dict):
+                    continue
+                stats = ("mode",) if channel.get("kind") == "categorical" else (
+                    "mean", "min", "max", "stddev", "coverage", "max_gap_seconds",
+                )
+                for stat in stats:
+                    if channel.get(stat) is None:
+                        continue
+                    source = f"card.stream.{key}.channel.{channel_name}.{stat}"
+                    seen.setdefault(source, {
+                        "source": source,
+                        "label": f"{stream_label} / {channel_name} / {stat}",
+                        "value_type": "number" if stat != "mode" else "string",
+                        "per_card": True,
+                    })
+    return sorted(seen.values(), key=lambda entry: entry["label"])
+
+
 # ── Output catalog (what a column can be mapped from) ──────────────────────
 
 def build_output_catalog(config_data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -242,12 +299,13 @@ def session_context(
     cards: list[dict[str, Any]] = []
     for detail in details:
         index = detail.get("question_index")
+        raw_streams = (cards_by_index.get(index) or {}).get("streams") or {}
         cards.append({
             "prompt": str(detail.get("question_prompt") or ""),
             "answer": detail.get("answer"),
             "duration_seconds": detail.get("interval_seconds", detail.get("seconds_since_previous_answer")),
             "skipped": bool(detail.get("skipped")),
-            "streams": (cards_by_index.get(index) or {}).get("streams") or {},
+            "streams": {stable_stream_key(stream): stream for stream in raw_streams.values() if isinstance(stream, dict)},
         })
     ts_start = str(result_payload.get("timestamp_start") or "")
     ts_end = str(result_payload.get("timestamp_end") or "")

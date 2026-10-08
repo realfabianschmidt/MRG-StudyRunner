@@ -254,6 +254,39 @@ class NotionAdminActionDispatchTests(unittest.TestCase):
         )
 
 
+class NotionDescribeSessionSourcesTests(unittest.TestCase):
+    def _write_session(self, data_dir: Path) -> None:
+        session = data_dir / "study-a" / "p01" / "20260101T100000Z__session-1"
+        (session / "answers").mkdir(parents=True)
+        (session / "COMPLETE.json").write_text("{}", encoding="utf-8")
+        (session / "answers" / "result.json").write_text(json.dumps({
+            "session_id": "session-1", "participant_id": "p01", "study_id": "study-a",
+            "answer_details": [{"question_index": 0, "question_prompt": "Q", "answer": "a", "question_type": "text"}],
+        }), encoding="utf-8")
+        (session / "answers" / "card-summary.json").write_text(json.dumps({
+            "schema": "study-runner/card-summary/v1",
+            "cards": [{"question_index": 0, "streams": {"1": {
+                "plugin_key": "brainbit", "source_id": "study_runner.brainbit.eeg",
+                "channels": {"alpha": {"mean": 1.0}},
+            }}}],
+        }), encoding="utf-8")
+
+    def test_lists_real_stream_sources_by_their_stable_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            self._write_session(data_dir)
+            result = adapter.describe_session_sources(
+                data_dir=data_dir, session_path="study-a/p01/20260101T100000Z__session-1",
+            )
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["sources"][0]["source"], "card.stream.brainbit_eeg.channel.alpha.mean")
+
+    def test_rejects_a_missing_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = adapter.describe_session_sources(data_dir=Path(temp_dir), session_path="study-a/p01/no-such-session")
+        self.assertFalse(result["ok"])
+
+
 class NotionPreviewMappingTests(unittest.TestCase):
     """preview_mapping reads a real finished session from disk - no Notion
     API call - and must stay inside data_dir exactly like the host's own
