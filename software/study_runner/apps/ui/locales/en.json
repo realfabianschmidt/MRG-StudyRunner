@@ -987,6 +987,7 @@
   "studySettings.credentialValueRequired": "Enter a credential before saving.",
   "studySettings.credentialSaved": "Credential saved locally.",
   "studySettings.credentialSaveFailed": "Could not save credential.",
+  "studySettings.pluginSettingsSaveFailed": "Could not save: the server rejected these settings.",
   "studySettings.credentialClearConfirm": "Delete this study's local credential?",
   "studySettings.credentialCleared": "Credential deleted.",
   "studySettings.credentialClearFailed": "Could not delete credential.",

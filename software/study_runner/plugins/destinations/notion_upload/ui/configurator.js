@@ -119,16 +119,20 @@ export function openConfigurator({ plugin, studyId, settings, configData, runAct
     });
     activeNodeView = view;
     modal.body.querySelector('[data-node-add-source]')?.addEventListener('click', () => {
-      const source = window.prompt('Source id (pick one shown in the column list, or e.g. card.stream.<key>.channel.<name>.<stat>):');
-      if (source) view.addSourceNode(source.trim());
+      void pickSource().then((source) => { if (source) view.addSourceNode(source); });
     });
     modal.body.querySelector('[data-node-add-reducer]')?.addEventListener('click', () => {
       const reducer = window.prompt(`Reducer (${REDUCERS.join('/')}):`, 'mean');
-      if (REDUCERS.includes(reducer)) view.addReducerNode(reducer);
+      if (reducer === null) return; // cancelled
+      if (!REDUCERS.includes(reducer)) { showToast?.(`Not a reducer: ${reducer}. Use one of: ${REDUCERS.join(', ')}.`, 'error'); return; }
+      view.addReducerNode(reducer);
     });
     modal.body.querySelector('[data-node-add-round]')?.addEventListener('click', () => {
-      const decimals = Number.parseInt(window.prompt('Decimals:', '1'), 10);
-      if (Number.isInteger(decimals) && decimals >= 0) view.addRoundNode(decimals);
+      const typed = window.prompt('Decimals:', '1');
+      if (typed === null) return;
+      const decimals = Number.parseInt(typed, 10);
+      if (!Number.isInteger(decimals) || decimals < 0) { showToast?.('Decimals must be a whole number, 0 or more.', 'error'); return; }
+      view.addRoundNode(decimals);
     });
     modal.body.querySelector('[data-node-add-default]')?.addEventListener('click', () => {
       const value = window.prompt('Default value when empty:');
@@ -136,13 +140,60 @@ export function openConfigurator({ plugin, studyId, settings, configData, runAct
     });
     modal.body.querySelector('[data-node-add-column]')?.addEventListener('click', () => {
       const name = window.prompt('New column name:');
-      if (!name || Object.prototype.hasOwnProperty.call(target.columns, name)) return;
-      target.columns[name] = { type: 'rich_text', source: '', reducer: null };
-      view.addColumnNode(name, 'rich_text');
+      if (name === null) return;
+      const trimmed = name.trim();
+      if (!trimmed) { showToast?.('A column needs a name.', 'error'); return; }
+      if (Object.prototype.hasOwnProperty.call(target.columns, trimmed)) {
+        showToast?.(`"${trimmed}" is already a column on this target.`, 'error');
+        return;
+      }
+      target.columns[trimmed] = { type: 'rich_text', source: '', reducer: null };
+      view.addColumnNode(trimmed, 'rich_text');
       state.dirty = true;
       updateDirtyIndicator();
     });
     modal.body.querySelector('[data-node-zoom-fit]')?.addEventListener('click', view.zoomToFit);
+  }
+
+  /**
+   * A real picker for the node view's "+ Source" button, instead of asking
+   * the operator to type an id by hand - the whole point of the catalog
+   * and session-source discovery actions. Resolves the chosen source, or
+   * null if cancelled.
+   */
+  function pickSource() {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        picker.destroy();
+        resolve(value);
+      };
+      const picker = createModal({ title: 'Pick a source', closeLabel: 'Cancel', onClose: () => finish(null) });
+      const options = combinedCatalog();
+      picker.body.innerHTML = `
+        <ul class="configurator-tree">
+          ${options.map((entry) => `
+            <li><button class="btn-secondary" type="button" data-pick="${escapeHtml(entry.source)}">${escapeHtml(entry.label)}</button></li>
+          `).join('') || '<p class="settings-hint">No sensor sources yet - pick a preview session below to see them.</p>'}
+        </ul>
+        <label class="field">
+          <span>Or type one manually (e.g. card[2].answer)</span>
+          <input type="text" placeholder="card[2].answer" data-pick-manual>
+        </label>
+        <div class="dashboard-actions">
+          <button class="btn-primary" type="button" data-pick-manual-confirm>Use typed value</button>
+        </div>`;
+      picker.body.querySelectorAll('[data-pick]').forEach((button) => {
+        button.addEventListener('click', () => finish(button.dataset.pick));
+      });
+      picker.body.querySelector('[data-pick-manual-confirm]')?.addEventListener('click', () => {
+        const value = picker.body.querySelector('[data-pick-manual]')?.value?.trim();
+        if (value) finish(value);
+      });
+      picker.open();
+    });
   }
 
   /** Avoids a full re-render (which would rebuild the node canvas mid-edit)
@@ -208,7 +259,12 @@ export function openConfigurator({ plugin, studyId, settings, configData, runAct
     });
     main?.querySelector('[data-preview-run]')?.addEventListener('click', () => void runPreview());
     main?.querySelector('[data-save]')?.addEventListener('click', () => void save());
-    main?.querySelector('[data-discard]')?.addEventListener('click', () => modal.close());
+    main?.querySelector('[data-discard]')?.addEventListener('click', () => {
+      // Sits right next to "Save mapping"; a misclick between the two must
+      // not silently throw away unsaved work.
+      if (state.dirty && !window.confirm('Discard every unsaved change?')) return;
+      modal.close();
+    });
   }
 
   function activeTarget() {
@@ -222,16 +278,23 @@ export function openConfigurator({ plugin, studyId, settings, configData, runAct
 
   async function loadCatalogAndSessions() {
     try {
-      const response = await runAction('describe_output_catalog', { config_data_json: JSON.stringify(configData || {}) });
+      // Only the questions are needed (to find the participant-id card's
+      // stored fields) - sending the whole study, stimulus content and all,
+      // risks the admin action's own payload size limit on a large study.
+      const minimalConfig = { questions: configData?.questions || [] };
+      const response = await runAction('describe_output_catalog', { config_data_json: JSON.stringify(minimalConfig) });
       state.catalog = response?.result?.sources || [];
     } catch (error) {
       console.error('[notion-configurator] Could not load the output catalog:', error);
     }
     try {
       const sessions = await getJson('/api/admin/sessions');
-      state.sessions = (Array.isArray(sessions) ? sessions : [])
-        .filter((session) => session.session_path)
-        .slice(0, 100);
+      const all = (Array.isArray(sessions) ? sessions : []).filter((session) => session.session_path);
+      // Prefer this study's own sessions; with none yet (e.g. a brand-new
+      // study), fall back to every session rather than an empty picker -
+      // still useful to try a mapping's shape against real sensor data.
+      const ownSessions = studyId ? all.filter((session) => session.study_id === studyId) : all;
+      state.sessions = (ownSessions.length ? ownSessions : all).slice(0, 100);
     } catch (error) {
       console.error('[notion-configurator] Could not load the session list:', error);
     }
@@ -253,7 +316,18 @@ export function openConfigurator({ plugin, studyId, settings, configData, runAct
   }
 
   function applyPreset(presetKey) {
-    if (state.dirty && !window.confirm('Switching presets replaces the current targets. Continue?')) return;
+    // Clicking the already-active preset is almost always an accidental
+    // double click, not "reset my edits back to the preset defaults" - do
+    // nothing rather than discard whatever the operator built on top of it.
+    if (presetKey === state.mapping.preset) return;
+    // Confirm whenever there is something real to lose - a connected
+    // database, mapped columns - regardless of whether an edit happened in
+    // *this* opening of the configurator. A first-click-after-open on a
+    // preset button must not be able to silently wipe an already-saved,
+    // working mapping just because `dirty` has not been set yet.
+    if (state.mapping.targets.length && !window.confirm(
+      'This replaces every current target - including any connected database - with the preset\'s defaults. Continue?',
+    )) return;
     state.mapping = presetMapping(presetKey, state.nameLanguage);
     state.activeTargetId = state.mapping.targets[0]?.id || null;
     markDirty();
@@ -275,7 +349,13 @@ export function openConfigurator({ plugin, studyId, settings, configData, runAct
   }
 
   function removeTarget(targetId) {
-    state.mapping.targets = state.mapping.targets.filter((target) => target.id !== targetId);
+    const target = state.mapping.targets.find((item) => item.id === targetId);
+    if (!target) return;
+    // The trash icon sits right in the target list the operator clicks to
+    // switch between targets; one miss loses a whole target - its database
+    // connection and every mapped column - at once.
+    if (!window.confirm(`Remove target "${target.title || '(untitled)'}"? This cannot be undone here.`)) return;
+    state.mapping.targets = state.mapping.targets.filter((item) => item.id !== targetId);
     if (state.activeTargetId === targetId) state.activeTargetId = state.mapping.targets[0]?.id || null;
     markDirty();
   }
@@ -313,6 +393,9 @@ export function openConfigurator({ plugin, studyId, settings, configData, runAct
     if (!target) return;
     const parentPageId = state.tree.loadedFor || state.parentPageId;
     if (!parentPageId) { showToast?.('Open a page in the tree first.', 'error'); return; }
+    // Creates a real, visible database in the operator's own Notion
+    // workspace - outward-facing and not something this modal can undo.
+    if (!window.confirm(`Create a new Notion database named "${target.title || 'Study Runner export'}" under the opened page?`)) return;
     try {
       const response = await runAction('create_database', {
         parent_page_id: parentPageId,

@@ -441,7 +441,14 @@ async function saveStudyPluginSettings(pluginKey, nextSettings) {
   const previous = plugins[pluginKey] || { enabled: false, required: false, settings: {} };
   plugins[pluginKey] = { ...previous, settings: { ...(previous.settings || {}), ...nextSettings } };
   callbacks.setStudySettings?.({ ...current, plugins });
-  await callbacks.saveStudyConfig?.({ successMessage: t('studySettings.saved', 'Study settings saved') });
+  // saveStudyConfig() resolves to false - never rejects - when the server
+  // refused the save (e.g. an invalid plugin setting). Without this check a
+  // configurator calling this as its own save would see no error at all:
+  // it would report success and close over a change that never happened.
+  const saved = await callbacks.saveStudyConfig?.({ successMessage: t('studySettings.saved', 'Study settings saved') });
+  if (saved === false) {
+    throw new Error(t('studySettings.pluginSettingsSaveFailed', 'Could not save: the server rejected these settings.'));
+  }
   renderStudySettingsPanel();
 }
 

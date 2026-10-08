@@ -32,7 +32,7 @@
       "path": "software/study_runner/apps/ui/scripts/participant/study-controller.js"
     },
     "apps.ui.settings": {
-      "lines": 733,
+      "lines": 740,
       "path": "software/study_runner/apps/ui/scripts/settings/study/study-settings-panel.js"
     },
     "apps.ui.shared": {
@@ -107,7 +107,7 @@
     "apps.ui.admin": 6274,
     "apps.ui.cards": 4904,
     "apps.ui.participant": 3445,
-    "apps.ui.settings": 2035,
+    "apps.ui.settings": 2042,
     "apps.ui.shared": 3172,
     "clock_core": 654,
     "contracts": 3079,
@@ -118,7 +118,7 @@
     "plugin_framework": 4220,
     "plugins": 0,
     "plugins.cards": 1465,
-    "plugins.destinations": 3991,
+    "plugins.destinations": 4074,
     "plugins.outputs": 142,
     "plugins.sensors": 11598,
     "runtime_core": 16337,

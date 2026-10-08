@@ -1018,6 +1018,7 @@
   "studySettings.credentialValueRequired": "Gib vor dem Speichern Zugangsdaten ein.",
   "studySettings.credentialSaved": "Zugangsdaten lokal gespeichert.",
   "studySettings.credentialSaveFailed": "Zugangsdaten konnten nicht gespeichert werden.",
+  "studySettings.pluginSettingsSaveFailed": "Konnte nicht gespeichert werden: der Server hat diese Einstellungen abgelehnt.",
   "studySettings.credentialClearConfirm": "Lokale Zugangsdaten dieser Studie löschen?",
   "studySettings.credentialCleared": "Zugangsdaten gelöscht.",
   "studySettings.credentialClearFailed": "Zugangsdaten konnten nicht gelöscht werden.",
