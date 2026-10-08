@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.16 - 2026-10-08
+
 ### Added
 
 - The Notion settings have a "Configure…" button that opens a large configurator: browse the study's Notion parent page, attach an existing database or create a new one, and decide which column gets which value. Start from a preset - one row per session, one row per card, or exactly as before - and adjust from there. Values per card (answers, sensor statistics) can be reduced to one value per session (mean, min, max, count, join, first, last) or taken from one specific card. A preview computes the rows from a real finished session before anything is written. Existing studies keep uploading exactly as before until a different preset is saved (Notion plugin 1.2.0).
