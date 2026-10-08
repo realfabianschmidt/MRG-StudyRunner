@@ -1116,7 +1116,7 @@ def _read_output(process: subprocess.Popen[str], generation: int | None = None) 
         if hand_back:
             _hand_back_to_operator(exit_code)
 
-        reason = _exit_reason(exit_code)
+        reason = _operator_reason(exit_code)
         if hand_back and _idle_detail == "":
             final_status = "idle"
             final_message = "Ready to connect. Choose a headband or search for one."
@@ -1143,6 +1143,7 @@ def _read_output(process: subprocess.Popen[str], generation: int | None = None) 
             "exit_code": exit_code,
             "last_scan_finished_at": _timestamp(),
             "last_message": final_message,
+            "pairing_conflict": bool(reason and reason.get("pairing_conflict")),
         }
         if detail_key:
             update["status_detail_key"] = detail_key
@@ -1180,6 +1181,65 @@ def _hand_back_to_operator(exit_code: int | None) -> None:
         _idle_detail = "connect_failed"
     else:
         _idle_detail = "crashed"
+
+
+_PAIRING_CONFLICT_REASON: dict[str, Any] = {
+    "detail_key": "brainbit.error.pairedInWindows",
+    "message": (
+        "BrainBit is paired in Windows, so Study Runner cannot reach it. Open Windows Settings > "
+        "Bluetooth & devices, remove the BrainBit (do not pair it again), switch the band off and on, "
+        "then search again."
+    ),
+    # Retrying cannot help until the operator removes the pairing; the
+    # watchdog still follows the plain exit code (see _operator_reason).
+    "retry": False,
+    "pairing_conflict": True,
+}
+_PAIRING_CHECK_TTL_SECONDS = 60.0
+_pairing_check: tuple[float, bool] | None = None
+
+
+def _windows_pairing_conflict() -> bool:
+    """True if Windows has a BrainBit paired as a Bluetooth LE device.
+
+    The vendor SDK owns the whole Bluetooth conversation; a Windows pairing is
+    a second owner, and the band then never shows up in the SDK's scan (see
+    README, "For the operator"). Read-only query, cached for a minute so a
+    band that keeps not being found does not start PowerShell every retry.
+    """
+    global _pairing_check
+    if sys.platform != "win32":
+        return False
+    now = time.monotonic()
+    if _pairing_check is not None and now - _pairing_check[0] < _PAIRING_CHECK_TTL_SECONDS:
+        return _pairing_check[1]
+    command = (
+        "@(Get-PnpDevice -Class Bluetooth -FriendlyName 'BrainBit*' -ErrorAction SilentlyContinue "
+        "| Where-Object { $_.InstanceId -like 'BTHLE\\DEV_*' }).Count"
+    )
+    try:
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+            capture_output=True, text=True, timeout=8,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        paired = completed.returncode == 0 and int((completed.stdout or "0").strip() or "0") > 0
+    except (OSError, subprocess.SubprocessError, ValueError):
+        paired = False  # unknown is not a finding; keep the ordinary message
+    _pairing_check = (now, paired)
+    return paired
+
+
+def _operator_reason(exit_code: int | None) -> dict[str, Any] | None:
+    """`_exit_reason`, plus the one cause the exit code alone cannot show.
+
+    Only the message the operator reads goes through here. Restart decisions
+    keep using the pure `_exit_reason`, so they never depend on what this
+    computer's Bluetooth settings happen to contain.
+    """
+    if exit_code in (EXIT_NO_DEVICE_FOUND, EXIT_DEVICE_TARGET_MISSING) and _windows_pairing_conflict():
+        return dict(_PAIRING_CONFLICT_REASON)
+    return _exit_reason(exit_code)
 
 
 def _exit_reason(exit_code: int | None) -> dict[str, Any] | None:
@@ -1685,6 +1745,14 @@ def _update_state_from_line(line: str) -> bool:
                     "Waiting for the BrainBit band. Switch it on and keep it near the computer; "
                     "the connection is retried automatically."
                 )
+                # Not found again and again: a Windows pairing is the most
+                # common cause, and the one an operator can fix in seconds.
+                not_found = payload.get("reason_exit_code") in (EXIT_NO_DEVICE_FOUND, EXIT_DEVICE_TARGET_MISSING)
+                conflict = not_found and _windows_pairing_conflict()
+                state_update["pairing_conflict"] = conflict
+                if conflict:
+                    state_update["last_message"] = _PAIRING_CONFLICT_REASON["message"]
+                    state_update["status_detail_key"] = _PAIRING_CONFLICT_REASON["detail_key"]
                 important = True
             elif tag == "EMO_INIT_FAIL":
                 state_update["derived_error"] = payload

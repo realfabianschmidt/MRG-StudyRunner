@@ -713,6 +713,7 @@
   "dashboard.status.connecting": "Verbindet...",
   "dashboard.status.disconnected": "Getrennt",
   "brainbit.error.deviceNotFound": "Kein BrainBit gefunden. Bitte einschalten und nahe an diesen Computer legen.",
+  "brainbit.error.pairedInWindows": "Das BrainBit ist in Windows gekoppelt, deshalb erreicht Study Runner es nicht. Öffne Windows-Einstellungen > Bluetooth & Geräte, entferne das BrainBit (nicht wieder koppeln), schalte das Band aus und wieder ein und suche dann erneut.",
   "brainbit.error.bluetoothUnavailable": "Bluetooth ist auf diesem Computer aus oder nicht verfügbar. Bluetooth einschalten und BrainBit neu starten.",
   "brainbit.error.missingDependency": "Die BrainBit-Programmbibliotheken fehlen und konnten nicht automatisch installiert werden.",
   "brainbit.error.crashed": "Die BrainBit-Verbindung ist unerwartet abgebrochen. Study Runner versucht es erneut.",

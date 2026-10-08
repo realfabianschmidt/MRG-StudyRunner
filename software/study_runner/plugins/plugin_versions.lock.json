@@ -15,9 +15,9 @@
       "contract_sha256": "76736ec11c19b5fe64ff04e5035a4325cdfc2069c61c7d03a129de9bf8b09389"
     },
     "brainbit": {
-      "version": "4.0.1",
+      "version": "4.0.2",
       "path": "software/study_runner/plugins/sensors/brainbit",
-      "content_sha256": "a5de4e0d752ae47ed69287be96ac89abd1762f50f1ff8ccbd73abecf0a55cdef",
+      "content_sha256": "b84a0a09b3d43f9ca650ccce0e003261e31ff6166208a397c415ef47bb9c0e48",
       "contract_sha256": "9b1b6740a7a4a37b3b14d979af741e24709289b4441f25b354e677c3e6bf1836"
     },
     "camera_emotion": {

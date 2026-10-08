@@ -1,7 +1,7 @@
 {
   "api_version": 5,
   "plugin_key": "brainbit",
-  "version": "4.0.1",
+  "version": "4.0.2",
   "category": "biosignal",
   "config_key": "brainbit",
   "runtime": {

@@ -15,6 +15,7 @@ All notable Study Runner changes are documented here. Release tags use
 
 - A Notion upload whose session row arrived no longer fails because Notion refused to update the participant summary row afterwards (typically an integration allowed to insert but not to update content). The upload counts as done, and the session's progress shows a warning naming the reason. When Notion refuses access ("403"), the message now keeps Notion's own explanation and names both possible fixes: share the page with the integration, or allow it to read, update and insert content (Notion plugin 1.2.1).
 - The "Upload needs attention" notice no longer reappears at every start for uploads whose session no longer exists (deleted, withdrawn, or from a moved data folder), and no longer leads to a session that cannot be found. Marking an upload notice as seen is now remembered across restarts until the upload changes again.
+- When a BrainBit is not found and Windows has it paired, the dashboard now says so and explains the fix: remove the BrainBit under Windows Settings > Bluetooth & devices, do not pair it again, switch it off and on, and search again. A Windows pairing hides the band from the scan (BrainBit plugin 4.0.2).
 
 ## 1.7.15 - 2026-10-08
 
