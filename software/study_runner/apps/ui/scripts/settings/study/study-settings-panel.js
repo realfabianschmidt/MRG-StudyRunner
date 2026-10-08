@@ -26,6 +26,7 @@ import {
   getPluginCatalog,
   getPluginCatalogGeneration,
   loadPluginCatalog,
+  loadPluginUiExtension,
   visiblePluginsWithCapability,
 } from '../../shared/plugin-catalog.js';
 
@@ -67,6 +68,8 @@ export function initializeStudySettingsPanel(options = {}) {
     }
     const action = event.target?.closest?.('[data-study-plugin-action]');
     if (action) void runStudyPluginAction(action);
+    const openConfigurator = event.target?.closest?.('[data-open-study-plugin-configurator]');
+    if (openConfigurator) void openStudyPluginConfigurator(openConfigurator.dataset.openStudyPluginConfigurator || '');
   });
   byId('btn-save-study-settings')?.addEventListener('click', () => void saveFromPanel());
   byId('btn-save-participant-settings')?.addEventListener('click', () => void saveFromPanel());
@@ -228,6 +231,7 @@ function renderDestinationPlugins(settings) {
         </div>
         ${renderPluginStudyFields(key, schema, configured.settings || {})}
         ${renderStudyPluginCredential(plugin)}
+        ${renderStudyPluginConfigurator(plugin)}
         ${renderStudyPluginActions(plugin, schema)}
       </div>`;
   }).join('');
@@ -322,7 +326,10 @@ function renderSensorPlugin(plugin, settings) {
 }
 
 function renderPluginStudyFields(pluginKey, schema, values) {
-  const entries = Object.entries(schema || {});
+  // An "object" field (an opaque, plugin-owned JSON document) is too shaped
+  // for a generic input; its own configurator button renders it instead -
+  // see renderStudyPluginConfigurator.
+  const entries = Object.entries(schema || {}).filter(([, field]) => field.type !== 'object');
   if (!entries.length) return '';
   return `<div class="study-plugin-fields">${entries.map(([name, field]) => {
     const value = values[name] ?? field.default ?? '';
@@ -372,6 +379,66 @@ function renderStudyPluginCredential(plugin) {
       </div>
       <small class="settings-hint">${escapeHtml(t('studySettings.credentialPrivateHint', 'Credentials stay in the local secret store and are never written to the study file.'))}</small>
     </div>`;
+}
+
+/**
+ * A plugin declaring ui.extensions.study_settings gets a button that opens
+ * its own configurator module instead of a generic field - see
+ * renderPluginStudyFields, which skips that same "object" field for the
+ * same reason.
+ */
+function renderStudyPluginConfigurator(plugin) {
+  if (!plugin.ui?.extensions?.study_settings) return '';
+  return `
+    <div class="study-plugin-configurator">
+      <button class="btn-secondary" type="button" data-open-study-plugin-configurator="${escapeHtml(plugin.plugin_key)}">
+        <i class="iconoir-settings"></i> ${escapeHtml(t('studySettings.openConfigurator', 'Configure…'))}
+      </button>
+    </div>`;
+}
+
+async function openStudyPluginConfigurator(pluginKey) {
+  const plugin = getPluginCatalog().plugins_by_key[pluginKey];
+  if (!plugin) return;
+  const module = await loadPluginUiExtension(plugin, 'study_settings');
+  if (typeof module?.openConfigurator !== 'function') {
+    callbacks.showToast?.(t('studySettings.configuratorUnavailable', 'The configurator could not be loaded.'), 'error');
+    return;
+  }
+  const current = normalizeStudySettings(callbacks.getStudyConfig?.().study_settings);
+  const selection = current.plugins?.[pluginKey] || {};
+  module.openConfigurator({
+    plugin,
+    studyId: String(callbacks.getStudyConfig?.().study_id || '').trim(),
+    settings: selection.settings || {},
+    runAction: (actionKey, payload) => runConfiguratorAction(pluginKey, actionKey, payload),
+    saveSettings: (nextSettings) => saveStudyPluginSettings(pluginKey, nextSettings),
+    showToast: callbacks.showToast,
+  });
+}
+
+/** A configurator's own calls, reusing the existing admin-action route. */
+async function runConfiguratorAction(pluginKey, actionKey, payload = {}) {
+  const studyId = String(callbacks.getStudyConfig?.().study_id || '').trim();
+  return postJson(
+    `/api/admin/plugins/${encodeURIComponent(pluginKey)}/actions/${encodeURIComponent(actionKey)}`,
+    { ...(studyId ? { study_id: studyId } : {}), ...payload },
+  );
+}
+
+/**
+ * Persist only this plugin's settings (merged, not replaced) and save the
+ * study. Independent of whatever is currently typed into this panel's own
+ * generic destination fields, which the configurator never touches.
+ */
+async function saveStudyPluginSettings(pluginKey, nextSettings) {
+  const current = normalizeStudySettings(callbacks.getStudyConfig?.().study_settings);
+  const plugins = { ...current.plugins };
+  const previous = plugins[pluginKey] || { enabled: false, required: false, settings: {} };
+  plugins[pluginKey] = { ...previous, settings: { ...(previous.settings || {}), ...nextSettings } };
+  callbacks.setStudySettings?.({ ...current, plugins });
+  await callbacks.saveStudyConfig?.({ successMessage: t('studySettings.saved', 'Study settings saved') });
+  renderStudySettingsPanel();
 }
 
 function renderStudyPluginActions(plugin, studySchema) {

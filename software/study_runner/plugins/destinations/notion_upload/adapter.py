@@ -16,6 +16,7 @@ Enable:   set "notion": { "enabled": true, ... } in study_content/settings/hardw
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -167,6 +168,10 @@ def upload_study_result(
             }
         return {"ok": False, "error": "Notion upload is not ready: the Notion client could not be started."}
 
+    export_mapping = study_settings.get("notion_export_mapping")
+    if isinstance(export_mapping, dict) and export_mapping.get("preset") not in (None, "", "as_before") and export_mapping.get("targets"):
+        return _upload_via_export_mapping(client, export_mapping, result_payload, saved_output, config_data)
+
     study_config_updates: dict[str, str] = {}
     try:
         db_id = _ensure_database(client, study_settings, config_data, study_config_updates)
@@ -310,6 +315,310 @@ def get_status() -> dict[str, Any]:
         "connected": bool(_clients),
         "queue_size": 0,
     }
+
+
+# ── Configurator admin actions ────────────────────────────────────────────────
+# The operator-facing tree/column-mapping modal's own calls (see
+# plugin.py#_run_admin_action and apps/ui/.../notion_upload/ui/configurator.js).
+# None of these touch study config; the host persists any chosen target
+# through the plugin's normal study-settings save, like every other setting.
+
+def list_children(*, api_key: str, page_id: str, cursor: str | None = None) -> dict[str, Any]:
+    """Databases and subpages directly under one Notion page, one level only."""
+    if not ensure_requirements([("notion_client", "notion-client")], auto_install=True, label="NOTION"):
+        return {"ok": False, "error": "The notion-client package could not be installed."}
+    client = get_client(api_key)
+    if client is None:
+        return {"ok": False, "error": "Notion upload is not ready: no client could be started."}
+    target = _strip_dashes(str(page_id or "").strip())
+    if not target:
+        return {"ok": False, "error": "A page id is required."}
+    try:
+        kwargs: dict[str, Any] = {"block_id": target, "page_size": 50}
+        if cursor:
+            kwargs["start_cursor"] = cursor
+        response = client.blocks.children.list(**kwargs)
+    except Exception as error:
+        _permanent, message = classify_notion_error(error)
+        return {"ok": False, "error": message}
+    children = []
+    for block in response.get("results") or []:
+        block_type = block.get("type")
+        if block_type == "child_database":
+            children.append({
+                "id": _strip_dashes(str(block.get("id") or "")),
+                "type": "database",
+                "title": str((block.get("child_database") or {}).get("title") or ""),
+            })
+        elif block_type == "child_page":
+            children.append({
+                "id": _strip_dashes(str(block.get("id") or "")),
+                "type": "page",
+                "title": str((block.get("child_page") or {}).get("title") or ""),
+            })
+    return {
+        "ok": True,
+        "children": children,
+        "next_cursor": response.get("next_cursor") if response.get("has_more") else None,
+    }
+
+
+def describe_database(*, api_key: str, database_id: str) -> dict[str, Any]:
+    """A database's title and its columns (name + Notion property type)."""
+    if not ensure_requirements([("notion_client", "notion-client")], auto_install=True, label="NOTION"):
+        return {"ok": False, "error": "The notion-client package could not be installed."}
+    client = get_client(api_key)
+    if client is None:
+        return {"ok": False, "error": "Notion upload is not ready: no client could be started."}
+    target = _strip_dashes(str(database_id or "").strip())
+    if not target:
+        return {"ok": False, "error": "A database id is required."}
+    try:
+        database = client.databases.retrieve(database_id=target)
+        properties = database.get("properties")
+        if not properties and hasattr(client, "data_sources"):
+            data_sources = database.get("data_sources") or []
+            if data_sources:
+                source = client.data_sources.retrieve(data_source_id=data_sources[0]["id"])
+                properties = source.get("properties") or {}
+    except Exception as error:
+        _permanent, message = classify_notion_error(error)
+        return {"ok": False, "error": message}
+    title = "".join(str(part.get("plain_text") or "") for part in database.get("title") or [])
+    columns = [
+        {"name": name, "type": next(iter((spec or {}).keys()), "rich_text")}
+        for name, spec in (properties or {}).items()
+    ]
+    return {"ok": True, "database_id": target, "title": title, "columns": columns}
+
+
+_NOTION_PROPERTY_SCHEMAS = {
+    "rich_text": {"rich_text": {}},
+    "number": {"number": {"format": "number"}},
+    "date": {"date": {}},
+    "select": {"select": {}},
+    "multi_select": {"multi_select": {}},
+}
+
+
+def create_notion_database(
+    *,
+    api_key: str,
+    parent_page_id: str,
+    title: str,
+    row_level: str,
+    columns_json: str,
+) -> dict[str, Any]:
+    """Create a target database with its key column plus the given columns."""
+    from . import mapping as mapping_module
+
+    if row_level not in mapping_module.ROW_LEVELS:
+        return {"ok": False, "error": f"row_level must be one of: {', '.join(mapping_module.ROW_LEVELS)}."}
+    try:
+        columns = json.loads(columns_json) if columns_json else []
+    except json.JSONDecodeError as error:
+        return {"ok": False, "error": f"columns_json must be valid JSON: {error}"}
+    if not isinstance(columns, list):
+        return {"ok": False, "error": "columns_json must be a JSON array."}
+    if not ensure_requirements([("notion_client", "notion-client")], auto_install=True, label="NOTION"):
+        return {"ok": False, "error": "The notion-client package could not be installed."}
+    client = get_client(api_key)
+    if client is None:
+        return {"ok": False, "error": "Notion upload is not ready: no client could be started."}
+    parent = _strip_dashes(str(parent_page_id or "").strip())
+    if not parent:
+        return {"ok": False, "error": "A parent page id is required."}
+
+    key_column = mapping_module.KEY_COLUMN_NAME[row_level]
+    schema: dict[str, Any] = {key_column: {"title": {}}}
+    for column in columns:
+        if not isinstance(column, dict):
+            continue
+        name = str(column.get("name") or "").strip()
+        column_type = str(column.get("type") or "rich_text")
+        if not name or name == key_column:
+            continue
+        schema[name] = _NOTION_PROPERTY_SCHEMAS.get(column_type, _NOTION_PROPERTY_SCHEMAS["rich_text"])
+
+    db_args = {
+        "parent": {"type": "page_id", "page_id": parent},
+        "title": [{"type": "text", "text": {"content": str(title or "Study Runner export")[:200]}}],
+    }
+    try:
+        database = _create_database(client, db_args, schema)
+    except Exception as error:
+        _permanent, message = classify_notion_error(error)
+        return {"ok": False, "error": message}
+    return {"ok": True, "database_id": _strip_dashes(str(database["id"])), "key_column": key_column}
+
+
+def _resolve_session_folder(data_dir: Any, session_path: str) -> Path:
+    """A plugin-local copy of the host's own session-path safety check.
+
+    Plugins run in their own process and must never import `runtime_core`
+    (see tests/test_import_boundaries.py); this stays an exact match of
+    `runtime_core.settings.folder_open_service.resolve_session_folder`'s
+    traversal/layout rules rather than relaxing them.
+    """
+    normalized = str(session_path or "").strip().replace("\\", "/")
+    relative = Path(normalized)
+    parts = relative.parts
+    if (
+        not normalized
+        or relative.is_absolute()
+        or any(part in {"", ".", ".."} for part in parts)
+        or len(parts) != 3
+        or any(part.startswith("_") for part in parts)
+        or parts[0] in {"runtime", "upload_jobs"}
+    ):
+        raise ValueError("A valid finalization session path is required.")
+    root = Path(data_dir).resolve()
+    target = (root / relative).resolve()
+    if not target.is_relative_to(root) or not target.is_dir() or not any(
+        (target / marker).is_file()
+        for marker in ("meta/session-identity.json", "COMPLETE.json", "ATTENTION_REQUIRED.json", "WITHDRAWN.json")
+    ):
+        raise ValueError("The session folder was not found on this computer.")
+    return target
+
+
+def preview_mapping(*, data_dir: Any, mapping_json: str, session_path: str) -> dict[str, Any]:
+    """Compute what an export mapping would write, from a real finished
+    session already on disk - no Notion API call, so it is always safe to
+    run before saving."""
+    from . import mapping as mapping_module
+
+    try:
+        export_mapping = json.loads(mapping_json) if mapping_json else {}
+    except json.JSONDecodeError as error:
+        return {"ok": False, "error": f"mapping_json must be valid JSON: {error}"}
+    try:
+        mapping_module.validate_export_mapping(export_mapping)
+    except mapping_module.MappingError as error:
+        return {"ok": False, "error": str(error)}
+    try:
+        root = _resolve_session_folder(data_dir, session_path)
+    except ValueError as error:
+        return {"ok": False, "error": str(error)}
+    result_path = root / "answers" / "result.json"
+    if not result_path.is_file():
+        return {"ok": False, "error": "This session has no finalized result.json yet."}
+    result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+    summary_path = root / "answers" / "card-summary.json"
+    card_summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
+    context = mapping_module.session_context(result_payload, card_summary)
+    targets_preview = []
+    for target in export_mapping.get("targets", []):
+        rows = mapping_module.evaluate_target(target, context)
+        targets_preview.append({
+            "target_id": target["id"],
+            "title": target["title"],
+            "row_level": target["row_level"],
+            "rows": [
+                {
+                    "key": mapping_module.key_value(target, context, row["card_index"]),
+                    "properties": row["properties"],
+                }
+                for row in rows
+            ],
+        })
+    return {"ok": True, "targets": targets_preview}
+
+
+def _notion_property_value(column_type: str, value: Any) -> dict[str, Any]:
+    if value is None:
+        return {"rich_text": []} if column_type not in {"number", "date"} else {column_type: None}
+    if column_type == "number":
+        return {"number": value}
+    if column_type == "date":
+        return {"date": {"start": str(value)}}
+    if column_type == "select":
+        return {"select": {"name": str(value)[:100]}}
+    if column_type == "multi_select":
+        values = value if isinstance(value, list) else [value]
+        return {"multi_select": [{"name": str(v)[:100]} for v in values]}
+    return {"rich_text": [{"type": "text", "text": {"content": _truncate(str(value))}}]}
+
+
+def _upsert_mapped_row(
+    client: Any,
+    database_id: str,
+    key_column: str,
+    key_value: str,
+    notion_properties: dict[str, Any],
+) -> str:
+    db_id = _strip_dashes(database_id)
+    if hasattr(client, "data_sources"):
+        source_id = _data_source_of(client, db_id)
+        rows = client.data_sources.query(
+            data_source_id=source_id, filter={"property": key_column, "title": {"equals": key_value}},
+        ).get("results") or []
+        parent_obj = {"type": "data_source_id", "data_source_id": source_id}
+    else:
+        rows = client.databases.query(
+            database_id=db_id, filter={"property": key_column, "title": {"equals": key_value}},
+        ).get("results") or []
+        parent_obj = {"database_id": db_id}
+    if rows:
+        client.pages.update(page_id=rows[0]["id"], properties=notion_properties)
+        return "updated"
+    client.pages.create(parent=parent_obj, properties=notion_properties)
+    return "created"
+
+
+def _upload_via_export_mapping(
+    client: Any,
+    export_mapping: dict[str, Any],
+    result_payload: dict[str, Any],
+    saved_output: dict[str, Any],
+    config_data: dict[str, Any],
+) -> dict[str, Any]:
+    """The flexible-targets path: one upsert per target (or per card, for a
+    card-level target), instead of the fixed participants/sessions flow."""
+    from . import mapping as mapping_module
+
+    try:
+        mapping_module.validate_export_mapping(export_mapping, config_data=config_data)
+    except mapping_module.MappingError as error:
+        return {"ok": False, "permanent": True, "error": f"Notion export mapping: {error}"}
+
+    unconnected = [t["title"] for t in export_mapping.get("targets", []) if not str(t.get("database_id") or "").strip()]
+    if unconnected:
+        return {
+            "ok": False,
+            "permanent": True,
+            "error": "Notion export mapping: these targets have no database yet: "
+            + ", ".join(unconnected) + ". Attach or create one in the Notion configurator.",
+        }
+
+    card_summary = saved_output.get("card_summary") if isinstance(saved_output.get("card_summary"), dict) else {}
+    context = mapping_module.session_context(result_payload, card_summary, config_data)
+    rows_written = []
+    try:
+        for target in export_mapping.get("targets", []):
+            key_column = mapping_module.KEY_COLUMN_NAME[target["row_level"]]
+            for row in mapping_module.evaluate_target(target, context):
+                key = mapping_module.key_value(target, context, row["card_index"])
+                notion_properties = {
+                    key_column: {"title": [{"type": "text", "text": {"content": _truncate(key)}}]},
+                }
+                for name, value in row["properties"].items():
+                    column_type = target["columns"][name]["type"]
+                    notion_properties[name] = _notion_property_value(column_type, value)
+                outcome = _upsert_mapped_row(client, target["database_id"], key_column, key, notion_properties)
+                rows_written.append({"target_id": target["id"], "key": key, "outcome": outcome})
+    except Exception as error:
+        print(f"[NOTION] Mapped upload failed: {error}")
+        permanent, message = classify_notion_error(error)
+        result: dict[str, Any] = {"ok": False, "error": message}
+        if permanent:
+            result["permanent"] = True
+        if rows_written:
+            result["rows_written"] = rows_written
+        return result
+    session_id = str(result_payload.get("session_id") or "").strip()
+    print(f"[NOTION] Mapped export wrote {len(rows_written)} row(s) for session {session_id[:8]}…")
+    return {"ok": True, "session_id": session_id, "upsert": "custom_mapping", "rows": rows_written}
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────

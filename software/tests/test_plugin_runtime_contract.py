@@ -90,6 +90,22 @@ class PluginRuntimeContractTests(unittest.TestCase):
             {"initialize", "status", "shutdown", "card_defaults", "card_normalize", "card_validate_answer"},
         )
 
+    def test_an_object_study_setting_routes_through_validate_study_setting(self) -> None:
+        """An "object" field (e.g. a plugin's own export mapping) is always
+        plugin-shaped, the same way a "url" field with a declared format is -
+        see runtime_core/studies/validation.py and process_host.py's own
+        matching has_study_validator check."""
+        manifest = {
+            "runtime": {}, "capabilities": {},
+            "study_settings_schema": {"export_mapping": {"type": "object"}},
+        }
+        self.assertIn("validate_study_setting", declared_operations(manifest))
+        plain_string_manifest = {
+            "runtime": {}, "capabilities": {},
+            "study_settings_schema": {"label": {"type": "string"}},
+        }
+        self.assertNotIn("validate_study_setting", declared_operations(plain_string_manifest))
+
     def test_missing_declared_callback_fails_before_a_plugin_runs(self) -> None:
         plugin = Plugin(key="example", label="Example", category="biosignal", config_key="example")
         with self.assertRaisesRegex(TypeError, "start \\(start\\)"):

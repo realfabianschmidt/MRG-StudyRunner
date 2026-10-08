@@ -58,7 +58,7 @@ UI_VISIBILITY_AREAS = (
     "study_settings",
     "destination_settings",
 )
-UI_EXTENSION_SURFACES = ("dashboard", "participant", "card")
+UI_EXTENSION_SURFACES = ("dashboard", "participant", "card", "study_settings")
 _UI_ASSET_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]*\.(?:js|css)$")
 _UI_EXTENSION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./-]*\.js$")
 _TIMELINE_CHANNEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")

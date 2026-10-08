@@ -13,6 +13,7 @@ const EXTENSION_EXPORTS = Object.freeze({
   dashboard: 'renderDashboard',
   participant: 'createParticipantExtension',
   card: 'configureCard',
+  study_settings: 'openConfigurator',
 });
 const EXTENSION_LOAD_TIMEOUT_MS = 2000;
 

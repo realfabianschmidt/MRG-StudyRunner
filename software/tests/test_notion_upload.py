@@ -4,6 +4,7 @@ import json
 from copy import deepcopy
 from pathlib import Path
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -208,6 +209,112 @@ class NotionParticipantMetadataTests(unittest.TestCase):
         self.assertIn("requires finalized card-summary.json", result["error"])
 
 
+class NotionValidateStudySettingTests(unittest.TestCase):
+    """`Plugin.validate_study_setting`, the hook validation.py calls for the
+    "object" export_mapping field - see runtime_core/studies/validation.py."""
+
+    def test_ignores_every_field_but_export_mapping(self) -> None:
+        plugin.PLUGIN.validate_study_setting("parent_page_id", "not json at all")  # does not raise
+
+    def test_rejects_malformed_json(self) -> None:
+        with self.assertRaises(ValueError):
+            plugin.PLUGIN.validate_study_setting("export_mapping", "{not json")
+
+    def test_rejects_an_invalid_mapping_shape(self) -> None:
+        with self.assertRaises(ValueError):
+            plugin.PLUGIN.validate_study_setting("export_mapping", json.dumps({"preset": "not-a-preset", "targets": []}))
+
+    def test_accepts_the_default_mapping(self) -> None:
+        plugin.PLUGIN.validate_study_setting("export_mapping", json.dumps({"preset": "as_before", "targets": []}))
+
+
+class NotionAdminActionDispatchTests(unittest.TestCase):
+    """plugin.py#_run_admin_action routes each configurator action."""
+
+    def _context(self):
+        return SimpleNamespace(hardware_config={}, data_dir=Path("/tmp"), secret=lambda *_: "study-key")
+
+    def test_unknown_action_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            plugin._run_admin_action(self._context(), "not_a_real_action", {})
+
+    def test_list_children_dispatches_with_the_resolved_api_key(self) -> None:
+        with patch.object(adapter, "list_children", return_value={"ok": True, "children": []}) as called:
+            plugin._run_admin_action(self._context(), "list_children", {"page_id": "page-1"})
+        called.assert_called_once_with(api_key="study-key", page_id="page-1", cursor=None)
+
+    def test_create_database_dispatches_every_field(self) -> None:
+        with patch.object(adapter, "create_notion_database", return_value={"ok": True}) as called:
+            plugin._run_admin_action(self._context(), "create_database", {
+                "parent_page_id": "page-1", "title": "X", "row_level": "session", "columns_json": "[]",
+            })
+        called.assert_called_once_with(
+            api_key="study-key", parent_page_id="page-1", title="X", row_level="session", columns_json="[]",
+        )
+
+
+class NotionPreviewMappingTests(unittest.TestCase):
+    """preview_mapping reads a real finished session from disk - no Notion
+    API call - and must stay inside data_dir exactly like the host's own
+    session-folder safety check (duplicated here: plugins must not import
+    runtime_core, see tests/test_import_boundaries.py)."""
+
+    def _write_session(self, data_dir: Path) -> Path:
+        session = data_dir / "study-a" / "p01" / "20260101T100000Z__session-1"
+        (session / "answers").mkdir(parents=True)
+        (session / "COMPLETE.json").write_text("{}", encoding="utf-8")
+        (session / "answers" / "result.json").write_text(json.dumps({
+            "session_id": "session-1", "participant_id": "p01", "study_id": "study-a",
+            "timestamp_start": "2026-01-01T10:00:00Z", "timestamp_end": "2026-01-01T10:01:00Z",
+            "answer_details": [],
+        }), encoding="utf-8")
+        return session
+
+    def test_computes_values_from_a_real_finished_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            self._write_session(data_dir)
+            mapping = {"preset": "simple", "targets": [{
+                "id": "t1", "title": "Sessions", "row_level": "session", "database_id": "db-1",
+                "columns": {"Participant": {"type": "rich_text", "source": "session.participant_id"}},
+            }]}
+            result = adapter.preview_mapping(
+                data_dir=data_dir,
+                mapping_json=json.dumps(mapping),
+                session_path="study-a/p01/20260101T100000Z__session-1",
+            )
+        self.assertTrue(result["ok"], result)
+        [target] = result["targets"]
+        self.assertEqual(target["rows"][0]["key"], "session-1")
+        self.assertEqual(target["rows"][0]["properties"]["Participant"], "p01")
+
+    def test_rejects_a_path_outside_the_three_segment_session_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = adapter.preview_mapping(
+                data_dir=Path(temp_dir),
+                mapping_json=json.dumps({"preset": "as_before", "targets": []}),
+                session_path="../../etc/passwd",
+            )
+        self.assertFalse(result["ok"])
+
+    def test_rejects_a_session_that_does_not_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = adapter.preview_mapping(
+                data_dir=Path(temp_dir),
+                mapping_json=json.dumps({"preset": "as_before", "targets": []}),
+                session_path="study-a/p01/no-such-session",
+            )
+        self.assertFalse(result["ok"])
+
+    def test_rejects_an_invalid_mapping_before_touching_the_filesystem(self) -> None:
+        result = adapter.preview_mapping(
+            data_dir=Path("/does/not/matter"),
+            mapping_json=json.dumps({"preset": "not-a-preset", "targets": []}),
+            session_path="study-a/p01/session-1",
+        )
+        self.assertFalse(result["ok"])
+
+
 class NotionPublishContractTests(unittest.TestCase):
     def payload(self):
         return {
@@ -400,6 +507,175 @@ class NotionSessionIdempotencyTests(unittest.TestCase):
         client.pages.create.assert_called_once()
         appended = client.blocks.children.append.call_args.kwargs["children"]
         self.assertIn(self.MARKER, json.dumps(appended))
+
+
+class NotionConfiguratorActionsTests(unittest.TestCase):
+    """The tree/column-mapping modal's own admin actions - see
+    docs/notion-plugin-configurator-plan.md, Phase 2."""
+
+    def test_list_children_separates_databases_from_pages_and_reports_a_cursor(self) -> None:
+        client = SimpleNamespace(blocks=SimpleNamespace(children=SimpleNamespace(list=Mock(return_value={
+            "results": [
+                {"type": "child_database", "id": "db-1", "child_database": {"title": "Sessions"}},
+                {"type": "child_page", "id": "page-1", "child_page": {"title": "Notes"}},
+                {"type": "paragraph"},
+            ],
+            "has_more": True,
+            "next_cursor": "cursor-2",
+        }))))
+        with patch.object(adapter, "get_client", return_value=client):
+            result = adapter.list_children(api_key="key", page_id="parent-page")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["children"], [
+            {"id": "db1", "type": "database", "title": "Sessions"},
+            {"id": "page1", "type": "page", "title": "Notes"},
+        ])
+        self.assertEqual(result["next_cursor"], "cursor-2")
+
+    def test_list_children_reports_an_api_error_instead_of_raising(self) -> None:
+        client = SimpleNamespace(blocks=SimpleNamespace(children=SimpleNamespace(
+            list=Mock(side_effect=RuntimeError("network unavailable")),
+        )))
+        with patch.object(adapter, "get_client", return_value=client):
+            result = adapter.list_children(api_key="key", page_id="parent-page")
+        self.assertFalse(result["ok"])
+        self.assertIn("network unavailable", result["error"])
+
+    def test_list_children_requires_a_page_id(self) -> None:
+        with patch.object(adapter, "get_client", return_value=SimpleNamespace()):
+            result = adapter.list_children(api_key="key", page_id="")
+        self.assertFalse(result["ok"])
+
+    def test_describe_database_lists_columns_with_their_notion_type(self) -> None:
+        client = SimpleNamespace(databases=SimpleNamespace(retrieve=Mock(return_value={
+            "title": [{"plain_text": "StudyRunner Sessions"}],
+            "properties": {
+                "Session": {"title": {}},
+                "Duration (min)": {"number": {"format": "number"}},
+            },
+        })))
+        with patch.object(adapter, "get_client", return_value=client):
+            result = adapter.describe_database(api_key="key", database_id="db-1")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["title"], "StudyRunner Sessions")
+        self.assertEqual(
+            sorted(result["columns"], key=lambda c: c["name"]),
+            [{"name": "Duration (min)", "type": "number"}, {"name": "Session", "type": "title"}],
+        )
+
+    def test_create_notion_database_adds_the_fixed_key_column_as_the_title(self) -> None:
+        client = SimpleNamespace(databases=SimpleNamespace(create=Mock(return_value={"id": "new-db"})))
+        with patch.object(adapter, "get_client", return_value=client):
+            result = adapter.create_notion_database(
+                api_key="key", parent_page_id="parent-page", title="My export",
+                row_level="session", columns_json=json.dumps([{"name": "Duration", "type": "number"}]),
+            )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["database_id"], "newdb")
+        self.assertEqual(result["key_column"], "Session ID")
+        schema = client.databases.create.call_args.kwargs["properties"]
+        self.assertEqual(schema["Session ID"], {"title": {}})
+        self.assertEqual(schema["Duration"], {"number": {"format": "number"}})
+
+    def test_create_notion_database_rejects_an_invalid_row_level(self) -> None:
+        with patch.object(adapter, "get_client", return_value=SimpleNamespace()):
+            result = adapter.create_notion_database(
+                api_key="key", parent_page_id="parent-page", title="X",
+                row_level="not-a-level", columns_json="[]",
+            )
+        self.assertFalse(result["ok"])
+
+    def test_create_notion_database_rejects_malformed_columns_json(self) -> None:
+        with patch.object(adapter, "get_client", return_value=SimpleNamespace()):
+            result = adapter.create_notion_database(
+                api_key="key", parent_page_id="parent-page", title="X",
+                row_level="session", columns_json="not json",
+            )
+        self.assertFalse(result["ok"])
+
+
+class NotionMappedUploadTests(unittest.TestCase):
+    """The flexible-targets upload path, alongside the untouched legacy one."""
+
+    def payload(self, export_mapping):
+        return {
+            "config_data": {"study_id": "Study A", "study_settings": {"plugins": {
+                "notion": {"enabled": True, "settings": {"export_mapping": export_mapping}},
+            }}},
+            "result_payload": {
+                "session_id": "session-1", "participant_id": "p1", "study_id": "Study A",
+                "answer_details": [{"question_index": 0, "question_prompt": "Q", "answer": "a", "question_type": "text"}],
+            },
+            "saved_output": {"card_summary": {"schema": "study-runner/card-summary/v1", "cards": []}},
+        }
+
+    def test_a_custom_mapping_upserts_each_target_by_its_key_column(self) -> None:
+        export_mapping = {"preset": "simple", "targets": [{
+            "id": "t1", "title": "Sessions", "row_level": "session", "database_id": "db-1",
+            "columns": {"Participant": {"type": "rich_text", "source": "session.participant_id"}},
+        }]}
+        client = SimpleNamespace(
+            databases=SimpleNamespace(query=Mock(return_value={"results": []})),
+            pages=SimpleNamespace(create=Mock(return_value={"id": "new-page"}), update=Mock()),
+        )
+        with patch.object(adapter, "get_client", return_value=client):
+            result = plugin._publish(SimpleNamespace(hardware_config={}, secret=lambda *_: "study-key"), self.payload(export_mapping))
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["upsert"], "custom_mapping")
+        created_properties = client.pages.create.call_args.kwargs["properties"]
+        self.assertEqual(created_properties["Session ID"]["title"][0]["text"]["content"], "session-1")
+        self.assertEqual(created_properties["Participant"]["rich_text"][0]["text"]["content"], "p1")
+
+    def test_an_existing_row_for_the_same_key_is_updated_not_duplicated(self) -> None:
+        export_mapping = {"preset": "simple", "targets": [{
+            "id": "t1", "title": "Sessions", "row_level": "session", "database_id": "db-1",
+            "columns": {"Participant": {"type": "rich_text", "source": "session.participant_id"}},
+        }]}
+        client = SimpleNamespace(
+            databases=SimpleNamespace(query=Mock(return_value={"results": [{"id": "existing-page"}]})),
+            pages=SimpleNamespace(create=Mock(), update=Mock()),
+        )
+        with patch.object(adapter, "get_client", return_value=client):
+            result = plugin._publish(SimpleNamespace(hardware_config={}, secret=lambda *_: "study-key"), self.payload(export_mapping))
+        self.assertTrue(result["ok"], result)
+        client.pages.create.assert_not_called()
+        client.pages.update.assert_called_once()
+        self.assertEqual(client.pages.update.call_args.kwargs["page_id"], "existing-page")
+
+    def test_a_target_without_a_database_fails_clearly_before_any_api_call(self) -> None:
+        export_mapping = {"preset": "simple", "targets": [{
+            "id": "t1", "title": "Sessions", "row_level": "session", "database_id": "",
+            "columns": {"Participant": {"type": "rich_text", "source": "session.participant_id"}},
+        }]}
+        client = SimpleNamespace(databases=SimpleNamespace(query=Mock()), pages=SimpleNamespace(create=Mock()))
+        with patch.object(adapter, "get_client", return_value=client):
+            result = plugin._publish(SimpleNamespace(hardware_config={}, secret=lambda *_: "study-key"), self.payload(export_mapping))
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["permanent"])
+        self.assertIn("Sessions", result["error"])
+        client.databases.query.assert_not_called()
+
+    def test_the_as_before_preset_still_uses_the_legacy_two_database_flow(self) -> None:
+        """The default preset must not change a single existing study's output."""
+        payload = self.payload({"preset": "as_before", "targets": []})
+        payload["config_data"]["study_settings"]["plugins"]["notion"]["settings"]["parent_page_id"] = "parent-1"
+        client = SimpleNamespace(
+            databases=SimpleNamespace(
+                create=Mock(return_value={"id": "createddb"}),
+                retrieve=Mock(return_value={"data_sources": []}),
+            ),
+            data_sources=SimpleNamespace(query=Mock(return_value={"results": []})),
+            pages=SimpleNamespace(create=Mock(return_value={"id": "page"}), update=Mock(), retrieve=Mock(return_value={"properties": {}})),
+            blocks=SimpleNamespace(children=SimpleNamespace(
+                list=Mock(return_value={"results": [], "has_more": False}),
+                append=Mock(return_value={"results": []}),
+            )),
+        )
+        with patch.object(adapter, "get_client", return_value=client):
+            result = plugin._publish(SimpleNamespace(hardware_config={}, secret=lambda *_: "study-key"), payload)
+        self.assertTrue(result["ok"], result)
+        self.assertNotEqual(result.get("upsert"), "custom_mapping")
+        client.databases.create.assert_called()  # the legacy participants/sessions flow ran
 
 
 if __name__ == "__main__":

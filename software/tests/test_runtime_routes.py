@@ -854,6 +854,78 @@ class RuntimeRoutesTests(unittest.TestCase):
         saved = activated.get_json()["config"]["study_settings"]["plugins"]["notion"]["settings"]
         self.assertEqual(saved["database_id"], "db-b")
 
+    def test_an_invalid_export_mapping_is_rejected_at_save_not_at_upload(self) -> None:
+        """End-to-end: the route's generic "object" field handling calls the
+        plugin's own validator (runtime_core/studies/validation.py), which
+        in turn calls mapping.validate_export_mapping. See
+        docs/notion-plugin-configurator-plan.md, Phase 2."""
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+            client = app.test_client()
+            config = {
+                "study_id": "study-a",
+                "study_settings": {
+                    "sensors_enabled": False, "sensors": {}, "plugins": {
+                        "notion": {
+                            "enabled": True, "required": False,
+                            "settings": {"export_mapping": {
+                                "preset": "custom",
+                                "targets": [{
+                                    "id": "t1", "title": "X", "row_level": "session", "database_id": "db-1",
+                                    # A per-card source without a reducer: invalid on a session target.
+                                    "columns": {"Alpha": {"type": "number", "source": "card.stream.brainbit.channel.alpha.mean"}},
+                                }],
+                            }},
+                        },
+                    },
+                },
+                "questions": [{"type": "participant-id"}, {"type": "finish"}],
+            }
+
+            response = client.post("/api/config", json=config)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("export_mapping", response.get_json()["error"])
+
+    def test_a_valid_export_mapping_round_trips_through_save(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+            client = app.test_client()
+            export_mapping = {
+                "preset": "simple",
+                "targets": [{
+                    "id": "t1", "title": "Sessions", "row_level": "session", "database_id": "db-1",
+                    "columns": {"Participant": {"type": "rich_text", "source": "session.participant_id"}},
+                }],
+            }
+            config = {
+                "study_id": "study-a",
+                "study_settings": {
+                    "sensors_enabled": False, "sensors": {}, "plugins": {
+                        "notion": {"enabled": True, "required": False, "settings": {"export_mapping": export_mapping}},
+                    },
+                },
+                "questions": [{"type": "participant-id"}, {"type": "finish"}],
+            }
+
+            response = client.post("/api/config", json=config)
+
+        self.assertEqual(response.status_code, 200)
+        saved = response.get_json()["config"]["study_settings"]["plugins"]["notion"]["settings"]["export_mapping"]
+        self.assertEqual(saved, export_mapping)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -300,6 +300,8 @@ recording code now, not plugins: `data_core/host/markers.py` and
 | `osc_touchdesigner/adapter.py` + `plugin.py` | Forwards values to TouchDesigner via OSC | careful |
 | `osc_touchdesigner/driver.py` | API-v5 process entry point (`run_plugin_driver("osc")`) | no |
 | `notion_upload/adapter.py` + `plugin.py` | Uploads result summaries to Notion (with offline queue) | careful |
+| `notion_upload/mapping.py` | The export mapping's evaluator: output catalog, reducers, column values for one session - no Notion client | careful |
+| `notion_upload/ui/configurator.js` | The study-settings configurator modal: page tree, target list, column mapping | careful |
 | `notion_upload/driver.py` | API-v5 process entry point (`run_plugin_driver("notion")`) | no |
 | `nextcloud_upload/plugin.py` | Declares the hidden Nextcloud destination capability, publishes, and validates its own share-link setting | careful |
 | `nextcloud_upload/webdav_client.py` | The WebDAV client: uploads session files to a writable Nextcloud public share, checksum-first | careful |

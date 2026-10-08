@@ -79,6 +79,7 @@ def _publish(context: PluginContext, payload: dict[str, Any]) -> dict[str, Any]:
                 "notion_database_id": str(plugin_settings.get("database_id") or "").strip(),
                 "notion_data_source_id": str(plugin_settings.get("data_source_id") or "").strip(),
                 "notion_sessions_database_id": str(plugin_settings.get("sessions_database_id") or "").strip(),
+                "notion_export_mapping": plugin_settings.get("export_mapping") or {},
             }
         )
 
@@ -99,22 +100,66 @@ def _run_admin_action(
     action_key: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    if action_key != "test_connection":
-        raise ValueError(f"Unknown Notion admin action: {action_key}")
-
     from . import adapter
 
     # An empty/omitted key means "use whatever is already stored" - the
-    # operator is testing before saving what they just typed.
+    # operator is testing or browsing before saving what they just typed.
     study_id = str(payload.get("study_id") or "").strip()
     api_key = str(payload.get("api_key") or "").strip() or context.secret("notion", study_id)
-    timeout_seconds = int(payload.get("timeout_seconds") or 10)
-    return adapter.test_connection(
-        api_key=api_key,
-        timeout_seconds=timeout_seconds,
-        parent_page_id=str(payload.get("parent_page_id") or ""),
-        database_id=str(payload.get("database_id") or ""),
-    )
+
+    if action_key == "test_connection":
+        return adapter.test_connection(
+            api_key=api_key,
+            timeout_seconds=int(payload.get("timeout_seconds") or 10),
+            parent_page_id=str(payload.get("parent_page_id") or ""),
+            database_id=str(payload.get("database_id") or ""),
+        )
+    if action_key == "list_children":
+        return adapter.list_children(
+            api_key=api_key,
+            page_id=str(payload.get("page_id") or ""),
+            cursor=str(payload.get("cursor") or "") or None,
+        )
+    if action_key == "describe_database":
+        return adapter.describe_database(api_key=api_key, database_id=str(payload.get("database_id") or ""))
+    if action_key == "create_database":
+        return adapter.create_notion_database(
+            api_key=api_key,
+            parent_page_id=str(payload.get("parent_page_id") or ""),
+            title=str(payload.get("title") or ""),
+            row_level=str(payload.get("row_level") or ""),
+            columns_json=str(payload.get("columns_json") or "[]"),
+        )
+    if action_key == "preview_mapping":
+        return adapter.preview_mapping(
+            data_dir=context.data_dir,
+            mapping_json=str(payload.get("mapping_json") or "{}"),
+            session_path=str(payload.get("session_path") or ""),
+        )
+    raise ValueError(f"Unknown Notion admin action: {action_key}")
+
+
+def _validate_setting(field_name: str, encoded_value: str) -> None:
+    """`Plugin.validate_study_setting`: the "object" field's own shape.
+
+    Called by `_validate_plugin_study_settings` with the field JSON-encoded,
+    the same hook a "url" field with a declared format uses for its own
+    validation - see runtime_core/studies/validation.py.
+    """
+    if field_name != "export_mapping":
+        return
+    import json
+
+    from .mapping import MappingError, validate_export_mapping
+
+    try:
+        value = json.loads(encoded_value)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"must be valid JSON: {error}") from error
+    try:
+        validate_export_mapping(value)
+    except MappingError as error:
+        raise ValueError(str(error)) from error
 
 
 PLUGIN = Plugin(
@@ -126,4 +171,5 @@ PLUGIN = Plugin(
     get_status=_status,
     publish_destination=_publish,
     run_admin_action=_run_admin_action,
+    validate_study_setting=_validate_setting,
 )

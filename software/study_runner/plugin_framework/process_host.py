@@ -859,8 +859,12 @@ def build_process_plugin(manifest: Mapping[str, Any], directory: Path) -> Plugin
         return runtime.request(operation, payload)
 
     study_schema = manifest.get("study_settings_schema") or {}
+    # A "url" field with a declared format, and an "object" field (always
+    # plugin-owned shape), both route through the plugin's own validator -
+    # see runtime_contract.declared_operations, the same rule.
     has_study_validator = any(
-        isinstance(field, Mapping) and bool(str(field.get("format") or "").strip())
+        isinstance(field, Mapping)
+        and (bool(str(field.get("format") or "").strip()) or field.get("type") == "object")
         for field in study_schema.values()
     )
     trial_events = set(runtime_config.get("trial_events") or [])

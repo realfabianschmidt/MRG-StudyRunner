@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import json
 from typing import Any
 
 from ..studies.study_plugin_config import (
@@ -972,6 +973,29 @@ def _validate_plugin_study_settings(
                 if maximum is not None and value > float(maximum):
                     raise ValidationError(f"{path} must be at most {maximum}.")
                 settings[name] = int(value) if value.is_integer() else value
+            elif field_type == "object":
+                # An opaque, plugin-owned JSON document (e.g. Notion's export
+                # mapping): too shaped for a generic field, so this validates
+                # only size and that the plugin itself accepts the shape -
+                # see Plugin.validate_study_setting, the same hook a "url"
+                # field with a declared format uses for its own shape.
+                value = raw_value if isinstance(raw_value, dict) else {}
+                if raw_value not in (None, {}) and not isinstance(raw_value, dict):
+                    raise ValidationError(f"{path} must be a JSON object.")
+                encoded = json.dumps(value, ensure_ascii=False, sort_keys=True)
+                max_length = int(field.get("max_length") or 200_000)
+                if len(encoded) > max_length:
+                    raise ValidationError(f"{path} is too large (at most {max_length} characters).")
+                from study_runner.plugin_framework.registry import get_plugin
+
+                plugin = get_plugin(plugin_key)
+                validator = plugin.validate_study_setting if plugin else None
+                if validator is not None:
+                    try:
+                        validator(name, encoded)
+                    except ValueError as error:
+                        raise ValidationError(f"{path}: {error}") from error
+                settings[name] = value
     return normalized
 
 

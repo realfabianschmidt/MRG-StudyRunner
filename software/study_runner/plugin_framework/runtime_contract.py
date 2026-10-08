@@ -46,7 +46,14 @@ def declared_operations(manifest: Mapping[str, Any]) -> set[str]:
         operations.update({"card_defaults", "card_normalize", "card_validate_answer"})
     settings = manifest.get("settings") or {}
     study = settings.get("study") or manifest.get("study_settings_schema") or {}
-    if any(isinstance(field, Mapping) and field.get("format") for field in study.values()):
+    # A "url" field with a declared format, and an "object" field (always
+    # plugin-owned shape - see runtime_core/studies/validation.py), both
+    # route through the plugin's own validate_study_setting rather than a
+    # generic core check.
+    if any(
+        isinstance(field, Mapping) and (field.get("format") or field.get("type") == "object")
+        for field in study.values()
+    ):
         operations.add("validate_study_setting")
     return operations
 
