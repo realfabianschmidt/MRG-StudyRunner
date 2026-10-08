@@ -702,10 +702,8 @@ class PluginUiContractTests(unittest.TestCase):
         study_html = _read(WEB / "pages" / "study.html")
         study_css = _read(WEB / "styles" / "study.css")
         main_css = _read(WEB / "styles" / "main.css")
-        admin_css = _read(WEB / "styles" / "admin.css")
         participant = _read(WEB / "scripts" / "participant" / "study-controller.js")
         navigation = _read(WEB / "scripts" / "participant" / "participant-result-submission.js")
-        editor = _read(WEB / "scripts" / "admin" / "admin-study-editor.js")
         panel = _read(WEB / "scripts" / "settings" / "study" / "study-settings-panel.js")
 
         self.assertIn("grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr)", study_css)
@@ -719,10 +717,13 @@ class PluginUiContractTests(unittest.TestCase):
         self.assertIn("toggleAttribute('hidden', screenName !== 'questions')", participant)
         self.assertIn("body:has(#screen-questions.active) .study-preview-banner", study_css)
         self.assertIn("#study-toast {\n  position: fixed;", study_css)
+        # card_frame_enabled toggles the frame for a real participant (and the
+        # real `?preview=1` run of study.html, which shares this same code).
+        # The editor's own stacked card list is a different "preview" - an
+        # always-framed editing list, not a rendering of the study - and does
+        # not mirror this setting; see test_editor_preview_cards_are_mounted_live.
         self.assertIn(".study-card-frame--off .q-card-study", main_css)
-        self.assertIn("#study-preview.study-card-frame--off .preview-card-wrap.selected", admin_css)
         self.assertIn("document.body.classList.toggle('study-card-frame--off'", participant)
-        self.assertIn("preview.classList.toggle('study-card-frame--off'", editor)
         self.assertIn("'study-card-frame-enabled'", panel)
 
     def test_mood_and_affect_views_have_responsive_visuals(self) -> None:
