@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.18 - 2026-10-08
+
 ### Fixed
 
 - Saving the Notion export mapping no longer reports success and closes the configurator when the server actually rejected it (e.g. an invalid mapping) - this previously happened silently, because the generic save path never raised the failure to the configurator. The preset buttons, removing a target, and creating a Notion database now ask for confirmation first, since each of those discards or creates something that cannot be undone from inside the modal. The node view's "+ Source" now offers the same catalog and sensor sources as the column list, instead of asking for a typed id; its other "+" prompts report a clear error instead of silently doing nothing on bad input. The session picker now defaults to the study being configured, and the study sent to the server to build the source catalog is reduced to just its questions (Notion plugin 1.4.2).
