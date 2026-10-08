@@ -920,15 +920,6 @@ body.admin::before { display: none; }
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-16);
 }
-#study-preview.study-card-frame--off .preview-card-wrap.selected {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-  border-radius: var(--r-lg);
-}
-#study-preview.study-card-frame--off .preview-card-wrap.selected .q-card-study {
-  border-color: transparent;
-  box-shadow: none;
-}
 .preview-card-overlay {
   position: absolute;
   top: 12px; right: 12px;
@@ -3250,6 +3241,23 @@ body.admin::before { display: none; }
 
 /* Confirmation texts may list several consequences, one per line. */
 .confirm-modal-message { white-space: pre-line; }
+
+/* Retry-target comparison: which destination settings moved since the
+   session finished (scripts/admin/finalization-actions.js). */
+.retry-target-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--s-4) 0;
+  font-size: var(--size-small);
+}
+.retry-target-table th,
+.retry-target-table td {
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--ink-12);
+  text-align: left;
+}
+.retry-target-then { color: var(--ink-60); }
+.retry-target-now { color: var(--ink-100); font-weight: 600; }
 
 /* Operator notices: tablet errors and refused participant actions. Stay
    until clicked (scripts/admin/operator-notices.js). */

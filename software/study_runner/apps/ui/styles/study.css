@@ -314,6 +314,10 @@ body:not(:has(#screen-questions.active)) .q-nav,
 .screen--cover {
   max-width: 960px;
 }
+.study-card-frame--off .screen--cover {
+  background: none;
+  border: none;
+}
 .cover-actions {
   display: flex;
   justify-content: center;

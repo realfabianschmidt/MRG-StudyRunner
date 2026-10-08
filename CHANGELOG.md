@@ -9,6 +9,10 @@ All notable Study Runner changes are documented here. Release tags use
 
 - Cards the participant operates by touch show a gently tapping finger icon instead of a written instruction: the affect map and mood meter field and feelings wheel, and the word cloud. The finger disappears at the first touch on the card. Screen readers still read the instruction, and the finger keeps still when the device asks for less motion (affect_map plugin 1.3.0, mood_meter plugin 1.3.0, word_cloud plugin 1.2.0).
 
+### Fixed
+
+- Retrying a failed upload for a finished session no longer silently replays the destination settings the session happened to end with. If a study's Notion page (or any other upload destination's settings) changed since then, the retry now asks whether to use the current or the original target before continuing. Changing a destination's hand-entered setting also clears its stale auto-discovered values (such as a database id tied to the previous page), instead of leaving them to point at the old target. Notion additionally re-verifies a cached data source and sessions database against the current one before reusing it (Notion plugin 1.1.1).
+
 ## 1.7.13 - 2026-10-07
 
 ### Fixed

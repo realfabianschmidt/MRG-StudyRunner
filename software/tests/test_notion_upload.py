@@ -283,6 +283,84 @@ class NotionPublishContractTests(unittest.TestCase):
         self.assertIn("connection interrupted", result["error"])
 
 
+class NotionStaleCacheTests(unittest.TestCase):
+    """A cached data source or sessions database must be re-verified against
+    the current database/parent page before it is reused - otherwise a
+    changed target (new parent page, new database) keeps silently writing
+    into the previous one. See CHANGELOG 'Fixed' for the bug this guards."""
+
+    def test_cached_data_source_belonging_to_the_current_database_is_kept(self) -> None:
+        client = SimpleNamespace(
+            databases=SimpleNamespace(retrieve=Mock(return_value={"data_sources": [{"id": "source1"}]})),
+            data_sources=SimpleNamespace(),  # only hasattr() matters to the adapter here
+        )
+        study_settings = {"notion_data_source_id": "source1"}
+        updates: dict[str, str] = {}
+
+        result = adapter._get_data_source_id(client, "db1", study_settings, {}, updates)
+
+        self.assertEqual(result, "source1")
+        self.assertEqual(updates, {}, "an already-correct cache is not rewritten")
+
+    def test_cached_data_source_from_a_different_database_is_rediscovered(self) -> None:
+        client = SimpleNamespace(
+            databases=SimpleNamespace(retrieve=Mock(return_value={"data_sources": [{"id": "sourcenew"}]})),
+            data_sources=SimpleNamespace(),
+        )
+        study_settings = {"notion_data_source_id": "sourceold"}
+        updates: dict[str, str] = {}
+
+        result = adapter._get_data_source_id(client, "db1", study_settings, {}, updates)
+
+        self.assertEqual(result, "sourcenew")
+        self.assertEqual(study_settings["notion_data_source_id"], "sourcenew")
+        self.assertEqual(updates, {"data_source_id": "sourcenew"})
+
+    def test_data_source_cache_survives_an_unreadable_database(self) -> None:
+        client = SimpleNamespace(
+            databases=SimpleNamespace(retrieve=Mock(side_effect=OSError("network unavailable"))),
+            data_sources=SimpleNamespace(),
+        )
+        study_settings = {"notion_data_source_id": "sourceold"}
+
+        result = adapter._get_data_source_id(client, "db1", study_settings, {}, {})
+
+        self.assertEqual(result, "sourceold", "a transient read error must not fail the whole upload")
+
+    def test_cached_sessions_database_under_the_current_parent_is_kept(self) -> None:
+        client = SimpleNamespace(
+            databases=SimpleNamespace(
+                retrieve=Mock(return_value={"parent": {"page_id": "parenta"}}),
+                create=Mock(),
+            ),
+        )
+        study_settings = {"notion_sessions_database_id": "sessionsdb", "notion_parent_page_id": "parenta"}
+
+        result = adapter._ensure_sessions_database(client, "participantsdb", study_settings, {})
+
+        self.assertEqual(result, "sessionsdb")
+        client.databases.create.assert_not_called()
+
+    def test_cached_sessions_database_under_a_different_parent_is_rediscovered(self) -> None:
+        client = SimpleNamespace(
+            databases=SimpleNamespace(
+                retrieve=Mock(return_value={"parent": {"page_id": "parentold"}}),
+                create=Mock(return_value={"id": "newsessionsdb"}),
+            ),
+            blocks=SimpleNamespace(children=SimpleNamespace(
+                list=Mock(return_value={"results": [], "has_more": False}),
+            )),
+        )
+        study_settings = {"notion_sessions_database_id": "sessionsdb", "notion_parent_page_id": "parentnew"}
+        updates: dict[str, str] = {}
+
+        result = adapter._ensure_sessions_database(client, "participantsdb", study_settings, updates)
+
+        self.assertEqual(result, "newsessionsdb")
+        self.assertEqual(updates["sessions_database_id"], "newsessionsdb")
+        client.databases.create.assert_called_once()
+
+
 class NotionSessionIdempotencyTests(unittest.TestCase):
     """A retried upload never adds a second page for the same session."""
 

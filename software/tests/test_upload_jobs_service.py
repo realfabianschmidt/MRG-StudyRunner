@@ -25,6 +25,7 @@ from study_runner.runtime_core.settings.folder_open_service import (
 from study_runner.runtime_core.delivery.upload_jobs_service import (
     MAX_RETRY_AGE_SECONDS,
     PermanentUploadError,
+    UploadJobError,
     UploadJobService,
     retry_delay_seconds,
 )
@@ -214,6 +215,74 @@ class UploadJobServiceTests(unittest.TestCase):
             self.assertIn("invalid entry", invalid["error"])
             self.assertTrue(legacy.exists())
 
+    def test_describe_retry_target_without_describer_reports_no_difference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = UploadJobService(Path(temp_dir), executors={"notion": lambda _payload: {"ok": True}})
+            job = service.enqueue(**job_arguments())
+
+            self.assertEqual(
+                service.describe_retry_target(job["job_id"]),
+                {"differs": False, "fields": []},
+            )
+            with self.assertRaises(UploadJobError):
+                service.describe_retry_target("missing")
+
+    def test_retry_target_choice_reaches_the_executor(self) -> None:
+        """An operator's 'use current target' choice must survive a restart
+        (it is only a journal event, the payload file stays frozen) and be
+        visible to the destination's executor on the next attempt."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            clock = ManualClock()
+            seen_targets = []
+
+            def unavailable(_payload):
+                raise RuntimeError("network unavailable")
+
+            first = UploadJobService(Path(temp_dir), executors={"notion": unavailable}, clock=clock)
+            first.register_retry_target_describer(
+                "notion", lambda _job, _payload: {"differs": True, "fields": [{"name": "parent_page_id"}]},
+            )
+            job = first.enqueue(**job_arguments())
+            first.process_due_jobs_once()  # fails once, so it becomes retryable
+
+            comparison = first.describe_retry_target(job["job_id"])
+            self.assertTrue(comparison["differs"])
+
+            with self.assertRaises(UploadJobError):
+                first.retry(job_id=job["job_id"], target="not-a-real-target")
+
+            first.retry(job_id=job["job_id"], target="current")
+            self.assertEqual(first.status()["sessions"][0]["jobs"][0]["retry_target"], "current")
+
+            replayed = UploadJobService(
+                Path(temp_dir),
+                executors={"notion": lambda payload: seen_targets.append(payload.get("_retry_target")) or {"ok": True}},
+                clock=clock,
+            )
+            replayed.process_due_jobs_once()
+            self.assertEqual(seen_targets, ["current"])
+            self.assertEqual(replayed.status()["sessions"][0]["jobs"][0]["status"], "done")
+
+    def test_automatic_backoff_does_not_reset_an_operator_chosen_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            clock = ManualClock()
+            attempts = []
+
+            def still_failing(payload):
+                attempts.append(payload.get("_retry_target"))
+                raise RuntimeError("still offline")
+
+            service = UploadJobService(Path(temp_dir), executors={"notion": still_failing}, clock=clock)
+            job = service.enqueue(**job_arguments())
+            service.process_due_jobs_once()
+            service.retry(job_id=job["job_id"], target="current")
+            clock.value += 10_000  # past the automatic backoff delay
+            service.process_due_jobs_once()
+
+            # The automatic retry after the operator's explicit choice keeps
+            # using "current", it does not quietly fall back to "snapshot".
+            self.assertEqual(attempts, ["snapshot", "current"])
+
     def test_public_status_never_contains_private_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             service = UploadJobService(Path(temp_dir))
@@ -276,6 +345,23 @@ class UploadRoutesTests(unittest.TestCase):
         self.assertEqual(retry.status_code, 200)
         self.assertEqual(retry.get_json()["retried"], 1)
         self.assertEqual(invalid.status_code, 400)
+
+    def test_retry_target_route_reports_no_describer_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = self._app(temp_dir)
+            service = app.config["UPLOAD_JOBS_SERVICE"]
+            job = service.enqueue(**job_arguments())
+            client = app.test_client()
+
+            found = client.get(f"/api/uploads/{job['job_id']}/retry-target")
+            missing = client.get("/api/uploads/does-not-exist/retry-target")
+
+        self.assertEqual(found.status_code, 200)
+        found_body = found.get_json()
+        self.assertTrue(found_body["ok"])
+        self.assertFalse(found_body["differs"])
+        self.assertEqual(found_body["fields"], [])
+        self.assertEqual(missing.status_code, 404)
 
     def test_open_folder_route_uses_cross_platform_service(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

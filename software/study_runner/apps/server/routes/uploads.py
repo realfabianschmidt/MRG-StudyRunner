@@ -30,15 +30,25 @@ def upload_status():
     return jsonify(_service().status(days=days))
 
 
+@bp.route("/api/uploads/<job_id>/retry-target", methods=["GET"])
+def upload_retry_target(job_id: str):
+    """Compare a job's frozen destination settings with the study's current ones."""
+    try:
+        return jsonify({"ok": True, **_service().describe_retry_target(job_id)})
+    except UploadJobError as error:
+        return jsonify({"ok": False, "error": str(error)}), 404
+
+
 @bp.route("/api/uploads/retry", methods=["POST"])
 def upload_retry():
     payload = request.get_json(silent=True) or {}
     job_id = str(payload.get("job_id") or "").strip()
     all_failed = payload.get("all_failed") is True
+    target = str(payload.get("target") or "snapshot")
     if bool(job_id) == bool(all_failed):
         return jsonify({"ok": False, "error": "Send either job_id or all_failed: true."}), 400
     try:
-        return jsonify(_service().retry(job_id=job_id, all_failed=all_failed))
+        return jsonify(_service().retry(job_id=job_id, all_failed=all_failed, target=target))
     except UploadJobError as error:
         return jsonify({"ok": False, "error": str(error)}), 404
 

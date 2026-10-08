@@ -14,7 +14,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from study_runner.runtime_core.delivery.upload_runtime import _plugin_executor, apply_deferred_upload_targets
+from study_runner.runtime_core.delivery.upload_runtime import (
+    _current_plugin_selection,
+    _plugin_executor,
+    _retry_target_describer,
+    apply_deferred_upload_targets,
+)
 from study_runner.runtime_core.delivery.upload_jobs_service import UploadJobError, UploadJobService
 from study_runner.runtime_core.studies.study_config_service import (
     StudyRevisionConflict, delete_study, load_config, load_study,
@@ -215,6 +220,65 @@ class UploadTargetPersistenceTests(unittest.TestCase):
         with self.assertRaises(UploadJobError):
             self.executor(publish)(self.queued)
         publish.assert_not_called()
+
+    def describer(self):
+        plugin = Plugin(key="notion", label="Notion", category="storage", config_key="notion")
+        return _retry_target_describer(self.app, plugin)
+
+    def test_retry_target_describer_reports_no_difference_for_the_same_study(self) -> None:
+        comparison = self.describer()({"kind": "notion"}, self.queued)
+        self.assertEqual(comparison, {"differs": False, "fields": []})
+
+    def test_retry_target_describer_detects_a_changed_parent_page(self) -> None:
+        edited = study()
+        settings(edited)["parent_page_id"] = "new-parent"
+        self.save(edited)
+
+        comparison = self.describer()({"kind": "notion"}, self.queued)
+        self.assertTrue(comparison["differs"])
+        [field] = comparison["fields"]
+        self.assertEqual(field["name"], "parent_page_id")
+        self.assertEqual(field["snapshot"], "parent-1")
+        self.assertEqual(field["current"], "new-parent")
+
+    def test_retry_target_describer_reports_a_deleted_study(self) -> None:
+        self.save(study("Study B"))  # a different study is now active
+        delete_study(self.app.config["SAVED_STUDIES_DIR"], "Study A")
+        comparison = self.describer()({"kind": "notion"}, self.queued)
+        self.assertEqual(comparison, {"differs": False, "fields": [], "study_missing": True})
+
+    def test_retry_target_describer_without_payload_reports_no_difference(self) -> None:
+        # A done job's payload file is deleted; a comparison must not crash.
+        self.assertEqual(self.describer()({"kind": "notion"}, None), {"differs": False, "fields": []})
+
+    def test_current_target_replaces_the_frozen_selection_before_publishing(self) -> None:
+        edited = study()
+        settings(edited)["parent_page_id"] = "new-parent"
+        self.save(edited)
+
+        publish = Mock(return_value={"ok": True})
+        payload_with_target = {**self.queued, "_retry_target": "current"}
+        self.executor(publish)(payload_with_target)
+
+        published_settings = settings(publish.call_args.args[1]["config_data"])
+        self.assertEqual(published_settings["parent_page_id"], "new-parent")
+        # The frozen snapshot passed in is untouched.
+        self.assertEqual(settings(self.queued["config_data"])["parent_page_id"], "parent-1")
+
+    def test_current_target_falls_back_to_snapshot_for_a_deleted_study(self) -> None:
+        self.save(study("Study B"))  # a different study is now active
+        delete_study(self.app.config["SAVED_STUDIES_DIR"], "Study A")
+        publish = Mock(return_value={"ok": True})
+        payload_with_target = {**self.queued, "_retry_target": "current"}
+        self.executor(publish)(payload_with_target)
+
+        published_settings = settings(publish.call_args.args[1]["config_data"])
+        self.assertEqual(published_settings["parent_page_id"], "parent-1")
+
+    def test_current_plugin_selection_returns_none_for_an_unselected_plugin(self) -> None:
+        self.assertIsNone(_current_plugin_selection(self.app, "Study A", "fixture_export"))
+        self.assertIsNone(_current_plugin_selection(self.app, "", "notion"))
+        self.assertIsNone(_current_plugin_selection(self.app, "No Such Study", "notion"))
 
 
 class DestinationDiscoveryManifestTests(unittest.TestCase):

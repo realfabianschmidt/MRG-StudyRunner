@@ -20,6 +20,8 @@ from study_runner.runtime_core.studies.study_config_service import (
     study_busy_reason,
     study_config_revision,
 )
+from study_runner.runtime_core.studies.study_plugin_config import reset_stale_upload_discoveries
+from study_runner.shared.study_identifiers import normalize_study_id
 from study_runner.runtime_core.studies.study_readiness_service import check_study_readiness
 from study_runner.runtime_core.studies.study_assets_service import StudyAssetError, require_assets
 from .helpers import _session_overrides
@@ -108,6 +110,19 @@ def update_config():
 
 def _save_validated_config_locked(validated_config: dict, expected_revision: str | None):
     previous_study_id = _current_study_id()
+    validated_config = dict(validated_config)
+    is_same_study = (
+        normalize_study_id(previous_study_id)
+        == normalize_study_id(str(validated_config.get("study_id") or ""))
+    )
+    # Comparing settings across two different studies would be meaningless
+    # (and could wipe a just-activated study's own legitimate discoveries):
+    # only an edit of the study that was already active is a "the operator
+    # changed something" signal.
+    validated_config["study_settings"] = reset_stale_upload_discoveries(
+        _previous_study_settings() if is_same_study else None,
+        validated_config.get("study_settings"),
+    )
     try:
         revision = save_active_study(
             current_app.config["CONFIG_FILE"],
@@ -141,6 +156,14 @@ def _current_study_id() -> str:
         return str(_current_config_data().get("study_id") or "")
     except Exception:
         return ""
+
+
+def _previous_study_settings() -> dict | None:
+    """The active study's settings before this save, or None if unavailable."""
+    try:
+        return _current_config_data().get("study_settings")
+    except Exception:
+        return None
 
 
 def _carry_credentials_on_rename(previous_study_id: str, new_study_id: str) -> None:

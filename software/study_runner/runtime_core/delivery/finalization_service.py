@@ -157,8 +157,12 @@ class DestinationHandler(Protocol):
     def publish(self, destination: str, context: FinalizationContext) -> StepResult | Mapping[str, Any] | None:
         ...
 
-    def retry(self, destination: str, context: FinalizationContext) -> None:
+    def retry(self, destination: str, context: FinalizationContext, *, target: str = "snapshot") -> None:
         """Requeue an underlying persistent destination job, if one exists."""
+        ...
+
+    def describe_retry_target(self, destination: str, context: FinalizationContext) -> dict[str, Any]:
+        """Compare the destination's frozen settings with the study's current ones."""
         ...
 
 
@@ -229,7 +233,7 @@ class UploadJobDestinationHandler:
             message += f"; last attempt: {last_error}"
         raise DeferredStep(message + ".", retry_after_seconds=_seconds_until(existing.get("next_attempt_at")))
 
-    def retry(self, destination: str, context: FinalizationContext) -> None:
+    def retry(self, destination: str, context: FinalizationContext, *, target: str = "snapshot") -> None:
         """Retry the deterministic upload job behind a finalization step.
 
         Resetting only the outer state-machine step would immediately find the
@@ -249,11 +253,21 @@ class UploadJobDestinationHandler:
         if status in {"done", "running"}:
             return
         try:
-            self.service.retry(job_id=job_id, kind=destination)
+            self.service.retry(job_id=job_id, kind=destination, target=target)
         except Exception as error:
             raise FinalizationError(
                 f"Could not retry the persistent {destination} upload: {error}"
             ) from error
+
+    def describe_retry_target(self, destination: str, context: FinalizationContext) -> dict[str, Any]:
+        job_id = _destination_job_id(
+            context.state["job_id"],
+            destination,
+            int(context.state.get("publication_generation") or 1),
+        )
+        if self._find_job(job_id) is None:
+            return {"differs": False, "fields": []}
+        return self.service.describe_retry_target(job_id)
 
     def _find_job(self, job_id: str) -> dict[str, Any] | None:
         status = self.service.status(days=30)
@@ -543,7 +557,32 @@ class FinalizationService:
         counts = {status: sum(item["status"] == status for item in jobs) for status in sorted(PUBLIC_STATUSES)}
         return {"ok": True, "days": bounded_days, "counts": counts, "jobs": jobs}
 
-    def retry(self, job_id: str, *, step_key: str = "") -> dict[str, Any]:
+    def describe_retry_target(self, job_id: str, *, step_key: str = "") -> dict[str, Any]:
+        """Compare a failed destination step's frozen target with its current one.
+
+        Read-only counterpart to ``retry()``'s step lookup, used by the
+        operator-facing retry confirmation before any state changes.
+        """
+        with self._lock:
+            state = self._require_state(job_id)
+            target = str(step_key or "").strip()
+            failed_keys = [step["key"] for step in state["steps"] if step["status"] in {"failed", "retrying"}]
+            if target:
+                if target not in self._step_keys(state) or target == "commit_submission":
+                    raise InvalidTransitionError("The requested finalization step cannot be retried.")
+            elif failed_keys:
+                target = failed_keys[0]
+            else:
+                return {"differs": False, "fields": []}
+            destination_definition = self._destination_by_step(state, target)
+            if destination_definition is None or self.destination_handler is None:
+                return {"differs": False, "fields": []}
+            describe = getattr(self.destination_handler, "describe_retry_target", None)
+            if not callable(describe):
+                return {"differs": False, "fields": []}
+            return describe(destination_definition.destination, self._context(state))
+
+    def retry(self, job_id: str, *, step_key: str = "", retry_target: str = "snapshot") -> dict[str, Any]:
         with self._lock:
             state = self._require_state(job_id)
             target = str(step_key or "").strip()
@@ -566,6 +605,7 @@ class FinalizationService:
                     retry_destination(
                         destination_definition.destination,
                         self._context(state),
+                        target=retry_target,
                     )
             self._reset_from(state, target)
             if destination_definition is not None and previous_status in {

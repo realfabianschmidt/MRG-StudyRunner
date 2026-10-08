@@ -1,5 +1,5 @@
 {
-  "cross_package_import_edges": 529,
+  "cross_package_import_edges": 532,
   "cycle_count": 0,
   "cycle_pairs": [],
   "largest_file": {
@@ -12,7 +12,7 @@
       "path": ""
     },
     "apps.server": {
-      "lines": 1038,
+      "lines": 1052,
       "path": "software/study_runner/apps/server/routes/study.py"
     },
     "apps.ui": {
@@ -76,7 +76,7 @@
       "path": "software/study_runner/plugins/cards/affect_map/plugin.py"
     },
     "plugins.destinations": {
-      "lines": 1138,
+      "lines": 1171,
       "path": "software/study_runner/plugins/destinations/notion_upload/adapter.py"
     },
     "plugins.outputs": {
@@ -88,7 +88,7 @@
       "path": "software/study_runner/plugins/sensors/brainbit/adapter.py"
     },
     "runtime_core": {
-      "lines": 1886,
+      "lines": 1926,
       "path": "software/study_runner/runtime_core/delivery/finalization_service.py"
     },
     "shared": {
@@ -102,9 +102,9 @@
   },
   "lines_per_package": {
     "apps": 0,
-    "apps.server": 5388,
+    "apps.server": 5434,
     "apps.ui": 0,
-    "apps.ui.admin": 6207,
+    "apps.ui.admin": 6279,
     "apps.ui.cards": 4904,
     "apps.ui.participant": 3445,
     "apps.ui.settings": 1964,
@@ -118,10 +118,10 @@
     "plugin_framework": 4209,
     "plugins": 0,
     "plugins.cards": 1465,
-    "plugins.destinations": 1897,
+    "plugins.destinations": 1930,
     "plugins.outputs": 142,
     "plugins.sensors": 11530,
-    "runtime_core": 16028,
+    "runtime_core": 16279,
     "shared": 466,
     "updates": 696
   }

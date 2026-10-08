@@ -30,7 +30,14 @@ Executor = Callable[[dict[str, Any]], dict[str, Any] | None]
 # A destination's own retry settings on this computer: {"auto_retry": bool,
 # "retry_hours": number}. Every upload plugin declares both in its manifest.
 RetryPolicy = Callable[[], dict[str, Any]]
+# (public job dict, job payload or None) -> {"differs": bool, "fields": [...]}.
+# Compares the destination settings a job's payload was frozen with against
+# the study's current ones, so the operator can see a changed target before
+# retrying. ``None`` payload (a done job's payload is deleted) means no
+# comparison is possible.
+RetryTargetDescriber = Callable[[dict[str, Any], dict[str, Any] | None], dict[str, Any]]
 SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+RETRY_TARGETS = ("snapshot", "current")
 
 
 class UploadJobError(RuntimeError):
@@ -68,6 +75,7 @@ class UploadJobService:
         self.legacy_notion_queue_path = self.data_dir / "notion_upload_queue.jsonl"
         self._executors = dict(executors or {})
         self._retry_policies: dict[str, RetryPolicy] = {}
+        self._retry_target_describers: dict[str, RetryTargetDescriber] = {}
         self._clock = clock
         self._jobs: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
@@ -88,6 +96,14 @@ class UploadJobService:
         self._executors[normalized] = executor
         if retry_policy is not None:
             self._retry_policies[normalized] = retry_policy
+
+    def register_retry_target_describer(self, kind: str, describer: RetryTargetDescriber) -> None:
+        normalized = str(kind or "").strip()
+        if not normalized or not SAFE_JOB_ID.fullmatch(normalized):
+            raise ValueError("Upload executor kind must be a safe non-empty key.")
+        if not callable(describer):
+            raise ValueError("Retry target describer must be callable.")
+        self._retry_target_describers[normalized] = describer
 
     def _retry_settings(self, kind: str) -> tuple[bool, float]:
         """(auto_retry, max age in seconds) for one destination, read on use so
@@ -148,6 +164,7 @@ class UploadJobService:
                 "next_attempt_epoch": now,
                 "status": "queued",
                 "last_error": "",
+                "retry_target": "snapshot",
                 "steps": [
                     {"key": "local_save", "status": "done"},
                     {"key": normalized_kind, "status": "queued"},
@@ -247,7 +264,42 @@ class UploadJobService:
             "already_published": published,
         }
 
-    def retry(self, *, job_id: str = "", all_failed: bool = False, kind: str = "") -> dict[str, Any]:
+    def describe_retry_target(self, job_id: str) -> dict[str, Any]:
+        """Compare a job's frozen destination settings with the study's current ones.
+
+        Used before an operator-initiated retry so a target that moved since
+        the session finished (a changed Notion page, for example) can be
+        shown instead of silently replayed.
+        """
+        with self._lock:
+            job = self._jobs.get(str(job_id or "").strip())
+            if job is None:
+                raise UploadJobError("Upload job was not found.")
+            public = _public_job(job)
+            kind = str(job.get("kind") or "")
+        describer = self._retry_target_describers.get(kind)
+        if describer is None:
+            return {"differs": False, "fields": []}
+        payload_path = self.payload_dir / f"{job_id}.json"
+        payload: dict[str, Any] | None = None
+        if payload_path.is_file():
+            try:
+                payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = None
+        return describer(public, payload)
+
+    def retry(
+        self,
+        *,
+        job_id: str = "",
+        all_failed: bool = False,
+        kind: str = "",
+        target: str = "snapshot",
+    ) -> dict[str, Any]:
+        normalized_target = str(target or "snapshot").strip()
+        if normalized_target not in RETRY_TARGETS:
+            raise UploadJobError(f"Unsupported retry target: {normalized_target}")
         with self._lock:
             if all_failed:
                 targets = [
@@ -277,6 +329,7 @@ class UploadJobService:
                     "job_id": job["job_id"],
                     "next_attempt_epoch": now,
                     "next_attempt_at": _iso_time(now),
+                    "target": normalized_target,
                 }
                 self._append_event(event)
                 self._apply_event(event)
@@ -379,9 +432,13 @@ class UploadJobService:
             self._apply_event(attempt_event)
             payload_path = self.payload_dir / f"{job_id}.json"
             kind = str(job.get("kind") or "")
+            retry_target = str(job.get("retry_target") or "snapshot")
 
         try:
             payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            # Not persisted to the payload file: an in-memory hint for this
+            # one attempt, read and consumed by the destination's executor.
+            payload["_retry_target"] = retry_target
             executor = self._executors.get(kind)
             if executor is None:
                 raise UploadJobError(f"No executor is registered for {kind}.")
@@ -520,6 +577,10 @@ class UploadJobService:
                 next_attempt_at=event["next_attempt_at"],
                 last_error=str(event.get("last_error") or ""),
             )
+            if event_type == "retry_requested" and "target" in event:
+                # Only an operator-initiated retry (not the automatic backoff
+                # schedule) carries an explicit target choice.
+                job["retry_target"] = str(event["target"])
             if destination_step:
                 destination_step["status"] = "queued"
         elif event_type == "done":
@@ -566,6 +627,7 @@ def _public_job(job: dict[str, Any]) -> dict[str, Any]:
         "next_attempt_at",
         "status",
         "last_error",
+        "retry_target",
         "steps",
         "metadata",
         "completed_at",

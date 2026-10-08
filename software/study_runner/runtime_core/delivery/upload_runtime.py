@@ -17,6 +17,8 @@ from study_runner.shared.atomic_io import atomic_path_lock, atomic_write_json
 from study_runner.shared.study_identifiers import normalize_study_id
 
 from ..studies.study_config_service import (
+    load_config,
+    load_study,
     locked_study_change,
     patch_study_plugin_settings,
     study_busy_reason,
@@ -40,6 +42,7 @@ def configure_upload_jobs(app) -> UploadJobService:
             _plugin_executor(app, plugin, destination),
             retry_policy=_machine_settings_reader(app, plugin),
         )
+        service.register_retry_target_describer(destination, _retry_target_describer(app, plugin))
 
     migration = service.migrate_legacy_notion_queue()
     if migration.get("migrated"):
@@ -56,6 +59,73 @@ def _machine_settings_reader(app: Any, plugin: Plugin) -> Callable[[], dict[str,
     return lambda: dict((app.config.get("HARDWARE_CONFIG") or {}).get(section) or {})
 
 
+def _current_plugin_selection(app: Any, study_id: str, plugin_key: str) -> dict[str, Any] | None:
+    """A destination's current ``{enabled, required, settings}`` for ``study_id``.
+
+    Reads the active study if it is the same one, otherwise the saved study
+    library, exactly like ``patch_study_plugin_settings`` does. Returns
+    ``None`` when the study (or its selection for this plugin) no longer
+    exists, e.g. it was deleted since the session finished.
+    """
+    if not study_id:
+        return None
+    config_file = Path(app.config["CONFIG_FILE"])
+    try:
+        active = load_config(config_file) if config_file.is_file() else None
+    except Exception:
+        active = None
+    same_active_study = (
+        active is not None
+        and normalize_study_id(str(active.get("study_id") or "")) == normalize_study_id(study_id)
+    )
+    try:
+        latest = active if same_active_study else load_study(Path(app.config["SAVED_STUDIES_DIR"]), study_id)
+    except FileNotFoundError:
+        return None
+    selection = ((latest.get("study_settings") or {}).get("plugins") or {}).get(plugin_key)
+    if not isinstance(selection, dict) or not isinstance(selection.get("settings"), dict):
+        return None
+    return deepcopy(selection)
+
+
+def _retry_target_describer(app: Any, plugin: Plugin) -> Callable[[dict[str, Any], dict[str, Any] | None], dict[str, Any]]:
+    """Build the comparison a retry confirmation shows for one destination.
+
+    Compares every declared string setting (not only the discovered ones):
+    a hand-entered field such as the Notion parent page can drift from the
+    frozen snapshot just as easily as an auto-discovered database id.
+    """
+    manifest = get_plugin_manifest(plugin.key)
+    schema = manifest.get("study_settings_schema") or {}
+    string_fields = [name for name, field in schema.items() if field.get("type") == "string"]
+
+    def describe(job: dict[str, Any], payload: dict[str, Any] | None) -> dict[str, Any]:
+        if payload is None or not string_fields:
+            return {"differs": False, "fields": []}
+        config_data = payload.get("config_data") or {}
+        frozen_selection = ((config_data.get("study_settings") or {}).get("plugins") or {}).get(plugin.key) or {}
+        frozen_settings = frozen_selection.get("settings")
+        frozen_settings = frozen_settings if isinstance(frozen_settings, dict) else {}
+        study_id = str(config_data.get("study_id") or "").strip()
+        current_selection = _current_plugin_selection(app, study_id, plugin.key)
+        if current_selection is None:
+            return {"differs": False, "fields": [], "study_missing": True}
+        current_settings = current_selection.get("settings") or {}
+        fields = [
+            {
+                "name": name,
+                "label_key": schema.get(name, {}).get("label_key") or name,
+                "snapshot": str(frozen_settings.get(name) or ""),
+                "current": str(current_settings.get(name) or ""),
+            }
+            for name in string_fields
+            if str(frozen_settings.get(name) or "") != str(current_settings.get(name) or "")
+        ]
+        return {"differs": bool(fields), "fields": fields}
+
+    return describe
+
+
 def _plugin_executor(
     app: Any,
     plugin: Plugin,
@@ -70,6 +140,23 @@ def _plugin_executor(
     defaults = {key: field.get("default") for key, field in schema.items() if "default" in field}
 
     def execute(payload: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(payload)
+        retry_target = str(payload.pop("_retry_target", "snapshot") or "snapshot")
+        if retry_target == "current":
+            config_data = payload.get("config_data") or {}
+            study_id = str(config_data.get("study_id") or "").strip()
+            current_selection = _current_plugin_selection(app, study_id, plugin.key)
+            if current_selection is not None:
+                config_data = deepcopy(config_data)
+                config_data.setdefault("study_settings", {}).setdefault("plugins", {})[
+                    plugin.key
+                ] = current_selection
+                payload = {**payload, "config_data": config_data}
+            # Else: the study was deleted or renamed since the session ended.
+            # Falling back to the frozen snapshot is the only upload that is
+            # still possible; the operator already saw this in the retry
+            # comparison before choosing to retry.
+
         handler = plugin.publish_destination
         if handler is None:
             raise UploadJobError(

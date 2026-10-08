@@ -41,11 +41,33 @@ def finalization_job(job_id: str):
         return jsonify({"ok": False, "error": str(error)}), 404
 
 
+@bp.route("/api/finalization/<job_id>/retry-target", methods=["GET"])
+def finalization_retry_target(job_id: str):
+    """Compare a failed step's frozen destination with its current one.
+
+    The operator sees this before confirming a retry, so a Notion page (or
+    any other destination setting) that changed since the session ended is
+    a choice, not a silent replay of the old target.
+    """
+    try:
+        return jsonify({"ok": True, **_service().describe_retry_target(
+            job_id, step_key=str(request.args.get("step") or ""),
+        )})
+    except FinalizationNotFoundError as error:
+        return jsonify({"ok": False, "error": str(error)}), 404
+    except InvalidTransitionError as error:
+        return jsonify({"ok": False, "error": str(error)}), 409
+
+
 @bp.route("/api/finalization/<job_id>/retry", methods=["POST"])
 def retry_finalization(job_id: str):
     payload = request.get_json(silent=True) or {}
     try:
-        job = _service().retry(job_id, step_key=str(payload.get("step") or ""))
+        job = _service().retry(
+            job_id,
+            step_key=str(payload.get("step") or ""),
+            retry_target=str(payload.get("target") or "snapshot"),
+        )
         return jsonify({"ok": True, "job": job})
     except FinalizationNotFoundError as error:
         return jsonify({"ok": False, "error": str(error)}), 404

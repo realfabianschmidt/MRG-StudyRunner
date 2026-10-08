@@ -14,6 +14,7 @@ from study_runner.runtime_core.studies.study_plugin_config import (
     migrate_study_plugin_config,
     normalize_card_plugin_actions,
     normalize_study_settings_plugins,
+    reset_stale_upload_discoveries,
 )
 from study_runner.runtime_core.studies.study_readiness_service import check_study_readiness
 from study_runner.runtime_core.studies.validation import validate_and_normalize_config
@@ -329,6 +330,61 @@ class StudyPluginMigrationTests(unittest.TestCase):
         self.assertNotIn("lsl", card["plugin_actions"])
         self.assertNotIn("mini_radar", card["plugin_actions"])
         self.assertIn("plugin_actions", card)
+
+
+def _notion_plugins(**settings: str) -> dict:
+    return {"plugins": {"notion": {"enabled": True, "required": False, "settings": settings}}}
+
+
+class ResetStaleUploadDiscoveriesTests(unittest.TestCase):
+    """A hand-entered destination setting changing must not leave a stale
+    auto-discovered id (e.g. a Notion database under the previous parent
+    page) pointing at the old target. See docs/archive for the bug this
+    guards: retrying an old session, or just saving a changed parent page,
+    silently kept uploading to the page the database was first created
+    under."""
+
+    def test_changing_the_parent_page_clears_its_discovered_database(self) -> None:
+        previous = _notion_plugins(parent_page_id="page-a", database_id="db-a", data_source_id="ds-a")
+        next_settings = _notion_plugins(parent_page_id="page-b", database_id="db-a", data_source_id="ds-a")
+
+        reset = reset_stale_upload_discoveries(previous, next_settings)
+
+        settings = reset["plugins"]["notion"]["settings"]
+        self.assertEqual(settings["parent_page_id"], "page-b")
+        self.assertEqual(settings["database_id"], "")
+        self.assertEqual(settings["data_source_id"], "")
+
+    def test_an_explicit_database_override_in_the_same_save_survives(self) -> None:
+        previous = _notion_plugins(parent_page_id="page-a", database_id="db-a", data_source_id="ds-a")
+        next_settings = _notion_plugins(parent_page_id="page-b", database_id="operator-chosen-db", data_source_id="ds-a")
+
+        reset = reset_stale_upload_discoveries(previous, next_settings)
+
+        settings = reset["plugins"]["notion"]["settings"]
+        self.assertEqual(settings["database_id"], "operator-chosen-db", "an explicit change in this save is not a leftover")
+        self.assertEqual(settings["data_source_id"], "", "unrelated discovered field still clears")
+
+    def test_unrelated_edits_leave_discovered_settings_untouched(self) -> None:
+        previous = _notion_plugins(parent_page_id="page-a", database_id="db-a")
+        next_settings = _notion_plugins(parent_page_id="page-a", database_id="db-a")
+        next_settings["plugins"]["notion"]["enabled"] = False
+
+        reset = reset_stale_upload_discoveries(previous, next_settings)
+
+        self.assertEqual(reset["plugins"]["notion"]["settings"]["database_id"], "db-a")
+
+    def test_a_newly_added_plugin_selection_is_left_alone(self) -> None:
+        next_settings = _notion_plugins(parent_page_id="page-a", database_id="")
+        reset = reset_stale_upload_discoveries(None, next_settings)
+        self.assertEqual(reset["plugins"]["notion"]["settings"]["database_id"], "")
+
+    def test_missing_or_malformed_input_is_handled_without_error(self) -> None:
+        self.assertEqual(reset_stale_upload_discoveries(None, None), {})
+        self.assertEqual(
+            reset_stale_upload_discoveries({"plugins": "not-a-dict"}, _notion_plugins(parent_page_id="page-a")),
+            _notion_plugins(parent_page_id="page-a"),
+        )
 
 
 if __name__ == "__main__":

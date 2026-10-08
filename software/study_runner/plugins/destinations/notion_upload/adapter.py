@@ -498,19 +498,30 @@ def _get_data_source_id(
         return db_id
 
     cached_ds = study_settings.get("notion_data_source_id")
-    if cached_ds:
-        return cached_ds
 
     try:
         db = client.databases.retrieve(database_id=db_id)
         data_sources = db.get("data_sources", [])
-        if data_sources:
-            ds_id = data_sources[0]["id"]
-            study_settings["notion_data_source_id"] = ds_id
-            updates["data_source_id"] = ds_id
-            return ds_id
     except Exception as e:
         print(f"[NOTION] Could not retrieve data source: {e}")
+        # Cannot verify the cache against the current database; trust it
+        # rather than failing the whole upload over a transient read error.
+        return cached_ds or db_id
+
+    # A cached data source only stays valid while it still belongs to the
+    # current database. After a changed database_id (new parent page, or a
+    # retry replaying an older target), the old source id would silently
+    # keep writing into the previous database.
+    current_ids = {str(source.get("id") or "") for source in data_sources}
+    if cached_ds and cached_ds in current_ids:
+        return cached_ds
+
+    if data_sources:
+        ds_id = str(data_sources[0]["id"])
+        if ds_id != cached_ds:
+            study_settings["notion_data_source_id"] = ds_id
+            updates["data_source_id"] = ds_id
+        return ds_id
 
     return db_id
 
@@ -634,6 +645,16 @@ def _sessions_parent_page(client: Any, participants_db_id: str, study_settings: 
     return _strip_dashes(str(parent))
 
 
+def _database_parent_page(client: Any, db_id: str) -> str | None:
+    """The page id a database lives under, or None if it cannot be read."""
+    try:
+        database = client.databases.retrieve(database_id=db_id)
+    except Exception as error:
+        print(f"[NOTION] Could not verify sessions database parent: {error}")
+        return None
+    return _strip_dashes(str((database.get("parent") or {}).get("page_id") or ""))
+
+
 def _ensure_sessions_database(
     client: Any,
     participants_db_id: str,
@@ -642,9 +663,21 @@ def _ensure_sessions_database(
 ) -> str:
     """One row per session, related to its participant row."""
     db_id = _strip_dashes(study_settings.get("notion_sessions_database_id", ""))
-    if db_id:
-        return db_id
     parent_page_id = _sessions_parent_page(client, participants_db_id, study_settings)
+    if db_id:
+        # A cached sessions database only stays valid under its original
+        # parent page. After the parent page changed (the operator moved the
+        # study, or a retry replayed an older target), a stale cache here
+        # would keep every new session on the previous page while the
+        # participants database already moved to the new one.
+        actual_parent = _database_parent_page(client, db_id)
+        if actual_parent is None or actual_parent == parent_page_id:
+            return db_id
+        print(
+            f"[NOTION] Cached sessions database {db_id} belongs to page {actual_parent}, "
+            f"not the current parent {parent_page_id}; rediscovering."
+        )
+        db_id = ""
     db_id = _find_child_database(client, parent_page_id, SESSIONS_DATABASE_TITLE)
     if not db_id:
         schema: dict[str, Any] = {

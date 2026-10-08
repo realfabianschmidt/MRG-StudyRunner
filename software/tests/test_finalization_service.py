@@ -179,8 +179,10 @@ class FailedPersistentDestinationHandler(RecordingDestinationHandler):
             raise FinalizationError("persistent notion upload failed")
         return StepResult("done", {"destination": destination, "session_id": context.state["session_id"]})
 
-    def retry(self, destination, _context):
+    def retry(self, destination, _context, *, target="snapshot"):
         self.retry_calls.append(destination)
+        self.retry_targets_used = getattr(self, "retry_targets_used", [])
+        self.retry_targets_used.append(target)
         self.fail_notion = False
 
 

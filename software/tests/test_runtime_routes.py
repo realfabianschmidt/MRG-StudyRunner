@@ -765,6 +765,95 @@ class RuntimeRoutesTests(unittest.TestCase):
         )
         self.assertNotIn("temporary-secret", response.get_data(as_text=True))
 
+    def test_changing_a_destinations_parent_setting_clears_its_stale_discovery(self) -> None:
+        """Regression: saving a new Notion parent page used to leave the
+        previously auto-discovered database id in place, so new sessions
+        kept uploading to the old page until some retry happened to notice.
+        """
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+            client = app.test_client()
+
+            def config(parent_page_id: str, database_id: str) -> dict:
+                return {
+                    "study_id": "study-a",
+                    "study_settings": {
+                        "sensors_enabled": False, "sensors": {}, "plugins": {
+                            "notion": {
+                                "enabled": True, "required": False,
+                                "settings": {
+                                    "parent_page_id": parent_page_id,
+                                    "database_id": database_id,
+                                    "data_source_id": "source-1",
+                                },
+                            },
+                        },
+                    },
+                    "questions": [{"type": "participant-id"}, {"type": "finish"}],
+                }
+
+            first = client.post("/api/config", json=config("page-a", "db-1"))
+            self.assertEqual(first.status_code, 200)
+            notion_settings = first.get_json()["config"]["study_settings"]["plugins"]["notion"]["settings"]
+            self.assertEqual(notion_settings["database_id"], "db-1")
+
+            # The operator changes only the parent page; database_id and
+            # data_source_id arrive unchanged because they are read-only in
+            # the settings UI.
+            second = client.post("/api/config", json=config("page-b", "db-1"))
+
+        self.assertEqual(second.status_code, 200)
+        saved = second.get_json()["config"]["study_settings"]["plugins"]["notion"]["settings"]
+        self.assertEqual(saved["parent_page_id"], "page-b")
+        self.assertEqual(saved["database_id"], "", "a database under the old parent page must not be reused")
+        self.assertEqual(saved["data_source_id"], "")
+
+    def test_activating_a_different_study_does_not_wipe_its_own_discoveries(self) -> None:
+        """Regression: comparing a destination's settings across two
+        *different* studies (switching which study is active) must never be
+        mistaken for the operator editing one study's target. Study B's own,
+        already-discovered database id is unrelated to Study A's and must
+        survive activating Study B.
+        """
+        with tempfile.TemporaryDirectory() as data_dir:
+            env = {
+                "STUDY_RUNNER_DATA_DIR": data_dir,
+                "STUDY_RUNNER_DISABLE_HARDWARE": "1",
+                "STUDY_RUNNER_DISABLE_BACKGROUND": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                app = create_app()
+            client = app.test_client()
+
+            def config(study_id: str, parent_page_id: str, database_id: str) -> dict:
+                return {
+                    "study_id": study_id,
+                    "study_settings": {
+                        "sensors_enabled": False, "sensors": {}, "plugins": {
+                            "notion": {
+                                "enabled": True, "required": False,
+                                "settings": {"parent_page_id": parent_page_id, "database_id": database_id},
+                            },
+                        },
+                    },
+                    "questions": [{"type": "participant-id"}, {"type": "finish"}],
+                }
+
+            self.assertEqual(client.post("/api/config", json=config("study-a", "page-a", "db-a")).status_code, 200)
+            # Study B is a different study with its own unrelated, already
+            # discovered target -- activating it is not an edit of Study A.
+            activated = client.post("/api/config", json=config("study-b", "page-b", "db-b"))
+
+        self.assertEqual(activated.status_code, 200)
+        saved = activated.get_json()["config"]["study_settings"]["plugins"]["notion"]["settings"]
+        self.assertEqual(saved["database_id"], "db-b")
+
 
 if __name__ == "__main__":
     unittest.main()

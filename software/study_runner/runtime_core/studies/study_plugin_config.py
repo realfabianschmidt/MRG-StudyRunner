@@ -321,6 +321,68 @@ def _switched_off(actions: Any) -> bool:
     return isinstance(actions, dict) and any(value is False for value in actions.values())
 
 
+def reset_stale_upload_discoveries(
+    previous_study_settings: dict[str, Any] | None,
+    next_study_settings: dict[str, Any] | None,
+    *,
+    manifests: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Clear an upload destination's discovered settings its own save left stale.
+
+    Each ``upload_destination`` plugin may auto-discover settings (e.g. a
+    database id created under a parent page) and remember them on the study
+    (``capability_config.upload_destination.discovered_settings``). If the
+    operator then changes one of the *other*, hand-entered settings for that
+    destination (e.g. the parent page) without also updating the discovered
+    ones, the stale discovered values would otherwise keep pointing at the
+    previous target until some retry happens to notice. Clearing them here,
+    at the moment the operator's intent changes, makes the next upload
+    rediscover a target that matches what was just saved.
+
+    A discovered field is left alone when the same save explicitly set it to
+    something new - that is the operator (or a replay) supplying the value
+    on purpose, not a leftover from before.
+    """
+
+    available = manifests if manifests is not None else _plugin_manifests()
+    next_settings = deepcopy(next_study_settings if isinstance(next_study_settings, dict) else {})
+    previous = previous_study_settings if isinstance(previous_study_settings, dict) else {}
+    previous_plugins = previous.get("plugins") if isinstance(previous.get("plugins"), dict) else {}
+    next_plugins = next_settings.get("plugins") if isinstance(next_settings.get("plugins"), dict) else {}
+
+    for plugin_key, manifest in available.items():
+        capability = (manifest.get("capability_config") or {}).get("upload_destination")
+        if not isinstance(capability, dict):
+            continue
+        discovered_fields = set(capability.get("discovered_settings") or [])
+        if not discovered_fields:
+            continue
+        previous_entry = previous_plugins.get(plugin_key)
+        next_entry = next_plugins.get(plugin_key)
+        if not isinstance(previous_entry, dict) or not isinstance(next_entry, dict):
+            continue
+        previous_values = previous_entry.get("settings")
+        next_values = next_entry.get("settings")
+        if not isinstance(previous_values, dict) or not isinstance(next_values, dict):
+            continue
+
+        schema = manifest.get("study_settings_schema") or {}
+        hand_entered_fields = set(schema.keys()) - discovered_fields
+        changed_by_hand = any(
+            previous_values.get(field) != next_values.get(field) for field in hand_entered_fields
+        )
+        if not changed_by_hand:
+            continue
+        for field in discovered_fields:
+            # The save already changed this discovered field itself (an
+            # explicit override, or a replayed discovery): keep it.
+            if next_values.get(field) != previous_values.get(field):
+                continue
+            if next_values.get(field):
+                next_values[field] = str(schema.get(field, {}).get("default") or "")
+    return next_settings
+
+
 def migrate_study_plugin_config(config_data: dict[str, Any]) -> dict[str, Any]:
     """Compatibility entry point for callers that migrate complete studies."""
 
