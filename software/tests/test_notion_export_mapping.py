@@ -21,6 +21,7 @@ from study_runner.plugins.destinations.notion_upload.mapping import (
     MappingError,
     build_output_catalog,
     evaluate_target,
+    key_column_for,
     key_value,
     session_context,
     validate_export_mapping,
@@ -112,6 +113,26 @@ class ExportMappingValidationTests(unittest.TestCase):
         )]}
         with self.assertRaisesRegex(MappingError, "not a recognized output"):
             validate_export_mapping(mapping, config_data=config_data)
+
+    def test_a_custom_key_column_name_is_accepted_and_used(self) -> None:
+        target = session_target(Pid={"type": "rich_text", "source": "session.participant_id"})
+        target["key_column"] = "Sitzungs-ID"
+        validate_export_mapping({"preset": "custom", "targets": [target]})
+        self.assertEqual(key_column_for(target), "Sitzungs-ID")
+        self.assertEqual(key_column_for(session_target()), "Session ID")
+
+    def test_an_empty_or_overlong_key_column_is_rejected(self) -> None:
+        for bad in ("", "   ", "x" * 101, 42):
+            with self.subTest(bad=bad):
+                target = session_target(Pid={"type": "rich_text", "source": "session.participant_id"})
+                target["key_column"] = bad
+                with self.assertRaisesRegex(MappingError, "key_column"):
+                    validate_export_mapping({"preset": "custom", "targets": [target]})
+
+    def test_a_column_repeating_the_key_column_is_rejected(self) -> None:
+        target = session_target(**{"Session ID": {"type": "rich_text", "source": "session.session_id"}})
+        with self.assertRaisesRegex(MappingError, "must not repeat the key column"):
+            validate_export_mapping({"preset": "custom", "targets": [target]})
 
     def test_invalid_row_level_is_rejected(self) -> None:
         mapping = {"preset": "custom", "targets": [{

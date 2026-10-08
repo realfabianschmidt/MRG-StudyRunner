@@ -34,12 +34,20 @@ REDUCERS = ("mean", "min", "max", "count", "join", "first", "last")
 COLUMN_TYPES = ("rich_text", "number", "date", "select", "multi_select")
 PRESETS = ("as_before", "simple", "analysis", "custom")
 
-# The row level fixes the key column; it is never one of the mapped columns.
+# The row level fixes what the key column holds; it is never one of the
+# mapped columns. Its *name* defaults to these English ones, and a target may
+# name it itself (e.g. "Sitzungs-ID" for a database created in German).
 KEY_COLUMN_NAME = {
     "session": "Session ID",
     "participant": "Participant ID",
     "card": "Row Key",
 }
+KEY_COLUMN_MAX_LENGTH = 100
+
+
+def key_column_for(target: dict[str, Any]) -> str:
+    """The key column's name in this target's database."""
+    return str(target.get("key_column") or "").strip() or KEY_COLUMN_NAME[target["row_level"]]
 
 DEFAULT_EXPORT_MAPPING: dict[str, Any] = {"preset": "as_before", "targets": []}
 
@@ -96,9 +104,17 @@ def validate_export_mapping(value: Any, *, config_data: dict[str, Any] | None = 
         row_level = target.get("row_level")
         if row_level not in ROW_LEVELS:
             raise MappingError(f"{path}.row_level must be one of: {', '.join(ROW_LEVELS)}.")
+        if "key_column" in target:
+            key_column = target.get("key_column")
+            if not isinstance(key_column, str) or not key_column.strip() or len(key_column) > KEY_COLUMN_MAX_LENGTH:
+                raise MappingError(
+                    f"{path}.key_column must be a non-empty name of at most {KEY_COLUMN_MAX_LENGTH} characters."
+                )
         columns = target.get("columns")
         if not isinstance(columns, dict) or not columns:
             raise MappingError(f"{path}.columns must be a non-empty JSON object.")
+        if key_column_for(target) in columns:
+            raise MappingError(f"{path}.columns must not repeat the key column {key_column_for(target)!r}.")
         for column_name, column in columns.items():
             if not isinstance(column_name, str) or not column_name.strip():
                 raise MappingError(f"{path}.columns has an empty column name.")

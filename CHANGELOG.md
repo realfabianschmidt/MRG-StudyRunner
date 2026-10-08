@@ -8,6 +8,7 @@ All notable Study Runner changes are documented here. Release tags use
 ### Added
 
 - The Notion settings have a "Configure…" button that opens a large configurator: browse the study's Notion parent page, attach an existing database or create a new one, and decide which column gets which value. Start from a preset - one row per session, one row per card, or exactly as before - and adjust from there. Values per card (answers, sensor statistics) can be reduced to one value per session (mean, min, max, count, join, first, last) or taken from one specific card. A preview computes the rows from a real finished session before anything is written. Existing studies keep uploading exactly as before until a different preset is saved (Notion plugin 1.2.0).
+- When the Notion configurator creates a database from a preset, its column names can be German or English, starting from the language of the interface; the key column follows the same choice ("Sitzungs-ID" / "Session ID"). An attached existing database keeps its own title column as the key. Each target's "one row per" level can now be chosen in the configurator, not only through a preset (Notion plugin 1.3.0).
 - Plugins can now offer their own study-settings configurator and store a structured setting that the plugin itself validates; a mapping a plugin cannot accept is refused when the study is saved, not later at upload.
 
 ### Fixed

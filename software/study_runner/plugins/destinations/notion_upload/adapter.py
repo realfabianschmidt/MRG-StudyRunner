@@ -426,12 +426,20 @@ def create_notion_database(
     title: str,
     row_level: str,
     columns_json: str,
+    key_column: str = "",
 ) -> dict[str, Any]:
-    """Create a target database with its key column plus the given columns."""
+    """Create a target database with its key column plus the given columns.
+
+    ``key_column`` names the key column (e.g. "Sitzungs-ID" for a database
+    created in German); empty means the English default for the row level.
+    """
     from . import mapping as mapping_module
 
     if row_level not in mapping_module.ROW_LEVELS:
         return {"ok": False, "error": f"row_level must be one of: {', '.join(mapping_module.ROW_LEVELS)}."}
+    key_column = str(key_column or "").strip()
+    if len(key_column) > mapping_module.KEY_COLUMN_MAX_LENGTH:
+        return {"ok": False, "error": f"key_column may be at most {mapping_module.KEY_COLUMN_MAX_LENGTH} characters."}
     try:
         columns = json.loads(columns_json) if columns_json else []
     except json.JSONDecodeError as error:
@@ -447,7 +455,7 @@ def create_notion_database(
     if not parent:
         return {"ok": False, "error": "A parent page id is required."}
 
-    key_column = mapping_module.KEY_COLUMN_NAME[row_level]
+    key_column = mapping_module.key_column_for({"row_level": row_level, "key_column": key_column})
     schema: dict[str, Any] = {key_column: {"title": {}}}
     for column in columns:
         if not isinstance(column, dict):
@@ -615,7 +623,7 @@ def _upload_via_export_mapping(
     where = ""
     try:
         for target in export_mapping.get("targets", []):
-            key_column = mapping_module.KEY_COLUMN_NAME[target["row_level"]]
+            key_column = mapping_module.key_column_for(target)
             for row in mapping_module.evaluate_target(target, context):
                 key = mapping_module.key_value(target, context, row["card_index"])
                 where = f"target {target['title']!r}, row {key!r}"

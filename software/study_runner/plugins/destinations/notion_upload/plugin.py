@@ -129,6 +129,7 @@ def _run_admin_action(
             title=str(payload.get("title") or ""),
             row_level=str(payload.get("row_level") or ""),
             columns_json=str(payload.get("columns_json") or "[]"),
+            key_column=str(payload.get("key_column") or ""),
         )
     if action_key == "preview_mapping":
         return adapter.preview_mapping(

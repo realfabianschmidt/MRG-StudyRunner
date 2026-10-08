@@ -250,6 +250,7 @@ class NotionAdminActionDispatchTests(unittest.TestCase):
             })
         called.assert_called_once_with(
             api_key="study-key", parent_page_id="page-1", title="X", row_level="session", columns_json="[]",
+            key_column="",
         )
 
 
@@ -616,6 +617,16 @@ class NotionConfiguratorActionsTests(unittest.TestCase):
         self.assertEqual(schema["Session ID"], {"title": {}})
         self.assertEqual(schema["Duration"], {"number": {"format": "number"}})
 
+    def test_create_notion_database_names_the_key_column_in_the_chosen_language(self) -> None:
+        client = SimpleNamespace(databases=SimpleNamespace(create=Mock(return_value={"id": "new-db"})))
+        with patch.object(adapter, "get_client", return_value=client):
+            result = adapter.create_notion_database(
+                api_key="key", parent_page_id="parent-page", title="Export",
+                row_level="session", columns_json="[]", key_column="Sitzungs-ID",
+            )
+        self.assertEqual(result["key_column"], "Sitzungs-ID")
+        self.assertEqual(client.databases.create.call_args.kwargs["properties"], {"Sitzungs-ID": {"title": {}}})
+
     def test_create_notion_database_rejects_an_invalid_row_level(self) -> None:
         with patch.object(adapter, "get_client", return_value=SimpleNamespace()):
             result = adapter.create_notion_database(
@@ -664,6 +675,22 @@ class NotionMappedUploadTests(unittest.TestCase):
         created_properties = client.pages.create.call_args.kwargs["properties"]
         self.assertEqual(created_properties["Session ID"]["title"][0]["text"]["content"], "session-1")
         self.assertEqual(created_properties["Participant"]["rich_text"][0]["text"]["content"], "p1")
+
+    def test_a_custom_key_column_is_used_for_writing_and_matching(self) -> None:
+        export_mapping = {"preset": "simple", "targets": [{
+            "id": "t1", "title": "Sitzungen", "row_level": "session", "database_id": "db-1",
+            "key_column": "Sitzungs-ID",
+            "columns": {"Teilnehmer-ID": {"type": "rich_text", "source": "session.participant_id"}},
+        }]}
+        client = SimpleNamespace(
+            databases=SimpleNamespace(query=Mock(return_value={"results": []})),
+            pages=SimpleNamespace(create=Mock(return_value={"id": "new-page"}), update=Mock()),
+        )
+        with patch.object(adapter, "get_client", return_value=client):
+            result = plugin._publish(SimpleNamespace(hardware_config={}, secret=lambda *_: "study-key"), self.payload(export_mapping))
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(client.databases.query.call_args.kwargs["filter"]["property"], "Sitzungs-ID")
+        self.assertIn("Sitzungs-ID", client.pages.create.call_args.kwargs["properties"])
 
     def test_an_existing_row_for_the_same_key_is_updated_not_duplicated(self) -> None:
         export_mapping = {"preset": "simple", "targets": [{

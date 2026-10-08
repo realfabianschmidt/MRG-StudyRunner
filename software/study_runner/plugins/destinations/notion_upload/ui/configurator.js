@@ -10,6 +10,37 @@
  */
 import { createModal } from '/static/scripts/shared/modal.js';
 import { escapeHtml } from '/static/scripts/shared/dom-utils.js';
+import { getLanguage } from '/static/scripts/shared/i18n.js';
+
+// Column names a preset creates, per language. Every name stays editable
+// afterwards; this only decides what a fresh database starts with.
+const PRESET_NAMES = {
+  en: {
+    keySession: 'Session ID', keyParticipant: 'Participant ID', keyCard: 'Row Key',
+    participant: 'Participant ID', start: 'Start', duration: 'Duration (min)',
+    prompt: 'Prompt', answer: 'Answer', cardDuration: 'Duration (s)',
+    sessionsTitle: 'Study Runner export', answersTitle: 'Study Runner answers', newTarget: 'New database',
+  },
+  de: {
+    keySession: 'Sitzungs-ID', keyParticipant: 'Teilnehmer-ID', keyCard: 'Zeilenschlüssel',
+    participant: 'Teilnehmer-ID', start: 'Beginn', duration: 'Dauer (min)',
+    prompt: 'Frage', answer: 'Antwort', cardDuration: 'Dauer (s)',
+    sessionsTitle: 'Study Runner Export', answersTitle: 'Study Runner Antworten', newTarget: 'Neue Datenbank',
+  },
+};
+
+function defaultNameLanguage() {
+  try {
+    return String(getLanguage() || '').toLowerCase().startsWith('de') ? 'de' : 'en';
+  } catch {
+    return 'en';
+  }
+}
+
+function keyColumnDefault(rowLevel, lang) {
+  const names = PRESET_NAMES[lang] || PRESET_NAMES.en;
+  return { session: names.keySession, participant: names.keyParticipant, card: names.keyCard }[rowLevel] || names.keySession;
+}
 
 const ROW_LEVELS = ['session', 'participant', 'card'];
 const COLUMN_TYPES = ['rich_text', 'number', 'date', 'select', 'multi_select'];
@@ -29,6 +60,7 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
     tree: { nodes: [], loadedFor: '', loading: false, error: '' },
     preview: null,
     dirty: false,
+    nameLanguage: defaultNameLanguage(),
   };
   state.activeTargetId = state.mapping.targets[0]?.id || null;
 
@@ -56,6 +88,9 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
     rail?.querySelectorAll('[data-preset]').forEach((button) => {
       button.addEventListener('click', () => applyPreset(button.dataset.preset));
     });
+    rail?.querySelector('[data-name-language]')?.addEventListener('change', (event) => {
+      state.nameLanguage = event.target.value === 'de' ? 'de' : 'en';
+    });
     rail?.querySelectorAll('[data-select-target]').forEach((row) => {
       row.addEventListener('click', () => { state.activeTargetId = row.dataset.selectTarget; render(); });
     });
@@ -82,6 +117,17 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
       activeTarget().title = event.target.value;
       markDirty();
     });
+    main?.querySelector('[data-target-row-level]')?.addEventListener('change', (event) => {
+      const target = activeTarget();
+      if (!target || !ROW_LEVELS.includes(event.target.value)) return;
+      target.row_level = event.target.value;
+      // The key column holds a different value per row level; name it for
+      // the new level in the chosen language. Reducers only fit some levels,
+      // so clear them and let validation ask again where needed.
+      target.key_column = keyColumnDefault(target.row_level, state.nameLanguage);
+      Object.values(target.columns).forEach((column) => { column.reducer = null; });
+      markDirty();
+    });
     main?.querySelector('[data-preview-run]')?.addEventListener('click', () => void runPreview());
     main?.querySelector('[data-save]')?.addEventListener('click', () => void save());
     main?.querySelector('[data-discard]')?.addEventListener('click', () => modal.close());
@@ -98,7 +144,7 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
 
   function applyPreset(presetKey) {
     if (state.dirty && !window.confirm('Switching presets replaces the current targets. Continue?')) return;
-    state.mapping = presetMapping(presetKey);
+    state.mapping = presetMapping(presetKey, state.nameLanguage);
     state.activeTargetId = state.mapping.targets[0]?.id || null;
     markDirty();
   }
@@ -106,8 +152,9 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
   function addTarget() {
     const target = {
       id: `target-${Date.now().toString(36)}`,
-      title: 'New database',
+      title: (PRESET_NAMES[state.nameLanguage] || PRESET_NAMES.en).newTarget,
       row_level: 'session',
+      key_column: keyColumnDefault('session', state.nameLanguage),
       database_id: '',
       columns: {},
     };
@@ -132,7 +179,7 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
       // sees its real columns instead of an empty list.
       void runAction('describe_database', { database_id: databaseId }).then((response) => {
         const columns = response?.result?.columns || [];
-        target.columns = autoMapColumns(columns, target.row_level);
+        target.columns = autoMapColumns(columns, target);
         render();
       });
     }
@@ -162,6 +209,7 @@ export function openConfigurator({ plugin, studyId, settings, runAction, saveSet
         title: target.title || 'Study Runner export',
         row_level: target.row_level,
         columns_json: JSON.stringify(Object.entries(target.columns).map(([name, column]) => ({ name, type: column.type }))),
+        key_column: keyColumnName(target),
       });
       const result = response?.result;
       if (!result?.ok) { showToast?.(result?.error || 'Could not create the database.', 'error'); return; }
@@ -246,6 +294,13 @@ function renderRail(state) {
   return `
     <div class="configurator-section">
       <h3>Preset</h3>
+      <label class="field">
+        <span>Column names / Spaltennamen</span>
+        <select data-name-language>
+          <option value="de" ${state.nameLanguage === 'de' ? 'selected' : ''}>Deutsch</option>
+          <option value="en" ${state.nameLanguage === 'en' ? 'selected' : ''}>English</option>
+        </select>
+      </label>
       <div class="configurator-presets">
         ${PRESETS.map((preset) => `
           <button class="btn-secondary${state.mapping.preset === preset.key ? ' is-active' : ''}" type="button" data-preset="${escapeHtml(preset.key)}" title="${escapeHtml(preset.description)}">
@@ -309,7 +364,13 @@ function renderMain(state) {
         <span>Title</span>
         <input type="text" value="${escapeHtml(target.title)}" data-target-title>
       </label>
-      <span class="settings-hint">Row level: <strong>${escapeHtml(target.row_level)}</strong> · key column: <strong>${escapeHtml(keyColumnName(target.row_level))}</strong></span>
+      <label class="field">
+        <span>One row per</span>
+        <select data-target-row-level ${target.database_id ? 'disabled title="Fixed once a database is attached"' : ''}>
+          ${ROW_LEVELS.map((level) => `<option value="${level}" ${level === target.row_level ? 'selected' : ''}>${level}</option>`).join('')}
+        </select>
+      </label>
+      <span class="settings-hint">Key column: <strong>${escapeHtml(keyColumnName(target))}</strong></span>
     </div>
     <table class="configurator-columns">
       <thead><tr><th>Column</th><th>Type</th><th>Source</th><th>Reducer</th><th></th></tr></thead>
@@ -370,18 +431,30 @@ function renderPreview(preview) {
     </div>`).join('');
 }
 
-function keyColumnName(rowLevel) {
-  return { session: 'Session ID', participant: 'Participant ID', card: 'Row Key' }[rowLevel] || 'Key';
+/** The key column's name: the target's own, or the English default. */
+function keyColumnName(target) {
+  return String(target?.key_column || '').trim()
+    || ({ session: 'Session ID', participant: 'Participant ID', card: 'Row Key' }[target?.row_level] || 'Key');
 }
 
-function autoMapColumns(columns, rowLevel) {
-  const key = keyColumnName(rowLevel);
+/**
+ * Columns of an existing database, as a first mapping. Its title column is
+ * the key column: Notion allows exactly one, and rows are matched on it.
+ */
+function autoMapColumns(columns, target) {
+  const titleColumn = columns.find((column) => column.type === 'title');
+  if (titleColumn) target.key_column = titleColumn.name;
+  const key = keyColumnName(target);
   const mapped = {};
   const bySimpleName = {
     'participant id': 'session.participant_id',
+    'teilnehmer-id': 'session.participant_id',
     'session id': 'session.session_id',
+    'sitzungs-id': 'session.session_id',
     study: 'session.study_id',
+    studie: 'session.study_id',
     start: 'session.start',
+    beginn: 'session.start',
     ende: 'session.end',
     end: 'session.end',
   };
@@ -410,6 +483,7 @@ function normalizeMapping(raw) {
       id: String(target?.id || `target-${index}`),
       title: String(target?.title || ''),
       row_level: ROW_LEVELS.includes(target?.row_level) ? target.row_level : 'session',
+      key_column: String(target?.key_column || ''),
       database_id: String(target?.database_id || ''),
       columns: target?.columns && typeof target.columns === 'object' ? { ...target.columns } : {},
       relations: Array.isArray(target?.relations) ? target.relations : [],
@@ -424,6 +498,7 @@ function serializeMapping(mapping) {
       id: target.id,
       title: target.title,
       row_level: target.row_level,
+      ...(target.key_column ? { key_column: target.key_column } : {}),
       database_id: target.database_id,
       columns: target.columns,
       relations: target.relations || [],
@@ -431,28 +506,30 @@ function serializeMapping(mapping) {
   };
 }
 
-function presetMapping(presetKey) {
+function presetMapping(presetKey, lang = 'en') {
+  const names = PRESET_NAMES[lang] || PRESET_NAMES.en;
   if (presetKey === 'simple') {
     return { preset: 'simple', targets: [{
-      id: 'sessions', title: 'Study Runner export', row_level: 'session', database_id: '',
+      id: 'sessions', title: names.sessionsTitle, row_level: 'session', key_column: names.keySession, database_id: '',
       columns: {
-        'Participant ID': { type: 'rich_text', source: 'session.participant_id', reducer: null },
-        'Start': { type: 'date', source: 'session.start', reducer: null },
-        'Duration (min)': { type: 'number', source: 'session.duration_minutes', reducer: null },
+        [names.participant]: { type: 'rich_text', source: 'session.participant_id', reducer: null },
+        [names.start]: { type: 'date', source: 'session.start', reducer: null },
+        [names.duration]: { type: 'number', source: 'session.duration_minutes', reducer: null },
       },
     }] };
   }
   if (presetKey === 'analysis') {
     return { preset: 'analysis', targets: [{
-      id: 'answers', title: 'Study Runner answers', row_level: 'card', database_id: '',
+      id: 'answers', title: names.answersTitle, row_level: 'card', key_column: names.keyCard, database_id: '',
       columns: {
-        'Participant ID': { type: 'rich_text', source: 'session.participant_id', reducer: null },
-        'Prompt': { type: 'rich_text', source: 'card.prompt', reducer: null },
-        'Answer': { type: 'rich_text', source: 'card.answer', reducer: null },
-        'Duration (s)': { type: 'number', source: 'card.duration_seconds', reducer: null },
+        [names.participant]: { type: 'rich_text', source: 'session.participant_id', reducer: null },
+        [names.prompt]: { type: 'rich_text', source: 'card.prompt', reducer: null },
+        [names.answer]: { type: 'rich_text', source: 'card.answer', reducer: null },
+        [names.cardDuration]: { type: 'number', source: 'card.duration_seconds', reducer: null },
       },
     }] };
   }
+  // "As before" keeps today's fixed names: existing databases must keep matching.
   if (presetKey === 'as_before') {
     return { preset: 'as_before', targets: [] };
   }
