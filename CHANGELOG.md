@@ -12,6 +12,7 @@ All notable Study Runner changes are documented here. Release tags use
 ### Fixed
 
 - A column mapped to a sensor stream (e.g. "mean of the alpha channel") could silently read the wrong stream, or none, in a later session: the key it was stored under was the recording's own per-session stream number, not a stable identifier. It is now keyed on the plugin's declared, stable stream identity instead (Notion plugin 1.3.1).
+- The node graph's "Other (type manually)" source option did nothing when the current source already matched a known one, and left stale window-level listeners behind each time the node view was opened again (Notion plugin 1.4.1).
 
 ## 1.7.16 - 2026-10-08
 
