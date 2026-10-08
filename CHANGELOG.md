@@ -5,6 +5,8 @@ All notable Study Runner changes are documented here. Release tags use
 
 ## Unreleased
 
+## 1.7.17 - 2026-10-08
+
 ### Added
 
 - The Notion configurator's column mapping can now be edited as a node graph (sources, reducers, Round, Default-if-empty, columns), as an alternative to the column list - both edit the same mapping. Sensor sources (stream/channel/statistic) and session/participant fields can be picked from a real finished session instead of typed by hand, and the preview session is chosen from a list of completed sessions instead of a typed folder path (Notion plugin 1.4.0).
